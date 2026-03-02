@@ -54,10 +54,10 @@ import Database.KV.Database
     , Column (..)
     , DSum ((:=>))
     , Database (..)
-    , Pos (..)
-    , QueryIterator (..)
     , fromPairList
+    , prefixDatabase
     )
+import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
     ( Transaction
     , query
@@ -71,11 +71,8 @@ import Database.RocksDB
     , DB (..)
     , createIterator
     , destroyIterator
-    , getCF
     , iterEntry
-    , iterLast
     , iterNext
-    , iterPrev
     , iterSeek
     , iterValid
     , withDBCF
@@ -447,7 +444,9 @@ persistentUnhideTrie db metaCF hiddenRef tid = do
 
 -- | Create a 'Database' that prefixes all keys with
 -- the given prefix and routes operations to the
--- shared column families.
+-- shared column families. Uses 'mkRocksDBDatabase'
+-- for proper snapshot support and 'prefixDatabase'
+-- for transparent key isolation.
 mkPrefixedTrieDB
     :: DB
     -> ColumnFamily
@@ -459,109 +458,31 @@ mkPrefixedTrieDB
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
 mkPrefixedTrieDB db nodesCF kvCF pfx =
-    let trieDB =
-            Database
-                { valueAt = \cf key ->
-                    getCF db cf (pfx <> key)
-                , applyOps = write db
-                , mkOperation = \cf key mv ->
-                    case mv of
-                        Just v -> PutCF cf (pfx <> key) v
-                        Nothing -> DelCF cf (pfx <> key)
-                , columns =
-                    fromPairList
-                        [ MPFStandaloneKVCol
-                            :=> Column
-                                { family = kvCF
-                                , codecs =
-                                    Codecs
-                                        { keyCodec =
-                                            hexKeyPrism
-                                        , valueCodec =
-                                            isoMPFHash
-                                        }
-                                }
-                        , MPFStandaloneMPFCol
-                            :=> Column
-                                { family = nodesCF
-                                , codecs =
-                                    mpfCodecs isoMPFHash
-                                }
-                        ]
-                , newIterator = \cf ->
-                    mkPrefixedIterator db cf pfx
-                , withSnapshot = \f -> f trieDB
-                }
-    in  trieDB
+    prefixDatabase pfx
+        $ mkRocksDBDatabase db trieColumns
   where
     isoMPFHash :: Prism' ByteString MPFHash
     isoMPFHash = mpfValueCodec mpfHashCodecs
-
--- --------------------------------------------------------
--- Prefixed iterator
--- --------------------------------------------------------
-
--- | Create an iterator that only sees entries with
--- the given prefix. Keys are stripped of the prefix
--- when returned.
-mkPrefixedIterator
-    :: DB
-    -> ColumnFamily
-    -> ByteString
-    -> IO (QueryIterator IO)
-mkPrefixedIterator db cf pfx = do
-    i <- createIterator db (Just cf)
-    pure
-        QueryIterator
-            { step = \case
-                PosFirst -> iterSeek i pfx
-                PosLast -> do
-                    -- Seek past prefix range and step back
-                    iterSeek i (incrementPrefix pfx)
-                    v <- iterValid i
-                    if v
-                        then iterPrev i
-                        else iterLast i
-                PosNext -> iterNext i
-                PosPrev -> iterPrev i
-                PosAny k -> iterSeek i (pfx <> k)
-                PosDestroy -> destroyIterator i
-            , isValid = do
-                v <- iterValid i
-                if v
-                    then do
-                        me <- iterEntry i
-                        case me of
-                            Just (k, _) ->
-                                pure
-                                    (pfx `BS.isPrefixOf` k)
-                            Nothing -> pure False
-                    else pure False
-            , entry = do
-                me <- iterEntry i
-                case me of
-                    Just (k, v)
-                        | pfx `BS.isPrefixOf` k ->
-                            pure
-                                $ Just
-                                    (BS.drop (BS.length pfx) k, v)
-                    _ -> pure Nothing
-            }
-
--- | Increment the last byte of a prefix to get the
--- upper bound for prefix scanning.
-incrementPrefix :: ByteString -> ByteString
-incrementPrefix bs
-    | BS.null bs = BS.singleton 0
-    | otherwise =
-        let lastByte = BS.last bs
-        in  if lastByte == 0xFF
-                then
-                    incrementPrefix (BS.init bs)
-                        <> BS.singleton 0
-                else
-                    BS.init bs
-                        <> BS.singleton (lastByte + 1)
+    trieColumns =
+        fromPairList
+            [ MPFStandaloneKVCol
+                :=> Column
+                    { family = kvCF
+                    , codecs =
+                        Codecs
+                            { keyCodec =
+                                hexKeyPrism
+                            , valueCodec =
+                                isoMPFHash
+                            }
+                    }
+            , MPFStandaloneMPFCol
+                :=> Column
+                    { family = nodesCF
+                    , codecs =
+                        mpfCodecs isoMPFHash
+                    }
+            ]
 
 -- --------------------------------------------------------
 -- Trie construction from prefixed Database

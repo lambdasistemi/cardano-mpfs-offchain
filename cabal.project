@@ -26,8 +26,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/paolino/rocksdb-kv-transactions
-  tag: 44c3c2a4b7bab8ca0ca444c99977a358fc6af0ae
-  --sha256: 0rxc1g7imzlapdgab1v6cyy5nrgg8ilwbr9r015dxbdazl5rm9b9
+  tag: f76668cdf243a2d175a2676ee7835c7d51ff8785
+  --sha256: 0fx31538dl5zjfp0csi9hhamqbi5d5iqdwp7hcbxhdxsbf8mmwlw
 
 source-repository-package
   type: git
