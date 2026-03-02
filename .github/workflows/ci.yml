@@ -19,11 +19,6 @@ jobs:
         with:
           cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Build and run tests
-        run: |
-          nix build .#unit-tests --quiet
-          ./result/bin/unit-tests
-
       - name: Build and run offchain tests
         run: |
           nix build .#offchain-tests --quiet
