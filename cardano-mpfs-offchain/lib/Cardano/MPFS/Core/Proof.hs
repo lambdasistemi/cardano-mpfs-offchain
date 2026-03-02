@@ -3,7 +3,7 @@
 -- Description : Aiken-compatible proof serialization
 -- License     : Apache-2.0
 --
--- Serializes 'MPFProof' (from @merkle-patricia-forestry@)
+-- Serializes 'MPFProof' (from @mts:mpf@)
 -- to the CBOR\/PlutusData format expected by the Aiken
 -- on-chain validator, and converts proofs to the on-chain
 -- 'ProofStep' type used in 'UpdateRedeemer'.

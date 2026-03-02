@@ -51,9 +51,8 @@
           in {
             packages = {
               inherit (project.packages)
-                unit-tests offchain-tests e2e-tests cardano-mpfs-offchain
-                haddock;
-              default = project.packages.merkle-patricia-forestry;
+                offchain-tests e2e-tests cardano-mpfs-offchain haddock;
+              default = project.packages.cardano-mpfs-offchain;
             };
             inherit (project) devShells;
           };
