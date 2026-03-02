@@ -22,7 +22,7 @@ jobs:
       - name: Build and run offchain tests
         run: |
           nix build .#offchain-tests --quiet
-          ./result/bin/unit-tests
+          nix develop --quiet -c ./result/bin/unit-tests
 
       - name: Build offchain interfaces
         run: nix build .#cardano-mpfs-offchain --quiet
