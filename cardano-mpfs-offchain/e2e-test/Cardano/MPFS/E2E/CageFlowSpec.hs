@@ -50,6 +50,7 @@ import Cardano.Ledger.Mary.Value
     )
 import Cardano.Ledger.TxIn (TxIn (..))
 
+import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
@@ -299,7 +300,9 @@ withE2E scriptBytes action = do
                         cageCfg scriptBytes startMs
                     appCfg =
                         AppConfig
-                            { networkMagic =
+                            { epochSlots =
+                                EpochSlots 4320
+                            , networkMagic =
                                 devnetMagic
                             , socketPath = sock
                             , dbPath = dbDir
