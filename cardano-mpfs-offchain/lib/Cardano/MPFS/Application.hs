@@ -49,6 +49,7 @@ import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Tracer (nullTracer)
 
+import Cardano.Chain.Slotting (EpochSlots)
 import Cardano.Ledger.Binary
     ( DecCBOR
     , DecoderError
@@ -68,6 +69,7 @@ import Database.KV.Transaction
     )
 import Database.KV.Transaction qualified as L
     ( RunTransaction (..)
+    , Transaction
     )
 import Database.RocksDB
     ( Config (..)
@@ -85,7 +87,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTContext (..)
-    , insertCSMT
+    , CSMTOps (..)
+    , mkCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
@@ -156,7 +159,9 @@ import Cardano.Node.Client.N2C.Connection
 
 -- | Application configuration.
 data AppConfig = AppConfig
-    { networkMagic :: !NetworkMagic
+    { epochSlots :: !EpochSlots
+    -- ^ Byron epoch slots (21600 mainnet/preprod, 4320 preview)
+    , networkMagic :: !NetworkMagic
     -- ^ Network magic (e.g. mainnet, preview)
     , socketPath :: !FilePath
     -- ^ Path to the cardano-node Unix socket
@@ -263,11 +268,14 @@ withApplication cfg action =
                             metaCF
 
                     -- UTxO state machine
+                    let ops =
+                            mkCSMTOps
+                                (fromKV context)
+                                (hashing context)
                     (utxoUpdate, availPts) <-
                         createUpdateState
                             nullTracer
-                            (fromKV context)
-                            (hashing context)
+                            ops
                             slotHash
                             (\_ _ -> pure ())
                             armageddonParams
@@ -278,7 +286,7 @@ withApplication cfg action =
                         (bootstrapFile cfg)
                         st
                         utxoRt
-                        context
+                        ops
 
                     let startPts :: [Point]
                         startPts =
@@ -323,6 +331,7 @@ withApplication cfg action =
                                     async $ do
                                         er <-
                                             runLocalNodeApplication
+                                                (epochSlots cfg)
                                                 (networkMagic cfg)
                                                 (socketPath cfg)
                                                 chainSyncApp
@@ -390,10 +399,19 @@ seedBootstrap
     :: Maybe FilePath
     -> CageSt.State IO
     -> CSMT.RunTransaction cf op slot hash BSL.ByteString BSL.ByteString IO
-    -> CSMTContext hash BSL.ByteString BSL.ByteString
+    -> CSMTOps
+        ( L.Transaction
+            IO
+            cf
+            (Columns slot hash BSL.ByteString BSL.ByteString)
+            op
+        )
+        BSL.ByteString
+        BSL.ByteString
+        hash
     -> IO ()
 seedBootstrap Nothing _ _ _ = pure ()
-seedBootstrap (Just fp) st runner CSMTContext{..} =
+seedBootstrap (Just fp) st runner ops =
     do
         existing <-
             CageSt.getCheckpoint
@@ -421,9 +439,8 @@ seedBootstrap (Just fp) st runner CSMTContext{..} =
                     []
     onEntry k v =
         CSMT.transact runner
-            $ insertCSMT
-                fromKV
-                hashing
+            $ csmtInsert
+                ops
                 (BSL.fromStrict k)
                 (BSL.fromStrict v)
 
