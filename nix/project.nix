@@ -35,13 +35,13 @@ let
       pkgs.aiken
     ];
     shellHook = ''
-      echo "Entering merkle-patricia-forestry dev shell"
+      echo "Entering cardano-mpfs-offchain dev shell"
       export MPFS_BLUEPRINT="${mpfs-blueprint}"
     '';
   };
 
   mkProject = ctx@{ lib, pkgs, ... }: {
-    name = "merkle-patricia-forestry";
+    name = "cardano-mpfs-offchain";
     src = ./..;
     compiler-nix-name = "ghc984";
     shell = shell { inherit pkgs; };
@@ -56,10 +56,6 @@ let
 in {
   devShells.default = project.shell;
   inherit project;
-  packages.merkle-patricia-forestry =
-    project.hsPkgs.merkle-patricia-forestry.components.library;
-  packages.unit-tests =
-    project.hsPkgs.merkle-patricia-forestry.components.tests.unit-tests;
   packages.cardano-mpfs-offchain =
     project.hsPkgs.cardano-mpfs-offchain.components.library;
   packages.offchain-tests =

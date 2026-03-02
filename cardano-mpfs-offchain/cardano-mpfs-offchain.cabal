@@ -59,9 +59,9 @@ library
     , dependent-map
     , lens
     , memory
-    , merkle-patricia-forestry
-    , merkle-patricia-forestry:mpf-test-lib
     , microlens
+    , mts:mpf
+    , mts:mpf-test-lib
     , ouroboros-consensus-cardano
     , ouroboros-network-api
     , plutus-core
@@ -148,9 +148,9 @@ test-suite unit-tests
     , containers
     , hspec                                    >=2.11 && <2.12
     , lens
-    , merkle-patricia-forestry
-    , merkle-patricia-forestry:mpf-test-lib
     , microlens
+    , mts:mpf
+    , mts:mpf-test-lib
     , plutus-core
     , plutus-tx
     , QuickCheck                               >=2.14 && <2.18

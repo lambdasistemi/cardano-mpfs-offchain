@@ -63,18 +63,6 @@ unit-offchain match="":
             --test-option="{{ match }}"
     fi
 
-# Run benchmarks
-bench:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cabal run mpf-bench -O2
-
-# Run RocksDB benchmark
-bench-rocksdb count="100000":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cabal run mpf-bench-rocksdb -O2 -- {{ count }}
-
 # Full CI pipeline (mirrors .github/workflows/ci.yml)
 ci:
     just build

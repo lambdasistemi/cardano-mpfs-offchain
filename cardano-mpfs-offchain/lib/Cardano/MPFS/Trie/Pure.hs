@@ -1,11 +1,11 @@
 -- |
 -- Module      : Cardano.MPFS.Trie.Pure
--- Description : Pure in-memory Trie backed by merkle-patricia-forestry
+-- Description : Pure in-memory Trie backed by mts:mpf
 -- License     : Apache-2.0
 --
 -- In-memory implementation of the 'Trie' interface
 -- backed by an 'IORef' holding an 'MPFInMemoryDB'
--- from the @merkle-patricia-forestry@ library.
+-- from the @mts:mpf@ library.
 --
 -- All keys and values are hashed through MPF
 -- conventions ('mkMPFHash') so proof paths match
