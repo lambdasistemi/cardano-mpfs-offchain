@@ -3,25 +3,17 @@
 -- Description : Rollback to a previous slot
 -- License     : Apache-2.0
 --
--- Slot-based rollback for the cage indexer. Provides
--- both transactional ('storeRollbackT',
--- 'rollbackToSlotT') and IO ('storeRollback',
--- 'rollbackToSlot') variants. The transactional
--- versions compose into a single DB commit; the IO
--- versions auto-commit each operation.
+-- Slot-based rollback for the cage indexer. All
+-- operations are transactional: they compose into a
+-- single DB write batch, ensuring atomicity from
+-- protocol to protocol (one rollback = one commit).
 module Cardano.MPFS.Indexer.Rollback
-    ( -- * Transactional (composable)
+    ( -- * Transactional operations
       storeRollbackT
     , loadRollbackT
     , deleteRollbackT
     , putCheckpointT
     , rollbackToSlotT
-
-      -- * IO (auto-committing)
-    , storeRollback
-    , loadRollback
-    , deleteRollback
-    , rollbackToSlot
     ) where
 
 import Control.Monad (forM_)
@@ -44,16 +36,11 @@ import Cardano.MPFS.State
     )
 import Cardano.MPFS.Trie (TrieManager)
 import Database.KV.Transaction
-    ( RunTransaction (..)
-    , Transaction
+    ( Transaction
     , delete
     , insert
     , query
     )
-
--- --------------------------------------------------------
--- Transactional (composable) variants
--- --------------------------------------------------------
 
 -- | Store inverse ops for a block within a
 -- transaction. No auto-commit.
@@ -99,7 +86,10 @@ putCheckpointT s b slots =
 
 -- | Roll back cage state to a target slot within a
 -- transaction. Replays inverse ops for all slots
--- after the target, in reverse order.
+-- after the target, in reverse order. The entire
+-- rollback (load inverses, apply them, delete
+-- entries, update checkpoint) executes in one
+-- atomic write batch.
 rollbackToSlotT
     :: (Monad m)
     => State
@@ -135,70 +125,4 @@ rollbackToSlotT st tm targetSlot = do
                 putCheckpointT
                     targetSlot
                     (BlockId mempty)
-                    keptSlots
-
--- --------------------------------------------------------
--- IO (auto-committing) variants
--- --------------------------------------------------------
-
--- | Store inverse ops for a block. Auto-commits.
-storeRollback
-    :: RunTransaction IO cf AllColumns op
-    -> SlotNo
-    -> [CageInverseOp]
-    -> IO ()
-storeRollback RunTransaction{runTransaction = run} slot invs =
-    run $ storeRollbackT slot invs
-
--- | Load inverse ops for a slot. Auto-commits.
-loadRollback
-    :: RunTransaction IO cf AllColumns op
-    -> SlotNo
-    -> IO (Maybe [CageInverseOp])
-loadRollback RunTransaction{runTransaction = run} slot =
-    run $ loadRollbackT slot
-
--- | Delete stored inverse ops. Auto-commits.
-deleteRollback
-    :: RunTransaction IO cf AllColumns op
-    -> SlotNo
-    -> IO ()
-deleteRollback RunTransaction{runTransaction = run} slot =
-    run $ deleteRollbackT slot
-
--- | Roll back cage state to a target slot.
--- Each slot's inverses are loaded and replayed
--- in its own transaction.
-rollbackToSlot
-    :: State IO
-    -> TrieManager IO
-    -> RunTransaction IO cf AllColumns op
-    -> SlotNo
-    -> IO ()
-rollbackToSlot st tm rt targetSlot = do
-    mCp <- getCheckpoint (checkpoints st)
-    case mCp of
-        Nothing -> pure ()
-        Just (_currentSlot, _blockId, activeSlots) ->
-            do
-                let slotsToRevert =
-                        reverse
-                            $ filter (> targetSlot) activeSlots
-                forM_ slotsToRevert $ \slot -> do
-                    mInvs <- loadRollback rt slot
-                    forM_ mInvs $ \invs ->
-                        applyCageInverses
-                            st
-                            tm
-                            (reverse invs)
-                    deleteRollback rt slot
-                -- Update checkpoint
-                let keptSlots =
-                        filter (<= targetSlot) activeSlots
-                    emptyBlockId =
-                        BlockId mempty
-                putCheckpoint
-                    (checkpoints st)
-                    targetSlot
-                    emptyBlockId
                     keptSlots
