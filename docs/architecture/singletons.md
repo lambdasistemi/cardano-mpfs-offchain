@@ -42,10 +42,12 @@ graph LR
 ## TrieManager
 
 Manages a map of token identifiers to MPF tries. Each token has
-its own isolated trie.
+its own isolated trie, sharing the same RocksDB column families
+with per-token `HexKey` prefix scoping.
 
-**Implementation:** [`mkPureTrieManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code) (in-memory, in [`Trie.PureManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code))
-**Persistent:** [`mkPersistentTrieManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPersistentTrieManager&type=code) (RocksDB, in [`Trie.Persistent`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code))
+**Transactional:** [`mkUnifiedTrieManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkUnifiedTrieManager&type=code) — composes into the caller's `Transaction` (used by `CageFollower` for atomic block processing)
+**IO:** [`mkPersistentTrieManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPersistentTrieManager&type=code) — auto-commits + IORef caches (used by `TxBuilder` and speculative sessions)
+**Test:** [`mkPureTrieManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code) — in-memory (in [`Trie.PureManager`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code))
 
 ```haskell
 data TrieManager m = TrieManager
@@ -78,8 +80,9 @@ data Trie m = Trie
 Token and request state tracking. Three sub-records for tokens,
 requests, and chain sync checkpoints.
 
-**Implementation:** [`mkMockState`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkMockState&type=code) (in-memory, in [`Mock.State`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code))
-**Persistent:** [`Indexer.Persistent`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code) (RocksDB)
+**Transactional:** [`mkTransactionalState`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkTransactionalState&type=code) — composes into the caller's `Transaction` (used by `CageFollower`)
+**IO:** [`mkPersistentState`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPersistentState&type=code) — auto-commits via `hoistState` (in [`Indexer.Persistent`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code))
+**Test:** [`mkMockState`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkMockState&type=code) — in-memory (in [`Mock.State`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code))
 
 ```haskell
 data State m = State
@@ -112,11 +115,10 @@ data Checkpoints m = Checkpoints
 
 ## Indexer
 
-Chain sync follower with lifecycle control. Currently a skeleton
-that returns a genesis tip.
+Chain sync follower with lifecycle control.
 
-**Mock:** [`mkSkeletonIndexer`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code) (no-op, in [`Mock.Skeleton`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code))
-**Real:** [`Indexer.Follower`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code) (block processing with [`detectCageEvents`](https://github.com/paolino/cardano-mpfs-offchain/search?q=detectCageEvents&type=code))
+**Real:** [`CageFollower`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code) — processes each block in a [single atomic transaction](block-processing.md) covering UTxO, cage state, tries, and rollback
+**Mock:** [`mkSkeletonIndexer`](https://github.com/paolino/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code) (lifecycle-only skeleton, in [`Mock.Skeleton`](https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code))
 
 ```haskell
 data ChainTip = ChainTip

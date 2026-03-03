@@ -1,48 +1,90 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module      : Cardano.MPFS.Indexer.CageFollower
--- Description : Block processor coordinating UTxO index and cage state
+-- Description : Block processor with unified transactions
 -- License     : Apache-2.0
 --
+-- __Invariant: one block = one DB transaction.__
+--
 -- Implements a 'Follower' that processes each block
--- from ChainSync by:
+-- from ChainSync in a single atomic RocksDB
+-- transaction covering both UTxO (cardano-utxo-csmt)
+-- and cage state mutations via 'UnifiedColumns':
 --
---   1. Applying UTxO changes via cardano-utxo-csmt's
---      'Update' state machine ('forwardTipApply')
---   2. Detecting cage-protocol events and applying
---      state\/trie mutations
---   3. Storing inverse operations for rollback
---   4. Updating the cage checkpoint
+--   1. Detect cage events — resolves spent UTxOs
+--      from the CSMT KV column
+--      ('mapColumns' 'InUtxo', read-only)
+--   2. Apply cage state\/trie mutations
+--      ('mapColumns' 'InCage')
+--   3. Apply UTxO CSMT changes
+--      ('mapColumns' 'InUtxo', 'forwardTip')
+--   4. Store rollback inverse ops and update
+--      checkpoint ('mapColumns' 'InCage')
 --
--- Rollback reverses both: cardano-utxo-csmt reverts
--- its UTxO index via 'rollbackTipApply', and the
--- cage follower replays stored inverse operations.
+-- All four steps run inside a single 'Transaction'
+-- over 'UnifiedColumns'. The runner commits them as
+-- one atomic RocksDB write batch — if any step
+-- fails, none are persisted.
 --
--- Two N2C connections share the same RocksDB instance:
--- one for ChainSync (blocks processed here) and one
--- for LocalStateQuery + LocalTxSubmission.
+-- Rollback reverses both in a single transaction:
+-- 'rollbackTip' for the UTxO index and
+-- 'rollbackToSlotT' for cage state.
+--
+-- Bypasses the 'Update' continuation from
+-- cardano-utxo-csmt; calls 'forwardTip' and
+-- 'rollbackTip' directly and tracks the rollback
+-- point count via an 'IORef'.
 module Cardano.MPFS.Indexer.CageFollower
     ( -- * Construction
       mkCageFollower
     , mkCageIntersector
     ) where
 
+import Control.Tracer (Tracer)
+import Data.ByteString.Lazy (LazyByteString)
+import Data.IORef
+    ( IORef
+    , modifyIORef'
+    , readIORef
+    )
+import Ouroboros.Network.Block qualified as Network
 import Ouroboros.Network.Point
     ( Block (..)
     , WithOrigin (..)
     )
 
+
+import Cardano.Ledger.Binary
+    ( DecCBOR
+    , DecoderError
+    , EncCBOR
+    , decodeFull
+    , natVersion
+    , serialize
+    )
+
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( Fetched (..)
     )
+import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
+    ( Columns (..)
+    )
+import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
+    ( CSMTOps
+    )
+import Cardano.UTxOCSMT.Application.Database.Implementation.Update
+    ( RollbackResult (..)
+    , UpdateTrace
+    , forwardTip
+    , rollbackTip
+    , sampleRollbackPoints
+    )
 import Cardano.UTxOCSMT.Application.Database.Interface
     ( Operation (..)
-    , State (..)
-    , Update (..)
     )
-import Cardano.UTxOCSMT.Application.Database.Interface qualified as CSMT
 import Cardano.UTxOCSMT.Application.UTxOs
     ( Change (..)
     , uTxOs
@@ -54,7 +96,12 @@ import Cardano.UTxOCSMT.Ouroboros.Types
     , ProgressOrRewind (..)
     )
 
-import Ouroboros.Network.Block qualified as Network
+import Database.KV.Transaction
+    ( Transaction
+    , iterating
+    , mapColumns
+    , query
+    )
 
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -64,29 +111,43 @@ import Cardano.MPFS.Core.Types
     , TxIn
     , TxOut
     )
-import Cardano.MPFS.Indexer.Columns (AllColumns)
+import Cardano.MPFS.Indexer.Columns
+    ( UnifiedColumns (..)
+    )
 import Cardano.MPFS.Indexer.Follower
-    ( processCageBlock
+    ( applyCageBlockEvents
+    , detectCageBlockEvents
+    , extractConwayTxs
+    )
+import Cardano.MPFS.Indexer.Persistent
+    ( mkTransactionalState
     )
 import Cardano.MPFS.Indexer.Rollback
-    ( rollbackToSlot
-    , storeRollback
+    ( putCheckpointT
+    , rollbackToSlotT
+    , storeRollbackT
     )
 import Cardano.MPFS.State
     ( Checkpoints (..)
+    , State (..)
     )
-import Cardano.MPFS.State qualified as Cage
-import Cardano.MPFS.Trie (TrieManager)
-import Data.ByteString.Lazy (LazyByteString)
-import Database.KV.Transaction
-    ( RunTransaction
+import Cardano.MPFS.Trie.Persistent
+    ( mkUnifiedTrieManager
     )
 
--- | UTxO state machine type alias
-type UTxOState =
-    CSMT.State
-        IO
+-- | Shorthand for the unified column type.
+type Unified hash =
+    UnifiedColumns
         Point
+        hash
+        LazyByteString
+        LazyByteString
+
+-- | Shorthand for UTxO columns.
+type UTxO hash =
+    Columns
+        Point
+        hash
         LazyByteString
         LazyByteString
 
@@ -113,91 +174,168 @@ pointToBlockId
     (Network.Point (At (Block _ _))) =
         BlockId mempty
 
+-- | Resolve a 'TxIn' to its 'TxOut' by querying
+-- the UTxO KV column inside a unified transaction.
+resolveUtxoT
+    :: TxIn
+    -> Transaction
+        IO
+        cf
+        (Unified hash)
+        op
+        (Maybe (TxOut ConwayEra))
+resolveUtxoT txIn = do
+    let key = cborEncode txIn
+    mVal <- mapColumns InUtxo $ query KVCol key
+    pure $ case mVal of
+        Nothing -> Nothing
+        Just val -> case cborDecode val of
+            Left _ -> Nothing
+            Right txOut -> Just txOut
+
+-- | CBOR-encode a ledger type using protocol
+-- version 11.
+cborEncode :: EncCBOR a => a -> LazyByteString
+cborEncode = serialize (natVersion @11)
+
+-- | CBOR-decode a ledger type using protocol
+-- version 11.
+cborDecode
+    :: DecCBOR a
+    => LazyByteString
+    -> Either DecoderError a
+cborDecode = decodeFull (natVersion @11)
+
 -- | Build an 'Intersector' for the cage follower.
--- On intersection found, produces a 'Follower' that
--- processes both UTxO and cage events for each block.
+-- On intersection found, produces a 'Follower'
+-- that processes both UTxO and cage events in a
+-- single atomic transaction per block.
 mkCageIntersector
-    :: ScriptHash
+    :: ( Ord hash
+       , Show hash
+       )
+    => ScriptHash
     -- ^ Cage script hash for event detection
-    -> Cage.State IO
-    -- ^ Cage state interface
-    -> TrieManager IO
-    -- ^ Trie manager for per-token tries
-    -> RunTransaction IO cf AllColumns op
-    -- ^ Transaction runner for rollback storage
-    -> (TxIn -> IO (Maybe (TxOut ConwayEra)))
-    -- ^ UTxO resolver for spent inputs
-    -> UTxOState
-    -- ^ cardano-utxo-csmt state machine
+    -> Tracer IO (UpdateTrace Point hash)
+    -- ^ Tracer for UTxO update events
+    -> CSMTOps
+        ( Transaction
+            IO
+            cf
+            (UTxO hash)
+            op
+        )
+        LazyByteString
+        LazyByteString
+        hash
+    -- ^ CSMT operations (insert, delete, root)
+    -> (Point -> hash)
+    -- ^ Slot-to-hash function
+    -> IORef Int
+    -- ^ Mutable rollback point counter
+    -> ( forall a
+          . Transaction
+            IO
+            cf
+            (Unified hash)
+            op
+            a
+         -> IO a
+       )
+    -- ^ Unified transaction runner
     -> Intersector Fetched
 mkCageIntersector
     scriptHash
-    cageSt
-    tm
-    rt
-    resolveUtxo
-    utxoState =
+    tracer
+    ops
+    slotHash
+    countRef
+    run =
         Intersector
             { intersectFound = \point -> do
                 let f =
                         mkCageFollower
                             scriptHash
-                            cageSt
-                            tm
-                            rt
-                            resolveUtxo
-                            utxoState
+                            tracer
+                            ops
+                            slotHash
+                            countRef
+                            run
                 pure $ f point
             , intersectNotFound = do
                 pure
                     ( mkCageIntersector
                         scriptHash
-                        cageSt
-                        tm
-                        rt
-                        resolveUtxo
-                        utxoState
+                        tracer
+                        ops
+                        slotHash
+                        countRef
+                        run
                     , [Network.Point Origin]
                     )
             }
 
--- | Build a 'Follower' from the current UTxO state.
+-- | Build a 'Follower' that processes each block
+-- in a single unified transaction. Calls
+-- 'forwardTip' and cage state mutations atomically.
 mkCageFollower
-    :: ScriptHash
+    :: ( Ord hash
+       , Show hash
+       )
+    => ScriptHash
     -- ^ Cage script hash for event detection
-    -> Cage.State IO
-    -- ^ Cage state interface
-    -> TrieManager IO
-    -- ^ Trie manager for per-token tries
-    -> RunTransaction IO cf AllColumns op
-    -- ^ Transaction runner for rollback storage
-    -> (TxIn -> IO (Maybe (TxOut ConwayEra)))
-    -- ^ UTxO resolver for spent inputs
-    -> UTxOState
-    -- ^ cardano-utxo-csmt state machine
+    -> Tracer IO (UpdateTrace Point hash)
+    -- ^ Tracer for UTxO update events
+    -> CSMTOps
+        ( Transaction
+            IO
+            cf
+            (UTxO hash)
+            op
+        )
+        LazyByteString
+        LazyByteString
+        hash
+    -- ^ CSMT operations (insert, delete, root)
+    -> (Point -> hash)
+    -- ^ Slot-to-hash function
+    -> IORef Int
+    -- ^ Mutable rollback point counter
+    -> ( forall a
+          . Transaction
+            IO
+            cf
+            (Unified hash)
+            op
+            a
+         -> IO a
+       )
+    -- ^ Unified transaction runner
     -> Point
     -- ^ Intersection point
     -> Follower Fetched
 mkCageFollower
     scriptHash
-    cageSt
-    tm
-    rt
-    resolveUtxo =
+    tracer
+    ops
+    slotHash
+    countRef
+    run =
         go
       where
-        go utxoState _intersectPt =
-            follower utxoState
+        go _intersectPt = follower
 
-        follower currentState =
+        follower =
             Follower
-                { rollForward =
-                    rollFwd currentState
-                , rollBackward =
-                    rollBwd currentState
+                { rollForward = rollFwd
+                , rollBackward = rollBwd
                 }
 
-        rollFwd currentState fetched tipSlot = do
+        -- | Forward: single unified transaction
+        -- covering UTxO resolution, cage event
+        -- detection, cage mutations, UTxO forward,
+        -- rollback storage, and checkpoint.
+        rollFwd fetched _tipSlot = do
             let Fetched
                     { fetchedPoint
                     , fetchedBlock
@@ -206,94 +344,144 @@ mkCageFollower
                     pointToSlot fetchedPoint
                 blockId =
                     pointToBlockId fetchedPoint
-
-            -- Step 1: Process cage events BEFORE
-            -- UTxO update so spent inputs can still
-            -- be resolved from the CSMT.
-            invs <-
-                processCageBlock
-                    scriptHash
-                    cageSt
-                    tm
-                    resolveUtxo
-                    fetchedBlock
-
-            -- Step 2: Apply UTxO changes (deletes
-            -- spent inputs from CSMT)
-            let ops =
+                conwayTxs =
+                    extractConwayTxs fetchedBlock
+                utxoOps =
                     changeToOp
                         <$> uTxOs fetchedBlock
-            newState <- case currentState of
-                Syncing update -> do
-                    newUpdate <-
-                        forwardTipApply
-                            update
-                            fetchedPoint
-                            tipSlot
+
+            count <- readIORef countRef
+            let hash = slotHash fetchedPoint
+
+            stored <- run $ do
+                -- 1. Detect cage events (resolves
+                -- spent UTxOs from CSMT KV column)
+                events <-
+                    detectCageBlockEvents
+                        scriptHash
+                        resolveUtxoT
+                        conwayTxs
+
+                -- 2. Apply cage state + trie
+                -- mutations
+                invs <-
+                    mapColumns InCage
+                        $ applyCageBlockEvents
+                            txState
+                            txTm
+                            events
+
+                -- 3. Forward UTxO CSMT tip
+                tipStored <-
+                    mapColumns InUtxo
+                        $ forwardTip
+                            tracer
                             ops
-                    pure $ Syncing newUpdate
-                _ ->
-                    error
-                        "CageFollower.rollForward:\
-                        \ not syncing"
+                            hash
+                            count
+                            fetchedPoint
+                            utxoOps
 
-            -- Step 3: Store inverse ops
-            storeRollback rt slot invs
+                -- 4. Read current checkpoint for
+                -- active slots list
+                mCp <-
+                    mapColumns InCage
+                        $ getCheckpoint
+                            (checkpoints txState)
+                let activeSlots = case mCp of
+                        Nothing -> [slot]
+                        Just (_, _, slots) ->
+                            slot : slots
 
-            -- Step 4: Update cage checkpoint
-            mCp <-
-                getCheckpoint
-                    (Cage.checkpoints cageSt)
-            let activeSlots = case mCp of
-                    Nothing -> [slot]
-                    Just (_, _, slots) ->
-                        slot : slots
-            putCheckpoint
-                (Cage.checkpoints cageSt)
-                slot
-                blockId
-                activeSlots
+                -- 5. Store rollback inverses and
+                -- update checkpoint
+                mapColumns InCage $ do
+                    storeRollbackT slot invs
+                    putCheckpointT
+                        slot
+                        blockId
+                        activeSlots
 
-            pure $ follower newState
+                pure tipStored
 
-        rollBwd currentState point = do
-            -- Step 1: Rollback UTxO index
-            newState <- case currentState of
-                Syncing update ->
-                    rollbackTipApply
-                        update
-                        (At point)
-                _ ->
-                    error
-                        "CageFollower.rollBackward:\
-                        \ not syncing"
+            -- Post-commit: bump rollback counter
+            -- if tip was actually stored
+            modifyIORef'
+                countRef
+                (\c -> if stored then c + 1 else c)
 
-            -- Step 2: Rollback cage state
+            pure follower
+
+        -- | Backward: single unified transaction
+        -- covering UTxO rollback and cage state
+        -- rollback.
+        rollBwd point = do
             let targetSlot = pointToSlot point
-            rollbackToSlot cageSt tm rt targetSlot
 
-            -- Step 3: Return appropriate result
-            pure $ case newState of
-                Syncing newUpdate ->
-                    Progress
-                        $ follower
-                        $ Syncing newUpdate
-                Truncating newUpdate ->
-                    Reset
-                        $ mkCageIntersector
-                            scriptHash
-                            cageSt
-                            tm
-                            rt
-                            resolveUtxo
-                        $ Syncing newUpdate
-                Intersecting ps newUpdate ->
-                    Rewind
-                        ps
-                        $ mkCageIntersector
-                            scriptHash
-                            cageSt
-                            tm
-                            rt
-                            resolveUtxo
-                        $ Syncing newUpdate
+            (result, deleted) <- run $ do
+                -- 1. Rollback UTxO CSMT
+                r@(rbResult, _) <-
+                    mapColumns InUtxo
+                        $ rollbackTip
+                            ops
+                            point
+                -- 2. Rollback cage state only if
+                -- UTxO rollback succeeded — both
+                -- subsystems must stay in sync.
+                case rbResult of
+                    RollbackSucceeded ->
+                        mapColumns InCage
+                            $ rollbackToSlotT
+                                txState
+                                txTm
+                                targetSlot
+                    RollbackImpossible ->
+                        pure ()
+                pure r
+
+            -- Post-commit: adjust rollback counter
+            modifyIORef'
+                countRef
+                (subtract deleted)
+
+            case result of
+                RollbackSucceeded ->
+                    pure $ Progress follower
+                RollbackImpossible -> do
+                    -- Sample remaining rollback
+                    -- points to find new
+                    -- intersection
+                    pts <-
+                        run
+                            $ mapColumns InUtxo
+                            $ iterating
+                                RollbackPoints
+                                sampleRollbackPoints
+                    if null pts
+                        then
+                            pure
+                                $ Reset
+                                $ mkCageIntersector
+                                    scriptHash
+                                    tracer
+                                    ops
+                                    slotHash
+                                    countRef
+                                    run
+                        else
+                            pure
+                                $ Rewind pts
+                                $ mkCageIntersector
+                                    scriptHash
+                                    tracer
+                                    ops
+                                    slotHash
+                                    countRef
+                                    run
+
+        -- Transactional state and trie manager,
+        -- built fresh in each transaction scope.
+        -- They operate on AllColumns (lifted via
+        -- mapColumns InCage at each call site).
+        txState = mkTransactionalState
+        txTm = mkUnifiedTrieManager

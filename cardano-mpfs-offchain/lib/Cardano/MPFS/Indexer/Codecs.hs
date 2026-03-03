@@ -6,7 +6,7 @@
 
 -- |
 -- Module      : Cardano.MPFS.Indexer.Codecs
--- Description : CBOR serialization codecs for indexer columns
+-- Description : Serialization codecs for indexer columns
 -- License     : Apache-2.0
 --
 -- 'Prism''-based codecs for encoding and decoding
@@ -18,6 +18,10 @@
 -- outer encoding. Trie columns use identity codecs
 -- (raw 'ByteString' passthrough) since the MPF
 -- library handles its own serialization.
+--
+-- 'allUnifiedCodecs' builds codecs for
+-- 'UnifiedColumns' — the combined 11-column-family
+-- selector used by the block processing transaction.
 module Cardano.MPFS.Indexer.Codecs
     ( -- * Column codecs
       allCodecs
@@ -34,7 +38,6 @@ module Cardano.MPFS.Indexer.Codecs
     , checkpointPrism
     , slotNoPrism
     , rollbackEntryPrism
-    , rawBytesPrism
     , trieStatusPrism
     ) where
 
@@ -76,6 +79,13 @@ import Database.KV.Transaction
     , DSum ((:=>))
     , fromPairList
     )
+
+import MPF.Backend.Standalone
+    ( MPFStandaloneCodecs (mpfValueCodec)
+    )
+import MPF.Hashes (MPFHash)
+import MPF.Interface (hexKeyPrism, mpfCodecs)
+import MPF.Test.Lib (mpfHashCodecs)
 
 import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     ( Prisms
@@ -128,14 +138,11 @@ allCodecs =
                 , valueCodec = rollbackEntryPrism
                 }
         , TrieNodes
-            :=> Codecs
-                { keyCodec = rawBytesPrism
-                , valueCodec = rawBytesPrism
-                }
+            :=> mpfCodecs isoMPFHash
         , TrieKV
             :=> Codecs
-                { keyCodec = rawBytesPrism
-                , valueCodec = rawBytesPrism
+                { keyCodec = hexKeyPrism
+                , valueCodec = isoMPFHash
                 }
         , TrieMeta
             :=> Codecs
@@ -292,11 +299,10 @@ rollbackEntryPrism = prism' enc dec
         decodeCBOR
             $ CageRollbackEntry <$> decodeInvOps
 
--- | Identity prism for raw 'ByteString' columns
--- (trie nodes and key-value pairs). No encoding or
--- decoding — bytes pass through unchanged.
-rawBytesPrism :: Prism' ByteString ByteString
-rawBytesPrism = prism' id Just
+-- | Prism for 'MPFHash' values in trie columns.
+-- Reuses the codec from @haskell-mts@ test lib.
+isoMPFHash :: Prism' ByteString MPFHash
+isoMPFHash = mpfValueCodec mpfHashCodecs
 
 -- | Encode/decode 'TrieStatus' as a single byte.
 -- @0x01@ = 'Visible', @0x02@ = 'Hidden'.

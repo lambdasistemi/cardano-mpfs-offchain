@@ -4,20 +4,29 @@
 
 -- |
 -- Module      : Cardano.MPFS.Indexer.Columns
--- Description : Column family GADT for indexer persistent state
+-- Description : Column family GADTs for indexer state
 -- License     : Apache-2.0
 --
 -- Type-safe column family definitions for the
 -- indexer's RocksDB-backed persistent state using
--- @rocksdb-kv-transactions@. Each 'AllColumns'
--- constructor selects a RocksDB column family with
--- its key-value types enforced at the type level via
--- the 'KV' kind. Seven column families cover:
+-- @rocksdb-kv-transactions@. Two GADT selectors:
 --
---   * Cage state: 'CageTokens', 'CageRequests', 'CageCfg'
---   * Rollback storage: 'CageRollbacks'
---   * Trie storage: 'TrieNodes', 'TrieKV'
---   * Trie registry: 'TrieMeta'
+--   * 'AllColumns' — the seven cage\/trie column
+--     families (used inside @'mapColumns' 'InCage'@):
+--
+--       - Cage state: 'CageTokens', 'CageRequests',
+--         'CageCfg'
+--       - Rollback storage: 'CageRollbacks'
+--       - Trie storage: 'TrieNodes', 'TrieKV'
+--       - Trie registry: 'TrieMeta'
+--
+--   * 'UnifiedColumns' — combines the four UTxO
+--     columns ('Columns' from @cardano-utxo-csmt@)
+--     with the seven cage\/trie columns via 'InUtxo'
+--     and 'InCage'. A single 'Transaction' over
+--     'UnifiedColumns' addresses all 11 column
+--     families, enforcing the one-block-one-commit
+--     invariant.
 --
 -- Serialization codecs for these columns live in
 -- "Cardano.MPFS.Indexer.Codecs".
@@ -38,8 +47,6 @@ module Cardano.MPFS.Indexer.Columns
     , TrieStatus (..)
     ) where
 
-import Data.ByteString (ByteString)
-
 import Control.Lens (type (:~:) (..))
 import Database.KV.Transaction
     ( GCompare (..)
@@ -51,6 +58,9 @@ import Database.KV.Transaction
 import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     ( Columns
     )
+
+import MPF.Hashes (MPFHash)
+import MPF.Interface (HexIndirect, HexKey)
 
 import Cardano.MPFS.Core.Types
     ( BlockId
@@ -114,14 +124,16 @@ data AllColumns x where
     CageRollbacks
         :: AllColumns (KV SlotNo CageRollbackEntry)
     -- | Trie nodes: MPF trie structure. Keys are
-    -- token-prefixed serialized 'HexKey', values
-    -- are serialized 'HexIndirect'.
+    -- 'HexKey' paths, values are 'HexIndirect'
+    -- nodes containing hash pointers.
     TrieNodes
-        :: AllColumns (KV ByteString ByteString)
+        :: AllColumns
+            (KV HexKey (HexIndirect MPFHash))
     -- | Trie key-value pairs: user data stored in
-    -- per-token tries. Keys are token-prefixed.
+    -- per-token tries. Keys are 'HexKey' paths,
+    -- values are 'MPFHash' content hashes.
     TrieKV
-        :: AllColumns (KV ByteString ByteString)
+        :: AllColumns (KV HexKey MPFHash)
     -- | Trie registry: maps token identifiers to
     -- their visibility status ('Visible' or
     -- 'Hidden'). Scanned at startup to rebuild

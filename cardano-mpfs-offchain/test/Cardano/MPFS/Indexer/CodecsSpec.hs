@@ -32,7 +32,6 @@ import Cardano.MPFS.Generators
     )
 import Cardano.MPFS.Indexer.Codecs
     ( checkpointPrism
-    , rawBytesPrism
     , requestPrism
     , rollbackEntryPrism
     , slotNoPrism
@@ -123,14 +122,6 @@ spec = describe "Codecs" $ do
                     )
                     === Just entry
 
-        prop "rawBytesPrism"
-            $ forAll genBytes
-            $ \bs ->
-                preview
-                    rawBytesPrism
-                    (review rawBytesPrism bs)
-                    === Just bs
-
     -- -------------------------------------------
     -- Injectivity (Lean: roundTrip_implies_injective)
     -- -------------------------------------------
@@ -193,9 +184,6 @@ spec = describe "Codecs" $ do
                                 )
                             )
   where
-    genBytes = do
-        len <- choose (0 :: Int, 64)
-        BS.pack <$> vectorOf len (choose (0, 255))
     genSlotList = do
         n <- choose (0 :: Int, 5)
         vectorOf n genSlotNo
