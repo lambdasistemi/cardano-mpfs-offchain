@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Cardano.MPFS.ProofSpec (spec) where
@@ -350,7 +351,7 @@ propPresence = forAll genUniqueKVs $ \kvs ->
     in  case results of
             (Just root, proofs) ->
                 all
-                    ( \mp -> case mp of
+                    ( \case
                         Nothing -> False
                         Just proof ->
                             foldMPFProof mpfHashing proof
@@ -424,14 +425,13 @@ propAbsenceAfterDeletion =
                     in  case results of
                             (Nothing, Just root, kept) ->
                                 all
-                                    ( \mp ->
-                                        case mp of
-                                            Nothing -> False
-                                            Just proof ->
-                                                foldMPFProof
-                                                    mpfHashing
-                                                    proof
-                                                    == root
+                                    ( \case
+                                        Nothing -> False
+                                        Just proof ->
+                                            foldMPFProof
+                                                mpfHashing
+                                                proof
+                                                == root
                                     )
                                     kept
                             _ -> False
