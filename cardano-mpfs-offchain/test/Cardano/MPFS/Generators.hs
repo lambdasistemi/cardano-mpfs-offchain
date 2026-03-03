@@ -20,6 +20,9 @@ module Cardano.MPFS.Generators
     , genMaxFee
     , genTrieKey
     , genTrieValue
+
+      -- * Sequence generators
+    , genValidEventSequence
     ) where
 
 import Data.ByteString qualified as BS
@@ -35,6 +38,8 @@ import Test.QuickCheck
     , elements
     , listOf1
     , oneof
+    , shuffle
+    , sublistOf
     , vectorOf
     )
 
@@ -224,3 +229,66 @@ genCageInverseOp = do
         , InvTrieInsert tid <$> genBS <*> genBS
         , InvTrieDelete tid <$> genBS
         ]
+
+-- | Generate a valid sequence of 'CageEvent's
+-- respecting ordering constraints:
+--
+-- * 'CageBoot' precedes any 'CageUpdate' or
+--   'CageBurn' for the same token
+-- * 'CageRequest' precedes any 'CageRetract' for
+--   the same 'TxIn'
+-- * No duplicate boots for the same token
+-- * No duplicate requests for the same 'TxIn'
+--
+-- Generates 1-3 independent tokens, each with a
+-- boot followed by optional requests, updates,
+-- retracts, and an optional burn.
+genValidEventSequence :: Gen [CageEvent]
+genValidEventSequence = do
+    numTokens <- choose (1 :: Int, 3)
+    tids <- vectorOf numTokens genTokenId
+    tss <- vectorOf numTokens genTokenState
+    concat <$> traverse genTokenEvents (zip tids tss)
+  where
+    genTokenEvents (tid, ts) = do
+        -- Generate 0-3 requests
+        numReqs <- choose (0 :: Int, 3)
+        reqTxIns <- vectorOf numReqs genTxIn
+        reqs <- vectorOf numReqs (genRequest tid)
+        let requestEvts =
+                zipWith CageRequest reqTxIns reqs
+        -- Optionally retract some requests
+        retracted <- sublistOf reqTxIns
+        let retractEvts = map CageRetract retracted
+        -- Optionally update (consuming non-retracted
+        -- requests)
+        let available =
+                filter
+                    (`notElem` retracted)
+                    reqTxIns
+        doUpdate <- elements [True, False]
+        updateEvts <-
+            if doUpdate
+                then do
+                    newRoot <- genRoot
+                    pure
+                        [ CageUpdate
+                            tid
+                            newRoot
+                            available
+                        ]
+                else pure []
+        -- Optionally burn
+        doBurn <- elements [True, False]
+        let burnEvts =
+                [CageBurn tid | doBurn]
+        -- Assemble in valid order:
+        -- boot, then requests, then retracts
+        -- + updates interleaved, then burn
+        middle <-
+            shuffle (retractEvts ++ updateEvts)
+        pure
+            $ [CageBoot tid ts]
+                ++ requestEvts
+                ++ middle
+                ++ burnEvts
