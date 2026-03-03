@@ -32,14 +32,14 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/paolino/cardano-utxo-csmt
-  tag: 24d2e2de470e0ea466abc8e293e51b6e6567eb93
-  --sha256: 18br8zm3ba8ww709jq0aivzma51w32hqhxs8dwc400p042p8gmxa
+  tag: 86027606ca1e13ae40b395546c623bbe07f3dbdc
+  --sha256: 15ilfwmyqapci65sxjq33lscgjwa27s35632gs7c88p4h0l45xfy
 
 source-repository-package
   type: git
   location: https://github.com/paolino/haskell-mts
-  tag: f5c3af890ef6521221a7aead2dd917e9e9596e3d
-  --sha256: 1qny9cg4zhq9kxif2a1mr4hkg1zkl66vvihkclqg9zcrjj5mfpa6
+  tag: b7696e8d24a9d5c62efdd653d3031e77fd968116
+  --sha256: 117603f7fpga7pspb9cms6arn6g1alqvqqcfa6p7r93ri33hv25p
 
 source-repository-package
   type: git

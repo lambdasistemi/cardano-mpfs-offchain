@@ -9,27 +9,29 @@
 -- License     : Apache-2.0
 --
 -- Production implementation of the 'TrieManager'
--- interface backed by shared RocksDB column
--- families (@trie-nodes@ and @trie-kv@). Multiple
--- tokens share the same column families — isolation
--- is achieved by prefixing every key with a
--- length-prefixed serialization of the 'TokenId'.
+-- interface backed by RocksDB. Multiple tokens share
+-- the same column families ('TrieNodes', 'TrieKV',
+-- 'TrieMeta') — isolation is achieved by scoping
+-- MPF operations to a per-token 'HexKey' prefix.
 --
--- The prefix is @(1-byte length ++ raw asset name)@,
--- so iterators can scan only a single token's
--- entries. A 'mkPrefixedTrieDB' wraps the raw
--- RocksDB handle into a @rocksdb-kv-transactions@
--- 'Database' that prepends and strips the prefix
--- transparently.
+-- Two layers are provided:
 --
--- Speculative sessions use 'runSpeculation' which
--- reads from the real database but buffers writes
--- in memory, discarding them after the callback
--- returns. This is used by 'updateTokenImpl' to
--- generate proofs without mutating state.
+--   * __Transactional__ ('mkUnifiedTrie',
+--     'mkUnifiedTrieManager'): operates in
+--     @'Transaction' m cf 'AllColumns' ops@,
+--     composable into a single DB commit.
+--   * __IO__ ('mkPersistentTrieManager'): wraps
+--     the transactional layer with 'IORef' caches
+--     for outside-block usage and speculative
+--     sessions.
 module Cardano.MPFS.Trie.Persistent
-    ( -- * Construction
-      mkPersistentTrieManager
+    ( -- * Transactional (composable) layer
+      mkUnifiedTrie
+    , mkUnifiedTrieManager
+    , tokenHexPrefix
+
+      -- * IO layer (with caches)
+    , mkPersistentTrieManager
     , withPersistentTrieManager
     ) where
 
@@ -47,7 +49,10 @@ import Data.IORef
 import Data.Set (Set)
 import Data.Set qualified as Set
 
-import Cardano.MPFS.Indexer.Columns (TrieStatus (..))
+import Cardano.MPFS.Indexer.Columns
+    ( AllColumns (..)
+    , TrieStatus (..)
+    )
 
 import Database.KV.Database
     ( Codecs (..)
@@ -60,9 +65,13 @@ import Database.KV.Database
     )
 import Database.KV.Transaction
     ( Transaction
-    , query
     , runSpeculation
     , runTransactionUnguarded
+    )
+import Database.KV.Transaction qualified as KV
+    ( delete
+    , insert
+    , query
     )
 import Database.RocksDB
     ( BatchOp (..)
@@ -86,7 +95,7 @@ import MPF.Backend.Standalone
     ( MPFStandalone (..)
     , MPFStandaloneCodecs (..)
     )
-import MPF.Deletion (deleting)
+import MPF.Deletion (deleteSubtree, deleting)
 import MPF.Hashes
     ( MPFHash
     , MPFHashing (..)
@@ -126,11 +135,237 @@ import Cardano.MPFS.Trie
     , TrieManager (..)
     )
 
+-- --------------------------------------------------------
+-- Token prefix
+-- --------------------------------------------------------
+
+-- | Convert a 'TokenId' to an MPF 'HexKey' prefix
+-- for namespace isolation.
+tokenHexPrefix :: TokenId -> HexKey
+tokenHexPrefix =
+    byteStringToHexKey . tokenPrefix
+
+-- | Serialize a 'TokenId' to a prefix byte string.
+-- Format: @(1-byte length ++ raw asset name)@.
+tokenPrefix :: TokenId -> ByteString
+tokenPrefix (TokenId (AssetName sbs)) =
+    let raw = SBS.fromShort sbs
+        len = BS.length raw
+    in  BS.singleton (fromIntegral len) <> raw
+
+-- --------------------------------------------------------
+-- Transactional trie (AllColumns)
+-- --------------------------------------------------------
+
+-- | A 'Trie' operating on 'AllColumns' selectors
+-- within a transaction. All operations are scoped
+-- to the given token prefix — no auto-commit.
+mkUnifiedTrie
+    :: (Monad m)
+    => HexKey
+    -- ^ Token prefix from 'tokenHexPrefix'
+    -> Trie
+        (Transaction m cf AllColumns ops)
+mkUnifiedTrie pfx =
+    Trie
+        { insert = unifiedInsert pfx
+        , delete = unifiedDelete pfx
+        , lookup = unifiedLookup pfx
+        , getRoot = unifiedGetRoot pfx
+        , getProof = unifiedGetProof pfx
+        , getProofSteps =
+            unifiedGetProofSteps pfx
+        }
+
+unifiedInsert
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> ByteString
+    -> Transaction m cf AllColumns ops Root
+unifiedInsert pfx k v = do
+    inserting
+        pfx
+        fromHexKVIdentity
+        mpfHashing
+        TrieKV
+        TrieNodes
+        (byteStringToHexKey (hashBS k))
+        (mkMPFHash v)
+    unifiedGetRoot pfx
+
+unifiedDelete
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> Transaction m cf AllColumns ops Root
+unifiedDelete pfx k = do
+    deleting
+        pfx
+        fromHexKVIdentity
+        mpfHashing
+        TrieKV
+        TrieNodes
+        (byteStringToHexKey (hashBS k))
+    unifiedGetRoot pfx
+
+unifiedLookup
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> Transaction
+        m
+        cf
+        AllColumns
+        ops
+        (Maybe ByteString)
+unifiedLookup pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            pfx
+            fromHexKVIdentity
+            mpfHashing
+            TrieNodes
+            hexKey
+    pure $ case mProof of
+        Nothing -> Nothing
+        Just _ -> Just (hashBS k)
+
+unifiedGetRoot
+    :: (Monad m)
+    => HexKey
+    -> Transaction m cf AllColumns ops Root
+unifiedGetRoot pfx = do
+    mi <- KV.query TrieNodes pfx
+    pure $ case mi of
+        Nothing -> Root BS.empty
+        Just
+            HexIndirect
+                { hexIsLeaf
+                , hexJump
+                , hexValue
+                } ->
+                Root
+                    $ renderMPFHash
+                    $ if hexIsLeaf
+                        then
+                            leafHash
+                                mpfHashing
+                                hexJump
+                                hexValue
+                        else hexValue
+
+unifiedGetProof
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> Transaction
+        m
+        cf
+        AllColumns
+        ops
+        (Maybe Proof)
+unifiedGetProof pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            pfx
+            fromHexKVIdentity
+            mpfHashing
+            TrieNodes
+            hexKey
+    pure $ fmap (Proof . serializeProof) mProof
+
+unifiedGetProofSteps
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> Transaction
+        m
+        cf
+        AllColumns
+        ops
+        (Maybe [ProofStep])
+unifiedGetProofSteps pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            pfx
+            fromHexKVIdentity
+            mpfHashing
+            TrieNodes
+            hexKey
+    pure $ fmap toProofSteps mProof
+
+-- --------------------------------------------------------
+-- Transactional TrieManager (AllColumns)
+-- --------------------------------------------------------
+
+-- | A 'TrieManager' operating on 'AllColumns'
+-- selectors within a transaction. Visibility is
+-- checked via 'TrieMeta' queries (no 'IORef's).
+-- Compose with other transactional operations into
+-- a single atomic block commit.
+mkUnifiedTrieManager
+    :: (Monad m)
+    => TrieManager
+        (Transaction m cf AllColumns ops)
+mkUnifiedTrieManager =
+    TrieManager
+        { withTrie = \tid action -> do
+            mStatus <- KV.query TrieMeta tid
+            case mStatus of
+                Just Visible ->
+                    action
+                        (mkUnifiedTrie (tokenHexPrefix tid))
+                Just Hidden ->
+                    error
+                        $ "Trie is hidden: "
+                            ++ show tid
+                Nothing ->
+                    error
+                        $ "Trie not found: "
+                            ++ show tid
+        , withSpeculativeTrie = \_ _ ->
+            error
+                "withSpeculativeTrie: not \
+                \supported in Transaction"
+        , createTrie = \tid -> do
+            -- Delete any existing data
+            deleteSubtree
+                TrieNodes
+                (tokenHexPrefix tid)
+            -- Write registry entry
+            KV.insert TrieMeta tid Visible
+        , deleteTrie = \tid -> do
+            deleteSubtree
+                TrieNodes
+                (tokenHexPrefix tid)
+            KV.delete TrieMeta tid
+        , hideTrie = \tid ->
+            KV.insert TrieMeta tid Hidden
+        , unhideTrie = \tid ->
+            KV.insert TrieMeta tid Visible
+        }
+
+-- --------------------------------------------------------
+-- IO layer (with IORef caches)
+-- --------------------------------------------------------
+
 -- | Create a persistent 'TrieManager IO' backed by
 -- shared RocksDB column families. Each token's trie
 -- data is isolated via key prefixing. On startup,
 -- scans the @metaCF@ to rebuild the known\/hidden
 -- sets so tries survive restarts.
+--
+-- This IO-based manager uses 'IORef' caches for
+-- fast visibility checks. Use for outside-block
+-- operations ('TxBuilder' speculation) and for
+-- serving queries while ChainSync is idle.
 mkPersistentTrieManager
     :: DB
     -- ^ Shared RocksDB handle
@@ -234,16 +469,11 @@ defaultConfig =
         , bloomFilter = False
         }
 
--- | Serialize a 'TokenId' to a prefix byte string.
-tokenPrefix :: TokenId -> ByteString
-tokenPrefix (TokenId (AssetName sbs)) =
-    let raw = SBS.fromShort sbs
-        len = BS.length raw
-    in  BS.singleton (fromIntegral len) <> raw
+-- --------------------------------------------------------
+-- IO-layer: withTrie / withSpeculativeTrie
+-- --------------------------------------------------------
 
--- | Run an action with a token's trie. Creates a
--- prefixed 'Database' for the token and wraps MPF
--- operations.
+-- | Run an action with a token's trie (IO layer).
 persistentWithTrie
     :: DB
     -> ColumnFamily
@@ -285,9 +515,7 @@ persistentWithTrie
                                 ++ show tid
 
 -- | Run a speculative (dry-run) session against a
--- token's trie. Reads from a snapshot and buffers
--- writes for read-your-writes, but discards all
--- mutations at the end.
+-- token's trie. Buffers writes, discards on return.
 persistentWithSpeculativeTrie
     :: DB
     -> ColumnFamily
@@ -328,17 +556,17 @@ persistentWithSpeculativeTrie
                         runSpeculation
                             database
                             ( action
-                                mkTransactionalTrie
+                                mkSpeculativeTrie
                             )
                     else
                         error
                             $ "Trie not found: "
                                 ++ show tid
 
--- | Create a new empty trie for a token. Previous
--- data is deleted if the token already exists.
--- The registry entry is written atomically with
--- the prefix deletes.
+-- --------------------------------------------------------
+-- IO-layer: create / delete / hide / unhide
+-- --------------------------------------------------------
+
 persistentCreateTrie
     :: DB
     -> ColumnFamily
@@ -356,9 +584,6 @@ persistentCreateTrie
     knownRef
     hiddenRef
     tid = do
-        -- Always delete: the DB may contain stale data
-        -- from a previous TrieManager (different
-        -- knownRef) or from a previous run.
         ops1 <- collectDeleteOps db nodesCF pfx
         ops2 <- collectDeleteOps db kvCF pfx
         let metaOp =
@@ -372,9 +597,6 @@ persistentCreateTrie
       where
         pfx = tokenPrefix tid
 
--- | Delete a token's trie and all its data.
--- The registry entry is removed atomically with
--- the prefix deletes.
 persistentDeleteTrie
     :: DB
     -> ColumnFamily
@@ -402,10 +624,6 @@ persistentDeleteTrie
       where
         pfx = tokenPrefix tid
 
--- | Mark a token's trie as hidden. Data is preserved
--- in RocksDB; 'withTrie' will fail until
--- 'unhideTrie'. The status change is persisted so
--- it survives restarts.
 persistentHideTrie
     :: DB
     -> ColumnFamily
@@ -422,9 +640,6 @@ persistentHideTrie db metaCF hiddenRef tid = do
         ]
     modifyIORef' hiddenRef (Set.insert tid)
 
--- | Restore a hidden token's trie to visible. The
--- status change is persisted so it survives
--- restarts.
 persistentUnhideTrie
     :: DB
     -> ColumnFamily
@@ -442,12 +657,12 @@ persistentUnhideTrie db metaCF hiddenRef tid = do
     modifyIORef' hiddenRef (Set.delete tid)
 
 -- --------------------------------------------------------
--- Prefixed Database construction
+-- Prefixed Database (for IO-layer and speculation)
 -- --------------------------------------------------------
 
--- | Create a 'Database' that prefixes all keys with
--- the given prefix and routes operations to the
--- shared column families.
+-- | Create a 'Database' that prefixes all keys
+-- with the given prefix. Used by the IO layer and
+-- speculative sessions.
 mkPrefixedTrieDB
     :: DB
     -> ColumnFamily
@@ -466,8 +681,10 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
                 , applyOps = write db
                 , mkOperation = \cf key mv ->
                     case mv of
-                        Just v -> PutCF cf (pfx <> key) v
-                        Nothing -> DelCF cf (pfx <> key)
+                        Just v ->
+                            PutCF cf (pfx <> key) v
+                        Nothing ->
+                            DelCF cf (pfx <> key)
                 , columns =
                     fromPairList
                         [ MPFStandaloneKVCol
@@ -478,14 +695,15 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
                                         { keyCodec =
                                             hexKeyPrism
                                         , valueCodec =
-                                            isoMPFHash
+                                            isoMPFHash'
                                         }
                                 }
                         , MPFStandaloneMPFCol
                             :=> Column
                                 { family = nodesCF
                                 , codecs =
-                                    mpfCodecs isoMPFHash
+                                    mpfCodecs
+                                        isoMPFHash'
                                 }
                         ]
                 , newIterator = \cf ->
@@ -494,16 +712,13 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
                 }
     in  trieDB
   where
-    isoMPFHash :: Prism' ByteString MPFHash
-    isoMPFHash = mpfValueCodec mpfHashCodecs
+    isoMPFHash' :: Prism' ByteString MPFHash
+    isoMPFHash' = mpfValueCodec mpfHashCodecs
 
 -- --------------------------------------------------------
--- Prefixed iterator
+-- Prefixed iterator (for IO layer)
 -- --------------------------------------------------------
 
--- | Create an iterator that only sees entries with
--- the given prefix. Keys are stripped of the prefix
--- when returned.
 mkPrefixedIterator
     :: DB
     -> ColumnFamily
@@ -516,7 +731,6 @@ mkPrefixedIterator db cf pfx = do
             { step = \case
                 PosFirst -> iterSeek i pfx
                 PosLast -> do
-                    -- Seek past prefix range and step back
                     iterSeek i (incrementPrefix pfx)
                     v <- iterValid i
                     if v
@@ -534,7 +748,9 @@ mkPrefixedIterator db cf pfx = do
                         case me of
                             Just (k, _) ->
                                 pure
-                                    (pfx `BS.isPrefixOf` k)
+                                    (pfx
+                                        `BS.isPrefixOf` k
+                                    )
                             Nothing -> pure False
                     else pure False
             , entry = do
@@ -544,12 +760,14 @@ mkPrefixedIterator db cf pfx = do
                         | pfx `BS.isPrefixOf` k ->
                             pure
                                 $ Just
-                                    (BS.drop (BS.length pfx) k, v)
+                                    ( BS.drop
+                                        (BS.length pfx)
+                                        k
+                                    , v
+                                    )
                     _ -> pure Nothing
             }
 
--- | Increment the last byte of a prefix to get the
--- upper bound for prefix scanning.
 incrementPrefix :: ByteString -> ByteString
 incrementPrefix bs
     | BS.null bs = BS.singleton 0
@@ -561,13 +779,13 @@ incrementPrefix bs
                         <> BS.singleton 0
                 else
                     BS.init bs
-                        <> BS.singleton (lastByte + 1)
+                        <> BS.singleton
+                            (lastByte + 1)
 
 -- --------------------------------------------------------
--- Trie construction from prefixed Database
+-- IO-layer Trie (from prefixed Database)
 -- --------------------------------------------------------
 
--- | Create a 'Trie IO' from a prefixed 'Database'.
 mkPersistentTrie
     :: Database
         IO
@@ -581,127 +799,39 @@ mkPersistentTrie database =
         , delete = persistentDelete database
         , lookup = persistentLookup database
         , getRoot = persistentGetRoot database
-        , getProof = persistentGetProof database
+        , getProof =
+            persistentGetProof database
         , getProofSteps =
             persistentGetProofSteps database
         }
 
--- | A 'Trie' whose operations run directly in
--- the 'Transaction' monad without committing.
--- Used by 'runSpeculation' for dry-run sessions.
-mkTransactionalTrie
+-- | A 'Trie' for speculative (dry-run) sessions.
+mkSpeculativeTrie
     :: Trie
         ( Transaction
             IO
             ColumnFamily
-            (MPFStandalone HexKey MPFHash MPFHash)
+            ( MPFStandalone
+                HexKey
+                MPFHash
+                MPFHash
+            )
             BatchOp
         )
-mkTransactionalTrie =
+mkSpeculativeTrie =
     Trie
-        { insert = transactionalInsert
-        , delete = transactionalDelete
-        , lookup = transactionalLookup
-        , getRoot = persistentGetRootT
-        , getProof = transactionalGetProof
+        { insert = speculativeInsert
+        , delete = speculativeDelete
+        , lookup = speculativeLookup
+        , getRoot = speculativeGetRoot
+        , getProof = speculativeGetProof
         , getProofSteps =
-            transactionalGetProofSteps
+            speculativeGetProofSteps
         }
 
-transactionalInsert
-    :: ByteString
-    -> ByteString
-    -> Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        Root
-transactionalInsert k v = do
-    inserting
-        fromHexKVIdentity
-        mpfHashing
-        MPFStandaloneKVCol
-        MPFStandaloneMPFCol
-        (byteStringToHexKey (hashBS k))
-        (mkMPFHash v)
-    persistentGetRootT
-
-transactionalDelete
-    :: ByteString
-    -> Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        Root
-transactionalDelete k = do
-    deleting
-        fromHexKVIdentity
-        mpfHashing
-        MPFStandaloneKVCol
-        MPFStandaloneMPFCol
-        (byteStringToHexKey (hashBS k))
-    persistentGetRootT
-
-transactionalLookup
-    :: ByteString
-    -> Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        (Maybe ByteString)
-transactionalLookup k = do
-    let hexKey =
-            byteStringToHexKey (hashBS k)
-    mProof <-
-        mkMPFInclusionProof
-            fromHexKVIdentity
-            mpfHashing
-            MPFStandaloneMPFCol
-            hexKey
-    pure $ case mProof of
-        Nothing -> Nothing
-        Just _ -> Just (hashBS k)
-
-transactionalGetProof
-    :: ByteString
-    -> Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        (Maybe Proof)
-transactionalGetProof k = do
-    let hexKey =
-            byteStringToHexKey (hashBS k)
-    mProof <-
-        mkMPFInclusionProof
-            fromHexKVIdentity
-            mpfHashing
-            MPFStandaloneMPFCol
-            hexKey
-    pure $ fmap (Proof . serializeProof) mProof
-
-transactionalGetProofSteps
-    :: ByteString
-    -> Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        (Maybe [ProofStep])
-transactionalGetProofSteps k = do
-    let hexKey =
-            byteStringToHexKey (hashBS k)
-    mProof <-
-        mkMPFInclusionProof
-            fromHexKVIdentity
-            mpfHashing
-            MPFStandaloneMPFCol
-            hexKey
-    pure $ fmap toProofSteps mProof
+-- --------------------------------------------------------
+-- IO-layer trie operations
+-- --------------------------------------------------------
 
 persistentInsert
     :: Database
@@ -715,13 +845,14 @@ persistentInsert
 persistentInsert database k v =
     runTransactionUnguarded database $ do
         inserting
+            []
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneKVCol
             MPFStandaloneMPFCol
             (byteStringToHexKey (hashBS k))
             (mkMPFHash v)
-        persistentGetRootT
+        speculativeGetRoot
 
 persistentDelete
     :: Database
@@ -734,12 +865,13 @@ persistentDelete
 persistentDelete database k =
     runTransactionUnguarded database $ do
         deleting
+            []
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneKVCol
             MPFStandaloneMPFCol
             (byteStringToHexKey (hashBS k))
-        persistentGetRootT
+        speculativeGetRoot
 
 persistentLookup
     :: Database
@@ -750,18 +882,8 @@ persistentLookup
     -> ByteString
     -> IO (Maybe ByteString)
 persistentLookup database k =
-    runTransactionUnguarded database $ do
-        let hexKey =
-                byteStringToHexKey (hashBS k)
-        mProof <-
-            mkMPFInclusionProof
-                fromHexKVIdentity
-                mpfHashing
-                MPFStandaloneMPFCol
-                hexKey
-        pure $ case mProof of
-            Nothing -> Nothing
-            Just _ -> Just (hashBS k)
+    runTransactionUnguarded database
+        $ speculativeLookup k
 
 persistentGetRoot
     :: Database
@@ -771,30 +893,9 @@ persistentGetRoot
         BatchOp
     -> IO Root
 persistentGetRoot database =
-    runTransactionUnguarded database persistentGetRootT
-
--- | Get root hash within a transaction.
-persistentGetRootT
-    :: Database.KV.Transaction.Transaction
-        IO
-        ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
-        BatchOp
-        Root
-persistentGetRootT = do
-    mi <- query MPFStandaloneMPFCol []
-    pure $ case mi of
-        Nothing -> Root BS.empty
-        Just HexIndirect{hexIsLeaf, hexJump, hexValue} ->
-            Root
-                $ renderMPFHash
-                $ if hexIsLeaf
-                    then
-                        leafHash
-                            mpfHashing
-                            hexJump
-                            hexValue
-                    else hexValue
+    runTransactionUnguarded
+        database
+        speculativeGetRoot
 
 persistentGetProof
     :: Database
@@ -805,16 +906,8 @@ persistentGetProof
     -> ByteString
     -> IO (Maybe Proof)
 persistentGetProof database k =
-    runTransactionUnguarded database $ do
-        let hexKey =
-                byteStringToHexKey (hashBS k)
-        mProof <-
-            mkMPFInclusionProof
-                fromHexKVIdentity
-                mpfHashing
-                MPFStandaloneMPFCol
-                hexKey
-        pure $ fmap (Proof . serializeProof) mProof
+    runTransactionUnguarded database
+        $ speculativeGetProof k
 
 persistentGetProofSteps
     :: Database
@@ -825,16 +918,139 @@ persistentGetProofSteps
     -> ByteString
     -> IO (Maybe [ProofStep])
 persistentGetProofSteps database k =
-    runTransactionUnguarded database $ do
-        let hexKey =
-                byteStringToHexKey (hashBS k)
-        mProof <-
-            mkMPFInclusionProof
-                fromHexKVIdentity
-                mpfHashing
-                MPFStandaloneMPFCol
-                hexKey
-        pure $ fmap toProofSteps mProof
+    runTransactionUnguarded database
+        $ speculativeGetProofSteps k
+
+-- --------------------------------------------------------
+-- Speculative trie operations (MPFStandalone cols)
+-- --------------------------------------------------------
+
+speculativeInsert
+    :: ByteString
+    -> ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        Root
+speculativeInsert k v = do
+    inserting
+        []
+        fromHexKVIdentity
+        mpfHashing
+        MPFStandaloneKVCol
+        MPFStandaloneMPFCol
+        (byteStringToHexKey (hashBS k))
+        (mkMPFHash v)
+    speculativeGetRoot
+
+speculativeDelete
+    :: ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        Root
+speculativeDelete k = do
+    deleting
+        []
+        fromHexKVIdentity
+        mpfHashing
+        MPFStandaloneKVCol
+        MPFStandaloneMPFCol
+        (byteStringToHexKey (hashBS k))
+    speculativeGetRoot
+
+speculativeLookup
+    :: ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        (Maybe ByteString)
+speculativeLookup k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            []
+            fromHexKVIdentity
+            mpfHashing
+            MPFStandaloneMPFCol
+            hexKey
+    pure $ case mProof of
+        Nothing -> Nothing
+        Just _ -> Just (hashBS k)
+
+speculativeGetRoot
+    :: Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        Root
+speculativeGetRoot = do
+    mi <- KV.query MPFStandaloneMPFCol []
+    pure $ case mi of
+        Nothing -> Root BS.empty
+        Just
+            HexIndirect
+                { hexIsLeaf
+                , hexJump
+                , hexValue
+                } ->
+                Root
+                    $ renderMPFHash
+                    $ if hexIsLeaf
+                        then
+                            leafHash
+                                mpfHashing
+                                hexJump
+                                hexValue
+                        else hexValue
+
+speculativeGetProof
+    :: ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        (Maybe Proof)
+speculativeGetProof k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            []
+            fromHexKVIdentity
+            mpfHashing
+            MPFStandaloneMPFCol
+            hexKey
+    pure $ fmap (Proof . serializeProof) mProof
+
+speculativeGetProofSteps
+    :: ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        (Maybe [ProofStep])
+speculativeGetProofSteps k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFInclusionProof
+            []
+            fromHexKVIdentity
+            mpfHashing
+            MPFStandaloneMPFCol
+            hexKey
+    pure $ fmap toProofSteps mProof
 
 -- --------------------------------------------------------
 -- Helpers
@@ -850,17 +1066,16 @@ tokenIdToKey :: TokenId -> ByteString
 tokenIdToKey (TokenId (AssetName sbs)) =
     SBS.fromShort sbs
 
--- | Decode raw asset name bytes back to 'TokenId'.
+-- | Decode raw asset name bytes back to
+-- 'TokenId'.
 tokenIdFromKey :: ByteString -> TokenId
 tokenIdFromKey =
     TokenId . AssetName . SBS.toShort
 
--- | Encode 'TrieStatus' as a single byte.
 encodeTrieStatus :: TrieStatus -> ByteString
 encodeTrieStatus Visible = BS.singleton 0x01
 encodeTrieStatus Hidden = BS.singleton 0x02
 
--- | Decode a single byte to 'TrieStatus'.
 decodeTrieStatus :: ByteString -> Maybe TrieStatus
 decodeTrieStatus bs = case BS.uncons bs of
     Just (0x01, rest)
@@ -915,8 +1130,6 @@ scanTrieMeta db metaCF = do
                         pure (known, hidden)
             else pure (known, hidden)
 
--- | Collect delete operations for all entries with
--- a given prefix in a column family.
 collectDeleteOps
     :: DB
     -> ColumnFamily
@@ -936,8 +1149,11 @@ collectDeleteOps db cf pfx = do
                 me <- iterEntry i
                 case me of
                     Just (k, _)
-                        | pfx `BS.isPrefixOf` k -> do
-                            iterNext i
-                            go i (DelCF cf k : acc)
+                        | pfx `BS.isPrefixOf` k ->
+                            do
+                                iterNext i
+                                go
+                                    i
+                                    (DelCF cf k : acc)
                     _ -> pure (reverse acc)
             else pure (reverse acc)

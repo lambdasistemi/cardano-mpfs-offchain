@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 -- |
 -- Module      : Cardano.MPFS.State
 -- Description : Token and request state tracking interface
@@ -20,6 +22,12 @@ module Cardano.MPFS.State
 
       -- * Checkpoint state
     , Checkpoints (..)
+
+      -- * Natural transformations
+    , hoistState
+    , hoistTokens
+    , hoistRequests
+    , hoistCheckpoints
     ) where
 
 import Cardano.MPFS.Core.Types
@@ -81,3 +89,53 @@ data Checkpoints m = Checkpoints
         :: SlotNo -> BlockId -> [SlotNo] -> m ()
     -- ^ Store a new checkpoint with rollback slots
     }
+
+-- | Lift a 'State' across a natural transformation.
+hoistState :: (forall a. m a -> n a) -> State m -> State n
+hoistState f State{..} =
+    State
+        { tokens = hoistTokens f tokens
+        , requests = hoistRequests f requests
+        , checkpoints =
+            hoistCheckpoints f checkpoints
+        }
+
+-- | Lift 'Tokens' across a natural transformation.
+hoistTokens
+    :: (forall a. m a -> n a)
+    -> Tokens m
+    -> Tokens n
+hoistTokens f Tokens{..} =
+    Tokens
+        { getToken = f . getToken
+        , putToken = \tid ts -> f (putToken tid ts)
+        , removeToken = f . removeToken
+        , listTokens = f listTokens
+        }
+
+-- | Lift 'Requests' across a natural transformation.
+hoistRequests
+    :: (forall a. m a -> n a)
+    -> Requests m
+    -> Requests n
+hoistRequests f Requests{..} =
+    Requests
+        { getRequest = f . getRequest
+        , putRequest =
+            \txIn req -> f (putRequest txIn req)
+        , removeRequest = f . removeRequest
+        , requestsByToken = f . requestsByToken
+        }
+
+-- | Lift 'Checkpoints' across a natural
+-- transformation.
+hoistCheckpoints
+    :: (forall a. m a -> n a)
+    -> Checkpoints m
+    -> Checkpoints n
+hoistCheckpoints f Checkpoints{..} =
+    Checkpoints
+        { getCheckpoint = f getCheckpoint
+        , putCheckpoint = \s b slots ->
+            f (putCheckpoint s b slots)
+        }

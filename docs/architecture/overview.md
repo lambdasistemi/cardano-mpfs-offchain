@@ -5,20 +5,30 @@
 ```mermaid
 flowchart TD
     app["Application<br/>(wiring + lifecycle)"]
+    idx["CageFollower<br/>(ChainSync block processing)<br/>unified transaction per block"]
     mpf["MPF Trie<br/>(merkle-patricia-forestry)<br/>Proofs, insertion, deletion"]
     txb["TxBuilder<br/>(MPFS protocol operations)<br/>boot, update, retract, end"]
     bal["Balance<br/>(fee estimation fixpoint)"]
-    n2c["Node Client<br/>(node-to-client)<br/>LocalStateQuery + LocalTxSubmission"]
+    n2c["Node Client<br/>(node-to-client)<br/>ChainSync + LSQ + LTxS"]
 
-    app --> mpf --> txb --> bal --> n2c
+    app --> idx --> mpf
+    app --> txb --> bal --> n2c
+    idx --> n2c
 ```
 
-The service connects to a Cardano node via a Unix socket carrying
-multiplexed N2C mini-protocols. The `Provider` queries UTxOs and
-protocol parameters via `LocalStateQuery`; the `Submitter` sends
-signed transactions via `LocalTxSubmission`. The `TxBuilder`
-constructs MPFS protocol transactions (boot, update, retract, end)
-and `balanceTx` handles fee estimation through a fixpoint loop.
+The service connects to a Cardano node via two N2C connections:
+
+1. **ChainSync** — blocks are processed by the `CageFollower`, which
+   applies UTxO, cage state, and trie mutations in a single atomic
+   RocksDB transaction per block (see
+   [Block Processing](block-processing.md)).
+2. **LocalStateQuery + LocalTxSubmission** — the `Provider` queries
+   UTxOs and protocol parameters; the `Submitter` sends signed
+   transactions.
+
+The `TxBuilder` constructs MPFS protocol transactions (boot, update,
+retract, end) and `balanceTx` handles fee estimation through a
+fixpoint loop.
 
 ## Singleton Dependency Graph
 
@@ -55,18 +65,21 @@ graph TD
 
 ```mermaid
 graph LR
-    N2C["N2C Connection"] --> PRV["Provider"]
-    N2C --> SUB["Submitter"]
-    MOCK_ST["Mock State"] --> ST["State"]
-    PURE_TM["Pure TrieManager"] --> TM["TrieManager"]
-    SKEL["Skeleton Indexer"] --> IDX["Indexer"]
-    MOCK_TXB["Mock TxBuilder"] --> TXB["TxBuilder"]
-    PRV & SUB & ST & TM & IDX & TXB --> CTX["Context"]
+    DB["RocksDB<br/>(11 CFs)"]
+    DB --> ST["State<br/>(persistent)"]
+    DB --> TM["TrieManager<br/>(persistent)"]
+    DB --> CF["CageFollower<br/>(unified txn)"]
+    N2C1["N2C #1<br/>(ChainSync)"] --> CF
+    N2C2["N2C #2<br/>(LSQ + LTxS)"] --> PRV["Provider"]
+    N2C2 --> SUB["Submitter"]
+    PRV & SUB & ST & TM --> TXB["TxBuilder"]
+    PRV & SUB & ST & TM & TXB --> CTX["Context"]
 ```
 
-The `Provider` and `Submitter` use real N2C connections. State,
-TrieManager, and Indexer currently use mock/pure/skeleton
-implementations.
+All components use real implementations backed by RocksDB and N2C
+connections. The `CageFollower` runs on connection 1 (ChainSync),
+processing each block in a single atomic transaction. The `Provider`,
+`Submitter`, and `TxBuilder` use connection 2 (LSQ + LTxS).
 
 ## External Dependencies
 
@@ -151,19 +164,22 @@ All modules live under `Cardano.MPFS`.
 
 | Module | Purpose |
 |--------|---------|
+| [`Indexer.CageFollower`][s-idx-cage] | Unified `rollForward`/`rollBackward` — [one block = one transaction](block-processing.md) |
 | [`Indexer.Event`][s-idx-event] | [`detectCageEvents`][s-detect] — cage tx classification |
-| [`Indexer.Follower`][s-idx-follower] | Block processor: events, trie mutations, inverse ops |
-| [`Indexer.Persistent`][s-idx-persist] | RocksDB-backed `State` |
-| [`Indexer.Columns`][s-idx-columns] | [`AllColumns`][s-allcolumns] GADT — full DB schema |
+| [`Indexer.Follower`][s-idx-follower] | `detectCageBlockEvents`, `applyCageBlockEvents` — generic over `Monad m` |
+| [`Indexer.Persistent`][s-idx-persist] | `mkTransactionalState` (composable) + `mkPersistentState` (IO) |
+| [`Indexer.Columns`][s-idx-columns] | [`AllColumns`][s-allcolumns] + [`UnifiedColumns`][s-unifiedcols] GADTs — full DB schema |
 | [`Indexer.Codecs`][s-idx-codecs] | CBOR serialization for column key-value types |
-| [`Indexer.Rollback`][s-idx-rollback] | [`CageInverseOp`][s-inverseop] — undo operations |
+| [`Indexer.Rollback`][s-idx-rollback] | `storeRollbackT`, `rollbackToSlotT` — transactional rollback |
 
+[s-idx-cage]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
 [s-idx-event]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
 [s-detect]: https://github.com/paolino/cardano-mpfs-offchain/search?q=detectCageEvents&type=code
 [s-idx-follower]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
 [s-idx-persist]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
 [s-idx-columns]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
 [s-allcolumns]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&type=code
+[s-unifiedcols]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+UnifiedColumns%22&type=code
 [s-idx-codecs]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
 [s-idx-rollback]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
 [s-inverseop]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
@@ -212,15 +228,12 @@ All modules live under `Cardano.MPFS`.
 
 | Module | Purpose |
 |--------|---------|
-| [`Trie.Pure`][s-trie-pure] | `IORef`-backed in-memory trie |
-| [`Trie.PureManager`][s-trie-pm] | [`mkPureTrieManager`][s-mkpuretm] — in-memory `TrieManager` |
-| [`Trie.Persistent`][s-trie-pers] | [`mkPersistentTrieManager`][s-mkperstm] — RocksDB with token-prefixed keys |
+| [`Trie.Persistent`][s-trie-pers] | `mkUnifiedTrieManager` (transactional) + `mkPersistentTrieManager` (IO with caches) |
+| [`Trie.PureManager`][s-trie-pm] | [`mkPureTrieManager`][s-mkpuretm] — in-memory `TrieManager` for tests |
 
-[s-trie-pure]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Pure%22&type=code
 [s-trie-pm]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code
 [s-mkpuretm]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code
 [s-trie-pers]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code
-[s-mkperstm]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPersistentTrieManager&type=code
 
 ### Mock — test doubles
 

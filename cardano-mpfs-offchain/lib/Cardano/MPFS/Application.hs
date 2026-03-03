@@ -8,14 +8,23 @@
 -- Top-level wiring module that assembles all
 -- service interfaces into a fully operational
 -- 'Context IO'. The bracket 'withApplication' opens
--- a shared RocksDB database with 10 column families
--- (4 UTxO + 6 cage\/trie), connects to a local
+-- a shared RocksDB database with 11 column families
+-- (4 UTxO + 7 cage\/trie), connects to a local
 -- Cardano node via two N2C connections, and builds
 -- the production 'Provider', 'Submitter', persistent
 -- 'State', persistent 'TrieManager', real
 -- 'TxBuilder', and a 'CageFollower' that processes
 -- blocks from ChainSync. On exit it cancels both
 -- connection threads and closes the database.
+--
+-- __Invariant: one block = one DB transaction.__
+-- All mutations for a single block — UTxO CSMT
+-- changes, cage state\/trie mutations, rollback
+-- storage, and checkpoint — execute inside one
+-- atomic RocksDB write batch via 'UnifiedColumns'.
+-- The 'CageFollower' lifts sub-transactions with
+-- @'mapColumns' 'InUtxo'@ and @'mapColumns' 'InCage'@
+-- to combine them into a single commit.
 --
 -- Connection 1: ChainSync via cardano-utxo-csmt —
 -- blocks processed by 'CageFollower'.
@@ -48,24 +57,17 @@ import Control.Concurrent.Async
 import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Tracer (nullTracer)
+import Data.IORef (newIORef)
 
 import Cardano.Chain.Slotting (EpochSlots)
-import Cardano.Ledger.Binary
-    ( DecCBOR
-    , DecoderError
-    , EncCBOR
-    , decodeFull
-    , natVersion
-    , serialize
-    )
 import Data.ByteString.Lazy qualified as BSL
 
 import Database.KV.Database (mkColumns)
 import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
-    ( mapColumns
+    ( iterating
+    , mapColumns
     , newRunTransaction
-    , query
     )
 import Database.KV.Transaction qualified as L
     ( RunTransaction (..)
@@ -93,15 +95,12 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
     )
-import Cardano.UTxOCSMT.Application.Database.Interface
-    ( State (..)
-    )
-import Cardano.UTxOCSMT.Application.Database.RocksDB
-    ( createUpdateState
+import Cardano.UTxOCSMT.Application.Database.Implementation.Update
+    ( countRollbackPoints
+    , sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Run.Config
-    ( armageddonParams
-    , context
+    ( context
     , prisms
     , slotHash
     )
@@ -121,10 +120,7 @@ import Cardano.MPFS.Core.Bootstrap
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
-    , ConwayEra
     , SlotNo (..)
-    , TxIn
-    , TxOut
     )
 import Cardano.MPFS.Indexer.CageFollower
     ( mkCageIntersector
@@ -236,7 +232,7 @@ withApplication cfg action =
         dbConfig
         allColumnFamilies
         $ \db -> do
-            -- Unified database over all 10 CFs
+            -- Unified database over all 11 CFs
             let unifiedCols =
                     mkColumns
                         (columnFamilies db)
@@ -267,19 +263,12 @@ withApplication cfg action =
                             kvCF
                             metaCF
 
-                    -- UTxO state machine
+                    -- CSMT operations (for both
+                    -- bootstrap and block processing)
                     let ops =
                             mkCSMTOps
                                 (fromKV context)
                                 (hashing context)
-                    (utxoUpdate, availPts) <-
-                        createUpdateState
-                            nullTracer
-                            ops
-                            slotHash
-                            (\_ _ -> pure ())
-                            armageddonParams
-                            utxoRt
 
                     -- Bootstrap seeding on fresh DB
                     seedBootstrap
@@ -287,6 +276,24 @@ withApplication cfg action =
                         st
                         utxoRt
                         ops
+
+                    -- Sample rollback points for
+                    -- intersection and count for
+                    -- the follower's IORef
+                    availPts <-
+                        run
+                            $ mapColumns InUtxo
+                            $ iterating
+                                RollbackPoints
+                                sampleRollbackPoints
+                    initialCount <-
+                        run
+                            $ mapColumns InUtxo
+                            $ iterating
+                                RollbackPoints
+                                countRollbackPoints
+                    countRef <-
+                        newIORef initialCount
 
                     let startPts :: [Point]
                         startPts =
@@ -303,20 +310,17 @@ withApplication cfg action =
                     mChainThread <-
                         if followerEnabled cfg
                             then do
-                                let resolveUtxo =
-                                        mkUtxoResolver
-                                            utxoRt
-                                    cageIntersector =
+                                let cageIntersector =
                                         mkCageIntersector
                                             ( cfgScriptHash
                                                 $ cageConfig
                                                     cfg
                                             )
-                                            st
-                                            tm
-                                            cageRt
-                                            resolveUtxo
-                                            (Syncing utxoUpdate)
+                                            nullTracer
+                                            ops
+                                            slotHash
+                                            countRef
+                                            run
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
                                             nullTracer
@@ -444,41 +448,3 @@ seedBootstrap (Just fp) st runner ops =
                 (BSL.fromStrict k)
                 (BSL.fromStrict v)
 
--- | Build a UTxO resolver that looks up spent
--- 'TxIn' references in the CSMT's key-value
--- column.  CBOR-encodes the 'TxIn', queries via
--- the UTxO transaction runner, and CBOR-decodes
--- the result back to @'TxOut' 'ConwayEra'@.
-mkUtxoResolver
-    :: CSMT.RunTransaction
-        cf
-        op
-        slot
-        hash
-        BSL.ByteString
-        BSL.ByteString
-        IO
-    -> TxIn
-    -> IO (Maybe (TxOut ConwayEra))
-mkUtxoResolver rt txIn = do
-    let key = cborEncode txIn
-    mVal <- CSMT.transact rt $ query KVCol key
-    pure $ case mVal of
-        Nothing -> Nothing
-        Just val -> case cborDecode val of
-            Left _ -> Nothing
-            Right txOut -> Just txOut
-
--- | CBOR-encode a ledger type using protocol
--- version 11, matching the encoding used by
--- cardano-utxo-csmt for UTxO storage.
-cborEncode :: EncCBOR a => a -> BSL.ByteString
-cborEncode = serialize (natVersion @11)
-
--- | CBOR-decode a ledger type using protocol
--- version 11.
-cborDecode
-    :: DecCBOR a
-    => BSL.ByteString
-    -> Either DecoderError a
-cborDecode = decodeFull (natVersion @11)

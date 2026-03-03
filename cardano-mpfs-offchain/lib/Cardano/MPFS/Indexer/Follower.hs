@@ -7,30 +7,35 @@
 -- License     : Apache-2.0
 --
 -- Core block-processing pipeline for the cage indexer.
--- For each block received via ChainSync:
+-- All functions are generic over 'Monad m' so they
+-- compose into a single DB transaction:
 --
---   1. Extract Conway-era transactions ('extractConwayTxs')
---   2. Resolve spent UTxOs and detect cage events ('detectFromTx')
---   3. For each event, compute inverse ops, then apply state and
---      trie mutations ('applyCageEvent')
---   4. Return collected inverse ops for rollback storage
+--   1. Extract Conway-era transactions ('extractConwayTxs',
+--      pure)
+--   2. Resolve spent UTxOs and detect cage events
+--      ('detectCageBlockEvents')
+--   3. Compute inverse ops and apply state\/trie
+--      mutations ('applyCageBlockEvents')
+--   4. Rollback via 'applyCageInverses'
 --
--- Rollback is handled by 'applyCageInverses', which
--- replays inverse ops in reverse order.
+-- The only IO-specific parts are the UTxO resolver
+-- callback (provided by the caller) and
+-- 'extractConwayTxs' which is pure.
 module Cardano.MPFS.Indexer.Follower
-    ( -- * Block processing
-      processCageBlock
+    ( -- * Detection (Monad m)
+      detectCageBlockEvents
+    , detectFromTx
+
+      -- * Application (Monad m)
+    , applyCageBlockEvents
     , applyCageEvent
     , computeInverse
     , applyRequestOp
 
-      -- * Rollback
+      -- * Rollback (Monad m)
     , applyCageInverses
 
-      -- * Transaction detection
-    , detectFromTx
-
-      -- * Transaction extraction
+      -- * Transaction extraction (pure)
     , extractConwayTxs
     ) where
 
@@ -84,43 +89,38 @@ extractConwayTxs = \case
         toList (fromTxSeq (bbody raw))
     _ -> []
 
--- | Process a block for cage events. For each
--- Conway transaction, resolves spent inputs, detects
--- cage events, computes inverse operations, and
--- applies state changes. Returns the collected
--- inverse operations for rollback support.
-processCageBlock
-    :: ScriptHash
+-- --------------------------------------------------------
+-- Detection (Monad m)
+-- --------------------------------------------------------
+
+-- | Detect all cage events from a block. Resolves
+-- spent UTxOs via the provided callback and
+-- inspects transactions for cage-protocol activity.
+detectCageBlockEvents
+    :: (Monad m)
+    => ScriptHash
     -- ^ Cage script hash
-    -> State IO
-    -- ^ Cage state interface
-    -> TrieManager IO
-    -- ^ Trie manager for per-token tries
-    -> (TxIn -> IO (Maybe (TxOut ConwayEra)))
+    -> (TxIn -> m (Maybe (TxOut ConwayEra)))
     -- ^ UTxO resolver for spent inputs
-    -> NodeTypes.Block
-    -- ^ The block to process
-    -> IO [CageInverseOp]
-processCageBlock scriptHash st tm resolveUtxo block = do
-    let txs = extractConwayTxs block
-    allEvents <-
-        concat
-            <$> traverse
-                (detectFromTx scriptHash resolveUtxo)
-                txs
-    -- Process events sequentially:
-    -- compute inverse THEN apply
-    concat <$> traverse (processEvent st tm) allEvents
+    -> [Tx ConwayEra]
+    -- ^ Conway transactions from the block
+    -> m [CageEvent]
+detectCageBlockEvents scriptHash resolveUtxo txs =
+    concat
+        <$> traverse
+            (detectFromTx scriptHash resolveUtxo)
+            txs
 
 -- | Detect cage events from a single transaction.
 detectFromTx
-    :: ScriptHash
+    :: (Monad m)
+    => ScriptHash
     -- ^ Cage script hash
-    -> (TxIn -> IO (Maybe (TxOut ConwayEra)))
+    -> (TxIn -> m (Maybe (TxOut ConwayEra)))
     -- ^ UTxO resolver for spent inputs
     -> Tx ConwayEra
     -- ^ Transaction to inspect
-    -> IO [CageEvent]
+    -> m [CageEvent]
 detectFromTx scriptHash resolveUtxo tx = do
     let inputSet = tx ^. bodyTxL . inputsTxBodyL
     resolved <-
@@ -129,25 +129,13 @@ detectFromTx scriptHash resolveUtxo tx = do
             (Set.toList inputSet)
     pure $ detectCageEvents scriptHash resolved tx
 
--- | Process a single cage event: compute its cage
--- inverse, apply the event (collecting trie inverses),
--- and return both.
-processEvent
-    :: State IO
-    -> TrieManager IO
-    -> CageEvent
-    -> IO [CageInverseOp]
-processEvent st tm evt = do
-    cageInvs <- computeInverse st evt
-    trieInvs <- applyCageEvent st tm evt
-    pure $ cageInvs ++ trieInvs
-
 -- | Resolve a list of 'TxIn' references to their
 -- 'TxOut' values using the UTxO resolver.
 resolveInputs
-    :: (TxIn -> IO (Maybe (TxOut ConwayEra)))
+    :: (Monad m)
+    => (TxIn -> m (Maybe (TxOut ConwayEra)))
     -> [TxIn]
-    -> IO [(TxIn, TxOut ConwayEra)]
+    -> m [(TxIn, TxOut ConwayEra)]
 resolveInputs resolve =
     fmap catMaybes . traverse go
   where
@@ -155,12 +143,48 @@ resolveInputs resolve =
         mOut <- resolve txIn
         pure $ fmap (txIn,) mOut
 
+-- --------------------------------------------------------
+-- Application (Monad m)
+-- --------------------------------------------------------
+
+-- | Apply all cage events from a block, returning
+-- collected inverse ops for rollback. Each event
+-- is processed sequentially: compute inverse THEN
+-- apply mutations.
+applyCageBlockEvents
+    :: (Monad m)
+    => State m
+    -- ^ Cage state interface
+    -> TrieManager m
+    -- ^ Trie manager for per-token tries
+    -> [CageEvent]
+    -- ^ Detected events
+    -> m [CageInverseOp]
+applyCageBlockEvents st tm events =
+    concat <$> traverse (processEvent st tm) events
+
+-- | Process a single cage event: compute its cage
+-- inverse, apply the event (collecting trie
+-- inverses), and return both.
+processEvent
+    :: (Monad m)
+    => State m
+    -> TrieManager m
+    -> CageEvent
+    -> m [CageInverseOp]
+processEvent st tm evt = do
+    cageInvs <- computeInverse st evt
+    trieInvs <- applyCageEvent st tm evt
+    pure $ cageInvs ++ trieInvs
+
 -- | Compute inverse operations for a cage event,
 -- reading the current state before the event is
--- applied. These inverses can be replayed to undo
--- the event during rollback.
+-- applied.
 computeInverse
-    :: State IO -> CageEvent -> IO [CageInverseOp]
+    :: (Monad m)
+    => State m
+    -> CageEvent
+    -> m [CageInverseOp]
 computeInverse
     State
         { tokens = Tokens{getToken}
@@ -204,13 +228,15 @@ computeInverse
                     [InvRestoreToken tid ts]
                 Nothing -> []
 
--- | Apply a cage event to the state and trie manager.
--- Returns trie-level inverse operations for rollback.
+-- | Apply a cage event to the state and trie
+-- manager. Returns trie-level inverse operations
+-- for rollback.
 applyCageEvent
-    :: State IO
-    -> TrieManager IO
+    :: (Monad m)
+    => State m
+    -> TrieManager m
     -> CageEvent
-    -> IO [CageInverseOp]
+    -> m [CageInverseOp]
 applyCageEvent st tm = \case
     CageBoot tid ts -> do
         putToken (tokens st) tid ts
@@ -261,16 +287,17 @@ applyCageEvent st tm = \case
         hideTrie tm tid
         pure []
 
--- | Apply a request's operation to a trie, returning
--- inverse ops that can undo the mutation.
+-- | Apply a request's operation to a trie,
+-- returning inverse ops that can undo the mutation.
 applyRequestOp
-    :: TokenId
+    :: (Monad m)
+    => TokenId
     -- ^ Token owning the trie
-    -> Trie IO
+    -> Trie m
     -- ^ Handle to the token's trie
     -> Request
     -- ^ Request whose operation to apply
-    -> IO [CageInverseOp]
+    -> m [CageInverseOp]
 applyRequestOp
     tid
     Trie
@@ -317,17 +344,23 @@ applyRequestOp
                             old
                         ]
 
--- | Apply inverse operations for rollback, restoring
--- the state to what it was before the events. Ops
--- should be applied in reverse chronological order.
+-- --------------------------------------------------------
+-- Rollback (Monad m)
+-- --------------------------------------------------------
+
+-- | Apply inverse operations for rollback,
+-- restoring the state to what it was before the
+-- events. Ops should be applied in reverse
+-- chronological order.
 applyCageInverses
-    :: State IO
+    :: (Monad m)
+    => State m
     -- ^ Cage state interface
-    -> TrieManager IO
+    -> TrieManager m
     -- ^ Trie manager for per-token tries
     -> [CageInverseOp]
     -- ^ Inverse ops to replay
-    -> IO ()
+    -> m ()
 applyCageInverses st tm = mapM_ applyInv
   where
     applyInv = \case

@@ -230,21 +230,20 @@ spec = do
                         mRoot <- getRootHashM
                         proofs <-
                             mapM
-                                ( \(k, v) -> do
+                                ( \(k, _) -> do
                                     let hk =
                                             byteStringToHexKey
                                                 $ renderMPFHash
                                                 $ mkMPFHash k
-                                        hv = mkMPFHash v
                                     mp <- proofMPFM hk
-                                    pure (k, hv, mp)
+                                    pure (k, mp)
                                 )
                                 fruitsTestData
                         pure (mRoot, proofs)
                 case results of
                     (Just root, proofs) ->
                         forM_ proofs
-                            $ \(name, val, mProof) ->
+                            $ \(name, mProof) ->
                                 case mProof of
                                     Nothing ->
                                         fail
@@ -254,7 +253,6 @@ spec = do
                                         let computed =
                                                 foldMPFProof
                                                     mpfHashing
-                                                    val
                                                     proof
                                         computed `shouldBe` root
                     _ -> fail "Expected root"
@@ -346,17 +344,16 @@ propPresence = forAll genUniqueKVs $ \kvs ->
         (results, _) = runMPFPure' $ do
             forM_ kvHashed $ uncurry insertMPFM
             root <- getRootHashM
-            proofs <- forM kvHashed $ \(k, v) -> do
-                mp <- proofMPFM k
-                pure (v, mp)
+            proofs <- forM kvHashed $ \(k, _) ->
+                proofMPFM k
             pure (root, proofs)
     in  case results of
             (Just root, proofs) ->
                 all
-                    ( \(val, mp) -> case mp of
+                    ( \mp -> case mp of
                         Nothing -> False
                         Just proof ->
-                            foldMPFProof mpfHashing val proof
+                            foldMPFProof mpfHashing proof
                                 == root
                     )
                     proofs
@@ -421,20 +418,18 @@ propAbsenceAfterDeletion =
                             root <- getRootHashM
                             kept <-
                                 forM survivors
-                                    $ \(k, v) -> do
-                                        mp <- proofMPFM k
-                                        pure (v, mp)
+                                    $ \(k, _) ->
+                                        proofMPFM k
                             pure (gone, root, kept)
                     in  case results of
                             (Nothing, Just root, kept) ->
                                 all
-                                    ( \(val, mp) ->
+                                    ( \mp ->
                                         case mp of
                                             Nothing -> False
                                             Just proof ->
                                                 foldMPFProof
                                                     mpfHashing
-                                                    val
                                                     proof
                                                     == root
                                     )
@@ -497,6 +492,7 @@ stubProofInt0 =
         { mpfProofSteps = []
         , mpfProofRootPrefix = []
         , mpfProofLeafSuffix = []
+        , mpfProofValueHash = nullHash
         }
 
 -- | Reconstruct merkle root from a leaf hash, its

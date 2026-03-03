@@ -82,9 +82,14 @@ Submitter uses `TBQueue`-backed channels:
 The N2C client thread reads from these queues and drives the
 protocol state machines.
 
-## Future: ChainSync
+## ChainSync (Connection 1)
 
-ChainSync (mini-protocol 5) is not yet wired. When implemented,
-it will feed blocks to the Indexer for processing token events,
-request tracking, and trie updates. The current skeleton indexer
-returns a genesis tip placeholder.
+ChainSync (mini-protocol 5) runs on a **separate** N2C connection
+from LSQ/LTxS, driven by `cardano-utxo-csmt`'s
+`mkN2CChainSyncApplication`. Each block is handed to the
+`CageFollower`, which processes UTxO changes, cage events, trie
+mutations, and rollback storage in a single atomic RocksDB
+transaction.
+
+See [Block Processing](block-processing.md) for the full
+forward/rollback flow.
