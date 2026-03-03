@@ -58,10 +58,12 @@ import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Tracer (nullTracer)
 import Data.IORef (newIORef)
+import Data.Maybe (isNothing)
 
 import Cardano.Chain.Slotting (EpochSlots)
 import Data.ByteString.Lazy qualified as BSL
 
+import Database.KV.Cursor (firstEntry)
 import Database.KV.Database (mkColumns)
 import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
@@ -84,6 +86,9 @@ import Ouroboros.Network.Point (WithOrigin (..))
 import Cardano.UTxOCSMT.Application.ChainSyncN2C
     ( mkN2CChainSyncApplication
     )
+import Cardano.UTxOCSMT.Application.Database.Implementation.Armageddon
+    ( setup
+    )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     ( Columns (..)
     )
@@ -100,7 +105,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Update
     , sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Run.Config
-    ( context
+    ( armageddonParams
+    , context
     , prisms
     , slotHash
     )
@@ -277,6 +283,23 @@ withApplication cfg action =
                         utxoRt
                         ops
 
+                    -- Ensure UTxO rollback points
+                    -- are initialized (Origin entry).
+                    -- Required because we bypass
+                    -- the CSMT's self-initializing
+                    -- newState/createUpdateState.
+                    empty <-
+                        CSMT.transact utxoRt
+                            $ iterating
+                                RollbackPoints
+                            $ isNothing
+                                <$> firstEntry
+                    when empty
+                        $ setup
+                            nullTracer
+                            utxoRt
+                            armageddonParams
+
                     -- Sample rollback points for
                     -- intersection and count for
                     -- the follower's IORef
@@ -426,8 +449,6 @@ seedBootstrap (Just fp) st runner ops =
                 onHeader
                 onEntry
   where
-    isNothing Nothing = True
-    isNothing _ = False
     onHeader BootstrapHeader{..} =
         case bootstrapBlockHash of
             Nothing ->
