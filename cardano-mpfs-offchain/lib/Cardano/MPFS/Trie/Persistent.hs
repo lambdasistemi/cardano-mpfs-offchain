@@ -387,6 +387,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    metaCF
                     knownRef
                     hiddenRef
             , withSpeculativeTrie =
@@ -394,6 +395,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    metaCF
                     knownRef
                     hiddenRef
             , createTrie =
@@ -474,8 +476,12 @@ defaultConfig =
 -- --------------------------------------------------------
 
 -- | Run an action with a token's trie (IO layer).
+-- On cache miss, queries the metaCF to handle
+-- tries created by the CageFollower's unified
+-- transaction (which bypasses the IORef caches).
 persistentWithTrie
     :: DB
+    -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
     -> IORef (Set TokenId)
@@ -487,37 +493,45 @@ persistentWithTrie
     db
     nodesCF
     kvCF
+    metaCF
     knownRef
     hiddenRef
     tid
     action = do
-        hidden <- readIORef hiddenRef
-        if Set.member tid hidden
-            then
+        status <-
+            resolveTrieStatus
+                db
+                metaCF
+                knownRef
+                hiddenRef
+                tid
+        case status of
+            Just Visible -> do
+                let pfx = tokenPrefix tid
+                    database =
+                        mkPrefixedTrieDB
+                            db
+                            nodesCF
+                            kvCF
+                            pfx
+                action
+                    (mkPersistentTrie database)
+            Just Hidden ->
                 error
-                    $ "Trie is hidden: " ++ show tid
-            else do
-                known <- readIORef knownRef
-                if Set.member tid known
-                    then do
-                        let pfx = tokenPrefix tid
-                            database =
-                                mkPrefixedTrieDB
-                                    db
-                                    nodesCF
-                                    kvCF
-                                    pfx
-                        action
-                            (mkPersistentTrie database)
-                    else
-                        error
-                            $ "Trie not found: "
-                                ++ show tid
+                    $ "Trie is hidden: "
+                        ++ show tid
+            Nothing ->
+                error
+                    $ "Trie not found: "
+                        ++ show tid
 
 -- | Run a speculative (dry-run) session against a
 -- token's trie. Buffers writes, discards on return.
+-- On cache miss, queries the metaCF (same as
+-- 'persistentWithTrie').
 persistentWithSpeculativeTrie
     :: DB
+    -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
     -> IORef (Set TokenId)
@@ -533,35 +547,88 @@ persistentWithSpeculativeTrie
     db
     nodesCF
     kvCF
+    metaCF
     knownRef
     hiddenRef
     tid
     action = do
+        status <-
+            resolveTrieStatus
+                db
+                metaCF
+                knownRef
+                hiddenRef
+                tid
+        case status of
+            Just Visible -> do
+                let pfx = tokenPrefix tid
+                    database =
+                        mkPrefixedTrieDB
+                            db
+                            nodesCF
+                            kvCF
+                            pfx
+                runSpeculation
+                    database
+                    ( action
+                        mkSpeculativeTrie
+                    )
+            Just Hidden ->
+                error
+                    $ "Trie is hidden: "
+                        ++ show tid
+            Nothing ->
+                error
+                    $ "Trie not found: "
+                        ++ show tid
+
+-- | Check IORef caches first; on miss, query
+-- metaCF to handle tries created/modified by the
+-- CageFollower's unified transaction. Updates the
+-- caches on DB hit so subsequent calls are fast.
+resolveTrieStatus
+    :: DB
+    -> ColumnFamily
+    -> IORef (Set TokenId)
+    -> IORef (Set TokenId)
+    -> TokenId
+    -> IO (Maybe TrieStatus)
+resolveTrieStatus
+    db
+    metaCF
+    knownRef
+    hiddenRef
+    tid = do
         hidden <- readIORef hiddenRef
         if Set.member tid hidden
-            then
-                error
-                    $ "Trie is hidden: " ++ show tid
+            then pure (Just Hidden)
             else do
                 known <- readIORef knownRef
                 if Set.member tid known
-                    then do
-                        let pfx = tokenPrefix tid
-                            database =
-                                mkPrefixedTrieDB
-                                    db
-                                    nodesCF
-                                    kvCF
-                                    pfx
-                        runSpeculation
-                            database
-                            ( action
-                                mkSpeculativeTrie
-                            )
-                    else
-                        error
-                            $ "Trie not found: "
-                                ++ show tid
+                    then pure (Just Visible)
+                    else do
+                        -- Cache miss — query DB
+                        mVal <-
+                            getCF
+                                db
+                                metaCF
+                                (tokenIdToKey tid)
+                        case mVal
+                            >>= decodeTrieStatus of
+                            Just Visible -> do
+                                modifyIORef'
+                                    knownRef
+                                    (Set.insert tid)
+                                pure
+                                    (Just Visible)
+                            Just Hidden -> do
+                                modifyIORef'
+                                    hiddenRef
+                                    (Set.insert tid)
+                                pure
+                                    (Just Hidden)
+                            Nothing ->
+                                pure Nothing
 
 -- --------------------------------------------------------
 -- IO-layer: create / delete / hide / unhide
