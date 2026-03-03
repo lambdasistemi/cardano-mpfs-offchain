@@ -139,11 +139,14 @@ test-suite unit-tests
     , bytestring
     , cardano-crypto-class
     , cardano-ledger-allegra
+    , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
+    , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-offchain
+    , cardano-strict-containers
     , cardano-node-clients
     , containers
     , hspec                                    >=2.11 && <2.12
@@ -170,6 +173,7 @@ test-suite unit-tests
     Cardano.MPFS.Indexer.InverseSpec
     Cardano.MPFS.Indexer.PersistentSpec
     Cardano.MPFS.Indexer.RollbackSpec
+    Cardano.MPFS.Indexer.TxFixtures
     Cardano.MPFS.OnChainSpec
     Cardano.MPFS.ProofSpec
     Cardano.MPFS.StateSpec
