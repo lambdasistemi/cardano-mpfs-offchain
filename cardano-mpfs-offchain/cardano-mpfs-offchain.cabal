@@ -146,8 +146,8 @@ test-suite unit-tests
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-offchain
-    , cardano-strict-containers
     , cardano-node-clients
+    , cardano-strict-containers
     , containers
     , hspec                                    >=2.11 && <2.12
     , lens
