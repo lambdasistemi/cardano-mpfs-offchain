@@ -56,7 +56,6 @@ import Ouroboros.Network.Point
     , WithOrigin (..)
     )
 
-
 import Cardano.Ledger.Binary
     ( DecCBOR
     , DecoderError
@@ -235,11 +234,11 @@ mkCageIntersector
     -- ^ Mutable rollback point counter
     -> ( forall a
           . Transaction
-            IO
-            cf
-            (Unified hash)
-            op
-            a
+                IO
+                cf
+                (Unified hash)
+                op
+                a
          -> IO a
        )
     -- ^ Unified transaction runner
@@ -303,11 +302,11 @@ mkCageFollower
     -- ^ Mutable rollback point counter
     -> ( forall a
           . Transaction
-            IO
-            cf
-            (Unified hash)
-            op
-            a
+                IO
+                cf
+                (Unified hash)
+                op
+                a
          -> IO a
        )
     -- ^ Unified transaction runner
@@ -331,7 +330,7 @@ mkCageFollower
                 , rollBackward = rollBwd
                 }
 
-        -- | Forward: single unified transaction
+        -- \| Forward: single unified transaction
         -- covering UTxO resolution, cage event
         -- detection, cage mutations, UTxO forward,
         -- rollback storage, and checkpoint.
@@ -412,7 +411,7 @@ mkCageFollower
 
             pure follower
 
-        -- | Backward: single unified transaction
+        -- \| Backward: single unified transaction
         -- covering UTxO rollback and cage state
         -- rollback.
         rollBwd point = do

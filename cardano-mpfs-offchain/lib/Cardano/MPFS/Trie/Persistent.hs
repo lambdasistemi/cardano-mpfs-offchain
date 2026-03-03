@@ -748,7 +748,7 @@ mkPrefixedIterator db cf pfx = do
                         case me of
                             Just (k, _) ->
                                 pure
-                                    (pfx
+                                    ( pfx
                                         `BS.isPrefixOf` k
                                     )
                             Nothing -> pure False
