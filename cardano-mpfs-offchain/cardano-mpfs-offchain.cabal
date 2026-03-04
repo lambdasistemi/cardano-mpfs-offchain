@@ -103,6 +103,7 @@ library
     Cardano.MPFS.State
     Cardano.MPFS.Submitter
     Cardano.MPFS.Submitter.N2C
+    Cardano.MPFS.Trace
     Cardano.MPFS.Trie
     Cardano.MPFS.Trie.Persistent
     Cardano.MPFS.Trie.Pure
@@ -204,6 +205,7 @@ test-suite e2e-tests
     , cardano-node-clients
     , cardano-node-clients:devnet
     , containers
+    , contra-tracer
     , directory
     , filepath
     , hspec                        >=2.11 && <2.12

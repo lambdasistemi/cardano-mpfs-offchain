@@ -56,7 +56,7 @@ import Control.Concurrent.Async
     )
 import Control.Exception (throwIO)
 import Control.Monad (when)
-import Control.Tracer (nullTracer)
+import Control.Tracer (Tracer, contramap)
 import Data.IORef (newIORef)
 import Data.Maybe (isNothing)
 
@@ -83,6 +83,9 @@ import Database.RocksDB
 import Ouroboros.Network.Magic (NetworkMagic)
 import Ouroboros.Network.Point (WithOrigin (..))
 
+import Cardano.UTxOCSMT.Application.BlockFetch
+    ( HeaderSkipProgress (..)
+    )
 import Cardano.UTxOCSMT.Application.ChainSyncN2C
     ( mkN2CChainSyncApplication
     )
@@ -117,6 +120,7 @@ import Cardano.UTxOCSMT.Ouroboros.Types
     )
 import MTS.Rollbacks.Store qualified as Store
 
+import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
 
 import Cardano.MPFS.Context (Context (..))
@@ -144,6 +148,10 @@ import Cardano.MPFS.Provider.NodeClient
     )
 import Cardano.MPFS.State qualified as CageSt
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
+import Cardano.MPFS.Trace
+    ( AppTrace (..)
+    , adaptUpdate
+    )
 import Cardano.MPFS.Trie.Persistent
     ( mkPersistentTrieManager
     )
@@ -177,6 +185,8 @@ data AppConfig = AppConfig
     -- ^ CBOR bootstrap file for fresh DB seeding
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
+    , appTracer :: Tracer IO AppTrace
+    -- ^ Application event tracer
     }
 
 -- | Default RocksDB configuration.
@@ -296,7 +306,10 @@ withApplication cfg action =
                                 <$> firstEntry
                     when empty
                         $ setup
-                            nullTracer
+                            ( contramap
+                                TraceArmageddon
+                                (appTracer cfg)
+                            )
                             utxoRt
                             armageddonParams
 
@@ -338,16 +351,34 @@ withApplication cfg action =
                                                 $ cageConfig
                                                     cfg
                                             )
-                                            nullTracer
+                                            ( contramap
+                                                adaptUpdate
+                                                (appTracer cfg)
+                                            )
                                             ops
                                             slotHash
                                             countRef
                                             run
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
-                                            nullTracer
-                                            nullTracer
-                                            nullTracer
+                                            ( contramap
+                                                ( TraceBlockReceived
+                                                    . Network.blockSlot
+                                                )
+                                                (appTracer cfg)
+                                            )
+                                            ( contramap
+                                                TraceChainTip
+                                                (appTracer cfg)
+                                            )
+                                            ( contramap
+                                                ( \p ->
+                                                    TraceSkipProgress
+                                                        (skipCurrentSlot p)
+                                                        (skipTargetSlot p)
+                                                )
+                                                (appTracer cfg)
+                                            )
                                             (\_ -> pure ())
                                             (pure ())
                                             Nothing
