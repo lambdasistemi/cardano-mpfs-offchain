@@ -18,20 +18,24 @@ module Cardano.MPFS.Indexer.TxFixtures
     , mkRequestTx
     , mkUpdateTx
     , mkRetractTx
+    , mkPlainTx
+    , mkBootRequestTx
 
       -- * Test script hash
     , testScriptHash
+    , wrongScriptHash
     , testPolicyId
     , testCageAddr
     ) where
 
 import Data.ByteString.Short qualified as SBS
+import Data.Foldable (toList)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
 import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Data.Word (Word32)
-import Lens.Micro ((&), (.~))
+import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
@@ -42,6 +46,7 @@ import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
 import Cardano.Ledger.Api.Tx
     ( Tx
+    , bodyTxL
     , mkBasicTx
     , witsTxL
     )
@@ -121,6 +126,16 @@ testScriptHash =
 -- | Test policy ID from 'testScriptHash'.
 testPolicyId :: PolicyID
 testPolicyId = PolicyID testScriptHash
+
+-- | A different script hash (28 bytes of 0xBB) for
+-- testing that the ScriptHash filter works.
+wrongScriptHash :: ScriptHash
+wrongScriptHash =
+    ScriptHash
+        $ fromJust
+        $ hashFromStringAsHex @Blake2b_224
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbb\
+            \bbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 -- | Test cage address (Testnet).
 testCageAddr :: Addr
@@ -302,6 +317,63 @@ mkRetractTx reqInput extraInput =
                 & inputsTxBodyL .~ allInputs
     in  mkBasicTx body
             & witsTxL . rdmrsTxWitsL .~ redeemers
+
+-- | Build a plain transaction with no cage-related
+-- content: no mints, no cage-address outputs, no
+-- spending redeemers.
+mkPlainTx :: TxIn -> Tx ConwayEra
+mkPlainTx dummyInput =
+    let body =
+            mkBasicTxBody
+                & inputsTxBodyL
+                    .~ Set.singleton dummyInput
+    in  mkBasicTx body
+
+-- | Build a transaction containing both a boot
+-- (mint +1 with StateDatum) and a request
+-- (RequestDatum output) for the same token.
+-- | Combine a boot and a request into one tx.
+-- Reuses 'mkBootTx' structure for the state output
+-- and 'mkRequestTx' logic for the request output.
+mkBootRequestTx
+    :: TokenId
+    -> TokenState
+    -> Request
+    -> TxIn
+    -- ^ Seed input
+    -> Tx ConwayEra
+mkBootRequestTx tid ts req seedInput =
+    let
+        -- Extract the request-only tx body to get
+        -- the request output
+        reqTx = mkRequestTx req seedInput
+        reqOuts =
+            toList
+                (reqTx ^. bodyTxL . outputsTxBodyL)
+        -- Build boot parts
+        assetName = unTokenId tid
+        mintMA =
+            MultiAsset
+                $ Map.singleton testPolicyId
+                $ Map.singleton assetName 1
+        stateDatum = mkStateDatum ts (root ts)
+        outValue =
+            MaryValue (Coin 2_000_000) mintMA
+        stateOut =
+            mkBasicTxOut testCageAddr outValue
+                & datumTxOutL
+                    .~ mkInlineDatum
+                        (toPlcData stateDatum)
+        body =
+            mkBasicTxBody
+                & inputsTxBodyL
+                    .~ Set.singleton seedInput
+                & outputsTxBodyL
+                    .~ StrictSeq.fromList
+                        (stateOut : reqOuts)
+                & mintTxBodyL .~ mintMA
+    in
+        mkBasicTx body
 
 -- ---------------------------------------------------------
 -- Internal helpers

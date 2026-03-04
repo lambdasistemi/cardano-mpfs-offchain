@@ -86,14 +86,17 @@ import Cardano.MPFS.Indexer.Follower
     , computeInverse
     )
 import Cardano.MPFS.Indexer.TxFixtures
-    ( mkBootTx
+    ( mkBootRequestTx
+    , mkBootTx
     , mkBurnTx
+    , mkPlainTx
     , mkRequestTx
     , mkRetractTx
     , mkUpdateTx
     , testCageAddr
     , testPolicyId
     , testScriptHash
+    , wrongScriptHash
     )
 import Cardano.MPFS.Mock.State (mkMockState)
 import Cardano.MPFS.State
@@ -738,6 +741,125 @@ detectionTests =
                         events
                             `shouldSatisfy` any
                                 (isUpdate tid)
+
+            -- Edge cases and field extraction
+
+            it
+                "returns [] for a tx with no\
+                \ cage content"
+                $ property
+                $ forAll genTxIn
+                $ \dummyIn -> do
+                    let tx = mkPlainTx dummyIn
+                        events =
+                            detectCageEvents
+                                testScriptHash
+                                []
+                                tx
+                    events `shouldBe` []
+
+            it
+                "returns [] when ScriptHash\
+                \ does not match"
+                $ property
+                $ forAll
+                    ( (,,)
+                        <$> genTokenId
+                        <*> genTokenState
+                        <*> genTxIn
+                    )
+                $ \(tid, ts, seedIn) -> do
+                    let tx =
+                            mkBootTx tid ts seedIn
+                        events =
+                            detectCageEvents
+                                wrongScriptHash
+                                []
+                                tx
+                    events `shouldBe` []
+
+            it
+                "boot roundtrips TokenId and\
+                \ TokenState fields"
+                $ property
+                $ forAll
+                    ( (,,)
+                        <$> genTokenId
+                        <*> genTokenState
+                        <*> genTxIn
+                    )
+                $ \(tid, ts, seedIn) -> do
+                    let tx =
+                            mkBootTx tid ts seedIn
+                        events =
+                            detectCageEvents
+                                testScriptHash
+                                []
+                                tx
+                    events
+                        `shouldBe` [CageBoot tid ts]
+
+            it
+                "request roundtrips all Request\
+                \ fields"
+                $ property
+                $ forAll
+                    ( do
+                        tid <- genTokenId
+                        txIn <- genTxIn
+                        req <- genRequest tid
+                        pure (txIn, req)
+                    )
+                $ \(txIn, req) -> do
+                    let tx = mkRequestTx req txIn
+                        events =
+                            detectCageEvents
+                                testScriptHash
+                                []
+                                tx
+                    length events
+                        `shouldBe` 1
+                    case events of
+                        [CageRequest _ req'] ->
+                            req' `shouldBe` req
+                        other ->
+                            fail
+                                $ "expected [CageRequest\
+                                  \ ...], got "
+                                    ++ show other
+
+            it
+                "detects multiple events in\
+                \ one tx (boot + request)"
+                $ property
+                $ forAll
+                    ( do
+                        tid <- genTokenId
+                        ts <- genTokenState
+                        req <- genRequest tid
+                        seedIn <- genTxIn
+                        pure (tid, ts, req, seedIn)
+                    )
+                $ \(tid, ts, req, seedIn) -> do
+                    let tx =
+                            mkBootRequestTx
+                                tid
+                                ts
+                                req
+                                seedIn
+                        events =
+                            detectCageEvents
+                                testScriptHash
+                                []
+                                tx
+                    events
+                        `shouldSatisfy` any
+                            (isBoot tid)
+                    events
+                        `shouldSatisfy` any
+                            isRequestEvt
+                    length events
+                        `shouldSatisfy` (>= 2)
 
 -- ---------------------------------------------------------
 -- Event classifiers
