@@ -37,7 +37,7 @@ module Cardano.MPFS.Indexer.Codecs
     , unitPrism
     , checkpointPrism
     , slotNoPrism
-    , rollbackEntryPrism
+    , rollbackPointPrism
     , trieStatusPrism
     ) where
 
@@ -102,10 +102,11 @@ import Cardano.MPFS.Core.Types
     , TokenState (..)
     , TxIn
     )
+import MTS.Rollbacks.Types (RollbackPoint (..))
+
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
     , CageCheckpoint (..)
-    , CageRollbackEntry (..)
     , TrieStatus (..)
     , UnifiedColumns (..)
     )
@@ -135,7 +136,7 @@ allCodecs =
         , CageRollbacks
             :=> Codecs
                 { keyCodec = slotNoPrism
-                , valueCodec = rollbackEntryPrism
+                , valueCodec = rollbackPointPrism
                 }
         , TrieNodes
             :=> mpfCodecs isoMPFHash
@@ -258,46 +259,66 @@ unitPrism :: Prism' ByteString ()
 unitPrism =
     prism' (const mempty) (const (Just ()))
 
--- | Encode/decode 'CageCheckpoint' as a 3-element
--- CBOR list: @[slot, blockId, rollbackSlots]@.
+-- | Encode/decode 'CageCheckpoint' as a 2-element
+-- CBOR list: @[slot, blockId]@.
 checkpointPrism :: Prism' ByteString CageCheckpoint
 checkpointPrism = prism' enc dec
   where
     enc CageCheckpoint{..} =
         toStrictByteString
-            $ encodeListLen 3
+            $ encodeListLen 2
                 <> encodeBytes
                     (ledgerEnc checkpointSlot)
                 <> encodeBytes
                     (unBlockId checkpointBlockId)
-                <> encodeSlotList rollbackSlots
     dec = decodeCBOR $ do
-        decodeListLenOf 3
+        decodeListLenOf 2
         s <- ledgerDec =<< decodeBytes
         b <- BlockId <$> decodeBytes
-        slots <- decodeSlotList
         pure
             CageCheckpoint
                 { checkpointSlot = s
                 , checkpointBlockId = b
-                , rollbackSlots = slots
                 }
 
 -- | Encode/decode 'SlotNo' via ledger CBOR.
 slotNoPrism :: Prism' ByteString SlotNo
 slotNoPrism = prism' ledgerEnc ledgerDecMaybe
 
--- | Encode/decode 'CageRollbackEntry' as a CBOR
--- list of tagged inverse ops.
-rollbackEntryPrism
-    :: Prism' ByteString CageRollbackEntry
-rollbackEntryPrism = prism' enc dec
+-- | Encode/decode 'RollbackPoint CageInverseOp
+-- BlockId' as a 2-element CBOR list:
+-- @[inverses, meta]@.
+rollbackPointPrism
+    :: Prism'
+        ByteString
+        (RollbackPoint CageInverseOp BlockId)
+rollbackPointPrism = prism' enc dec
   where
-    enc (CageRollbackEntry ops) =
-        toStrictByteString $ encodeInvOps ops
-    dec =
-        decodeCBOR
-            $ CageRollbackEntry <$> decodeInvOps
+    enc RollbackPoint{..} =
+        toStrictByteString
+            $ encodeListLen 2
+                <> encodeInvOps rpInverses
+                <> encodeMaybeMeta rpMeta
+    dec = decodeCBOR $ do
+        decodeListLenOf 2
+        invs <- decodeInvOps
+        meta <- decodeMaybeMeta
+        pure
+            RollbackPoint
+                { rpInverses = invs
+                , rpMeta = meta
+                }
+    encodeMaybeMeta Nothing = encodeListLen 0
+    encodeMaybeMeta (Just (BlockId bs)) =
+        encodeListLen 1 <> encodeBytes bs
+    decodeMaybeMeta = do
+        n <- decodeListLen
+        case n of
+            0 -> pure Nothing
+            1 ->
+                Just . BlockId <$> decodeBytes
+            _ ->
+                fail "decodeMaybeMeta: bad len"
 
 -- | Prism for 'MPFHash' values in trie columns.
 -- Reuses the codec from @haskell-mts@ test lib.
@@ -393,20 +414,6 @@ decodeOperation = do
                 <$> decodeBytes
                 <*> decodeBytes
         _ -> fail "Unknown Operation tag"
-
--- --------------------------------------------------------
--- Slot list encoding
--- --------------------------------------------------------
-
-encodeSlotList :: [SlotNo] -> Encoding
-encodeSlotList ss =
-    encodeListLen (fromIntegral (length ss))
-        <> foldMap (encodeBytes . ledgerEnc) ss
-
-decodeSlotList :: Decoder s [SlotNo]
-decodeSlotList = do
-    n <- decodeListLen
-    mapM (const $ ledgerDec =<< decodeBytes) [1 .. n]
 
 -- --------------------------------------------------------
 -- CageInverseOp CBOR encoding

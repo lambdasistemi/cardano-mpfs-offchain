@@ -349,12 +349,11 @@ checkpointsSpec = do
                             (checkpoints st)
                             s
                             b
-                            []
                         r <-
                             getCheckpoint
                                 (checkpoints st)
                         pure
-                            (r === Just (s, b, []))
+                            (r === Just (s, b))
 
     prop "put overwrites previous"
         $ forAll genSlotNo
@@ -369,19 +368,17 @@ checkpointsSpec = do
                                     (checkpoints st)
                                     s1
                                     b1
-                                    []
                                 putCheckpoint
                                     (checkpoints st)
                                     s2
                                     b2
-                                    []
                                 r <-
                                     getCheckpoint
                                         (checkpoints st)
                                 pure
                                     ( r
                                         === Just
-                                            (s2, b2, [])
+                                            (s2, b2)
                                     )
 
 -- ---------------------------------------------------------
@@ -434,14 +431,13 @@ checkpointSurvivesReopen =
                     (checkpoints st)
                     fixSlot
                     fixBlockId
-                    []
             -- Phase 2: reopen and verify
             withTestStateAt dir $ \st -> do
                 r <-
                     getCheckpoint (checkpoints st)
                 r
                     `shouldBe` Just
-                        (fixSlot, fixBlockId, [])
+                        (fixSlot, fixBlockId)
 
 -- | Put then remove a token, close DB, reopen,
 -- verify removal persisted.

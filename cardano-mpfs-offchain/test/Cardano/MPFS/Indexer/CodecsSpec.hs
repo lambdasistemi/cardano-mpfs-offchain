@@ -13,7 +13,8 @@ import Data.ByteString qualified as BS
 import Test.Hspec (Spec, describe)
 import Test.Hspec.QuickCheck (prop)
 import Test.QuickCheck
-    ( choose
+    ( Gen
+    , choose
     , forAll
     , vectorOf
     , (=/=)
@@ -21,6 +22,9 @@ import Test.QuickCheck
     , (==>)
     )
 
+import MTS.Rollbacks.Types (RollbackPoint (..))
+
+import Cardano.MPFS.Core.Types (BlockId)
 import Cardano.MPFS.Generators
     ( genBlockId
     , genCageInverseOp
@@ -33,7 +37,7 @@ import Cardano.MPFS.Generators
 import Cardano.MPFS.Indexer.Codecs
     ( checkpointPrism
     , requestPrism
-    , rollbackEntryPrism
+    , rollbackPointPrism
     , slotNoPrism
     , tokenIdPrism
     , tokenStatePrism
@@ -42,7 +46,9 @@ import Cardano.MPFS.Indexer.Codecs
     )
 import Cardano.MPFS.Indexer.Columns
     ( CageCheckpoint (..)
-    , CageRollbackEntry (..)
+    )
+import Cardano.MPFS.Indexer.Event
+    ( CageInverseOp
     )
 
 spec :: Spec
@@ -92,16 +98,14 @@ spec = describe "Codecs" $ do
             $ forAll genSlotNo
             $ \s ->
                 forAll genBlockId $ \b ->
-                    forAll genSlotList $ \slots ->
-                        let cp =
-                                CageCheckpoint s b slots
-                        in  preview
+                    let cp = CageCheckpoint s b
+                    in  preview
+                            checkpointPrism
+                            ( review
                                 checkpointPrism
-                                ( review
-                                    checkpointPrism
-                                    cp
-                                )
-                                === Just cp
+                                cp
+                            )
+                            === Just cp
 
         prop "slotNoPrism"
             $ forAll genSlotNo
@@ -111,16 +115,16 @@ spec = describe "Codecs" $ do
                     (review slotNoPrism s)
                     === Just s
 
-        prop "rollbackEntryPrism"
-            $ forAll genRollbackEntry
-            $ \entry ->
+        prop "rollbackPointPrism"
+            $ forAll genRollbackPoint
+            $ \rp ->
                 preview
-                    rollbackEntryPrism
+                    rollbackPointPrism
                     ( review
-                        rollbackEntryPrism
-                        entry
+                        rollbackPointPrism
+                        rp
                     )
-                    === Just entry
+                    === Just rp
 
     -- -------------------------------------------
     -- Injectivity (Lean: roundTrip_implies_injective)
@@ -171,23 +175,22 @@ spec = describe "Codecs" $ do
             $ forAll genSlotNo
             $ \s ->
                 forAll genBlockId $ \b ->
-                    forAll genSlotList $ \slots ->
-                        not
-                            ( BS.null
-                                ( review
-                                    checkpointPrism
-                                    ( CageCheckpoint
-                                        s
-                                        b
-                                        slots
-                                    )
-                                )
+                    not
+                        ( BS.null
+                            ( review
+                                checkpointPrism
+                                (CageCheckpoint s b)
                             )
+                        )
   where
-    genSlotList = do
+    genRollbackPoint
+        :: Gen
+            (RollbackPoint CageInverseOp BlockId)
+    genRollbackPoint = do
         n <- choose (0 :: Int, 5)
-        vectorOf n genSlotNo
-    genRollbackEntry = do
-        n <- choose (0 :: Int, 5)
-        CageRollbackEntry
-            <$> vectorOf n genCageInverseOp
+        invs <- vectorOf n genCageInverseOp
+        pure
+            RollbackPoint
+                { rpInverses = invs
+                , rpMeta = Nothing
+                }

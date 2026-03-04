@@ -84,15 +84,15 @@ mkMockCheckpoints = do
     ref <-
         newIORef
             ( Nothing
-                :: Maybe (SlotNo, BlockId, [SlotNo])
+                :: Maybe (SlotNo, BlockId)
             )
     pure
         Checkpoints
             { getCheckpoint = readIORef ref
-            , putCheckpoint = \s b slots ->
+            , putCheckpoint = \s b ->
                 modifyIORef'
                     ref
-                    (const (Just (s, b, slots)))
+                    (const (Just (s, b)))
             }
 
 -- | Create a complete mock 'State IO' bundling

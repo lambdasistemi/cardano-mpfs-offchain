@@ -162,9 +162,8 @@ mkTransactionalCheckpoints =
                     Just
                         ( checkpointSlot
                         , checkpointBlockId
-                        , rollbackSlots
                         )
-        , putCheckpoint = \s b slots ->
+        , putCheckpoint = \s b ->
             insert CageCfg ()
-                $ CageCheckpoint s b slots
+                $ CageCheckpoint s b
         }

@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -43,6 +45,7 @@ module Cardano.MPFS.Indexer.CageFollower
     , mkCageIntersector
     ) where
 
+import Control.Monad (forM_)
 import Control.Tracer (Tracer)
 import Data.ByteString.Lazy (LazyByteString)
 import Data.IORef
@@ -71,14 +74,15 @@ import Cardano.UTxOCSMT.Application.BlockFetch
 import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     ( Columns (..)
     )
+import Cardano.UTxOCSMT.Application.Database.Implementation.RollbackPoint
+    ( pattern UTxORollbackPoint
+    )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
-    ( CSMTOps
+    ( CSMTOps (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( RollbackResult (..)
-    , UpdateTrace
+    ( UpdateTrace
     , forwardTip
-    , rollbackTip
     , sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Database.Interface
@@ -94,6 +98,7 @@ import Cardano.UTxOCSMT.Ouroboros.Types
     , Point
     , ProgressOrRewind (..)
     )
+import MTS.Rollbacks.Store qualified as Store
 
 import Database.KV.Transaction
     ( Transaction
@@ -124,11 +129,7 @@ import Cardano.MPFS.Indexer.Persistent
 import Cardano.MPFS.Indexer.Rollback
     ( putCheckpointT
     , rollbackToSlotT
-    , storeRollbackT
-    )
-import Cardano.MPFS.State
-    ( Checkpoints (..)
-    , State (..)
+    , storeRollbackPointT
     )
 import Cardano.MPFS.Trie.Persistent
     ( mkUnifiedTrieManager
@@ -381,25 +382,14 @@ mkCageFollower
                             fetchedPoint
                             utxoOps
 
-                -- 4. Read current checkpoint for
-                -- active slots list
-                mCp <-
-                    mapColumns InCage
-                        $ getCheckpoint
-                            (checkpoints txState)
-                let activeSlots = case mCp of
-                        Nothing -> [slot]
-                        Just (_, _, slots) ->
-                            slot : slots
-
-                -- 5. Store rollback inverses and
+                -- 4. Store rollback inverses and
                 -- update checkpoint
                 mapColumns InCage $ do
-                    storeRollbackT slot invs
-                    putCheckpointT
+                    storeRollbackPointT
                         slot
-                        blockId
-                        activeSlots
+                        invs
+                        (Just blockId)
+                    putCheckpointT slot blockId
 
                 pure tipStored
 
@@ -417,36 +407,64 @@ mkCageFollower
         rollBwd point = do
             let targetSlot = pointToSlot point
 
-            (result, deleted) <- run $ do
-                -- 1. Rollback UTxO CSMT
-                r@(rbResult, _) <-
+            result <- run $ do
+                -- Guard: if the rollback target is
+                -- ahead of the UTxO tip, the rollback
+                -- is a no-op (e.g. initial RollBackward
+                -- to genesis when tip is Origin).
+                utxoTip <-
                     mapColumns InUtxo
-                        $ rollbackTip
-                            ops
-                            point
-                -- 2. Rollback cage state only if
-                -- UTxO rollback succeeded — both
-                -- subsystems must stay in sync.
-                case rbResult of
-                    RollbackSucceeded ->
-                        mapColumns InCage
-                            $ rollbackToSlotT
-                                txState
-                                txTm
-                                targetSlot
-                    RollbackImpossible ->
-                        pure ()
-                pure r
+                        $ Store.queryTip
+                            RollbackPoints
+                case utxoTip of
+                    Just tip
+                        | At point > tip ->
+                            pure
+                                $ Store.RollbackSucceeded
+                                    0
+                    _ -> do
+                        -- 1. Rollback UTxO CSMT
+                        utxoResult <-
+                            mapColumns InUtxo
+                                $ Store.rollbackTo
+                                    RollbackPoints
+                                    ( \(UTxORollbackPoint _ ios _) ->
+                                        forM_ ios
+                                            $ \case
+                                                Insert k v ->
+                                                    csmtInsert
+                                                        ops
+                                                        k
+                                                        v
+                                                Delete k ->
+                                                    csmtDelete
+                                                        ops
+                                                        k
+                                    )
+                                    (At point)
+                        -- 2. Rollback cage state only
+                        -- if UTxO rollback succeeded —
+                        -- both subsystems must stay in
+                        -- sync.
+                        case utxoResult of
+                            Store.RollbackSucceeded _ ->
+                                mapColumns InCage
+                                    $ rollbackToSlotT
+                                        txState
+                                        txTm
+                                        targetSlot
+                            Store.RollbackImpossible ->
+                                pure ()
+                        pure utxoResult
 
             -- Post-commit: adjust rollback counter
-            modifyIORef'
-                countRef
-                (subtract deleted)
-
             case result of
-                RollbackSucceeded ->
+                Store.RollbackSucceeded deleted -> do
+                    modifyIORef'
+                        countRef
+                        (subtract deleted)
                     pure $ Progress follower
-                RollbackImpossible -> do
+                Store.RollbackImpossible -> do
                     -- Sample remaining rollback
                     -- points to find new
                     -- intersection

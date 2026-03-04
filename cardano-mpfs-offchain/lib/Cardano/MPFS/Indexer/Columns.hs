@@ -40,9 +40,6 @@ module Cardano.MPFS.Indexer.Columns
       -- * Checkpoint type
     , CageCheckpoint (..)
 
-      -- * Rollback entry type
-    , CageRollbackEntry (..)
-
       -- * Trie registry status
     , TrieStatus (..)
     ) where
@@ -61,6 +58,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 
 import MPF.Hashes (MPFHash)
 import MPF.Interface (HexIndirect, HexKey)
+
+import MTS.Rollbacks.Types (RollbackPoint)
 
 import Cardano.MPFS.Core.Types
     ( BlockId
@@ -90,16 +89,6 @@ data CageCheckpoint = CageCheckpoint
     -- ^ Slot of the last processed block
     , checkpointBlockId :: !BlockId
     -- ^ Header hash of the last processed block
-    , rollbackSlots :: ![SlotNo]
-    -- ^ Slots with stored inverse ops, bounded by
-    -- the security parameter (k ≈ 2160).
-    }
-    deriving stock (Eq, Show)
-
--- | Inverse ops stored for a single block's slot,
--- used for rollback.
-newtype CageRollbackEntry = CageRollbackEntry
-    { unRollbackEntry :: [CageInverseOp]
     }
     deriving stock (Eq, Show)
 
@@ -120,9 +109,16 @@ data AllColumns x where
     CageCfg
         :: AllColumns (KV () CageCheckpoint)
     -- | Rollback storage: maps slot numbers to
-    -- inverse ops for rollback.
+    -- inverse 'RollbackPoint's for rollback.
     CageRollbacks
-        :: AllColumns (KV SlotNo CageRollbackEntry)
+        :: AllColumns
+            ( KV
+                SlotNo
+                ( RollbackPoint
+                    CageInverseOp
+                    BlockId
+                )
+            )
     -- | Trie nodes: MPF trie structure. Keys are
     -- 'HexKey' paths, values are 'HexIndirect'
     -- nodes containing hash pointers.
