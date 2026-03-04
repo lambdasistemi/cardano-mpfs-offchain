@@ -267,7 +267,7 @@ chainsyncSpecs scriptBytes = do
                             expectationFailure
                                 "no checkpoint \
                                 \after processing"
-                        Just (SlotNo s, _, _) ->
+                        Just (SlotNo s, _) ->
                             s
                                 `shouldSatisfy` (> 0)
 

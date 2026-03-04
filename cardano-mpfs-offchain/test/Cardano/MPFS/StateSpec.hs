@@ -168,9 +168,9 @@ checkpointsSpec newCheckpoints = do
             forAll genBlockId $ \b ->
                 monadicIO $ do
                     cp <- run newCheckpoints
-                    run $ putCheckpoint cp s b []
+                    run $ putCheckpoint cp s b
                     r <- run $ getCheckpoint cp
-                    assert (r == Just (s, b, []))
+                    assert (r == Just (s, b))
 
     prop "put overwrites previous"
         $ forAll genSlotNo
@@ -185,13 +185,11 @@ checkpointsSpec newCheckpoints = do
                                     cp
                                     s1
                                     b1
-                                    []
                             run
                                 $ putCheckpoint
                                     cp
                                     s2
                                     b2
-                                    []
                             r <- run $ getCheckpoint cp
                             assert
-                                (r == Just (s2, b2, []))
+                                (r == Just (s2, b2))

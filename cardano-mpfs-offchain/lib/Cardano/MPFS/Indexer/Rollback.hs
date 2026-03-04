@@ -3,26 +3,27 @@
 -- Description : Rollback to a previous slot
 -- License     : Apache-2.0
 --
--- Slot-based rollback for the cage indexer. All
--- operations are transactional: they compose into a
--- single DB write batch, ensuring atomicity from
--- protocol to protocol (one rollback = one commit).
+-- Slot-based rollback for the cage indexer using the
+-- @mts:rollbacks@ library. All operations are
+-- transactional: they compose into a single DB write
+-- batch, ensuring atomicity (one rollback = one
+-- commit).
 module Cardano.MPFS.Indexer.Rollback
     ( -- * Transactional operations
-      storeRollbackT
-    , loadRollbackT
-    , deleteRollbackT
+      storeRollbackPointT
     , putCheckpointT
     , rollbackToSlotT
+    , queryTipT
+    , pruneRollbacksT
     ) where
 
-import Control.Monad (forM_)
+import MTS.Rollbacks.Store qualified as Store
+import MTS.Rollbacks.Types (RollbackPoint (..))
 
 import Cardano.MPFS.Core.Types (BlockId (..), SlotNo)
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
     , CageCheckpoint (..)
-    , CageRollbackEntry (..)
     )
 import Cardano.MPFS.Indexer.Event
     ( CageInverseOp
@@ -31,65 +32,60 @@ import Cardano.MPFS.Indexer.Follower
     ( applyCageInverses
     )
 import Cardano.MPFS.State
-    ( Checkpoints (..)
-    , State (..)
+    ( State (..)
     )
 import Cardano.MPFS.Trie (TrieManager)
 import Database.KV.Transaction
     ( Transaction
-    , delete
     , insert
-    , query
     )
 
--- | Store inverse ops for a block within a
--- transaction. No auto-commit.
-storeRollbackT
+-- | Store a rollback point at the given slot.
+storeRollbackPointT
     :: SlotNo
     -> [CageInverseOp]
+    -> Maybe BlockId
     -> Transaction m cf AllColumns ops ()
-storeRollbackT slot invs =
-    insert
+storeRollbackPointT slot invs meta =
+    Store.storeRollbackPoint
         CageRollbacks
         slot
-        (CageRollbackEntry invs)
-
--- | Load inverse ops for a slot within a
--- transaction.
-loadRollbackT
-    :: (Monad m)
-    => SlotNo
-    -> Transaction
-        m
-        cf
-        AllColumns
-        ops
-        (Maybe [CageInverseOp])
-loadRollbackT slot = do
-    mEntry <- query CageRollbacks slot
-    pure $ fmap unRollbackEntry mEntry
-
--- | Delete stored inverse ops within a transaction.
-deleteRollbackT
-    :: SlotNo
-    -> Transaction m cf AllColumns ops ()
-deleteRollbackT = delete CageRollbacks
+        RollbackPoint
+            { rpInverses = invs
+            , rpMeta = meta
+            }
 
 -- | Store a checkpoint within a transaction.
 putCheckpointT
     :: SlotNo
     -> BlockId
-    -> [SlotNo]
     -> Transaction m cf AllColumns ops ()
-putCheckpointT s b slots =
-    insert CageCfg () (CageCheckpoint s b slots)
+putCheckpointT s b =
+    insert CageCfg () (CageCheckpoint s b)
 
--- | Roll back cage state to a target slot within a
--- transaction. Replays inverse ops for all slots
--- after the target, in reverse order. The entire
--- rollback (load inverses, apply them, delete
--- entries, update checkpoint) executes in one
--- atomic write batch.
+-- | Query the current rollback tip slot.
+queryTipT
+    :: (Monad m)
+    => Transaction
+        m
+        cf
+        AllColumns
+        ops
+        (Maybe SlotNo)
+queryTipT = Store.queryTip CageRollbacks
+
+-- | Prune rollback points below a slot.
+pruneRollbacksT
+    :: (Monad m)
+    => SlotNo
+    -> Transaction m cf AllColumns ops Int
+pruneRollbacksT =
+    Store.pruneBelow CageRollbacks
+
+-- | Roll back cage state to a target slot within
+-- a transaction. Uses the library's cursor-based
+-- backward walk to iterate from tip, applying
+-- inverses for each point strictly after target.
 rollbackToSlotT
     :: (Monad m)
     => State
@@ -99,30 +95,20 @@ rollbackToSlotT
     -> SlotNo
     -> Transaction m cf AllColumns ops ()
 rollbackToSlotT st tm targetSlot = do
-    mCp <- getCheckpoint (checkpoints st)
-    case mCp of
-        Nothing -> pure ()
-        Just (_currentSlot, _blockId, activeSlots) ->
-            do
-                let slotsToRevert =
-                        reverse
-                            $ filter
-                                (> targetSlot)
-                                activeSlots
-                forM_ slotsToRevert $ \slot -> do
-                    mInvs <- loadRollbackT slot
-                    forM_ mInvs $ \invs ->
-                        applyCageInverses
-                            st
-                            tm
-                            (reverse invs)
-                    deleteRollbackT slot
-                -- Update checkpoint
-                let keptSlots =
-                        filter
-                            (<= targetSlot)
-                            activeSlots
-                putCheckpointT
-                    targetSlot
-                    (BlockId mempty)
-                    keptSlots
+    result <-
+        Store.rollbackTo
+            CageRollbacks
+            ( \RollbackPoint{rpInverses} ->
+                applyCageInverses
+                    st
+                    tm
+                    (reverse rpInverses)
+            )
+            targetSlot
+    case result of
+        Store.RollbackSucceeded _ ->
+            putCheckpointT
+                targetSlot
+                (BlockId mempty)
+        Store.RollbackImpossible ->
+            pure ()

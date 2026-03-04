@@ -101,8 +101,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualifie
     ( RunTransaction (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( countRollbackPoints
-    , sampleRollbackPoints
+    ( sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
@@ -116,6 +115,7 @@ import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
 import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
+import MTS.Rollbacks.Store qualified as Store
 
 import Ouroboros.Network.Block qualified as Network
 
@@ -312,9 +312,8 @@ withApplication cfg action =
                     initialCount <-
                         run
                             $ mapColumns InUtxo
-                            $ iterating
+                            $ Store.countPoints
                                 RollbackPoints
-                                countRollbackPoints
                     countRef <-
                         newIORef initialCount
 
@@ -461,7 +460,6 @@ seedBootstrap (Just fp) st runner ops =
                     (CageSt.checkpoints st)
                     (SlotNo bootstrapSlot)
                     (BlockId h)
-                    []
     onEntry k v =
         CSMT.transact runner
             $ csmtInsert
