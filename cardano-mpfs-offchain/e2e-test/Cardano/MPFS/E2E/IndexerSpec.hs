@@ -38,6 +38,8 @@ import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.TxIn (TxIn (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
+import Control.Tracer (nullTracer)
+
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
@@ -946,6 +948,8 @@ withE2E scriptBytes action = do
                                 Just bsFile
                             , followerEnabled =
                                 False
+                            , appTracer =
+                                nullTracer
                             }
                 withApplication appCfg $ \ctx -> do
                     _ <-
