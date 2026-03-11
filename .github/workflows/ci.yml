@@ -11,14 +11,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: nixos
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cachix/cachix-action@v15
+      - uses: paolino/dev-assets/setup-nix@v0.0.1
         with:
-          name: paolino
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build and run offchain tests
         run: |
@@ -37,14 +36,13 @@ jobs:
         run: nix develop --quiet -c hlint $(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
 
   e2e:
-    runs-on: nixos
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cachix/cachix-action@v15
+      - uses: paolino/dev-assets/setup-nix@v0.0.1
         with:
-          name: paolino
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build E2E tests
         run: nix build .#e2e-tests --quiet
