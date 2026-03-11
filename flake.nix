@@ -51,7 +51,8 @@
           in {
             packages = {
               inherit (project.packages)
-                offchain-tests e2e-tests cardano-mpfs-offchain haddock;
+                offchain-tests e2e-tests cardano-mpfs-offchain
+                mpfs-bootstrap-genesis haddock;
               default = project.packages.cardano-mpfs-offchain;
             };
             inherit (project) devShells;

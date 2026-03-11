@@ -143,22 +143,17 @@ generateAndRead = do
                 )
             readIORef pairsRef
 
--- | Run @mpfs-bootstrap-genesis@ via @cabal run@.
+-- | Run @mpfs-bootstrap-genesis@ directly (must be on PATH).
 runBootstrapExe
     :: FilePath -> FilePath -> IO ()
 runBootstrapExe genesisFile outFile = do
     let cp =
-            (proc "cabal" args)
+            (proc "mpfs-bootstrap-genesis" args)
                 { std_out = CreatePipe
                 , std_err = CreatePipe
                 }
         args =
-            [ "run"
-            , "-v0"
-            , "-O0"
-            , "mpfs-bootstrap-genesis"
-            , "--"
-            , "--genesis"
+            [ "--genesis"
             , genesisFile
             , "--output"
             , outFile
