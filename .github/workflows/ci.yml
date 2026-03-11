@@ -46,7 +46,13 @@ jobs:
           name: paolino
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      - name: Build E2E tests
+        run: |
+          nix build .#e2e-tests --quiet
+          nix build .#mpfs-bootstrap-genesis -o result-bootstrap --quiet
+
       - name: Run E2E tests
         run: |
+          export PATH="$PWD/result-bootstrap/bin:$PATH"
           E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
-            nix shell .#e2e-tests .#mpfs-bootstrap-genesis --quiet -c e2e-tests
+            nix develop --quiet -c ./result/bin/e2e-tests
