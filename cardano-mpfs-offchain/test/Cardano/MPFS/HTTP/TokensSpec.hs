@@ -34,17 +34,15 @@ import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( Coin (..)
+    , Root (..)
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.Generators (genKeyHash)
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.State qualified as St
-
-import Cardano.MPFS.Generators (genKeyHash)
 import Test.QuickCheck (generate)
-
-import Cardano.MPFS.Core.Types (Root (..))
 
 getTokens :: Context IO -> IO SResponse
 getTokens ctx =
