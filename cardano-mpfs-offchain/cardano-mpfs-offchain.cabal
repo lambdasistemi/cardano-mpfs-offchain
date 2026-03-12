@@ -36,6 +36,7 @@ library
     , aeson                                    >=2.1  && <2.3
     , async
     , base                                     >=4.18 && <5
+    , base16-bytestring                        >=1.0  && <1.1
     , bytestring                               >=0.11 && <0.13
     , cardano-crypto-class
     , cardano-ledger-allegra
@@ -71,6 +72,8 @@ library
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
     , rocksdb-kv-transactions:kv-transactions
+    , servant                                  >=0.20 && <0.21
+    , servant-server                           >=0.20 && <0.21
     , text                                     >=2.0  && <2.2
     , time
 
@@ -81,6 +84,10 @@ library
     Cardano.MPFS.Core.OnChain
     Cardano.MPFS.Core.Proof
     Cardano.MPFS.Core.Types
+    Cardano.MPFS.HTTP.API
+    Cardano.MPFS.HTTP.Encoding
+    Cardano.MPFS.HTTP.Server
+    Cardano.MPFS.HTTP.Types
     Cardano.MPFS.Indexer
     Cardano.MPFS.Indexer.CageFollower
     Cardano.MPFS.Indexer.Codecs
@@ -139,6 +146,7 @@ test-suite unit-tests
   hs-source-dirs:   test
   main-is:          main.hs
   build-depends:
+    , aeson
     , base
     , bytestring
     , cardano-crypto-class
@@ -154,6 +162,7 @@ test-suite unit-tests
     , cardano-strict-containers
     , containers
     , hspec                                    >=2.11 && <2.12
+    , http-types
     , lens
     , microlens
     , mts:mpf
@@ -167,10 +176,12 @@ test-suite unit-tests
     , rocksdb-kv-transactions:kv-transactions
     , temporary
     , text
+    , wai-extra
 
   other-modules:
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
+    Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
     Cardano.MPFS.Indexer.FollowerSpec
