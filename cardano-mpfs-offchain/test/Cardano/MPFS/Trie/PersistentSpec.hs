@@ -35,7 +35,6 @@ import Test.Hspec
     ( Spec
     , describe
     , it
-    , pendingWith
     , shouldBe
     , shouldSatisfy
     )
@@ -954,14 +953,16 @@ crossLayerSpec = do
     it
         "IO layer reads data written by \
         \transactional layer"
-        $ pendingWith
-            "trie IO layer key format \
-            \mismatch (#109)"
+        crossLayerReadAfterWrite
+    it
+        "speculative batch insert produces \
+        \valid proofs"
+        speculativeBatchInsert
 
 -- | Write via transactional layer, read via IO
 -- layer. Checks root, lookup, and proof.
-_crossLayerReadAfterWrite :: IO ()
-_crossLayerReadAfterWrite =
+crossLayerReadAfterWrite :: IO ()
+crossLayerReadAfterWrite =
     withSystemTempDirectory "cross-layer"
         $ \dir ->
             withDBCF dir dbConfig cageColumnFamilies
@@ -1034,3 +1035,47 @@ _crossLayerReadAfterWrite =
                             error
                                 "Expected at least \
                                 \7 column families"
+
+-- | Mimics the e2e batch update: create a trie
+-- via IO layer, then speculatively insert 2 keys,
+-- get proof steps for each, and verify root is
+-- non-empty. This is what updateToken does.
+speculativeBatchInsert :: IO ()
+speculativeBatchInsert =
+    withTestDB
+        $ \db nodesCF kvCF metaCF -> do
+            mgr <-
+                mkPersistentTrieManager
+                    db
+                    nodesCF
+                    kvCF
+                    metaCF
+            let tid = reopenTidA
+            createTrie mgr tid
+            -- Speculative batch insert (like
+            -- updateToken with 2 requests)
+            (steps1, steps2, newRoot) <-
+                withSpeculativeTrie
+                    mgr
+                    tid
+                    $ \trie -> do
+                        -- Insert key1, get proof
+                        _ <-
+                            insert trie "key1" "val1"
+                        s1 <-
+                            getProofSteps trie "key1"
+                        -- Insert key2, get proof
+                        _ <-
+                            insert trie "key2" "val2"
+                        s2 <-
+                            getProofSteps trie "key2"
+                        r <- getRoot trie
+                        pure (s1, s2, r)
+            -- Root must be non-empty
+            newRoot
+                `shouldSatisfy` ( \(Root r) ->
+                                    r /= B.empty
+                                )
+            -- Both proofs must exist
+            isJust steps1 `shouldBe` True
+            isJust steps2 `shouldBe` True

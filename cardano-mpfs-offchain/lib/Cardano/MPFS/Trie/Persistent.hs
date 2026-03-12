@@ -112,7 +112,9 @@ import MPF.Interface
     , mpfCodecs
     )
 import MPF.Proof.Insertion
-    ( mkMPFInclusionProof
+    ( MPFProof (..)
+    , MPFProofStep (..)
+    , mkMPFInclusionProof
     )
 import MPF.Test.Lib
     ( fromHexKVIdentity
@@ -277,7 +279,13 @@ unifiedGetProof pfx k = do
             mpfHashing
             TrieNodes
             hexKey
-    pure $ fmap (Proof . serializeProof) mProof
+    pure
+        $ fmap
+            ( Proof
+                . serializeProof
+                . stripProofPrefix pfx
+            )
+            mProof
 
 unifiedGetProofSteps
     :: (Monad m)
@@ -299,7 +307,10 @@ unifiedGetProofSteps pfx k = do
             mpfHashing
             TrieNodes
             hexKey
-    pure $ fmap toProofSteps mProof
+    pure
+        $ fmap
+            (toProofSteps . stripProofPrefix pfx)
+            mProof
 
 -- --------------------------------------------------------
 -- Transactional TrieManager (AllColumns)
@@ -507,15 +518,15 @@ persistentWithTrie
                 tid
         case status of
             Just Visible -> do
-                let pfx = tokenPrefix tid
+                let hexPfx = tokenHexPrefix tid
                     database =
                         mkPrefixedTrieDB
                             db
                             nodesCF
                             kvCF
-                            pfx
+                            BS.empty
                 action
-                    (mkPersistentTrie database)
+                    (mkPersistentTrie hexPfx database)
             Just Hidden ->
                 error
                     $ "Trie is hidden: "
@@ -561,17 +572,17 @@ persistentWithSpeculativeTrie
                 tid
         case status of
             Just Visible -> do
-                let pfx = tokenPrefix tid
+                let hexPfx = tokenHexPrefix tid
                     database =
                         mkPrefixedTrieDB
                             db
                             nodesCF
                             kvCF
-                            pfx
+                            BS.empty
                 runSpeculation
                     database
                     ( action
-                        mkSpeculativeTrie
+                        (mkSpeculativeTrie hexPfx)
                     )
             Just Hidden ->
                 error
@@ -651,18 +662,27 @@ persistentCreateTrie
     knownRef
     hiddenRef
     tid = do
-        ops1 <- collectDeleteOps db nodesCF pfx
-        ops2 <- collectDeleteOps db kvCF pfx
-        let metaOp =
-                PutCF
-                    metaCF
-                    (tokenIdToKey tid)
-                    (encodeTrieStatus Visible)
-        write db (metaOp : ops1 ++ ops2)
+        let database =
+                mkPrefixedTrieDB
+                    db
+                    nodesCF
+                    kvCF
+                    BS.empty
+        runTransactionUnguarded database
+            $ deleteSubtree
+                MPFStandaloneMPFCol
+                hexPfx
+        write
+            db
+            [ PutCF
+                metaCF
+                (tokenIdToKey tid)
+                (encodeTrieStatus Visible)
+            ]
         modifyIORef' knownRef (Set.insert tid)
         modifyIORef' hiddenRef (Set.delete tid)
       where
-        pfx = tokenPrefix tid
+        hexPfx = tokenHexPrefix tid
 
 persistentDeleteTrie
     :: DB
@@ -681,15 +701,23 @@ persistentDeleteTrie
     knownRef
     hiddenRef
     tid = do
-        ops1 <- collectDeleteOps db nodesCF pfx
-        ops2 <- collectDeleteOps db kvCF pfx
-        let metaOp =
-                DelCF metaCF (tokenIdToKey tid)
-        write db (metaOp : ops1 ++ ops2)
+        let database =
+                mkPrefixedTrieDB
+                    db
+                    nodesCF
+                    kvCF
+                    BS.empty
+        runTransactionUnguarded database
+            $ deleteSubtree
+                MPFStandaloneMPFCol
+                hexPfx
+        write
+            db
+            [DelCF metaCF (tokenIdToKey tid)]
         modifyIORef' knownRef (Set.delete tid)
         modifyIORef' hiddenRef (Set.delete tid)
       where
-        pfx = tokenPrefix tid
+        hexPfx = tokenHexPrefix tid
 
 persistentHideTrie
     :: DB
@@ -854,27 +882,29 @@ incrementPrefix bs
 -- --------------------------------------------------------
 
 mkPersistentTrie
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> Trie IO
-mkPersistentTrie database =
+mkPersistentTrie pfx database =
     Trie
-        { insert = persistentInsert database
-        , delete = persistentDelete database
-        , lookup = persistentLookup database
-        , getRoot = persistentGetRoot database
+        { insert = persistentInsert pfx database
+        , delete = persistentDelete pfx database
+        , lookup = persistentLookup pfx database
+        , getRoot = persistentGetRoot pfx database
         , getProof =
-            persistentGetProof database
+            persistentGetProof pfx database
         , getProofSteps =
-            persistentGetProofSteps database
+            persistentGetProofSteps pfx database
         }
 
 -- | A 'Trie' for speculative (dry-run) sessions.
 mkSpeculativeTrie
-    :: Trie
+    :: HexKey
+    -> Trie
         ( Transaction
             IO
             ColumnFamily
@@ -885,15 +915,15 @@ mkSpeculativeTrie
             )
             BatchOp
         )
-mkSpeculativeTrie =
+mkSpeculativeTrie pfx =
     Trie
-        { insert = speculativeInsert
-        , delete = speculativeDelete
-        , lookup = speculativeLookup
-        , getRoot = speculativeGetRoot
-        , getProof = speculativeGetProof
+        { insert = speculativeInsert pfx
+        , delete = speculativeDelete pfx
+        , lookup = speculativeLookup pfx
+        , getRoot = speculativeGetRoot pfx
+        , getProof = speculativeGetProof pfx
         , getProofSteps =
-            speculativeGetProofSteps
+            speculativeGetProofSteps pfx
         }
 
 -- --------------------------------------------------------
@@ -901,7 +931,8 @@ mkSpeculativeTrie =
 -- --------------------------------------------------------
 
 persistentInsert
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
@@ -909,91 +940,97 @@ persistentInsert
     -> ByteString
     -> ByteString
     -> IO Root
-persistentInsert database k v =
+persistentInsert pfx database k v =
     runTransactionUnguarded database $ do
         inserting
-            []
+            pfx
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneKVCol
             MPFStandaloneMPFCol
             (byteStringToHexKey (hashBS k))
             (mkMPFHash v)
-        speculativeGetRoot
+        speculativeGetRoot pfx
 
 persistentDelete
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> ByteString
     -> IO Root
-persistentDelete database k =
+persistentDelete pfx database k =
     runTransactionUnguarded database $ do
         deleting
-            []
+            pfx
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneKVCol
             MPFStandaloneMPFCol
             (byteStringToHexKey (hashBS k))
-        speculativeGetRoot
+        speculativeGetRoot pfx
 
 persistentLookup
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> ByteString
     -> IO (Maybe ByteString)
-persistentLookup database k =
+persistentLookup pfx database k =
     runTransactionUnguarded database
-        $ speculativeLookup k
+        $ speculativeLookup pfx k
 
 persistentGetRoot
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> IO Root
-persistentGetRoot database =
+persistentGetRoot pfx database =
     runTransactionUnguarded
         database
-        speculativeGetRoot
+        (speculativeGetRoot pfx)
 
 persistentGetProof
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> ByteString
     -> IO (Maybe Proof)
-persistentGetProof database k =
+persistentGetProof pfx database k =
     runTransactionUnguarded database
-        $ speculativeGetProof k
+        $ speculativeGetProof pfx k
 
 persistentGetProofSteps
-    :: Database
+    :: HexKey
+    -> Database
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
     -> ByteString
     -> IO (Maybe [ProofStep])
-persistentGetProofSteps database k =
+persistentGetProofSteps pfx database k =
     runTransactionUnguarded database
-        $ speculativeGetProofSteps k
+        $ speculativeGetProofSteps pfx k
 
 -- --------------------------------------------------------
 -- Speculative trie operations (MPFStandalone cols)
 -- --------------------------------------------------------
 
 speculativeInsert
-    :: ByteString
+    :: HexKey
+    -> ByteString
     -> ByteString
     -> Transaction
         IO
@@ -1001,49 +1038,51 @@ speculativeInsert
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         Root
-speculativeInsert k v = do
+speculativeInsert pfx k v = do
     inserting
-        []
+        pfx
         fromHexKVIdentity
         mpfHashing
         MPFStandaloneKVCol
         MPFStandaloneMPFCol
         (byteStringToHexKey (hashBS k))
         (mkMPFHash v)
-    speculativeGetRoot
+    speculativeGetRoot pfx
 
 speculativeDelete
-    :: ByteString
+    :: HexKey
+    -> ByteString
     -> Transaction
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         Root
-speculativeDelete k = do
+speculativeDelete pfx k = do
     deleting
-        []
+        pfx
         fromHexKVIdentity
         mpfHashing
         MPFStandaloneKVCol
         MPFStandaloneMPFCol
         (byteStringToHexKey (hashBS k))
-    speculativeGetRoot
+    speculativeGetRoot pfx
 
 speculativeLookup
-    :: ByteString
+    :: HexKey
+    -> ByteString
     -> Transaction
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         (Maybe ByteString)
-speculativeLookup k = do
+speculativeLookup pfx k = do
     let hexKey =
             byteStringToHexKey (hashBS k)
     mProof <-
         mkMPFInclusionProof
-            []
+            pfx
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneMPFCol
@@ -1053,14 +1092,15 @@ speculativeLookup k = do
         Just _ -> Just (hashBS k)
 
 speculativeGetRoot
-    :: Transaction
+    :: HexKey
+    -> Transaction
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         Root
-speculativeGetRoot = do
-    mi <- KV.query MPFStandaloneMPFCol []
+speculativeGetRoot pfx = do
+    mi <- KV.query MPFStandaloneMPFCol pfx
     pure $ case mi of
         Nothing -> Root BS.empty
         Just
@@ -1080,48 +1120,79 @@ speculativeGetRoot = do
                         else hexValue
 
 speculativeGetProof
-    :: ByteString
+    :: HexKey
+    -> ByteString
     -> Transaction
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         (Maybe Proof)
-speculativeGetProof k = do
+speculativeGetProof pfx k = do
     let hexKey =
             byteStringToHexKey (hashBS k)
     mProof <-
         mkMPFInclusionProof
-            []
+            pfx
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneMPFCol
             hexKey
-    pure $ fmap (Proof . serializeProof) mProof
+    pure
+        $ fmap
+            ( Proof
+                . serializeProof
+                . stripProofPrefix pfx
+            )
+            mProof
 
 speculativeGetProofSteps
-    :: ByteString
+    :: HexKey
+    -> ByteString
     -> Transaction
         IO
         ColumnFamily
         (MPFStandalone HexKey MPFHash MPFHash)
         BatchOp
         (Maybe [ProofStep])
-speculativeGetProofSteps k = do
+speculativeGetProofSteps pfx k = do
     let hexKey =
             byteStringToHexKey (hashBS k)
     mProof <-
         mkMPFInclusionProof
-            []
+            pfx
             fromHexKVIdentity
             mpfHashing
             MPFStandaloneMPFCol
             hexKey
-    pure $ fmap toProofSteps mProof
+    pure
+        $ fmap
+            (toProofSteps . stripProofPrefix pfx)
+            mProof
 
 -- --------------------------------------------------------
 -- Helpers
 -- --------------------------------------------------------
+
+-- | Strip the storage prefix from proof step key
+-- paths. The MPF library includes absolute DB keys
+-- in 'pslNeighborKeyPath', but the on-chain
+-- validator expects keys relative to the trie root.
+stripProofPrefix
+    :: HexKey -> MPFProof MPFHash -> MPFProof MPFHash
+stripProofPrefix pfx proof =
+    proof
+        { mpfProofSteps =
+            map stripStep (mpfProofSteps proof)
+        }
+  where
+    n = length pfx
+    stripStep step@ProofStepLeaf{pslNeighborKeyPath} =
+        step
+            { pslNeighborKeyPath =
+                drop n pslNeighborKeyPath
+            }
+    stripStep step = step
 
 -- | Hash bytes using MPF convention.
 hashBS :: ByteString -> ByteString
@@ -1196,31 +1267,3 @@ scanTrieMeta db metaCF = do
                     Nothing ->
                         pure (known, hidden)
             else pure (known, hidden)
-
-collectDeleteOps
-    :: DB
-    -> ColumnFamily
-    -> ByteString
-    -> IO [BatchOp]
-collectDeleteOps db cf pfx = do
-    i <- createIterator db (Just cf)
-    iterSeek i pfx
-    ops <- go i []
-    destroyIterator i
-    pure ops
-  where
-    go i acc = do
-        v <- iterValid i
-        if v
-            then do
-                me <- iterEntry i
-                case me of
-                    Just (k, _)
-                        | pfx `BS.isPrefixOf` k ->
-                            do
-                                iterNext i
-                                go
-                                    i
-                                    (DelCF cf k : acc)
-                    _ -> pure (reverse acc)
-            else pure (reverse acc)
