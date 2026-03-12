@@ -14,13 +14,21 @@ module Cardano.MPFS.HTTP.API
       API
     , StatusAPI
     , TokensAPI
+    , TokenAPI
     ) where
 
-import Servant.API (Get, JSON, (:<|>), (:>))
+import Servant.API
+    ( Capture
+    , Get
+    , JSON
+    , (:<|>)
+    , (:>)
+    )
 
 import Cardano.MPFS.HTTP.Types
     ( StatusResponse
     , TokenIdJSON
+    , TokenStateJSON
     )
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
@@ -29,5 +37,11 @@ type StatusAPI = "status" :> Get '[JSON] StatusResponse
 -- | @GET \/tokens@ — list all known token IDs.
 type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
 
+-- | @GET \/tokens\/:id@ — get a token's state.
+type TokenAPI =
+    "tokens"
+        :> Capture "id" TokenIdJSON
+        :> Get '[JSON] TokenStateJSON
+
 -- | Complete MPFS HTTP API.
-type API = StatusAPI :<|> TokensAPI
+type API = StatusAPI :<|> TokensAPI :<|> TokenAPI

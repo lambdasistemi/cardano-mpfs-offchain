@@ -4,7 +4,10 @@
 -- Module      : Cardano.MPFS.HTTP.TokensSpec
 -- Description : Tests for GET /tokens endpoint
 -- License     : Apache-2.0
-module Cardano.MPFS.HTTP.TokensSpec (spec) where
+module Cardano.MPFS.HTTP.TokensSpec
+    ( spec
+    , mkDummyTokenState
+    ) where
 
 import Data.Aeson (decode)
 import Data.Aeson.Types (Value (..))

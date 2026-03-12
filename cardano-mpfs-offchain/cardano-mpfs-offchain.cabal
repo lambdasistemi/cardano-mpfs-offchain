@@ -182,6 +182,7 @@ test-suite unit-tests
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
     Cardano.MPFS.HTTP.StatusSpec
+    Cardano.MPFS.HTTP.TokenSpec
     Cardano.MPFS.HTTP.TokensSpec
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
