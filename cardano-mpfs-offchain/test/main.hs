@@ -14,6 +14,8 @@ import Cardano.MPFS.Trie.PureManager
     )
 
 import Cardano.MPFS.BalanceSpec qualified as BalanceSpec
+import Cardano.MPFS.BootstrapSpec qualified as BootstrapSpec
+import Cardano.MPFS.HTTP.StatusSpec qualified as StatusSpec
 import Cardano.MPFS.Indexer.CodecsSpec qualified as CodecsSpec
 import Cardano.MPFS.Indexer.EventSpec qualified as CageEventSpec
 import Cardano.MPFS.Indexer.FollowerSpec qualified as CageFollowerSpec
@@ -55,4 +57,5 @@ main =
                 ProofSpec.spec
                 OnChainSpec.spec
                 RollbackSpec.spec
+                StatusSpec.spec
                 TxBuilderSpec.spec
