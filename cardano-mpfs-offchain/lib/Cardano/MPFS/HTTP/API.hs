@@ -12,6 +12,8 @@
 module Cardano.MPFS.HTTP.API
     ( -- * Full API
       API
+
+      -- * Query endpoints
     , StatusAPI
     , TokensAPI
     , TokenAPI
@@ -19,22 +21,40 @@ module Cardano.MPFS.HTTP.API
     , TokenFactAPI
     , TokenProofAPI
     , TokenRequestsAPI
+
+      -- * Transaction endpoints
+    , TxBootAPI
+    , TxInsertAPI
+    , TxDeleteAPI
+    , TxUpdateAPI
+    , TxRetractAPI
+    , TxEndAPI
+    , TxSubmitAPI
     ) where
 
 import Servant.API
     ( Capture
     , Get
     , JSON
+    , Post
+    , ReqBody
     , (:<|>)
     , (:>)
     )
 
 import Cardano.MPFS.HTTP.Encoding (Hex)
 import Cardano.MPFS.HTTP.Types
-    ( RequestJSON
+    ( BootRequest
+    , DeleteRequest
+    , EndRequest
+    , InsertRequest
+    , RequestJSON
+    , RetractRequest
     , StatusResponse
+    , SubmitRequest
     , TokenIdJSON
     , TokenStateJSON
+    , UpdateRequest
     )
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
@@ -82,6 +102,53 @@ type TokenRequestsAPI =
         :> "requests"
         :> Get '[JSON] [RequestJSON]
 
+-- | @POST \/tx\/boot@ — build a boot transaction.
+type TxBootAPI =
+    "tx" :> "boot"
+        :> ReqBody '[JSON] BootRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/request\/insert@ — build an insert
+-- request transaction.
+type TxInsertAPI =
+    "tx" :> "request" :> "insert"
+        :> ReqBody '[JSON] InsertRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/request\/delete@ — build a delete
+-- request transaction.
+type TxDeleteAPI =
+    "tx" :> "request" :> "delete"
+        :> ReqBody '[JSON] DeleteRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/update@ — build an update
+-- transaction.
+type TxUpdateAPI =
+    "tx" :> "update"
+        :> ReqBody '[JSON] UpdateRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/retract@ — build a retract
+-- transaction.
+type TxRetractAPI =
+    "tx" :> "retract"
+        :> ReqBody '[JSON] RetractRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/end@ — build an end transaction.
+type TxEndAPI =
+    "tx" :> "end"
+        :> ReqBody '[JSON] EndRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/submit@ — submit a signed
+-- transaction.
+type TxSubmitAPI =
+    "tx" :> "submit"
+        :> ReqBody '[JSON] SubmitRequest
+        :> Post '[JSON] Hex
+
 -- | Complete MPFS HTTP API.
 type API =
     StatusAPI
@@ -91,3 +158,10 @@ type API =
         :<|> TokenFactAPI
         :<|> TokenProofAPI
         :<|> TokenRequestsAPI
+        :<|> TxBootAPI
+        :<|> TxInsertAPI
+        :<|> TxDeleteAPI
+        :<|> TxUpdateAPI
+        :<|> TxRetractAPI
+        :<|> TxEndAPI
+        :<|> TxSubmitAPI

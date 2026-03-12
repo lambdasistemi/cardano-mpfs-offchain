@@ -22,13 +22,27 @@ module Cardano.MPFS.HTTP.Types
       -- * Requests
     , RequestJSON (..)
     , requestToJSON
+
+      -- * Transaction requests
+    , BootRequest (..)
+    , InsertRequest (..)
+    , DeleteRequest (..)
+    , UpdateRequest (..)
+    , RetractRequest (..)
+    , EndRequest (..)
+    , SubmitRequest (..)
+
+      -- * Address parsing
+    , parseAddr
     ) where
 
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
     , object
+    , withObject
     , withText
+    , (.:)
     , (.=)
     )
 import Data.ByteString.Base16 qualified as B16
@@ -39,13 +53,15 @@ import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
 import Servant.API (FromHttpApiData (..))
 
+import Cardano.Ledger.Address (decodeAddrEither)
 import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( Addr
+    , Coin (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -216,3 +232,99 @@ requestToJSON
                 , rjFee = unCoin fee
                 , rjSubmittedAt = sat
                 }
+
+-- | Parse a hex-encoded serialized address.
+parseAddr :: Hex -> Either String Addr
+parseAddr (Hex bs) = decodeAddrEither bs
+
+-- | @POST \/tx\/boot@ request body.
+newtype BootRequest = BootRequest
+    { brAddr :: Hex
+    -- ^ Address (hex-encoded serialized)
+    }
+
+instance FromJSON BootRequest where
+    parseJSON = withObject "BootRequest" $ \o ->
+        BootRequest <$> o .: "address"
+
+-- | @POST \/tx\/request\/insert@ request body.
+data InsertRequest = InsertRequest
+    { irToken :: TokenIdJSON
+    , irKey :: Hex
+    , irValue :: Hex
+    , irAddr :: Hex
+    }
+
+instance FromJSON InsertRequest where
+    parseJSON = withObject "InsertRequest" $ \o ->
+        InsertRequest
+            <$> o .: "token"
+            <*> o .: "key"
+            <*> o .: "value"
+            <*> o .: "address"
+
+-- | @POST \/tx\/request\/delete@ request body.
+data DeleteRequest = DeleteRequest
+    { drToken :: TokenIdJSON
+    , drKey :: Hex
+    , drAddr :: Hex
+    }
+
+instance FromJSON DeleteRequest where
+    parseJSON = withObject "DeleteRequest" $ \o ->
+        DeleteRequest
+            <$> o .: "token"
+            <*> o .: "key"
+            <*> o .: "address"
+
+-- | @POST \/tx\/update@ request body.
+data UpdateRequest = UpdateRequest
+    { urToken :: TokenIdJSON
+    , urAddr :: Hex
+    }
+
+instance FromJSON UpdateRequest where
+    parseJSON = withObject "UpdateRequest" $ \o ->
+        UpdateRequest
+            <$> o .: "token"
+            <*> o .: "address"
+
+-- | @POST \/tx\/retract@ request body.
+data RetractRequest = RetractRequest
+    { rrTxId :: Hex
+    -- ^ Transaction ID (32 bytes, hex)
+    , rrTxIx :: Word64
+    -- ^ Output index
+    , rrAddr :: Hex
+    -- ^ Address
+    }
+
+instance FromJSON RetractRequest where
+    parseJSON = withObject "RetractRequest" $ \o ->
+        RetractRequest
+            <$> o .: "tx_id"
+            <*> o .: "tx_ix"
+            <*> o .: "address"
+
+-- | @POST \/tx\/end@ request body.
+data EndRequest = EndRequest
+    { erToken :: TokenIdJSON
+    , erAddr :: Hex
+    }
+
+instance FromJSON EndRequest where
+    parseJSON = withObject "EndRequest" $ \o ->
+        EndRequest
+            <$> o .: "token"
+            <*> o .: "address"
+
+-- | @POST \/tx\/submit@ request body.
+-- Accepts a hex-encoded signed transaction CBOR.
+newtype SubmitRequest = SubmitRequest
+    { srTxCbor :: Hex
+    -- ^ Signed transaction CBOR (hex)
+    }
+
+instance FromJSON SubmitRequest where
+    parseJSON = withObject "SubmitRequest" $ \o ->
+        SubmitRequest <$> o .: "tx"
