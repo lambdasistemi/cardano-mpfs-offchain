@@ -112,9 +112,7 @@ import MPF.Interface
     , mpfCodecs
     )
 import MPF.Proof.Insertion
-    ( MPFProof (..)
-    , MPFProofStep (..)
-    , mkMPFInclusionProof
+    ( mkMPFInclusionProof
     )
 import MPF.Test.Lib
     ( fromHexKVIdentity
@@ -283,7 +281,6 @@ unifiedGetProof pfx k = do
         $ fmap
             ( Proof
                 . serializeProof
-                . stripProofPrefix pfx
             )
             mProof
 
@@ -309,7 +306,7 @@ unifiedGetProofSteps pfx k = do
             hexKey
     pure
         $ fmap
-            (toProofSteps . stripProofPrefix pfx)
+            toProofSteps
             mProof
 
 -- --------------------------------------------------------
@@ -1142,7 +1139,6 @@ speculativeGetProof pfx k = do
         $ fmap
             ( Proof
                 . serializeProof
-                . stripProofPrefix pfx
             )
             mProof
 
@@ -1167,32 +1163,12 @@ speculativeGetProofSteps pfx k = do
             hexKey
     pure
         $ fmap
-            (toProofSteps . stripProofPrefix pfx)
+            toProofSteps
             mProof
 
 -- --------------------------------------------------------
 -- Helpers
 -- --------------------------------------------------------
-
--- | Strip the storage prefix from proof step key
--- paths. The MPF library includes absolute DB keys
--- in 'pslNeighborKeyPath', but the on-chain
--- validator expects keys relative to the trie root.
-stripProofPrefix
-    :: HexKey -> MPFProof MPFHash -> MPFProof MPFHash
-stripProofPrefix pfx proof =
-    proof
-        { mpfProofSteps =
-            map stripStep (mpfProofSteps proof)
-        }
-  where
-    n = length pfx
-    stripStep step@ProofStepLeaf{pslNeighborKeyPath} =
-        step
-            { pslNeighborKeyPath =
-                drop n pslNeighborKeyPath
-            }
-    stripStep step = step
 
 -- | Hash bytes using MPF convention.
 hashBS :: ByteString -> ByteString
