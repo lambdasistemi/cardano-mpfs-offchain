@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -34,6 +35,7 @@ import Test.Hspec
     ( Spec
     , describe
     , it
+    , pendingWith
     , shouldBe
     , shouldSatisfy
     )
@@ -83,8 +85,21 @@ import Cardano.MPFS.Trie
     ( Trie (..)
     , TrieManager (..)
     )
+import Database.KV.Database (mkColumns)
+import Database.KV.RocksDB (mkRocksDBDatabase)
+import Database.KV.Transaction
+    ( RunTransaction (..)
+    , newRunTransaction
+    )
+
+import Cardano.MPFS.Application
+    ( cageColumnFamilies
+    , dbConfig
+    )
+import Cardano.MPFS.Indexer.Codecs (allCodecs)
 import Cardano.MPFS.Trie.Persistent
     ( mkPersistentTrieManager
+    , mkUnifiedTrieManager
     )
 import Cardano.MPFS.TrieManagerSpec qualified as TrieManagerSpec
 import Cardano.MPFS.TrieSpec qualified as TrieSpec
@@ -316,6 +331,9 @@ spec db nodesCF kvCF metaCF counterRef = do
             kvCF
             metaCF
             counterRef
+    describe
+        "Cross-layer consistency"
+        crossLayerSpec
 
 -- ---------------------------------------------------------
 -- Property-based tests
@@ -919,3 +937,100 @@ multipleToksSurviveReopen =
                             $ \trie -> getRoot trie
                     rootA
                         `shouldSatisfy` (/= rootB)
+
+-- ---------------------------------------------------------
+-- Cross-layer consistency tests
+-- ---------------------------------------------------------
+
+-- | Verify that data written by the transactional
+-- layer (mkUnifiedTrie / mkUnifiedTrieManager) is
+-- readable by the IO layer (mkPersistentTrieManager).
+--
+-- This is the code path exercised in production:
+-- CageFollower writes via unified transactions,
+-- HTTP server reads via the persistent IO manager.
+crossLayerSpec :: Spec
+crossLayerSpec = do
+    it
+        "IO layer reads data written by \
+        \transactional layer"
+        $ pendingWith
+            "trie IO layer key format \
+            \mismatch (#109)"
+
+-- | Write via transactional layer, read via IO
+-- layer. Checks root, lookup, and proof.
+_crossLayerReadAfterWrite :: IO ()
+_crossLayerReadAfterWrite =
+    withSystemTempDirectory "cross-layer"
+        $ \dir ->
+            withDBCF dir dbConfig cageColumnFamilies
+                $ \db -> do
+                    let cfs = columnFamilies db
+                    -- Set up transactional layer
+                    let columns =
+                            mkColumns cfs allCodecs
+                        database =
+                            mkRocksDBDatabase
+                                db
+                                columns
+                    RunTransaction{runTransaction} <-
+                        newRunTransaction database
+
+                    let tid = reopenTidA
+
+                    -- Phase 1: write via transactional
+                    -- layer (like CageFollower)
+                    txRoot <- runTransaction $ do
+                        let tm = mkUnifiedTrieManager
+                        createTrie tm tid
+                        withTrie tm tid $ \trie ->
+                            insert trie "hello" "world"
+
+                    -- Phase 2: read via IO layer
+                    -- (like HTTP server)
+                    case drop 4 cfs of
+                        ( nodesCF
+                                : kvCF
+                                : metaCF
+                                : _
+                            ) -> do
+                                mgr <-
+                                    mkPersistentTrieManager
+                                        db
+                                        nodesCF
+                                        kvCF
+                                        metaCF
+                                withTrie mgr tid
+                                    $ \trie -> do
+                                        -- Root must match
+                                        ioRoot <-
+                                            getRoot trie
+                                        ioRoot
+                                            `shouldBe` txRoot
+                                        -- Root must be
+                                        -- non-empty
+                                        ioRoot
+                                            `shouldSatisfy` ( \(Root r) ->
+                                                                r
+                                                                    /= B.empty
+                                                            )
+                                        -- Lookup must find
+                                        -- the key
+                                        mVal <-
+                                            Cardano.MPFS.Trie.lookup
+                                                trie
+                                                "hello"
+                                        mVal
+                                            `shouldSatisfy` isJust
+                                        -- Proof must exist
+                                        mProof <-
+                                            getProof
+                                                trie
+                                                "hello"
+                                        isJust mProof
+                                            `shouldBe` True
+                        _ ->
+                            error
+                                "Expected at least \
+                                \7 column families"
