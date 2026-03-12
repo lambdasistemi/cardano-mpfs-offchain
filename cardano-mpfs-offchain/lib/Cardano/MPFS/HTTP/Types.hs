@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -15,6 +16,8 @@ module Cardano.MPFS.HTTP.Types
 
       -- * Tokens
     , TokenIdJSON (..)
+    , TokenStateJSON (..)
+    , tokenStateToJSON
     ) where
 
 import Data.Aeson
@@ -26,12 +29,23 @@ import Data.Aeson
     )
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
-import Data.Text.Encoding qualified as T
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
+import Servant.API (FromHttpApiData (..))
 
+import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
 
-import Cardano.MPFS.Core.Types (TokenId (..))
+import Cardano.Crypto.Hash.Class qualified as Crypto
+
+import Cardano.MPFS.Core.Types
+    ( Coin (..)
+    , Root (..)
+    , TokenId (..)
+    , TokenState (..)
+    )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 
 -- | Response for @GET \/status@.
@@ -66,13 +80,13 @@ newtype TokenIdJSON = TokenIdJSON
 instance ToJSON TokenIdJSON where
     toJSON (TokenIdJSON (TokenId (AssetName sbs))) =
         toJSON
-            ( T.decodeUtf8
+            ( TE.decodeUtf8
                 (B16.encode (SBS.fromShort sbs))
             )
 
 instance FromJSON TokenIdJSON where
     parseJSON = withText "TokenId" $ \t ->
-        case B16.decode (T.encodeUtf8 t) of
+        case B16.decode (TE.encodeUtf8 t) of
             Right bs ->
                 pure
                     $ TokenIdJSON
@@ -80,3 +94,62 @@ instance FromJSON TokenIdJSON where
                     $ AssetName
                     $ SBS.toShort bs
             Left err -> fail err
+
+instance FromHttpApiData TokenIdJSON where
+    parseUrlPiece t =
+        case B16.decode (TE.encodeUtf8 t) of
+            Right bs ->
+                Right
+                    $ TokenIdJSON
+                    $ TokenId
+                    $ AssetName
+                    $ SBS.toShort bs
+            Left err -> Left (T.pack err)
+
+-- | JSON representation of on-chain token state.
+data TokenStateJSON = TokenStateJSON
+    { owner :: Text
+    -- ^ Owner payment key hash (hex)
+    , root :: Hex
+    -- ^ Current trie root hash
+    , maxFee :: Integer
+    -- ^ Maximum fee in lovelace
+    , processTime :: Integer
+    -- ^ Processing window (ms)
+    , retractTime :: Integer
+    -- ^ Retract window (ms)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokenStateJSON where
+    toJSON TokenStateJSON{..} =
+        object
+            [ "owner" .= owner
+            , "root" .= root
+            , "max_fee" .= maxFee
+            , "process_time" .= processTime
+            , "retract_time" .= retractTime
+            ]
+
+-- | Convert internal 'TokenState' to JSON type.
+tokenStateToJSON :: TokenState -> TokenStateJSON
+tokenStateToJSON
+    TokenState
+        { owner = tsOwner
+        , root = tsRoot
+        , maxFee = tsMaxFee
+        , processTime = tsProcessTime
+        , retractTime = tsRetractTime
+        } =
+        TokenStateJSON
+            { owner = hashToHex tsOwner
+            , root = Hex (unRoot tsRoot)
+            , maxFee = unCoin tsMaxFee
+            , processTime = tsProcessTime
+            , retractTime = tsRetractTime
+            }
+
+-- | Render a 'KeyHash' as hex text.
+hashToHex :: KeyHash 'Payment -> Text
+hashToHex (KeyHash h) =
+    Crypto.hashToTextAsHex h
