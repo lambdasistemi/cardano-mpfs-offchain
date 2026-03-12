@@ -118,7 +118,7 @@ graph TD
 The `cardano-mpfs-offchain` library is organized in layers.
 All modules live under `Cardano.MPFS`.
 
-[search all modules]: https://github.com/paolino/cardano-mpfs-offchain/search?q=path%3Acardano-mpfs-offchain%2Flib+extension%3Ahs&type=code
+[search all modules]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=path%3Acardano-mpfs-offchain%2Flib+extension%3Ahs&type=code
 
 ### Core — domain types and pure logic
 
@@ -131,12 +131,12 @@ All modules live under `Cardano.MPFS`.
 | [`Core.Balance`][s-balance] | `balanceTx` — fee estimation fixpoint loop |
 | [`Core.Bootstrap`][s-bootstrap] | CBOR bootstrap file for UTxO seeding |
 
-[s-types]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
-[s-onchain]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
-[s-blueprint]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
-[s-proof]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
-[s-balance]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code
-[s-bootstrap]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Bootstrap%22&type=code
+[s-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
+[s-onchain]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
+[s-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
+[s-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
+[s-balance]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code
+[s-bootstrap]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Bootstrap%22&type=code
 
 ### Interfaces — record-of-functions singletons
 
@@ -151,14 +151,14 @@ All modules live under `Cardano.MPFS`.
 | [`Submitter`][s-submitter] | `submitTx :: Tx ConwayEra -> m SubmitResult` |
 | [`Application`][s-application] | `withApplication` — wiring and lifecycle |
 
-[s-context]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Context%22&type=code
-[s-provider]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider%22+path%3Alib%2FCardano%2FMPFS%2FProvider.hs&type=code
-[s-state]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.State%22&type=code
-[s-trie]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie%22+path%3Alib%2FCardano%2FMPFS%2FTrie.hs&type=code
-[s-txbuilder]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder%22+path%3Alib%2FCardano%2FMPFS%2FTxBuilder.hs&type=code
-[s-indexer]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&type=code
-[s-submitter]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&type=code
-[s-application]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Application%22&type=code
+[s-context]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Context%22&type=code
+[s-provider]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider%22+path%3Alib%2FCardano%2FMPFS%2FProvider.hs&type=code
+[s-state]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.State%22&type=code
+[s-trie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie%22+path%3Alib%2FCardano%2FMPFS%2FTrie.hs&type=code
+[s-txbuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder%22+path%3Alib%2FCardano%2FMPFS%2FTxBuilder.hs&type=code
+[s-indexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&type=code
+[s-submitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&type=code
+[s-application]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Application%22&type=code
 
 ### Indexer — chain sync and persistence
 
@@ -172,17 +172,17 @@ All modules live under `Cardano.MPFS`.
 | [`Indexer.Codecs`][s-idx-codecs] | CBOR serialization for column key-value types |
 | [`Indexer.Rollback`][s-idx-rollback] | `storeRollbackT`, `rollbackToSlotT` — transactional rollback |
 
-[s-idx-cage]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
-[s-idx-event]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
-[s-detect]: https://github.com/paolino/cardano-mpfs-offchain/search?q=detectCageEvents&type=code
-[s-idx-follower]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
-[s-idx-persist]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
-[s-idx-columns]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
-[s-allcolumns]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&type=code
-[s-unifiedcols]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+UnifiedColumns%22&type=code
-[s-idx-codecs]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
-[s-idx-rollback]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
-[s-inverseop]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
+[s-idx-cage]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
+[s-idx-event]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
+[s-detect]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=detectCageEvents&type=code
+[s-idx-follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
+[s-idx-persist]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
+[s-idx-columns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
+[s-allcolumns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&type=code
+[s-unifiedcols]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+UnifiedColumns%22&type=code
+[s-idx-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
+[s-idx-rollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
+[s-inverseop]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
 
 ### NodeClient — N2C protocol clients
 
@@ -194,12 +194,12 @@ All modules live under `Cardano.MPFS`.
 | [`NodeClient.Codecs`][s-nc-codecs] | N2C codec bundle |
 | [`NodeClient.Types`][s-nc-types] | `LSQChannel`, `LTxSChannel` |
 
-[s-nc-conn]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Connection%22&type=code
-[s-runnc]: https://github.com/paolino/cardano-mpfs-offchain/search?q=runNodeClient+path%3ANodeClient&type=code
-[s-nc-lsq]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalStateQuery%22&type=code
-[s-nc-ltxs]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalTxSubmission%22&type=code
-[s-nc-codecs]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Codecs%22&type=code
-[s-nc-types]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Types%22&type=code
+[s-nc-conn]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Connection%22&type=code
+[s-runnc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=runNodeClient+path%3ANodeClient&type=code
+[s-nc-lsq]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalStateQuery%22&type=code
+[s-nc-ltxs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalTxSubmission%22&type=code
+[s-nc-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Codecs%22&type=code
+[s-nc-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Types%22&type=code
 
 ### TxBuilder — cage protocol transactions
 
@@ -214,15 +214,15 @@ All modules live under `Cardano.MPFS`.
 | [`TxBuilder.Real.End`][s-txb-end] | Burn cage token |
 | [`TxBuilder.Real.Internal`][s-txb-int] | Shared helpers, POSIX-to-slot conversion |
 
-[s-txb-cfg]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&type=code
-[s-txb-real]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code
-[s-mkrealtxb]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkRealTxBuilder&type=code
-[s-txb-boot]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Boot%22&type=code
-[s-txb-req]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Request%22&type=code
-[s-txb-upd]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Update%22&type=code
-[s-txb-ret]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Retract%22&type=code
-[s-txb-end]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.End%22&type=code
-[s-txb-int]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Internal%22&type=code
+[s-txb-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&type=code
+[s-txb-real]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code
+[s-mkrealtxb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&type=code
+[s-txb-boot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Boot%22&type=code
+[s-txb-req]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Request%22&type=code
+[s-txb-upd]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Update%22&type=code
+[s-txb-ret]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Retract%22&type=code
+[s-txb-end]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.End%22&type=code
+[s-txb-int]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Internal%22&type=code
 
 ### Trie — MPF backends
 
@@ -231,9 +231,9 @@ All modules live under `Cardano.MPFS`.
 | [`Trie.Persistent`][s-trie-pers] | `mkUnifiedTrieManager` (transactional) + `mkPersistentTrieManager` (IO with caches) |
 | [`Trie.PureManager`][s-trie-pm] | [`mkPureTrieManager`][s-mkpuretm] — in-memory `TrieManager` for tests |
 
-[s-trie-pm]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code
-[s-mkpuretm]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code
-[s-trie-pers]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code
+[s-trie-pm]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code
+[s-mkpuretm]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code
+[s-trie-pers]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code
 
 ### Mock — test doubles
 
@@ -247,17 +247,17 @@ All modules live under `Cardano.MPFS`.
 | [`Mock.Indexer`][s-mock-idx] | No-op indexer |
 | [`Mock.Skeleton`][s-mock-skel] | [`mkSkeletonIndexer`][s-mkskel] — lifecycle-only skeleton |
 
-[s-mock-ctx]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code
-[s-withmock]: https://github.com/paolino/cardano-mpfs-offchain/search?q=withMockContext&type=code
-[s-mock-prv]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Provider%22&type=code
-[s-mock-st]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code
-[s-mkmockst]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkMockState&type=code
-[s-mock-sub]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&type=code
-[s-mock-txb]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code
-[s-mkmocktxb]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkMockTxBuilder&type=code
-[s-mock-idx]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Indexer%22&type=code
-[s-mock-skel]: https://github.com/paolino/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code
-[s-mkskel]: https://github.com/paolino/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code
+[s-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code
+[s-withmock]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=withMockContext&type=code
+[s-mock-prv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Provider%22&type=code
+[s-mock-st]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code
+[s-mkmockst]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockState&type=code
+[s-mock-sub]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&type=code
+[s-mock-txb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code
+[s-mkmocktxb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&type=code
+[s-mock-idx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Indexer%22&type=code
+[s-mock-skel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code
+[s-mkskel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code
 
 ## Design Principles
 
