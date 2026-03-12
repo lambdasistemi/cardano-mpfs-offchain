@@ -181,9 +181,11 @@ test-suite unit-tests
   other-modules:
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
+    Cardano.MPFS.HTTP.RequestsSpec
     Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.HTTP.TokenSpec
     Cardano.MPFS.HTTP.TokensSpec
+    Cardano.MPFS.HTTP.TrieSpec
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
     Cardano.MPFS.Indexer.FollowerSpec

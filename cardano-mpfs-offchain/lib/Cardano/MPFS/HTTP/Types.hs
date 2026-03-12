@@ -18,6 +18,10 @@ module Cardano.MPFS.HTTP.Types
     , TokenIdJSON (..)
     , TokenStateJSON (..)
     , tokenStateToJSON
+
+      -- * Requests
+    , RequestJSON (..)
+    , requestToJSON
     ) where
 
 import Data.Aeson
@@ -42,6 +46,8 @@ import Cardano.Crypto.Hash.Class qualified as Crypto
 
 import Cardano.MPFS.Core.Types
     ( Coin (..)
+    , Operation (..)
+    , Request (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
@@ -153,3 +159,60 @@ tokenStateToJSON
 hashToHex :: KeyHash 'Payment -> Text
 hashToHex (KeyHash h) =
     Crypto.hashToTextAsHex h
+
+-- | JSON representation of a pending request.
+data RequestJSON = RequestJSON
+    { rjToken :: TokenIdJSON
+    -- ^ Token this request targets
+    , rjOwner :: Text
+    -- ^ Requester's payment key hash (hex)
+    , rjKey :: Hex
+    -- ^ Trie key
+    , rjOperation :: Text
+    -- ^ "insert", "delete", or "update"
+    , rjValue :: Maybe Hex
+    -- ^ New value (for insert/update)
+    , rjFee :: Integer
+    -- ^ Fee in lovelace
+    , rjSubmittedAt :: Integer
+    -- ^ POSIXTime (ms)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestJSON where
+    toJSON RequestJSON{..} =
+        object
+            [ "token" .= rjToken
+            , "owner" .= rjOwner
+            , "key" .= rjKey
+            , "operation" .= rjOperation
+            , "value" .= rjValue
+            , "fee" .= rjFee
+            , "submitted_at" .= rjSubmittedAt
+            ]
+
+-- | Convert internal 'Request' to JSON type.
+requestToJSON :: Request -> RequestJSON
+requestToJSON
+    Request
+        { requestToken = tok
+        , requestOwner = own
+        , requestKey = k
+        , requestValue = op
+        , requestFee = fee
+        , requestSubmittedAt = sat
+        } =
+        let (opName, mVal) = case op of
+                Insert v -> ("insert", Just (Hex v))
+                Delete _v -> ("delete", Nothing)
+                Update _old new' ->
+                    ("update", Just (Hex new'))
+        in  RequestJSON
+                { rjToken = TokenIdJSON tok
+                , rjOwner = hashToHex own
+                , rjKey = Hex k
+                , rjOperation = opName
+                , rjValue = mVal
+                , rjFee = unCoin fee
+                , rjSubmittedAt = sat
+                }
