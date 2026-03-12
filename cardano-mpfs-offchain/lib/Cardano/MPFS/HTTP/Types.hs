@@ -12,15 +12,26 @@
 module Cardano.MPFS.HTTP.Types
     ( -- * Status
       StatusResponse (..)
+
+      -- * Tokens
+    , TokenIdJSON (..)
     ) where
 
 import Data.Aeson
-    ( ToJSON (..)
+    ( FromJSON (..)
+    , ToJSON (..)
     , object
+    , withText
     , (.=)
     )
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Short qualified as SBS
+import Data.Text.Encoding qualified as T
 import Data.Word (Word64)
 
+import Cardano.Ledger.Mary.Value (AssetName (..))
+
+import Cardano.MPFS.Core.Types (TokenId (..))
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 
 -- | Response for @GET \/status@.
@@ -45,3 +56,27 @@ instance ToJSON StatusResponse where
             , "checkpoint_block_id"
                 .= checkpointBlockId
             ]
+
+-- | Hex-encoded token identifier for JSON transport.
+newtype TokenIdJSON = TokenIdJSON
+    { unTokenIdJSON :: TokenId
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokenIdJSON where
+    toJSON (TokenIdJSON (TokenId (AssetName sbs))) =
+        toJSON
+            ( T.decodeUtf8
+                (B16.encode (SBS.fromShort sbs))
+            )
+
+instance FromJSON TokenIdJSON where
+    parseJSON = withText "TokenId" $ \t ->
+        case B16.decode (T.encodeUtf8 t) of
+            Right bs ->
+                pure
+                    $ TokenIdJSON
+                    $ TokenId
+                    $ AssetName
+                    $ SBS.toShort bs
+            Left err -> fail err

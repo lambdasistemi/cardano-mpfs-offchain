@@ -4,7 +4,10 @@
 -- Module      : Cardano.MPFS.HTTP.StatusSpec
 -- Description : Tests for GET /status endpoint
 -- License     : Apache-2.0
-module Cardano.MPFS.HTTP.StatusSpec (spec) where
+module Cardano.MPFS.HTTP.StatusSpec
+    ( spec
+    , mkTestContext
+    ) where
 
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
