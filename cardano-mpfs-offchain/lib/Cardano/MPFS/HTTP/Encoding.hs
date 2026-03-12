@@ -20,7 +20,9 @@ import Data.Aeson
     )
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as B16
-import Data.Text.Encoding qualified as T
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Servant.API (FromHttpApiData (..))
 
 -- | A 'ByteString' that serialises to\/from JSON
 -- as a hex-encoded string.
@@ -31,10 +33,16 @@ newtype Hex = Hex
 
 instance ToJSON Hex where
     toJSON (Hex bs) =
-        toJSON (T.decodeUtf8 (B16.encode bs))
+        toJSON (TE.decodeUtf8 (B16.encode bs))
 
 instance FromJSON Hex where
     parseJSON = withText "Hex" $ \t ->
-        case B16.decode (T.encodeUtf8 t) of
+        case B16.decode (TE.encodeUtf8 t) of
             Right bs -> pure (Hex bs)
             Left err -> fail err
+
+instance FromHttpApiData Hex where
+    parseUrlPiece t =
+        case B16.decode (TE.encodeUtf8 t) of
+            Right bs -> Right (Hex bs)
+            Left err -> Left (T.pack err)
