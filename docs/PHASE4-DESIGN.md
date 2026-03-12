@@ -284,22 +284,22 @@ Add `cardano-utxo-csmt` as a `source-repository-package` in
 ```cabal
 source-repository-package
   type: git
-  location: https://github.com/paolino/cardano-utxo-csmt
+  location: https://github.com/lambdasistemi/cardano-utxo-csmt
   tag: <commit-hash>
 
 source-repository-package
   type: git
-  location: https://github.com/paolino/haskell-csmt
+  location: https://github.com/lambdasistemi/haskell-mts
   tag: <commit-hash>
 
 source-repository-package
   type: git
-  location: https://github.com/paolino/cardano-read-ledger
+  location: https://github.com/lambdasistemi/cardano-read-ledger
   tag: <commit-hash>
 
 source-repository-package
   type: git
-  location: https://github.com/paolino/contra-tracer-contrib
+  location: https://github.com/lambdasistemi/contra-tracer-contrib
   tag: <commit-hash>
 ```
 
