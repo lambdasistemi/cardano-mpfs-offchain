@@ -12,6 +12,7 @@ module Cardano.MPFS.HTTP.Server
 
       -- * Handlers
     , statusHandler
+    , tokensHandler
     ) where
 
 import Control.Monad.IO.Class (liftIO)
@@ -24,15 +25,22 @@ import Cardano.MPFS.Core.Types
     , SlotNo (..)
     )
 import Cardano.MPFS.HTTP.API (API)
+import Servant ((:<|>) (..))
+
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
-import Cardano.MPFS.HTTP.Types (StatusResponse (..))
+import Cardano.MPFS.HTTP.Types
+    ( StatusResponse (..)
+    , TokenIdJSON (..)
+    )
 import Cardano.MPFS.Indexer qualified as Indexer
 import Cardano.MPFS.State qualified as St
 
 -- | Build a WAI 'Application' from a 'Context IO'.
 mkApp :: Context IO -> Application
 mkApp ctx =
-    serve (Proxy @API) (statusHandler ctx)
+    serve (Proxy @API)
+        $ statusHandler ctx
+            :<|> tokensHandler ctx
 
 -- | Handler for @GET \/status@.
 statusHandler :: Context IO -> Handler StatusResponse
@@ -56,3 +64,12 @@ statusHandler ctx = do
             , checkpointBlockId =
                 fmap (Hex . unBlockId . snd) mcp
             }
+
+-- | Handler for @GET \/tokens@.
+tokensHandler
+    :: Context IO -> Handler [TokenIdJSON]
+tokensHandler ctx = do
+    tids <-
+        liftIO
+            $ St.listTokens (St.tokens (state ctx))
+    pure (map TokenIdJSON tids)
