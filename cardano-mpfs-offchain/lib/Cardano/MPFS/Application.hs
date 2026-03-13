@@ -59,6 +59,7 @@ import Control.Monad (when)
 import Control.Tracer (Tracer, contramap)
 import Data.IORef (newIORef)
 import Data.Maybe (isNothing)
+import Data.Word (Word64)
 
 import Cardano.Chain.Slotting (EpochSlots)
 import Data.ByteString.Lazy qualified as BSL
@@ -98,13 +99,18 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTContext (..)
     , CSMTOps (..)
+    , journalEmpty
+    , kvOnlyCSMTOps
     , mkCSMTOps
+    , replayJournal
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( sampleRollbackPoints
+    ( Phase (..)
+    , mkSplitMode
+    , sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
@@ -185,6 +191,8 @@ data AppConfig = AppConfig
     -- ^ CBOR bootstrap file for fresh DB seeding
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
+    , stabilityWindow :: !Word64
+    -- ^ Security parameter k (129600 mainnet)
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
@@ -201,11 +209,11 @@ dbConfig =
         , bloomFilter = False
         }
 
--- | All column families: 4 UTxO (cardano-utxo-csmt)
--- followed by 7 cage\/trie. Order matters —
--- cardano-utxo-csmt consumes the first 4 via its
--- internal 'Columns' GADT, and our 'AllColumns'
--- GADT consumes the remaining 7.
+-- | All column families: 5 UTxO (cardano-utxo-csmt,
+-- including journal) followed by 7 cage\/trie.
+-- Order matters — cardano-utxo-csmt consumes the
+-- first 5 via its internal 'Columns' GADT, and our
+-- 'AllColumns' GADT consumes the remaining 7.
 allColumnFamilies :: [(String, Config)]
 allColumnFamilies =
     utxoColumnFamilies <> cageColumnFamilies
@@ -215,6 +223,7 @@ allColumnFamilies =
         , ("csmt", dbConfig)
         , ("rollbacks", dbConfig)
         , ("config", dbConfig)
+        , ("journal", dbConfig)
         ]
 
 -- | Cage-only column families (7). Used by tests
@@ -232,7 +241,7 @@ cageColumnFamilies =
 
 -- | Run an action with a fully wired 'Context IO'.
 --
--- Opens RocksDB with 11 column families, creates
+-- Opens RocksDB with 12 column families, creates
 -- the UTxO state machine and cage state, starts
 -- two N2C connections (ChainSync + LSQ\/LTxS),
 -- and tears down on exit.
@@ -248,7 +257,7 @@ withApplication cfg action =
         dbConfig
         allColumnFamilies
         $ \db -> do
-            -- Unified database over all 11 CFs
+            -- Unified database over all 12 CFs
             let unifiedCols =
                     mkColumns
                         (columnFamilies db)
@@ -258,19 +267,19 @@ withApplication cfg action =
             L.RunTransaction run <-
                 newRunTransaction unifiedDb
 
-            -- Project into cage columns (5–10)
+            -- Project into cage columns (6–12)
             let cageRt =
                     L.RunTransaction
                         (run . mapColumns InCage)
                 st = mkPersistentState cageRt
 
-            -- Project into UTxO columns (1–4)
+            -- Project into UTxO columns (1–5)
             let utxoRt =
                     CSMT.RunTransaction
                         (run . mapColumns InUtxo)
 
-            -- Trie: columns 9–11 (skip 8)
-            case drop 8 (columnFamilies db) of
+            -- Trie: columns 10–12 (skip 9)
+            case drop 9 (columnFamilies db) of
                 (nodesCF : kvCF : metaCF : _) -> do
                     tm <-
                         mkPersistentTrieManager
@@ -281,17 +290,20 @@ withApplication cfg action =
 
                     -- CSMT operations (for both
                     -- bootstrap and block processing)
-                    let ops =
+                    let fullOps =
                             mkCSMTOps
                                 (fromKV context)
                                 (hashing context)
+                        kvOps =
+                            kvOnlyCSMTOps
+                                BSL.toStrict
 
                     -- Bootstrap seeding on fresh DB
                     seedBootstrap
                         (bootstrapFile cfg)
                         st
                         utxoRt
-                        ops
+                        fullOps
 
                     -- Ensure UTxO rollback points
                     -- are initialized (Origin entry).
@@ -312,6 +324,36 @@ withApplication cfg action =
                             )
                             utxoRt
                             armageddonParams
+
+                    -- Detect starting phase for
+                    -- split mode
+                    jEmpty <-
+                        CSMT.transact utxoRt
+                            journalEmpty
+                    let startPhase =
+                            if not empty && jEmpty
+                                then Full
+                                else KVOnly
+                        isAtTip curSlot tipSlot =
+                            tipSlot - curSlot
+                                < SlotNo
+                                    ( stabilityWindow
+                                        cfg
+                                    )
+                        replay =
+                            replayJournal
+                                1000
+                                BSL.fromStrict
+                                (fromKV context)
+                                (hashing context)
+                                utxoRt
+                    splitMode <-
+                        mkSplitMode
+                            kvOps
+                            fullOps
+                            isAtTip
+                            replay
+                            startPhase
 
                     -- Sample rollback points for
                     -- intersection and count for
@@ -345,7 +387,17 @@ withApplication cfg action =
                     mChainThread <-
                         if followerEnabled cfg
                             then do
-                                let cageIntersector =
+                                let csmtArmageddon =
+                                        setup
+                                            ( contramap
+                                                TraceArmageddon
+                                                ( appTracer
+                                                    cfg
+                                                )
+                                            )
+                                            utxoRt
+                                            armageddonParams
+                                    cageIntersector =
                                         mkCageIntersector
                                             ( cfgScriptHash
                                                 $ cageConfig
@@ -355,10 +407,11 @@ withApplication cfg action =
                                                 adaptUpdate
                                                 (appTracer cfg)
                                             )
-                                            ops
+                                            splitMode
                                             slotHash
                                             countRef
                                             run
+                                            csmtArmageddon
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
                                             ( contramap
@@ -443,7 +496,7 @@ withApplication cfg action =
                     pure result
                 _ ->
                     error
-                        "Expected at least 11 \
+                        "Expected at least 12 \
                         \column families"
 
 -- | Seed a fresh database from a bootstrap CBOR

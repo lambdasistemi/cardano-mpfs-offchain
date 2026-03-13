@@ -124,6 +124,7 @@ adaptUpdate (UpdateNewState pts) =
     case pts of
         (p : _) -> TraceChainTip (ptSlot p)
         [] -> TraceChainTip 0
+adaptUpdate _ = TraceChainTip 0
 
 -- | Extract 'SlotNo' from a 'Point', defaulting
 -- to 0 for 'Origin'.

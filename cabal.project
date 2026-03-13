@@ -32,8 +32,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-utxo-csmt
-  tag: 98996b28c1a30b0a793aa31248b3eb756ac013f1
-  --sha256: 1jijix8929m5spxqavr7q6vjvl3w9v5izfa94fy8qasr6370kf7p
+  tag: 3180863a280f18675f4241742f7930240f40b0bd
+  --sha256: 19as0g1jrsgfxqnln6zblc7482rayfikf1kxz6wyh30pbvz284rx
 
 source-repository-package
   type: git
@@ -56,8 +56,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/contra-tracer-contrib
-  tag: 9c2555a5e6d72fdd55eb1e13cff812d72ea41913
-  --sha256: 03s9q9arz8km5hc08zsv7zxjzigy34rqf521p94xm2n4vmly2i7f
+  tag: 4f0c611e61b866905455a5d5469dea62afc55c3a
+  --sha256: 1k5c9kr1pw4c6qswssbjvma0ki7d31n3w275v6w9kkp23wwdh2g2
 
 source-repository-package
   type: git

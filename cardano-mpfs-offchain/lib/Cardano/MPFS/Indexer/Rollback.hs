@@ -15,6 +15,9 @@ module Cardano.MPFS.Indexer.Rollback
     , rollbackToSlotT
     , queryTipT
     , pruneRollbacksT
+
+      -- * Armageddon
+    , cageArmageddonT
     ) where
 
 import MTS.Rollbacks.Store qualified as Store
@@ -112,3 +115,17 @@ rollbackToSlotT st tm targetSlot = do
                 (BlockId mempty)
         Store.RollbackImpossible ->
             pure ()
+
+-- | Wipe cage rollback points and reset checkpoint.
+-- Called during armageddon when both subsystems need
+-- to restart from Origin.
+cageArmageddonT
+    :: (Monad m)
+    => Transaction m cf AllColumns ops ()
+cageArmageddonT = do
+    _ <-
+        Store.rollbackTo
+            CageRollbacks
+            (\_ -> pure ())
+            0
+    putCheckpointT 0 (BlockId mempty)
