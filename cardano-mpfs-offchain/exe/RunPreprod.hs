@@ -41,9 +41,10 @@ preprodConfig sock dbDir =
         , dbPath = dbDir
         , channelCapacity = 16
         , cageConfig = dummyCageConfig
-        , bootstrapFile =
+        , byronGenesisPath =
             Just
-                "/tmp/preprod-bootstrap.cbor"
+                "/tmp/cardano-preprod/config\
+                \/byron-genesis.json"
         , followerEnabled = True
         , appTracer = jsonLinesTracer
         }

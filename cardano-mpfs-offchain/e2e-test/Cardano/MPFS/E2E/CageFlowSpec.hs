@@ -63,9 +63,6 @@ import Cardano.MPFS.Core.Blueprint
     , extractCompiledCode
     , loadBlueprint
     )
-import Cardano.MPFS.Core.Bootstrap.Genesis
-    ( generateBootstrapFile
-    )
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
@@ -287,16 +284,11 @@ withE2E scriptBytes action = do
     withCardanoNode gDir $ \sock startMs ->
         withSystemTempDirectory "mpfs-cageflow"
             $ \tmpDir -> do
-                let bsFile =
-                        tmpDir </> "bootstrap.cbor"
-                    dbDir =
+                let dbDir =
                         tmpDir </> "db"
                     genesisJson =
                         gDir
                             </> "shelley-genesis.json"
-                generateBootstrapFile
-                    genesisJson
-                    bsFile
                 let cfg =
                         cageCfg scriptBytes startMs
                     appCfg =
@@ -309,8 +301,8 @@ withE2E scriptBytes action = do
                             , dbPath = dbDir
                             , channelCapacity = 16
                             , cageConfig = cfg
-                            , bootstrapFile =
-                                Just bsFile
+                            , byronGenesisPath =
+                                Nothing
                             , followerEnabled =
                                 True
                             , appTracer =

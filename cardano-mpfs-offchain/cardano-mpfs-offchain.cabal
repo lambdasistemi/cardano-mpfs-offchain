@@ -38,7 +38,6 @@ library
     , base                                     >=4.18 && <5
     , bytestring                               >=0.11 && <0.13
     , cardano-crypto-class
-    , cardano-data
     , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
@@ -79,8 +78,6 @@ library
     Cardano.MPFS.Application
     Cardano.MPFS.Context
     Cardano.MPFS.Core.Blueprint
-    Cardano.MPFS.Core.Bootstrap
-    Cardano.MPFS.Core.Bootstrap.Genesis
     Cardano.MPFS.Core.OnChain
     Cardano.MPFS.Core.Proof
     Cardano.MPFS.Core.Types
@@ -118,18 +115,6 @@ library
     Cardano.MPFS.TxBuilder.Real.Request
     Cardano.MPFS.TxBuilder.Real.Retract
     Cardano.MPFS.TxBuilder.Real.Update
-
-executable mpfs-bootstrap-genesis
-  import:           warnings
-  default-language: GHC2021
-  hs-source-dirs:   exe
-  main-is:          GenBootstrap.hs
-  build-depends:
-    , base
-    , cardano-mpfs-offchain
-    , optparse-applicative
-
-  ghc-options:      -threaded
 
 executable mpfs-run-preprod
   import:           warnings
@@ -185,7 +170,6 @@ test-suite unit-tests
 
   other-modules:
     Cardano.MPFS.BalanceSpec
-    Cardano.MPFS.BootstrapSpec
     Cardano.MPFS.Generators
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
@@ -217,7 +201,6 @@ test-suite e2e-tests
     , cardano-ledger-byron
     , cardano-ledger-core
     , cardano-ledger-mary
-    , cardano-ledger-shelley
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-node-clients:devnet
@@ -231,7 +214,6 @@ test-suite e2e-tests
     , temporary
 
   other-modules:
-    Cardano.MPFS.E2E.BootstrapSpec
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
     Cardano.MPFS.E2E.ChainSyncSpec
