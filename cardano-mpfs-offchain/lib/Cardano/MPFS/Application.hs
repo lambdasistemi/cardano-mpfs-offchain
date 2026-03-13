@@ -8,8 +8,8 @@
 -- Top-level wiring module that assembles all
 -- service interfaces into a fully operational
 -- 'Context IO'. The bracket 'withApplication' opens
--- a shared RocksDB database with 11 column families
--- (4 UTxO + 7 cage\/trie), connects to a local
+-- a shared RocksDB database with 12 column families
+-- (5 UTxO + 7 cage\/trie), connects to a local
 -- Cardano node via two N2C connections, and builds
 -- the production 'Provider', 'Submitter', persistent
 -- 'State', persistent 'TrieManager', real
@@ -32,10 +32,9 @@
 -- for UTxO queries, protocol params, and tx
 -- submission.
 --
--- Optionally seeds a fresh database from a CBOR
--- bootstrap file (see "Cardano.MPFS.Core.Bootstrap")
--- so chain sync can resume from the bootstrap point
--- rather than genesis.
+-- Optionally seeds a fresh database from Shelley
+-- (and Byron) genesis files so chain sync can resume
+-- with genesis UTxOs already in the tree.
 module Cardano.MPFS.Application
     ( -- * Configuration
       AppConfig (..)
@@ -92,7 +91,8 @@ import Ouroboros.Network.Point
     )
 
 import Cardano.Ledger.Shelley.Genesis
-    ( sgNetworkMagic
+    ( ShelleyGenesis
+    , sgNetworkMagic
     )
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( HeaderSkipProgress (..)
@@ -130,6 +130,8 @@ import Cardano.UTxOCSMT.Application.Run.Config
     )
 import Cardano.UTxOCSMT.Bootstrap.Genesis
     ( genesisStabilityWindow
+    , genesisUtxoPairs
+    , readByronGenesisUtxoPairs
     , readShelleyGenesis
     )
 import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
@@ -144,10 +146,6 @@ import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
 
 import Cardano.MPFS.Context (Context (..))
-import Cardano.MPFS.Core.Bootstrap
-    ( BootstrapHeader (..)
-    , foldBootstrapEntries
-    )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
@@ -204,8 +202,10 @@ data AppConfig = AppConfig
     -- ^ TBQueue capacity for N2C channels
     , cageConfig :: !CageConfig
     -- ^ Cage script and protocol parameters
-    , bootstrapFile :: !(Maybe FilePath)
-    -- ^ CBOR bootstrap file for fresh DB seeding
+    , byronGenesisPath :: !(Maybe FilePath)
+    -- ^ Optional path to @byron-genesis.json@.
+    -- When set, Byron non-AVVM balances are seeded
+    -- alongside Shelley initial funds on fresh DB.
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
     , appTracer :: Tracer IO AppTrace
@@ -322,9 +322,10 @@ withApplication cfg action = do
                             kvOnlyCSMTOps
                                 BSL.toStrict
 
-                    -- Bootstrap seeding on fresh DB
-                    seedBootstrap
-                        (bootstrapFile cfg)
+                    -- Seed genesis UTxOs on fresh DB
+                    seedGenesis
+                        genesis
+                        (byronGenesisPath cfg)
                         st
                         utxoRt
                         fullOps
@@ -538,14 +539,15 @@ withApplication cfg action = do
                         "Expected at least 12 \
                         \column families"
 
--- | Seed a fresh database from a bootstrap CBOR
--- file. Sets the initial checkpoint and inserts
--- genesis UTxOs into the CSMT so chain sync can
--- resume from the bootstrap point. No-op if the
--- database already has a checkpoint or no
--- bootstrap file is configured.
-seedBootstrap
-    :: Maybe FilePath
+-- | Seed a fresh database with genesis UTxOs from
+-- Shelley (and optionally Byron) genesis files.
+-- Inserts entries into the CSMT so chain sync can
+-- start with genesis UTxOs already in the tree.
+-- No-op if the database already has a checkpoint.
+seedGenesis
+    :: ShelleyGenesis
+    -> Maybe FilePath
+    -- ^ Optional Byron genesis path
     -> CageSt.State IO
     -> CSMT.RunTransaction cf op slot hash BSL.ByteString BSL.ByteString IO
     -> CSMTOps
@@ -559,36 +561,24 @@ seedBootstrap
         BSL.ByteString
         hash
     -> IO ()
-seedBootstrap Nothing _ _ _ = pure ()
-seedBootstrap (Just fp) st runner ops =
-    do
-        existing <-
-            CageSt.getCheckpoint
-                (CageSt.checkpoints st)
-        when (isNothing existing) $ do
-            foldBootstrapEntries
-                fp
-                onHeader
-                onEntry
+seedGenesis genesis mByronPath st runner ops = do
+    existing <-
+        CageSt.getCheckpoint
+            (CageSt.checkpoints st)
+    when (isNothing existing) $ do
+        -- Shelley initial funds
+        mapM_ insertPair (genesisUtxoPairs genesis)
+        -- Byron non-AVVM balances (if configured)
+        case mByronPath of
+            Nothing -> pure ()
+            Just fp -> do
+                byronPairs <-
+                    readByronGenesisUtxoPairs fp
+                mapM_ insertPair byronPairs
   where
-    onHeader BootstrapHeader{..} =
-        case bootstrapBlockHash of
-            Nothing ->
-                -- Genesis bootstrap: no block hash,
-                -- no checkpoint. ChainSync starts
-                -- from Origin.
-                pure ()
-            Just h ->
-                CageSt.putCheckpoint
-                    (CageSt.checkpoints st)
-                    (SlotNo bootstrapSlot)
-                    (BlockId h)
-    onEntry k v =
+    insertPair (k, v) =
         CSMT.transact runner
-            $ csmtInsert
-                ops
-                (BSL.fromStrict k)
-                (BSL.fromStrict v)
+            $ csmtInsert ops k v
 
 -- | Convert a cage checkpoint to a chain
 -- intersection 'Point'.
