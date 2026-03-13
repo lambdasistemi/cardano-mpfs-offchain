@@ -87,7 +87,7 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
-    , devnetMagic
+
     , genesisAddr
     , genesisDir
     , genesisSignKey
@@ -311,8 +311,8 @@ withE2E scriptBytes action = do
                         AppConfig
                             { epochSlots =
                                 EpochSlots 4320
-                            , networkMagic =
-                                devnetMagic
+                            , shelleyGenesisPath =
+                                genesisJson
                             , socketPath = sock
                             , dbPath = dbDir
                             , channelCapacity = 16
@@ -321,8 +321,6 @@ withE2E scriptBytes action = do
                                 Just bsFile
                             , followerEnabled =
                                 True
-                            , stabilityWindow =
-                                2160
                             , appTracer =
                                 nullTracer
                             }

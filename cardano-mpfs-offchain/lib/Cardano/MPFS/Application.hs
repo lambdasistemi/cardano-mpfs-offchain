@@ -49,6 +49,7 @@ module Cardano.MPFS.Application
     , cageColumnFamilies
     ) where
 
+import Cardano.Chain.Slotting (EpochSlots)
 import Control.Concurrent.Async
     ( async
     , cancel
@@ -57,13 +58,10 @@ import Control.Concurrent.Async
 import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer, contramap)
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef)
 import Data.Maybe (isNothing)
-import Data.Word (Word64)
-
-import Cardano.Chain.Slotting (EpochSlots)
-import Data.ByteString.Lazy qualified as BSL
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
     )
@@ -85,12 +83,17 @@ import Database.RocksDB
     , DB (..)
     , withDBCF
     )
-import Ouroboros.Network.Magic (NetworkMagic)
+import Ouroboros.Network.Magic
+    ( NetworkMagic (..)
+    )
 import Ouroboros.Network.Point
     ( Block (..)
     , WithOrigin (..)
     )
 
+import Cardano.Ledger.Shelley.Genesis
+    ( sgNetworkMagic
+    )
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( HeaderSkipProgress (..)
     )
@@ -124,6 +127,10 @@ import Cardano.UTxOCSMT.Application.Run.Config
     , context
     , prisms
     , slotHash
+    )
+import Cardano.UTxOCSMT.Bootstrap.Genesis
+    ( genesisStabilityWindow
+    , readShelleyGenesis
     )
 import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
     ( runLocalNodeApplication
@@ -183,9 +190,12 @@ import Cardano.Node.Client.N2C.Connection
 -- | Application configuration.
 data AppConfig = AppConfig
     { epochSlots :: !EpochSlots
-    -- ^ Byron epoch slots (21600 mainnet/preprod, 4320 preview)
-    , networkMagic :: !NetworkMagic
-    -- ^ Network magic (e.g. mainnet, preview)
+    -- ^ Byron epoch slots (21600 mainnet\/preprod,
+    -- 4320 preview). Not in shelley genesis.
+    , shelleyGenesisPath :: !FilePath
+    -- ^ Path to shelley-genesis.json. Used to derive
+    -- 'NetworkMagic', stability window, and other
+    -- network parameters at startup.
     , socketPath :: !FilePath
     -- ^ Path to the cardano-node Unix socket
     , dbPath :: !FilePath
@@ -198,8 +208,6 @@ data AppConfig = AppConfig
     -- ^ CBOR bootstrap file for fresh DB seeding
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
-    , stabilityWindow :: !Word64
-    -- ^ Security parameter k (129600 mainnet)
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
@@ -258,7 +266,16 @@ withApplication
     -> (Context IO -> IO a)
     -- ^ Action receiving the fully wired context
     -> IO a
-withApplication cfg action =
+withApplication cfg action = do
+    -- Read shelley genesis for network parameters
+    genesis <-
+        readShelleyGenesis
+            (shelleyGenesisPath cfg)
+    let networkMagic =
+            NetworkMagic (sgNetworkMagic genesis)
+        stabilityWindow =
+            genesisStabilityWindow genesis
+
     withDBCF
         (dbPath cfg)
         dbConfig
@@ -345,9 +362,7 @@ withApplication cfg action =
                         isAtTip curSlot tipSlot =
                             tipSlot - curSlot
                                 < SlotNo
-                                    ( stabilityWindow
-                                        cfg
-                                    )
+                                    stabilityWindow
                         replay =
                             replayJournal
                                 1000
@@ -466,7 +481,7 @@ withApplication cfg action =
                                         er <-
                                             runLocalNodeApplication
                                                 (epochSlots cfg)
-                                                (networkMagic cfg)
+                                                networkMagic
                                                 (socketPath cfg)
                                                 chainSyncApp
                                         case er of
@@ -489,7 +504,7 @@ withApplication cfg action =
                     nodeThread <-
                         async
                             $ runNodeClient
-                                (networkMagic cfg)
+                                networkMagic
                                 (socketPath cfg)
                                 lsqCh
                                 ltxsCh

@@ -17,7 +17,6 @@ import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Crypto.Hash.Class (hashFromBytes)
 import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Hashes (ScriptHash (..))
-import Ouroboros.Network.Magic (NetworkMagic (..))
 
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -30,11 +29,14 @@ import Cardano.MPFS.TxBuilder.Config
     )
 
 -- | Preprod configuration.
-preprodConfig :: FilePath -> FilePath -> AppConfig
+preprodConfig
+    :: FilePath -> FilePath -> AppConfig
 preprodConfig sock dbDir =
     AppConfig
         { epochSlots = EpochSlots 21_600
-        , networkMagic = NetworkMagic 1
+        , shelleyGenesisPath =
+            "/tmp/cardano-preprod/config\
+            \/shelley-genesis.json"
         , socketPath = sock
         , dbPath = dbDir
         , channelCapacity = 16
@@ -43,7 +45,6 @@ preprodConfig sock dbDir =
             Just
                 "/tmp/preprod-bootstrap.cbor"
         , followerEnabled = True
-        , stabilityWindow = 129_600
         , appTracer = jsonLinesTracer
         }
 
