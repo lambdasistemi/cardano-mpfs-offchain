@@ -57,12 +57,16 @@ import Control.Concurrent.Async
 import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer, contramap)
+import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef)
 import Data.Maybe (isNothing)
 import Data.Word (Word64)
 
 import Cardano.Chain.Slotting (EpochSlots)
 import Data.ByteString.Lazy qualified as BSL
+import Ouroboros.Consensus.HardFork.Combinator
+    ( OneEraHash (..)
+    )
 
 import Database.KV.Cursor (firstEntry)
 import Database.KV.Database (mkColumns)
@@ -82,7 +86,10 @@ import Database.RocksDB
     , withDBCF
     )
 import Ouroboros.Network.Magic (NetworkMagic)
-import Ouroboros.Network.Point (WithOrigin (..))
+import Ouroboros.Network.Point
+    ( Block (..)
+    , WithOrigin (..)
+    )
 
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( HeaderSkipProgress (..)
@@ -328,7 +335,8 @@ withApplication cfg action =
                     -- Detect starting phase for
                     -- split mode
                     jEmpty <-
-                        CSMT.transact utxoRt
+                        CSMT.transact
+                            utxoRt
                             journalEmpty
                     let startPhase =
                             if not empty && jEmpty
@@ -372,14 +380,30 @@ withApplication cfg action =
                     countRef <-
                         newIORef initialCount
 
+                    -- In KVOnly, the CSMT bypass
+                    -- doesn't store rollback points,
+                    -- so availPts may be stale. Use
+                    -- the cage checkpoint instead —
+                    -- it's updated every block.
+                    cageCp <-
+                        CageSt.getCheckpoint
+                            (CageSt.checkpoints st)
                     let startPts :: [Point]
-                        startPts =
-                            if null availPts
-                                then
-                                    [ Network.Point
-                                        Origin
+                        startPts = case startPhase of
+                            Full
+                                | not (null availPts) ->
+                                    availPts
+                            _
+                                | Just (s, bid) <-
+                                    cageCp ->
+                                    [ cageCheckpointToPoint
+                                        s
+                                        bid
                                     ]
-                                else availPts
+                            _ ->
+                                [ Network.Point
+                                    Origin
+                                ]
 
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
@@ -550,3 +574,14 @@ seedBootstrap (Just fp) st runner ops =
                 ops
                 (BSL.fromStrict k)
                 (BSL.fromStrict v)
+
+-- | Convert a cage checkpoint to a chain
+-- intersection 'Point'.
+cageCheckpointToPoint
+    :: SlotNo -> BlockId -> Point
+cageCheckpointToPoint (SlotNo s) (BlockId h) =
+    Network.Point
+        $ At
+        $ Block
+            (SlotNo s)
+            (OneEraHash $ toShort h)
