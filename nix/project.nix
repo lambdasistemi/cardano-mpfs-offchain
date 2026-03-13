@@ -62,7 +62,5 @@ in {
     project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
   packages.e2e-tests =
     project.hsPkgs.cardano-mpfs-offchain.components.tests.e2e-tests;
-  packages.mpfs-bootstrap-genesis =
-    project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-bootstrap-genesis;
   packages.haddock = haddock;
 }
