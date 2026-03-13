@@ -96,7 +96,6 @@ import Cardano.Node.Client.E2E.Devnet
     )
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
-
     , genesisAddr
     , genesisDir
     , genesisSignKey

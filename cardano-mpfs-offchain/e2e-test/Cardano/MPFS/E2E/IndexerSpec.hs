@@ -97,7 +97,6 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
-
     , genesisAddr
     , genesisDir
     , genesisSignKey
