@@ -144,7 +144,6 @@ executable mpfs-run-preprod
     , cardano-ledger-core
     , cardano-mpfs-offchain
     , directory
-    , ouroboros-network-api
 
   ghc-options:      -threaded
 
