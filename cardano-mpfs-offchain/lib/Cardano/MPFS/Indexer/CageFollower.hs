@@ -48,11 +48,15 @@ module Cardano.MPFS.Indexer.CageFollower
 import Control.Monad (forM_)
 import Control.Tracer (Tracer)
 import Data.ByteString.Lazy (LazyByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.IORef
     ( IORef
     , modifyIORef'
     , readIORef
     , writeIORef
+    )
+import Ouroboros.Consensus.HardFork.Combinator
+    ( OneEraHash (..)
     )
 import Ouroboros.Network.Block qualified as Network
 import Ouroboros.Network.Point
@@ -82,7 +86,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTOps (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( SplitMode (..)
+    ( Phase (..)
+    , SplitMode (..)
     , UpdateTrace
     , forwardTip
     , fullForwardOps
@@ -173,8 +178,10 @@ pointToBlockId :: Point -> BlockId
 pointToBlockId (Network.Point Origin) =
     BlockId mempty
 pointToBlockId
-    (Network.Point (At (Block _ _))) =
-        BlockId mempty
+    (Network.Point (At (Block _ h))) =
+        BlockId
+            $ SBS.fromShort
+            $ getOneEraHash h
 
 -- | Resolve a 'TxIn' to its 'TxOut' by querying
 -- the UTxO KV column inside a unified transaction.
@@ -373,6 +380,7 @@ mkCageFollower
             count <- readIORef countRef
             let hash = slotHash fetchedPoint
             ops <- currentOps splitMode
+            phase <- currentPhase splitMode
 
             stored <- run $ do
                 -- 1. Detect cage events (resolves
@@ -393,16 +401,36 @@ mkCageFollower
                             events
 
                 -- 3. Forward UTxO CSMT tip
-                tipStored <-
-                    mapColumns InUtxo
-                        $ forwardTip
-                            tracer
-                            fullForwardOps
-                            ops
-                            hash
-                            count
-                            fetchedPoint
-                            utxoOps
+                tipStored <- case phase of
+                    KVOnly -> do
+                        -- In KVOnly, apply UTxO ops
+                        -- directly via CSMTOps (which
+                        -- gracefully handles missing
+                        -- keys). Skip forwardTip which
+                        -- crashes on Delete when the
+                        -- key is absent (it tries to
+                        -- construct inverse ops
+                        -- unconditionally).
+                        mapColumns InUtxo
+                            $ mapM_
+                                ( \case
+                                    Insert k v ->
+                                        csmtInsert ops k v
+                                    Delete k ->
+                                        csmtDelete ops k
+                                )
+                                utxoOps
+                        pure True
+                    Full ->
+                        mapColumns InUtxo
+                            $ forwardTip
+                                tracer
+                                fullForwardOps
+                                ops
+                                hash
+                                count
+                                fetchedPoint
+                                utxoOps
 
                 -- 4. Store rollback inverses and
                 -- update checkpoint
@@ -495,7 +523,8 @@ mkCageFollower
                     -- subsystems and restart
                     armageddon
                     run
-                        $ mapColumns InCage
+                        $ mapColumns
+                            InCage
                             cageArmageddonT
                     writeIORef countRef 0
                     pure

@@ -63,6 +63,7 @@ library
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks
+    , ouroboros-consensus
     , ouroboros-consensus-cardano
     , ouroboros-network-api
     , plutus-core
@@ -127,6 +128,23 @@ executable mpfs-bootstrap-genesis
     , base
     , cardano-mpfs-offchain
     , optparse-applicative
+
+  ghc-options:      -threaded
+
+executable mpfs-run-preprod
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe
+  main-is:          RunPreprod.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-crypto-class
+    , cardano-ledger-byron
+    , cardano-ledger-core
+    , cardano-mpfs-offchain
+    , directory
+    , ouroboros-network-api
 
   ghc-options:      -threaded
 
