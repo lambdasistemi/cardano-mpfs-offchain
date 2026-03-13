@@ -52,6 +52,7 @@ import Data.IORef
     ( IORef
     , modifyIORef'
     , readIORef
+    , writeIORef
     )
 import Ouroboros.Network.Block qualified as Network
 import Ouroboros.Network.Point
@@ -81,9 +82,10 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTOps (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( UpdateTrace
+    ( SplitMode (..)
+    , UpdateTrace
     , forwardTip
-    , sampleRollbackPoints
+    , fullForwardOps
     )
 import Cardano.UTxOCSMT.Application.Database.Interface
     ( Operation (..)
@@ -102,7 +104,6 @@ import MTS.Rollbacks.Store qualified as Store
 
 import Database.KV.Transaction
     ( Transaction
-    , iterating
     , mapColumns
     , query
     )
@@ -127,7 +128,8 @@ import Cardano.MPFS.Indexer.Persistent
     ( mkTransactionalState
     )
 import Cardano.MPFS.Indexer.Rollback
-    ( putCheckpointT
+    ( cageArmageddonT
+    , putCheckpointT
     , rollbackToSlotT
     , storeRollbackPointT
     )
@@ -218,17 +220,22 @@ mkCageIntersector
     -- ^ Cage script hash for event detection
     -> Tracer IO (UpdateTrace Point hash)
     -- ^ Tracer for UTxO update events
-    -> CSMTOps
-        ( Transaction
-            IO
-            cf
-            (UTxO hash)
-            op
+    -> SplitMode
+        IO
+        SlotNo
+        SlotNo
+        ( CSMTOps
+            ( Transaction
+                IO
+                cf
+                (UTxO hash)
+                op
+            )
+            LazyByteString
+            LazyByteString
+            hash
         )
-        LazyByteString
-        LazyByteString
-        hash
-    -- ^ CSMT operations (insert, delete, root)
+    -- ^ Phase-aware CSMT operations selector
     -> (Point -> hash)
     -- ^ Slot-to-hash function
     -> IORef Int
@@ -243,34 +250,39 @@ mkCageIntersector
          -> IO a
        )
     -- ^ Unified transaction runner
+    -> IO ()
+    -- ^ CSMT armageddon action
     -> Intersector Fetched
 mkCageIntersector
     scriptHash
     tracer
-    ops
+    splitMode
     slotHash
     countRef
-    run =
+    run
+    armageddon =
         Intersector
             { intersectFound = \point -> do
                 let f =
                         mkCageFollower
                             scriptHash
                             tracer
-                            ops
+                            splitMode
                             slotHash
                             countRef
                             run
+                            armageddon
                 pure $ f point
             , intersectNotFound = do
                 pure
                     ( mkCageIntersector
                         scriptHash
                         tracer
-                        ops
+                        splitMode
                         slotHash
                         countRef
                         run
+                        armageddon
                     , [Network.Point Origin]
                     )
             }
@@ -286,17 +298,22 @@ mkCageFollower
     -- ^ Cage script hash for event detection
     -> Tracer IO (UpdateTrace Point hash)
     -- ^ Tracer for UTxO update events
-    -> CSMTOps
-        ( Transaction
-            IO
-            cf
-            (UTxO hash)
-            op
+    -> SplitMode
+        IO
+        SlotNo
+        SlotNo
+        ( CSMTOps
+            ( Transaction
+                IO
+                cf
+                (UTxO hash)
+                op
+            )
+            LazyByteString
+            LazyByteString
+            hash
         )
-        LazyByteString
-        LazyByteString
-        hash
-    -- ^ CSMT operations (insert, delete, root)
+    -- ^ Phase-aware CSMT operations selector
     -> (Point -> hash)
     -- ^ Slot-to-hash function
     -> IORef Int
@@ -311,16 +328,19 @@ mkCageFollower
          -> IO a
        )
     -- ^ Unified transaction runner
+    -> IO ()
+    -- ^ CSMT armageddon action
     -> Point
     -- ^ Intersection point
     -> Follower Fetched
 mkCageFollower
     scriptHash
     tracer
-    ops
+    splitMode
     slotHash
     countRef
-    run =
+    run
+    armageddon =
         go
       where
         go _intersectPt = follower
@@ -335,7 +355,7 @@ mkCageFollower
         -- covering UTxO resolution, cage event
         -- detection, cage mutations, UTxO forward,
         -- rollback storage, and checkpoint.
-        rollFwd fetched _tipSlot = do
+        rollFwd fetched tipSlot = do
             let Fetched
                     { fetchedPoint
                     , fetchedBlock
@@ -352,6 +372,7 @@ mkCageFollower
 
             count <- readIORef countRef
             let hash = slotHash fetchedPoint
+            ops <- currentOps splitMode
 
             stored <- run $ do
                 -- 1. Detect cage events (resolves
@@ -376,6 +397,7 @@ mkCageFollower
                     mapColumns InUtxo
                         $ forwardTip
                             tracer
+                            fullForwardOps
                             ops
                             hash
                             count
@@ -399,6 +421,9 @@ mkCageFollower
                 countRef
                 (\c -> if stored then c + 1 else c)
 
+            -- Post-commit: check phase transition
+            afterForward splitMode slot tipSlot
+
             pure follower
 
         -- \| Backward: single unified transaction
@@ -407,6 +432,7 @@ mkCageFollower
         rollBwd point = do
             let targetSlot = pointToSlot point
 
+            ops <- currentOps splitMode
             result <- run $ do
                 -- Guard: if the rollback target is
                 -- ahead of the UTxO tip, the rollback
@@ -465,36 +491,23 @@ mkCageFollower
                         (subtract deleted)
                     pure $ Progress follower
                 Store.RollbackImpossible -> do
-                    -- Sample remaining rollback
-                    -- points to find new
-                    -- intersection
-                    pts <-
-                        run
-                            $ mapColumns InUtxo
-                            $ iterating
-                                RollbackPoints
-                                sampleRollbackPoints
-                    if null pts
-                        then
-                            pure
-                                $ Reset
-                                $ mkCageIntersector
-                                    scriptHash
-                                    tracer
-                                    ops
-                                    slotHash
-                                    countRef
-                                    run
-                        else
-                            pure
-                                $ Rewind pts
-                                $ mkCageIntersector
-                                    scriptHash
-                                    tracer
-                                    ops
-                                    slotHash
-                                    countRef
-                                    run
+                    -- Armageddon: wipe both
+                    -- subsystems and restart
+                    armageddon
+                    run
+                        $ mapColumns InCage
+                            cageArmageddonT
+                    writeIORef countRef 0
+                    pure
+                        $ Reset
+                        $ mkCageIntersector
+                            scriptHash
+                            tracer
+                            splitMode
+                            slotHash
+                            countRef
+                            run
+                            armageddon
 
         -- Transactional state and trie manager,
         -- built fresh in each transaction scope.

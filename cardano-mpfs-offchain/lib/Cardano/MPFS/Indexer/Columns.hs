@@ -20,13 +20,13 @@
 --       - Trie storage: 'TrieNodes', 'TrieKV'
 --       - Trie registry: 'TrieMeta'
 --
---   * 'UnifiedColumns' — combines the four UTxO
---     columns ('Columns' from @cardano-utxo-csmt@)
---     with the seven cage\/trie columns via 'InUtxo'
---     and 'InCage'. A single 'Transaction' over
---     'UnifiedColumns' addresses all 11 column
---     families, enforcing the one-block-one-commit
---     invariant.
+--   * 'UnifiedColumns' — combines the five UTxO
+--     columns ('Columns' from @cardano-utxo-csmt@,
+--     including the journal column) with the seven
+--     cage\/trie columns via 'InUtxo' and 'InCage'.
+--     A single 'Transaction' over 'UnifiedColumns'
+--     addresses all 12 column families, enforcing
+--     the one-block-one-commit invariant.
 --
 -- Serialization codecs for these columns live in
 -- "Cardano.MPFS.Indexer.Codecs".
@@ -171,9 +171,9 @@ instance GCompare AllColumns where
 -- | Unified column selector covering both UTxO
 -- (cardano-utxo-csmt) and cage\/trie columns.
 -- Enables a single RocksDB transaction runner for
--- all 11 column families via 'mapColumns'.
+-- all 12 column families via 'mapColumns'.
 data UnifiedColumns slot hash key value x where
-    -- | UTxO columns (first 4)
+    -- | UTxO columns (first 5, including journal)
     InUtxo
         :: Columns slot hash key value x
         -> UnifiedColumns slot hash key value x

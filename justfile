@@ -75,6 +75,8 @@ ci:
 e2e match="":
     #!/usr/bin/env bash
     set -euo pipefail
+    cabal build mpfs-bootstrap-genesis -O0
+    export PATH="$(cabal list-bin mpfs-bootstrap-genesis -O0 | xargs dirname):$PATH"
     if [[ '{{ match }}' == "" ]]; then
         cabal test cardano-mpfs-offchain:e2e-tests -O0 --test-show-details=direct
     else

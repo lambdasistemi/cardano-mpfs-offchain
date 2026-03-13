@@ -321,6 +321,8 @@ withE2E scriptBytes action = do
                                 Just bsFile
                             , followerEnabled =
                                 True
+                            , stabilityWindow =
+                                2160
                             , appTracer =
                                 nullTracer
                             }
