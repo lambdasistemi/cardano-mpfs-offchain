@@ -1,0 +1,1017 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://paolino.github.io/cardano-mpfs-offchain/architecture/block-processing/">
+      
+      
+        <link rel="prev" href="../overview/">
+      
+      
+        <link rel="next" href="../data-sources/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Block Processing - Cardano MPFS Offchain</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#block-processing" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-header__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Cardano MPFS Offchain
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Block Processing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-nav__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Cardano MPFS Offchain
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block Processing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#invariant-one-block-one-db-transaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariant: One Block = One DB Transaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#column-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Column Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forward-processing-a-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Forward: Processing a Block
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback-reverting-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback: Reverting Blocks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#crash-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Crash Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mapcolumns-lifting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mapColumns Lifting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bypassing-the-update-continuation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bypassing the Update Continuation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transactional-vs-io-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transactional vs IO Layers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../singletons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Singletons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../overview/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Architecture
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="block-processing">Block Processing</h1>
+<h2 id="invariant-one-block-one-db-transaction">Invariant: One Block = One DB Transaction</h2>
+<p>Every block from ChainSync is processed in a <strong>single atomic RocksDB
+write batch</strong>. All mutations — UTxO CSMT changes, cage state updates,
+trie insertions/deletions, rollback inverse storage, and checkpoint
+updates — either all commit or none do.</p>
+<p>This guarantees that a crash at any point during block processing
+leaves the database in a consistent state: either the block is fully
+applied or not applied at all. The same invariant holds for rollback:
+both UTxO and cage state are reverted in one atomic transaction.</p>
+<h2 id="column-layout">Column Layout</h2>
+<p>The database has 11 RocksDB column families. A <code>UnifiedColumns</code> GADT
+addresses all of them through two sub-selectors:</p>
+<pre class="mermaid"><code>graph TB
+    subgraph unified["UnifiedColumns — single Transaction spans all 11 CFs"]
+        direction LR
+        subgraph utxo["InUtxo — Columns (cardano-utxo-csmt)"]
+            KV["kv&lt;br/&gt;&lt;i&gt;UTxO key→value&lt;/i&gt;"]
+            CSMT["csmt&lt;br/&gt;&lt;i&gt;Merkle tree nodes&lt;/i&gt;"]
+            RB["rollbacks&lt;br/&gt;&lt;i&gt;UTxO rollback points&lt;/i&gt;"]
+            CFG["config&lt;br/&gt;&lt;i&gt;tip, finality&lt;/i&gt;"]
+        end
+        subgraph cage["InCage — AllColumns (cage + trie)"]
+            TOK["tokens&lt;br/&gt;&lt;i&gt;TokenId→TokenState&lt;/i&gt;"]
+            REQ["requests&lt;br/&gt;&lt;i&gt;TxIn→Request&lt;/i&gt;"]
+            CC["cage-cfg&lt;br/&gt;&lt;i&gt;checkpoint&lt;/i&gt;"]
+            CR["cage-rollbacks&lt;br/&gt;&lt;i&gt;slot→inverse ops&lt;/i&gt;"]
+            TN["trie-nodes&lt;br/&gt;&lt;i&gt;MPF tree nodes&lt;/i&gt;"]
+            TKV["trie-kv&lt;br/&gt;&lt;i&gt;MPF key→hash&lt;/i&gt;"]
+            TM["trie-meta&lt;br/&gt;&lt;i&gt;token registry&lt;/i&gt;"]
+        end
+    end
+
+    style unified fill:#1a1a2e,color:#fff
+    style utxo fill:#16213e,color:#fff
+    style cage fill:#0f3460,color:#fff</code></pre>
+<p>Sub-transactions are lifted into the unified space with
+<code>mapColumns InUtxo</code> and <code>mapColumns InCage</code>. The RocksDB write batch
+accumulates all writes from both sub-selectors and commits them
+atomically.</p>
+<h2 id="forward-processing-a-block">Forward: Processing a Block</h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant CS as ChainSync
+    participant CF as CageFollower
+    participant TX as Unified Transaction
+    participant UTXO as InUtxo columns
+    participant CAGE as InCage columns
+    participant DB as RocksDB
+
+    CS-&gt;&gt;CF: rollForward (block, tip)
+    Note over CF: extractConwayTxs (pure)&lt;br/&gt;compute utxoOps
+
+    CF-&gt;&gt;TX: run (begin transaction)
+
+    rect rgb(30, 50, 80)
+        Note over TX,CAGE: Step 1 — Detect cage events
+        TX-&gt;&gt;UTXO: resolveUtxoT (read KV column)
+        UTXO--&gt;&gt;TX: spent TxOuts
+        Note over TX: classify txs as cage events
+    end
+
+    rect rgb(30, 70, 50)
+        Note over TX,CAGE: Step 2 — Apply cage mutations
+        TX-&gt;&gt;CAGE: applyCageBlockEvents&lt;br/&gt;(tokens, requests, trie inserts/deletes)
+        CAGE--&gt;&gt;TX: inverse ops for rollback
+    end
+
+    rect rgb(30, 50, 80)
+        Note over TX,UTXO: Step 3 — Forward UTxO CSMT
+        TX-&gt;&gt;UTXO: forwardTip&lt;br/&gt;(CSMT inserts/deletes + rollback point)
+        UTXO--&gt;&gt;TX: stored? (bool)
+    end
+
+    rect rgb(30, 70, 50)
+        Note over TX,CAGE: Step 4 — Persist rollback + checkpoint
+        TX-&gt;&gt;CAGE: storeRollbackT (slot, inverse ops)
+        TX-&gt;&gt;CAGE: putCheckpointT (slot, blockId, active slots)
+    end
+
+    TX-&gt;&gt;DB: commit (atomic write batch)
+
+    Note over CF: post-commit: IORef counter += 1</code></pre>
+<p><strong>Atomicity boundary</strong>: everything inside <code>run $ do ...</code> is a single
+<code>Transaction</code>. The write batch is committed when <code>run</code> returns. If
+the process crashes at any point before <code>commit</code>, RocksDB discards
+the batch and the block is never partially applied.</p>
+<p><strong>Post-commit side effects</strong> (outside the transaction):</p>
+<ul>
+<li><code>IORef Int</code> rollback counter is bumped if <code>forwardTip</code> stored a new
+  rollback point. This counter is advisory — it's reconstructed from
+  the DB at startup via <code>countRollbackPoints</code>.</li>
+</ul>
+<h2 id="rollback-reverting-blocks">Rollback: Reverting Blocks</h2>
+<p>Rollback is also atomic. Both UTxO and cage state are reverted in a
+single transaction, guarded by the UTxO rollback result:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant CS as ChainSync
+    participant CF as CageFollower
+    participant TX as Unified Transaction
+    participant UTXO as InUtxo columns
+    participant CAGE as InCage columns
+    participant DB as RocksDB
+
+    CS-&gt;&gt;CF: rollBackward (point)
+
+    CF-&gt;&gt;TX: run (begin transaction)
+
+    rect rgb(30, 50, 80)
+        Note over TX,UTXO: Step 1 — Rollback UTxO CSMT
+        TX-&gt;&gt;UTXO: rollbackTip (apply inverse UTxO ops,&lt;br/&gt;delete rollback points after slot)
+        UTXO--&gt;&gt;TX: (RollbackResult, deleted count)
+    end
+
+    alt RollbackSucceeded
+        rect rgb(30, 70, 50)
+            Note over TX,CAGE: Step 2 — Rollback cage state
+            TX-&gt;&gt;CAGE: rollbackToSlotT&lt;br/&gt;(replay cage inverses in reverse,&lt;br/&gt;delete cage rollback entries,&lt;br/&gt;update checkpoint)
+        end
+        TX-&gt;&gt;DB: commit (atomic write batch)
+        Note over CF: post-commit: IORef counter -= deleted
+        CF--&gt;&gt;CS: Progress (continue following)
+    else RollbackImpossible
+        Note over TX: no cage rollback — keep consistent
+        TX-&gt;&gt;DB: commit (no-op write batch)
+        CF-&gt;&gt;UTXO: sampleRollbackPoints
+        alt has rollback points
+            CF--&gt;&gt;CS: Rewind (try different intersection)
+        else no rollback points
+            CF--&gt;&gt;CS: Reset (start from Origin)
+        end
+    end</code></pre>
+<p><strong>Key invariant</strong>: cage rollback only runs when UTxO rollback
+succeeds. This ensures both subsystems stay in sync. When rollback is
+impossible (the target slot doesn't exist as a UTxO rollback point),
+neither subsystem is modified — the follower instead resets the
+ChainSync intersection.</p>
+<h2 id="crash-safety">Crash Safety</h2>
+<pre class="mermaid"><code>graph TD
+    subgraph "Crash during forward"
+        A["block arrives"] --&gt; B["transaction begins"]
+        B --&gt; C["writes accumulate in batch"]
+        C --&gt; D{"crash?"}
+        D --&gt;|before commit| E["batch discarded&lt;br/&gt;DB unchanged&lt;br/&gt;block replayed on restart"]
+        D --&gt;|after commit| F["block fully applied&lt;br/&gt;IORef reconstructed from DB"]
+    end</code></pre>
+<pre class="mermaid"><code>graph TD
+    subgraph "Crash during rollback"
+        A["rollback requested"] --&gt; B["transaction begins"]
+        B --&gt; C["UTxO + cage inverses applied"]
+        C --&gt; D{"crash?"}
+        D --&gt;|before commit| E["batch discarded&lt;br/&gt;DB at pre-rollback state&lt;br/&gt;rollback retried on restart"]
+        D --&gt;|after commit| F["rollback fully applied&lt;br/&gt;IORef reconstructed from DB"]
+    end</code></pre>
+<p>The <code>IORef Int</code> rollback counter is the only mutable state outside
+RocksDB. It is reconstructed at startup by scanning the rollback
+points column (<code>countRollbackPoints</code>), so a crash never leaves it
+permanently inconsistent.</p>
+<h2 id="mapcolumns-lifting">mapColumns Lifting</h2>
+<p>The <code>mapColumns</code> function from <code>rocksdb-kv-transactions</code> is the
+mechanism that makes unified transactions possible:</p>
+<pre class="mermaid"><code>graph LR
+    subgraph "Type-level column projection"
+        T1["Transaction m cf&lt;br/&gt;(Columns slot hash k v)&lt;br/&gt;op a"]
+        T2["Transaction m cf&lt;br/&gt;(UnifiedColumns slot hash k v)&lt;br/&gt;op a"]
+        T1 --&gt;|"mapColumns InUtxo"| T2
+    end
+
+    subgraph "Type-level column projection "
+        T3["Transaction m cf&lt;br/&gt;AllColumns&lt;br/&gt;ops a"]
+        T4["Transaction m cf&lt;br/&gt;(UnifiedColumns slot hash k v)&lt;br/&gt;op a"]
+        T3 --&gt;|"mapColumns InCage"| T4
+    end</code></pre>
+<p>Each sub-transaction reads and writes its own column families.
+<code>mapColumns</code> lifts them into the unified namespace so they can be
+sequenced inside a single <code>do</code> block and committed together.</p>
+<h2 id="bypassing-the-update-continuation">Bypassing the Update Continuation</h2>
+<p>The <code>cardano-utxo-csmt</code> library exports an <code>Update</code> record that wraps
+<code>forwardTip</code> and <code>rollbackTip</code> with auto-commit and threads a
+rollback point counter through continuations. The <code>CageFollower</code>
+bypasses this:</p>
+<ul>
+<li>Calls <code>forwardTip</code> and <code>rollbackTip</code> directly (pure <code>Transaction</code>
+  values, not auto-committing)</li>
+<li>Manages the rollback point counter via an <code>IORef Int</code></li>
+<li>Handles <code>RollbackResult</code> (succeeded/impossible) itself</li>
+</ul>
+<p>This is necessary because the <code>Update</code> continuation commits each
+operation separately, violating the one-block-one-commit invariant.</p>
+<h2 id="transactional-vs-io-layers">Transactional vs IO Layers</h2>
+<p>Records like <code>State</code> and <code>TrieManager</code> have two construction modes:</p>
+<pre class="mermaid"><code>graph TD
+    subgraph "Block processing (CageFollower)"
+        TS["mkTransactionalState"]
+        TT["mkUnifiedTrieManager"]
+        TS &amp; TT --&gt;|"compose into"| UTXN["single unified Transaction"]
+        UTXN --&gt;|"run"| WB["atomic write batch"]
+    end
+
+    subgraph "Outside block processing (TxBuilder, API)"
+        PS["mkPersistentState&lt;br/&gt;(hoistState over transactional)"]
+        PT["mkPersistentTrieManager&lt;br/&gt;(IORef caches + auto-commit)"]
+        PS --&gt;|"each call"| AC1["auto-commit"]
+        PT --&gt;|"each call"| AC2["auto-commit"]
+    end</code></pre>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Constructor</th>
+<th>Monad</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transactional</td>
+<td><code>mkTransactionalState</code></td>
+<td><code>Transaction m cf AllColumns ops</code></td>
+<td>CageFollower</td>
+</tr>
+<tr>
+<td>Transactional</td>
+<td><code>mkUnifiedTrieManager</code></td>
+<td><code>Transaction m cf AllColumns ops</code></td>
+<td>CageFollower</td>
+</tr>
+<tr>
+<td>IO</td>
+<td><code>mkPersistentState</code></td>
+<td><code>IO</code></td>
+<td>TxBuilder, API</td>
+</tr>
+<tr>
+<td>IO</td>
+<td><code>mkPersistentTrieManager</code></td>
+<td><code>IO</code></td>
+<td>TxBuilder (speculative sessions)</td>
+</tr>
+</tbody>
+</table>
+<p>The transactional constructors compose into the caller's transaction
+without committing. The IO constructors auto-commit each operation
+(built via <code>hoistState</code> / natural transformation over the
+transactional layer).</p>
+<h2 id="key-modules">Key Modules</h2>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&amp;type=code"><code>Indexer.CageFollower</code></a></td>
+<td>Unified <code>rollForward</code> / <code>rollBackward</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&amp;type=code"><code>Indexer.Follower</code></a></td>
+<td><code>detectCageBlockEvents</code>, <code>applyCageBlockEvents</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&amp;type=code"><code>Indexer.Columns</code></a></td>
+<td><code>UnifiedColumns</code> GADT (11 CFs)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&amp;type=code"><code>Indexer.Rollback</code></a></td>
+<td><code>storeRollbackT</code>, <code>rollbackToSlotT</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&amp;type=code"><code>Indexer.Persistent</code></a></td>
+<td><code>mkTransactionalState</code>, <code>mkPersistentState</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&amp;type=code"><code>Trie.Persistent</code></a></td>
+<td><code>mkUnifiedTrieManager</code>, <code>mkPersistentTrieManager</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.path", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+    
+  </body>
+</html>

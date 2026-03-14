@@ -1,0 +1,1029 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://paolino.github.io/cardano-mpfs-offchain/PHASE4-DESIGN/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Phase 4 — Indexer + Persistence - Cardano MPFS Offchain</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#phase-4-indexer-persistence" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Cardano MPFS Offchain" class="md-header__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Cardano MPFS Offchain
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Phase 4 — Indexer + Persistence
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Cardano MPFS Offchain" class="md-nav__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Cardano MPFS Offchain
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/block-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/data-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/singletons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Singletons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="phase-4-indexer-persistence">Phase 4 — Indexer + Persistence</h1>
+<h2 id="goal">Goal</h2>
+<p>Replace in-memory state (Mock.State, PureManager, Skeleton
+Indexer) with persistent, crash-safe storage backed by a
+single RocksDB instance shared with cardano-utxo-csmt. Every
+block is processed in one atomic WriteBatch covering UTxO
+index, cage state, and trie mutations.</p>
+<h2 id="design-principle-one-writebatch-per-block">Design principle: one WriteBatch per block</h2>
+<p>The central invariant is <strong>atomicity at the block boundary</strong>.
+When a block arrives via ChainSync:</p>
+<ol>
+<li>Extract UTxO changes (cardano-utxo-csmt)</li>
+<li>Detect cage transactions (mpfs-offchain)</li>
+<li>Apply trie mutations (merkle-patricia-forestry)</li>
+<li>Commit all of the above in a single RocksDB WriteBatch</li>
+</ol>
+<p>If the process crashes at any point before the WriteBatch
+commits, no partial state is visible on recovery. If it
+crashes after the commit, all state is consistent.</p>
+<p>This is possible because <code>rocksdb-kv-transactions</code> was
+designed for exactly this: composable, multi-column-family
+atomic transactions over a shared RocksDB instance.</p>
+<h2 id="architecture">Architecture</h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Block (via N2C ChainSync)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  │
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  ▼
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>┌──────────────────────────────────────────────────┐
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  Single RocksDB Transaction (WriteBatch)         │
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│                                                  │
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│  ┌─────────────┐  ┌──────────┐  ┌────────────┐  │
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  │ UTxO CFs    │  │ Cage CFs │  │ Trie CFs   │  │
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│  │ kv          │  │ tokens   │  │ trie-nodes │  │
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  │ csmt        │  │ requests │  │ trie-kv    │  │
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  │ rollbacks   │  │ cage-cfg │  │            │  │
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  │ config      │  │          │  │            │  │
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  └─────────────┘  └──────────┘  └────────────┘  │
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│                                                  │
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│  applyOps → single WriteBatch → atomic commit    │
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>└──────────────────────────────────────────────────┘
+</span></code></pre></div>
+<h3 id="column-families">Column families</h3>
+<table>
+<thead>
+<tr>
+<th>Column family</th>
+<th>Owner</th>
+<th>Key</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kv</code></td>
+<td>cardano-utxo-csmt</td>
+<td>CBOR TxIn</td>
+<td>CBOR TxOut</td>
+</tr>
+<tr>
+<td><code>csmt</code></td>
+<td>cardano-utxo-csmt</td>
+<td>CSMT Key</td>
+<td>CSMT Indirect hash</td>
+</tr>
+<tr>
+<td><code>rollbacks</code></td>
+<td>cardano-utxo-csmt</td>
+<td>WithOrigin SlotNo</td>
+<td>RollbackPoint</td>
+</tr>
+<tr>
+<td><code>config</code></td>
+<td>cardano-utxo-csmt</td>
+<td>ConfigKey</td>
+<td>ByteString</td>
+</tr>
+<tr>
+<td><code>tokens</code></td>
+<td>mpfs-offchain</td>
+<td>TokenId</td>
+<td>TokenState</td>
+</tr>
+<tr>
+<td><code>requests</code></td>
+<td>mpfs-offchain</td>
+<td>TxIn</td>
+<td>Request</td>
+</tr>
+<tr>
+<td><code>cage-cfg</code></td>
+<td>mpfs-offchain</td>
+<td>()</td>
+<td>CageCheckpoint</td>
+</tr>
+<tr>
+<td><code>trie-nodes</code></td>
+<td>merkle-patricia-forestry</td>
+<td>HexKey</td>
+<td>HexIndirect hash</td>
+</tr>
+<tr>
+<td><code>trie-kv</code></td>
+<td>merkle-patricia-forestry</td>
+<td>ByteString</td>
+<td>ByteString</td>
+</tr>
+</tbody>
+</table>
+<h3 id="combined-columns-gadt">Combined Columns GADT</h3>
+<p>The GADT lives in mpfs-offchain since it is the application
+that owns the full schema. It extends cardano-utxo-csmt's
+columns with cage-specific and trie-specific ones:</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="kr">where</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="c1">-- cardano-utxo-csmt columns</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="kt">UTxOKV</span><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">LBS</span><span class="w"> </span><span class="kt">LBS</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="kt">UTxOCSMT</span><span class="w">      </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">CSMTKey</span><span class="w"> </span><span class="kt">CSMTIndirect</span><span class="p">)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="kt">UTxORollbacks</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">RollbackKey</span><span class="w"> </span><span class="kt">RollbackVal</span><span class="p">)</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="kt">UTxOConfig</span><span class="w">    </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">ConfigKey</span><span class="w"> </span><span class="kt">LBS</span><span class="p">)</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="c1">-- cage state columns</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="kt">CageTokens</span><span class="w">    </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="kt">TokenState</span><span class="p">)</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="kt">CageRequests</span><span class="w">  </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="kt">Request</span><span class="p">)</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="kt">CageCfg</span><span class="w">       </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="nb">()</span><span class="w"> </span><span class="kt">CageCheckpoint</span><span class="p">)</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="c1">-- trie columns (per-token, prefixed)</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="kt">TrieNodes</span><span class="w">     </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">LBS</span><span class="w"> </span><span class="kt">LBS</span><span class="p">)</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="kt">TrieKV</span><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="p">(</span><span class="kt">KV</span><span class="w"> </span><span class="kt">LBS</span><span class="w"> </span><span class="kt">LBS</span><span class="p">)</span>
+</span></code></pre></div>
+<p>All column families are created when the RocksDB instance is
+opened. The <code>Database</code> record from <code>rocksdb-kv-transactions</code>
+provides a unified handle. Transactions compose operations on
+any subset of columns and commit atomically.</p>
+<h2 id="block-processing-pipeline">Block processing pipeline</h2>
+<h3 id="on-rollforward">On rollForward</h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>rollForward :: Fetched -&gt; SlotNo -&gt; IO (Follower Fetched)
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  1. utxoOps   = uTxOs block          -- [Change]
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  2. cageOps   = detectCage block      -- [CageEvent]
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  3. runTransaction $ do
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>       -- UTxO index (delegated to cardano-utxo-csmt)
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>       applyUTxOOps slot utxoOps
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>       -- Cage state
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>       for_ cageOps $ \case
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>         CageBoot tokenId tokenState -&gt;
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>           insert CageTokens tokenId tokenState
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>         CageRequest txIn request -&gt;
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>           insert CageRequests txIn request
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>         CageUpdate tokenId newRoot removedReqs -&gt;
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>           update CageTokens tokenId (setRoot newRoot)
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>           for_ removedReqs (delete CageRequests)
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>           applyTrieMutations tokenId ...
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>         CageRetract txIn -&gt;
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>           delete CageRequests txIn
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>         CageBurn tokenId -&gt;
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>           delete CageTokens tokenId
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>       -- Checkpoint
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>       insert CageCfg () (CageCheckpoint slot blockId)
+</span></code></pre></div>
+<h3 id="on-rollbackward">On rollBackward</h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>rollBackward :: Point -&gt; IO (ProgressOrRewind Fetched)
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  1. Delegate to cardano-utxo-csmt&#39;s rollbackTipApply
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>     (reverts UTxO index via inverse operations)
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  2. In the same transaction, revert cage state:
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>     - Restore tokens/requests from inverse operations
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>     - Restore trie state from checkpoint
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>  3. Atomic commit
+</span></code></pre></div>
+<h3 id="cage-event-detection">Cage event detection</h3>
+<p>A <code>CageEvent</code> is extracted by inspecting each transaction in
+the block for interactions with the cage script address and
+policy ID:</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">CageEvent</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="ow">=</span><span class="w"> </span><span class="kt">CageBoot</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="kt">TokenState</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">      </span><span class="c1">-- ^ Mint with cage policyId → new token</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">CageRequest</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="kt">Request</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="c1">-- ^ Output to cage address with RequestDatum</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">CageUpdate</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="kt">Root</span><span class="w"> </span><span class="p">[</span><span class="kt">TxIn</span><span class="p">]</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="c1">-- ^ Input from cage address with Modify redeemer</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">CageRetract</span><span class="w"> </span><span class="kt">TxIn</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">      </span><span class="c1">-- ^ Input from cage address with Retract redeemer</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">CageBurn</span><span class="w"> </span><span class="kt">TokenId</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">      </span><span class="c1">-- ^ Burn with cage policyId → token removed</span>
+</span></code></pre></div>
+<p>Detection rules:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Signal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Boot</strong></td>
+<td>Tx mints exactly +1 token under <code>cagePolicyId</code>. Decode the <code>StateDatum</code> from the new cage output.</td>
+</tr>
+<tr>
+<td><strong>Request</strong></td>
+<td>Tx creates output at <code>cageAddr</code> with <code>RequestDatum</code> inline datum. No script input required.</td>
+</tr>
+<tr>
+<td><strong>Update</strong></td>
+<td>Tx consumes cage UTxO with <code>Modify</code> spending redeemer. Decode new <code>StateDatum</code> from continuing output. Consumed <code>RequestDatum</code> inputs are the processed requests.</td>
+</tr>
+<tr>
+<td><strong>Retract</strong></td>
+<td>Tx consumes cage UTxO with <code>Retract</code> spending redeemer. The consumed <code>RequestDatum</code> input is removed.</td>
+</tr>
+<tr>
+<td><strong>Burn</strong></td>
+<td>Tx mints -1 token under <code>cagePolicyId</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>The detection function needs access to:
+- The transaction's minted values (for boot/burn)
+- The transaction's outputs with inline datums (for request)
+- The transaction's inputs + redeemers (for update/retract)
+- The previous UTxO set (to resolve spent inputs)</p>
+<p>Since we process blocks sequentially and the UTxO index is
+updated in the same transaction, we can resolve spent inputs
+from the UTxO index <strong>before</strong> applying the current block's
+UTxO changes, or we can use cardano-utxo-csmt's
+<code>Query.getValue</code> within the transaction workspace.</p>
+<h2 id="trie-persistence">Trie persistence</h2>
+<h3 id="per-token-trie-isolation">Per-token trie isolation</h3>
+<p>Each cage token has its own MPF trie. On chain, the trie root
+is stored in the <code>StateDatum</code>. Off chain, the trie nodes and
+key-value pairs are stored in RocksDB.</p>
+<p><strong>Key prefix strategy</strong>: Trie column families are shared
+across all tokens. Keys are prefixed with the <code>TokenId</code> to
+isolate per-token data:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>trie-nodes key = tokenId ++ originalKey
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>trie-kv key    = tokenId ++ originalKey
+</span></code></pre></div>
+<p>This avoids creating per-token column families (RocksDB
+column families are heavyweight, not meant to be dynamic).</p>
+<h3 id="trie-mutations-in-the-transaction">Trie mutations in the transaction</h3>
+<p>When an <code>Update</code> cage event is detected, the block processor:</p>
+<ol>
+<li>Reads the consumed <code>RequestDatum</code> inputs to get the
+   operations (insert/delete key-value pairs)</li>
+<li>Applies each operation to the token's trie within the
+   same RocksDB transaction</li>
+<li>The resulting root hash must match the <code>stateRoot</code> in the
+   new <code>StateDatum</code> (this is enforced on-chain by the Aiken
+   validator, but we verify it off-chain as a sanity check)</li>
+</ol>
+<h3 id="triemanager-replacement">TrieManager replacement</h3>
+<p>The current <code>TrieManager</code> interface uses in-memory
+<code>IORef MPFInMemoryDB</code>. The persistent version wraps the
+shared RocksDB transaction:</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nf">mkPersistentTrieManager</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="ow">::</span><span class="w"> </span><span class="kt">RunTransaction</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="kt">CF</span><span class="w"> </span><span class="kt">AllColumns</span><span class="w"> </span><span class="kt">BatchOp</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TrieManager</span><span class="w"> </span><span class="kt">IO</span>
+</span></code></pre></div>
+<p>Operations (<code>insert</code>, <code>delete</code>, <code>lookup</code>, <code>getRoot</code>,
+<code>getProof</code>) are translated to prefixed reads/writes on the
+<code>TrieNodes</code> and <code>TrieKV</code> column families.</p>
+<h2 id="rollback-strategy">Rollback strategy</h2>
+<h3 id="the-problem">The problem</h3>
+<p>Rollbacks must revert three domains atomically:
+1. UTxO index (handled by cardano-utxo-csmt's inverse ops)
+2. Cage state (tokens, requests)
+3. Trie state (per-token Merkle tries)</p>
+<h3 id="the-solution-inverse-operations">The solution: inverse operations</h3>
+<p>Following cardano-utxo-csmt's pattern, we record <strong>inverse
+operations</strong> for cage state changes at each block:</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">CageInverseOp</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="ow">=</span><span class="w"> </span><span class="kt">InvInsertToken</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="kt">TokenState</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">      </span><span class="c1">-- ^ To undo a delete: re-insert</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">InvDeleteToken</span><span class="w"> </span><span class="kt">TokenId</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">      </span><span class="c1">-- ^ To undo an insert: delete</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">InvInsertRequest</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="kt">Request</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">      </span><span class="c1">-- ^ To undo a delete: re-insert</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">InvDeleteRequest</span><span class="w"> </span><span class="kt">TxIn</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">      </span><span class="c1">-- ^ To undo an insert: delete</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">InvSetRoot</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="kt">Root</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">      </span><span class="c1">-- ^ To undo a root change: restore old root</span>
+</span></code></pre></div>
+<p>These are stored alongside cardano-utxo-csmt's rollback
+points in the same <code>rollbacks</code> column family (or a parallel
+<code>cage-rollbacks</code> column family).</p>
+<p>On rollback to slot S:
+1. Replay inverse operations from the rollback point
+2. Restore trie state (see below)</p>
+<h3 id="trie-rollback">Trie rollback</h3>
+<p>Trie mutations are harder to invert because the MPF trie is a
+Merkle structure — you can't just "undo" a hash. Two options:</p>
+<p><strong>A) Store trie inverse ops</strong> — For each trie mutation,
+store the old key-value pair. On rollback, replay inverses.
+Since the trie is deterministic (same inputs → same root),
+replaying in reverse restores the correct state.</p>
+<p><strong>B) Snapshot trie roots</strong> — Store periodic snapshots of the
+full trie. On rollback, restore from the nearest snapshot and
+replay forward. More expensive in storage but simpler.</p>
+<p><strong>Choice: A</strong> — Store trie inverse operations. The trie is
+deterministic, so replaying inverses in order produces the
+correct root. This is consistent with how cardano-utxo-csmt
+handles UTxO rollbacks.</p>
+<h2 id="cardano-utxo-csmt-integration">cardano-utxo-csmt integration</h2>
+<h3 id="dependency-setup">Dependency setup</h3>
+<p>Add <code>cardano-utxo-csmt</code> as a <code>source-repository-package</code> in
+<code>cabal.project</code>, along with its transitive dependencies:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>source-repository-package
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  type: git
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  location: https://github.com/lambdasistemi/cardano-utxo-csmt
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>  tag: &lt;commit-hash&gt;
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>source-repository-package
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  type: git
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>  location: https://github.com/lambdasistemi/haskell-mts
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>  tag: &lt;commit-hash&gt;
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>source-repository-package
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>  type: git
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>  location: https://github.com/lambdasistemi/cardano-read-ledger
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>  tag: &lt;commit-hash&gt;
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>source-repository-package
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>  type: git
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>  location: https://github.com/lambdasistemi/contra-tracer-contrib
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>  tag: &lt;commit-hash&gt;
+</span></code></pre></div>
+<p>In <code>flake.nix</code>, no new inputs are needed — these are pure
+Haskell packages resolved by haskell.nix from the cabal
+project file.</p>
+<h3 id="what-we-import">What we import</h3>
+<p>From <code>cardano-utxo-csmt</code> (library):
+- <code>Cardano.UTxOCSMT.Ouroboros.ConnectionN2C</code> — N2C socket connection
+- <code>Cardano.UTxOCSMT.Ouroboros.Types</code> — <code>Follower</code>, <code>Intersector</code>, <code>Block</code>, <code>Point</code>, <code>TipOf</code>
+- <code>Cardano.UTxOCSMT.Application.ChainSyncN2C</code> — ChainSync client
+- <code>Cardano.UTxOCSMT.Application.Database.Interface</code> — <code>Update</code>, <code>State</code>, <code>Query</code>, <code>Operation</code>
+- <code>Cardano.UTxOCSMT.Application.Database.RocksDB</code> — DB setup
+- <code>Cardano.UTxOCSMT.Application.UTxOs</code> — <code>uTxOs</code>, <code>Change</code></p>
+<h3 id="what-we-replace">What we replace</h3>
+<table>
+<thead>
+<tr>
+<th>Before (Phase 3)</th>
+<th>After (Phase 4)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NodeClient.Connection</code> (custom N2C)</td>
+<td><code>ConnectionN2C.runLocalNodeApplication</code></td>
+</tr>
+<tr>
+<td><code>NodeClient.LocalStateQuery</code> (LSQ for UTxOs)</td>
+<td><code>Query.getValue</code> on UTxO column</td>
+</tr>
+<tr>
+<td><code>Mock.State</code> (IORef maps)</td>
+<td>RocksDB columns via <code>RunTransaction</code></td>
+</tr>
+<tr>
+<td><code>Trie.PureManager</code> (IORef)</td>
+<td>RocksDB columns with token-prefixed keys</td>
+</tr>
+<tr>
+<td><code>Mock.Skeleton</code> (no-op)</td>
+<td>Real <code>Follower</code> processing blocks</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-we-keep">What we keep</h3>
+<ul>
+<li><code>NodeClient.LocalTxSubmission</code> — still needed for tx
+  submission (cardano-utxo-csmt doesn't submit)</li>
+<li><code>NodeClient.LocalStateQuery</code> — still needed for
+  <code>queryProtocolParams</code> (epoch-cached)</li>
+<li><code>TxBuilder.Real.*</code> — transaction construction unchanged</li>
+<li><code>Balance</code> — fee estimation unchanged</li>
+</ul>
+<h3 id="connection-strategy">Connection strategy</h3>
+<p>Two N2C connections to the same node socket:</p>
+<ol>
+<li><strong>cardano-utxo-csmt connection</strong> — ChainSync only
+   (blocks arrive here, processed by our Follower)</li>
+<li><strong>mpfs-offchain connection</strong> — LocalTxSubmission +
+   LocalStateQuery (tx submission + protocol params)</li>
+</ol>
+<p>Both connect to the same Unix socket. The node handles
+multiple client connections.</p>
+<h2 id="application-wiring-updated">Application wiring (updated)</h2>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nf">withApplication</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">AppConfig</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="kt">Context</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="n">a</span><span class="p">)</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">IO</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nf">withApplication</span><span class="w"> </span><span class="n">cfg</span><span class="w"> </span><span class="n">action</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kr">do</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="c1">-- 1. Open shared RocksDB with all column families</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="n">withSharedDB</span><span class="w"> </span><span class="n">dbPath</span><span class="w"> </span><span class="n">allColumnFamilies</span><span class="w"> </span><span class="o">$</span><span class="w"> </span><span class="nf">\</span><span class="n">db</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kr">do</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">        </span><span class="c1">-- 2. Create RunTransaction (MVar-serialized)</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">        </span><span class="n">runner</span><span class="w"> </span><span class="ow">&lt;-</span><span class="w"> </span><span class="n">newRunTransaction</span><span class="w"> </span><span class="n">db</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">        </span><span class="c1">-- 3. Initialize cardano-utxo-csmt state machine</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">        </span><span class="p">(</span><span class="n">utxoUpdate</span><span class="p">,</span><span class="w"> </span><span class="n">utxoQuery</span><span class="p">)</span><span class="w"> </span><span class="ow">&lt;-</span><span class="w"> </span><span class="n">initUTxOCSMT</span><span class="w"> </span><span class="n">runner</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">        </span><span class="c1">-- 4. Create persistent cage state interface</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">        </span><span class="kr">let</span><span class="w"> </span><span class="n">cageState</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">mkPersistentState</span><span class="w"> </span><span class="n">runner</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">        </span><span class="c1">-- 5. Create persistent trie manager</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">        </span><span class="kr">let</span><span class="w"> </span><span class="n">trieManager</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">mkPersistentTrieManager</span><span class="w"> </span><span class="n">runner</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">        </span><span class="c1">-- 6. Build the Follower (block processor)</span>
+</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">        </span><span class="kr">let</span><span class="w"> </span><span class="n">follower</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">mkCageFollower</span><span class="w"> </span><span class="n">runner</span><span class="w"> </span><span class="n">utxoUpdate</span>
+</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">                </span><span class="n">cageState</span><span class="w"> </span><span class="n">trieManager</span><span class="w"> </span><span class="n">cagePolicyId</span>
+</span><span id="__span-9-20"><a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>
+</span><span id="__span-9-21"><a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">        </span><span class="c1">-- 7. Start ChainSync N2C (blocks → follower)</span>
+</span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">        </span><span class="n">async</span><span class="w"> </span><span class="o">$</span><span class="w"> </span><span class="n">runLocalNodeApplication</span><span class="w"> </span><span class="n">magic</span><span class="w"> </span><span class="n">socket</span>
+</span><span id="__span-9-23"><a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">            </span><span class="p">(</span><span class="n">mkN2CChainSyncApplication</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="n">follower</span><span class="w"> </span><span class="o">...</span><span class="p">)</span>
+</span><span id="__span-9-24"><a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>
+</span><span id="__span-9-25"><a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">        </span><span class="c1">-- 8. Start LSQ + TxSubmission N2C connection</span>
+</span><span id="__span-9-26"><a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">        </span><span class="p">(</span><span class="n">lsqChan</span><span class="p">,</span><span class="w"> </span><span class="n">ltxsChan</span><span class="p">)</span><span class="w"> </span><span class="ow">&lt;-</span><span class="w"> </span><span class="n">startN2CConnection</span><span class="w"> </span><span class="n">magic</span><span class="w"> </span><span class="n">socket</span>
+</span><span id="__span-9-27"><a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>
+</span><span id="__span-9-28"><a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="w">        </span><span class="c1">-- 9. Wire Provider (UTxO from RocksDB, params from LSQ)</span>
+</span><span id="__span-9-29"><a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="w">        </span><span class="kr">let</span><span class="w"> </span><span class="n">provider</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Provider</span>
+</span><span id="__span-9-30"><a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="w">                </span><span class="p">{</span><span class="w"> </span><span class="n">queryUTxOs</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">queryByAddress</span><span class="w"> </span><span class="n">utxoQuery</span>
+</span><span id="__span-9-31"><a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a><span class="w">                </span><span class="p">,</span><span class="w"> </span><span class="n">queryProtocolParams</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">queryLSQ</span><span class="w"> </span><span class="n">lsqChan</span><span class="w"> </span><span class="o">...</span>
+</span><span id="__span-9-32"><a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a><span class="w">                </span><span class="p">,</span><span class="w"> </span><span class="n">evaluateTx</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="o">...</span>
+</span><span id="__span-9-33"><a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a><span class="w">                </span><span class="p">}</span>
+</span><span id="__span-9-34"><a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>
+</span><span id="__span-9-35"><a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a><span class="w">        </span><span class="c1">-- 10. Wire remaining components</span>
+</span><span id="__span-9-36"><a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a><span class="w">        </span><span class="kr">let</span><span class="w"> </span><span class="n">submitter</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">mkN2CSubmitter</span><span class="w"> </span><span class="n">ltxsChan</span>
+</span><span id="__span-9-37"><a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a><span class="w">            </span><span class="n">txBuilder</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">mkRealTxBuilder</span><span class="w"> </span><span class="n">cageConfig</span><span class="w"> </span><span class="n">provider</span>
+</span><span id="__span-9-38"><a id="__codelineno-9-38" name="__codelineno-9-38" href="#__codelineno-9-38"></a><span class="w">                </span><span class="n">cageState</span><span class="w"> </span><span class="n">trieManager</span>
+</span><span id="__span-9-39"><a id="__codelineno-9-39" name="__codelineno-9-39" href="#__codelineno-9-39"></a><span class="w">            </span><span class="n">context</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Context</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">provider</span><span class="p">,</span><span class="w"> </span><span class="n">trieManager</span><span class="p">,</span>
+</span><span id="__span-9-40"><a id="__codelineno-9-40" name="__codelineno-9-40" href="#__codelineno-9-40"></a><span class="w">                </span><span class="n">state</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="n">cageState</span><span class="p">,</span><span class="w"> </span><span class="n">indexer</span><span class="p">,</span><span class="w"> </span><span class="n">submitter</span><span class="p">,</span>
+</span><span id="__span-9-41"><a id="__codelineno-9-41" name="__codelineno-9-41" href="#__codelineno-9-41"></a><span class="w">                </span><span class="n">txBuilder</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-9-42"><a id="__codelineno-9-42" name="__codelineno-9-42" href="#__codelineno-9-42"></a>
+</span><span id="__span-9-43"><a id="__codelineno-9-43" name="__codelineno-9-43" href="#__codelineno-9-43"></a><span class="w">        </span><span class="n">action</span><span class="w"> </span><span class="n">context</span>
+</span></code></pre></div>
+<h2 id="invariants-to-be-formalized-in-lean-4">Invariants (to be formalized in Lean 4)</h2>
+<h3 id="inv-1-atomic-block-processing">INV-1: Atomic block processing</h3>
+<p>For any block B at slot S, the state transition from
+<code>state(S-1)</code> to <code>state(S)</code> is atomic. Either all of these
+hold simultaneously or none:
+- UTxO set reflects all spends and creates in B
+- Cage tokens reflect all boot/burn events in B
+- Cage requests reflect all request/retract/update events in B
+- Trie roots match the on-chain StateDatum roots after
+  processing all updates in B</p>
+<h3 id="inv-2-rollback-correctness">INV-2: Rollback correctness</h3>
+<p>For any rollback to slot S, the resulting state is identical
+to the state that existed at slot S. Formally:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>rollback(process(state(S), blocks(S+1..S+n)), S) = state(S)
+</span></code></pre></div>
+<p>This must hold for UTxO index, cage state, and trie state.</p>
+<h3 id="inv-3-cage-event-completeness">INV-3: Cage event completeness</h3>
+<p>For any block B, the set of detected <code>CageEvent</code>s is exactly
+the set of cage-relevant transactions in B. No cage
+transaction is missed, no non-cage transaction is
+misidentified.</p>
+<h3 id="inv-4-trie-state-consistency">INV-4: Trie-state consistency</h3>
+<p>After processing any block, for every token T with
+<code>TokenState.root = R</code>, the actual Merkle root of T's
+persisted trie equals R.</p>
+<h3 id="inv-5-inverse-operation-correctness">INV-5: Inverse operation correctness</h3>
+<p>For any forward operation <code>op</code> producing inverse <code>inv(op)</code>,
+applying <code>inv(op)</code> after <code>op</code> restores the original state:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>apply(inv(op), apply(op, state)) = state
+</span></code></pre></div>
+<h2 id="design-decisions-resolved">Design decisions (resolved)</h2>
+<ol>
+<li>
+<p><strong>Protocol params source</strong> — Keep LSQ. Params change at
+   most once per epoch and are only queried when building
+   transactions, not per-block.</p>
+</li>
+<li>
+<p><strong>Provider.queryUTxOs source</strong> — Use cardano-utxo-csmt's
+   local UTxO index (<code>Query.getByAddress</code>). LSQ-based
+   <code>queryUTxOs</code> is unusable. The <code>Provider</code> gains a
+   dependency on cardano-utxo-csmt's query interface. The
+   N2C LSQ connection is only needed for protocol params
+   and tx evaluation.</p>
+</li>
+<li>
+<p><strong>Trie prefix efficiency</strong> — Deferred. Prefixed keys in
+   shared column families work correctly. RocksDB prefix
+   bloom filter configuration is a future optimization
+   (see #40).</p>
+</li>
+<li>
+<p><strong>Transaction serialization</strong> — Keep the MVar. Atomicity
+   is required. Block processing is well within the block
+   interval on both mainnet (20s) and devnet (0.1s).</p>
+</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "navigation.sections", "navigation.path", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+    
+  </body>
+</html>
