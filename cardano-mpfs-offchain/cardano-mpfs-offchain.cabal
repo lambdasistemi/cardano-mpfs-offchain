@@ -210,8 +210,11 @@ test-suite e2e-tests
   hs-source-dirs:   e2e-test
   main-is:          main.hs
   build-depends:
+    , aeson
     , base
+    , base16-bytestring
     , bytestring
+    , cardano-crypto-class
     , cardano-ledger-allegra
     , cardano-ledger-api
     , cardano-ledger-binary
@@ -226,14 +229,19 @@ test-suite e2e-tests
     , directory
     , filepath
     , hspec                        >=2.11 && <2.12
+    , http-types
     , microlens
     , process
     , temporary
+    , vector
+    , wai
+    , wai-extra
 
   other-modules:
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
     Cardano.MPFS.E2E.ChainSyncSpec
+    Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
     Cardano.MPFS.E2E.ProviderSpec
     Cardano.MPFS.E2E.SubmitterSpec
