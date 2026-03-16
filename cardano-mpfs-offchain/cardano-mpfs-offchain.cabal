@@ -148,6 +148,7 @@ test-suite unit-tests
   build-depends:
     , aeson
     , base
+    , base16-bytestring
     , bytestring
     , cardano-crypto-class
     , cardano-ledger-allegra
@@ -176,6 +177,7 @@ test-suite unit-tests
     , rocksdb-kv-transactions:kv-transactions
     , temporary
     , text
+    , vector
     , wai-extra
 
   other-modules:

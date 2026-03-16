@@ -14,7 +14,6 @@ import Cardano.MPFS.Trie.PureManager
     )
 
 import Cardano.MPFS.BalanceSpec qualified as BalanceSpec
-import Cardano.MPFS.BootstrapSpec qualified as BootstrapSpec
 import Cardano.MPFS.HTTP.RequestsSpec qualified as RequestsSpec
 import Cardano.MPFS.HTTP.StatusSpec qualified as StatusSpec
 import Cardano.MPFS.HTTP.TokenSpec qualified as TokenSpec
