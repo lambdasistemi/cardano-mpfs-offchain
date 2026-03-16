@@ -63,7 +63,7 @@ in {
   packages.mpfs-serve =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-serve;
   packages.docker-image = import ./docker-image.nix {
-    inherit pkgs project version;
+    inherit pkgs project version mpfs-blueprint;
   };
   packages.mpfs-devnet-server =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;

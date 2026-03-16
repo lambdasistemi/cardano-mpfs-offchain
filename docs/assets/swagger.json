@@ -1,5 +1,4 @@
 Entering cardano-mpfs-offchain dev shell
-Resolving dependencies...
 {
     "definitions": {
         "BootRequest": {
@@ -659,6 +658,91 @@ Resolving dependencies...
                     },
                     "400": {
                         "description": "Invalid `timeout` or `txId`"
+                    }
+                }
+            }
+        },
+        "/utxo/root": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    }
+                }
+            }
+        },
+        "/utxo/{txId}/{txIx}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "path",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "txIx",
+                        "required": true,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `txIx` or `txId`"
+                    }
+                }
+            }
+        },
+        "/utxo/{txId}/{txIx}/proof": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "path",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "txIx",
+                        "required": true,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `txIx` or `txId`"
                     }
                 }
             }

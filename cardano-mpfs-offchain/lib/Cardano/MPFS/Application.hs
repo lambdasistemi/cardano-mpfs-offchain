@@ -91,6 +91,10 @@ import Ouroboros.Network.Point
     , WithOrigin (..)
     )
 
+import CSMT.Hashes
+    ( generateInclusionProof
+    , renderHash
+    )
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
     , sgNetworkMagic
@@ -113,6 +117,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     , journalEmpty
     , kvOnlyCSMTOps
     , mkCSMTOps
+    , queryMerkleRoot
     , replayJournal
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
@@ -520,6 +525,33 @@ withApplication cfg action = do
                                 $ fmap isJust
                                 $ query KVCol
                                 $ cborEncode txIn
+                        resolve txIn =
+                            CSMT.transact utxoRt
+                                $ fmap
+                                    (fmap BSL.toStrict)
+                                $ query KVCol
+                                $ cborEncode txIn
+                        root =
+                            CSMT.transact utxoRt
+                                $ fmap renderHash
+                                    <$> queryMerkleRoot
+                                        ( hashing
+                                            context
+                                        )
+                        proof txIn =
+                            CSMT.transact utxoRt $ do
+                                let fkv =
+                                        fromKV context
+                                result <-
+                                    generateInclusionProof
+                                        fkv
+                                        KVCol
+                                        CSMTCol
+                                        ( cborEncode
+                                            txIn
+                                        )
+                                pure
+                                    $ fmap snd result
                         ctx =
                             Context
                                 { provider = prov
@@ -538,6 +570,9 @@ withApplication cfg action = do
                                         tm
                                 , indexer = idx
                                 , utxoExists = exists
+                                , resolveUtxo = resolve
+                                , utxoRoot = root
+                                , utxoProof = proof
                                 }
                     result <- action ctx
                     mapM_ cancel mChainThread

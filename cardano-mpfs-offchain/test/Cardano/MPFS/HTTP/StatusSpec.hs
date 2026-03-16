@@ -64,6 +64,9 @@ mkTestContext = do
             , submitter = mkMockSubmitter
             , txBuilder = mkMockTxBuilder
             , utxoExists = \_ -> pure False
+            , resolveUtxo = \_ -> pure Nothing
+            , utxoRoot = pure Nothing
+            , utxoProof = \_ -> pure Nothing
             }
 
 getStatus :: Context IO -> IO SResponse
