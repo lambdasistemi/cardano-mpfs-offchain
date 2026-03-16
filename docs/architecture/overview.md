@@ -5,12 +5,16 @@
 ```mermaid
 flowchart TD
     app["Application<br/>(wiring + lifecycle)"]
+    http["HTTP Server<br/>(Servant REST API + Swagger UI)"]
     idx["CageFollower<br/>(ChainSync block processing)<br/>unified transaction per block"]
     mpf["MPF Trie<br/>(merkle-patricia-forestry)<br/>Proofs, insertion, deletion"]
     txb["TxBuilder<br/>(MPFS protocol operations)<br/>boot, update, retract, end"]
     bal["Balance<br/>(fee estimation fixpoint)"]
     n2c["Node Client<br/>(node-to-client)<br/>ChainSync + LSQ + LTxS"]
 
+    app --> http
+    http --> txb
+    http --> idx
     app --> idx --> mpf
     app --> txb --> bal --> n2c
     idx --> n2c
@@ -129,14 +133,12 @@ All modules live under `Cardano.MPFS`.
 | [`Core.Blueprint`][s-blueprint] | CIP-57 blueprint schema loading and validation |
 | [`Core.Proof`][s-proof] | MPF proof to on-chain `ProofStep` conversion |
 | [`Core.Balance`][s-balance] | `balanceTx` — fee estimation fixpoint loop |
-| [`Core.Bootstrap`][s-bootstrap] | CBOR bootstrap file for UTxO seeding |
 
 [s-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
 [s-onchain]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
 [s-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
 [s-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
 [s-balance]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code
-[s-bootstrap]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Bootstrap%22&type=code
 
 ### Interfaces — record-of-functions singletons
 
@@ -159,6 +161,22 @@ All modules live under `Cardano.MPFS`.
 [s-indexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&type=code
 [s-submitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&type=code
 [s-application]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Application%22&type=code
+
+### HTTP — REST API
+
+| Module | Purpose |
+|--------|---------|
+| [`HTTP.API`][s-http-api] | Servant type-level API definition |
+| [`HTTP.Types`][s-http-types] | JSON wire types (`StatusResponse`, `TokenIdJSON`, etc.) |
+| [`HTTP.Encoding`][s-http-enc] | `Hex` newtype for binary-as-hex transport |
+| [`HTTP.Server`][s-http-server] | WAI application wiring, `mkApp` |
+| [`HTTP.Swagger`][s-http-swagger] | OpenAPI spec generation, Swagger UI |
+
+[s-http-api]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.API%22&type=code
+[s-http-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types%22&type=code
+[s-http-enc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Encoding%22&type=code
+[s-http-server]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&type=code
+[s-http-swagger]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Swagger%22&type=code
 
 ### Indexer — chain sync and persistence
 
@@ -259,6 +277,14 @@ All modules live under `Cardano.MPFS`.
 [s-mock-skel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code
 [s-mkskel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code
 
+### Utilities
+
+| Module | Purpose |
+|--------|---------|
+| [`Trace`][s-trace] | `AppTrace` structured tracing type, `jsonLinesTracer` for stderr JSON-lines logging |
+
+[s-trace]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trace%22&type=code
+
 ## Design Principles
 
 - **No typeclasses** — closed world with explicit records of functions.
@@ -285,6 +311,7 @@ graph LR
     style P2 fill:#2d6,color:#fff
     style P3 fill:#2d6,color:#fff
     style P4 fill:#2d6,color:#fff
+    style P5 fill:#2d6,color:#fff
 ```
 
 | Phase | Description | Status |
@@ -294,4 +321,4 @@ graph LR
 | 2 | N2C client + Provider — `ouroboros-network` LocalStateQuery and LocalTxSubmission clients; `mkNodeClientProvider` for UTxO and PParams queries; `mkN2CSubmitter` for transaction submission; E2E tests with cardano-node subprocess | Done |
 | 3 | Transaction builders — real `TxBuilder` implementations for boot, update, retract, end operations with Plutus script witnesses, proof embedding, and on-chain datum construction | Done |
 | 4 | ChainSync indexer + persistent state — replace skeleton indexer with real ChainSync follower; RocksDB-backed State and TrieManager; block processing with rollback support | Done |
-| 5 | HTTP API + deployment — Servant HTTP layer, Docker via Nix, deploy to plutimus.com | Planned |
+| 5 | HTTP API + deployment — Servant HTTP layer with Swagger UI, token lifecycle and trie query endpoints, transaction building and submission REST API, WAI application wiring | Done |
