@@ -22,6 +22,9 @@ module Cardano.MPFS.HTTP.API
     , TokenProofAPI
     , TokenRequestsAPI
 
+      -- * Confirmation
+    , TxAwaitAPI
+
       -- * Transaction endpoints
     , TxBootAPI
     , TxInsertAPI
@@ -32,11 +35,14 @@ module Cardano.MPFS.HTTP.API
     , TxSubmitAPI
     ) where
 
+import Data.Word (Word64)
 import Servant.API
     ( Capture
     , Get
     , JSON
+    , NoContent
     , Post
+    , QueryParam
     , ReqBody
     , (:<|>)
     , (:>)
@@ -101,6 +107,16 @@ type TokenRequestsAPI =
         :> Capture "id" TokenIdJSON
         :> "requests"
         :> Get '[JSON] [RequestJSON]
+
+-- | @GET \/tx\/:txId?timeout=30@ — block until the
+-- transaction's first output (TxIn(txId, 0)) appears
+-- in the indexed UTxO set. Returns 204 on success,
+-- 408 on timeout. Default timeout is 30 seconds.
+type TxAwaitAPI =
+    "tx"
+        :> Capture "txId" Hex
+        :> QueryParam "timeout" Word64
+        :> Get '[JSON] NoContent
 
 -- | @POST \/tx\/boot@ — build a boot transaction.
 type TxBootAPI =
@@ -167,6 +183,7 @@ type API =
         :<|> TokenFactAPI
         :<|> TokenProofAPI
         :<|> TokenRequestsAPI
+        :<|> TxAwaitAPI
         :<|> TxBootAPI
         :<|> TxInsertAPI
         :<|> TxDeleteAPI

@@ -60,7 +60,7 @@ import Control.Tracer (Tracer, contramap)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
     )
@@ -72,6 +72,7 @@ import Database.KV.Transaction
     ( iterating
     , mapColumns
     , newRunTransaction
+    , query
     )
 import Database.KV.Transaction qualified as L
     ( RunTransaction (..)
@@ -144,6 +145,8 @@ import MTS.Rollbacks.Store qualified as Store
 
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
+
+import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -512,6 +515,11 @@ withApplication cfg action = do
                     let prov =
                             mkNodeClientProvider
                                 lsqCh
+                        exists txIn =
+                            CSMT.transact utxoRt
+                                $ fmap isJust
+                                $ query KVCol
+                                $ cborEncode txIn
                         ctx =
                             Context
                                 { provider = prov
@@ -529,6 +537,7 @@ withApplication cfg action = do
                                         st
                                         tm
                                 , indexer = idx
+                                , utxoExists = exists
                                 }
                     result <- action ctx
                     mapM_ cancel mChainThread
@@ -590,3 +599,8 @@ cageCheckpointToPoint (SlotNo s) (BlockId h) =
         $ Block
             (SlotNo s)
             (OneEraHash $ toShort h)
+
+-- | CBOR-encode a ledger type using protocol
+-- version 11.
+cborEncode :: EncCBOR a => a -> BSL.ByteString
+cborEncode = serialize (natVersion @11)

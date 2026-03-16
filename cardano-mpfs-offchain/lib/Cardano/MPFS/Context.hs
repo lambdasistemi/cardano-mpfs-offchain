@@ -15,6 +15,7 @@ module Cardano.MPFS.Context
       Context (..)
     ) where
 
+import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Indexer (Indexer)
 import Cardano.MPFS.Provider (Provider)
 import Cardano.MPFS.State (State)
@@ -37,4 +38,6 @@ data Context m = Context
     -- ^ Transaction submission
     , txBuilder :: TxBuilder m
     -- ^ Transaction construction
+    , utxoExists :: TxIn -> m Bool
+    -- ^ Check if a UTxO exists in the indexed state
     }
