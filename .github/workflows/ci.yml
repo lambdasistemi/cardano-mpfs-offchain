@@ -36,6 +36,15 @@ jobs:
       - name: Lint
         run: nix develop --quiet -c hlint $(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
 
+      - name: Build docker image
+        run: nix build .#docker-image --quiet
+
+      - name: Upload docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: result
+
   e2e:
     runs-on: nixos
     steps:
