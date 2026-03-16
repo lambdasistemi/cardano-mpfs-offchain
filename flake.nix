@@ -49,7 +49,7 @@
             devnet-genesis = cardano-node-clients.packages.${system}.devnet-genesis;
             project = import ./nix/project.nix {
               indexState = "2025-12-07T00:00:00Z";
-              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis;
+              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis version;
               mkdocs = mkdocs.packages.${system};
               asciinema = asciinema.packages.${system};
             };
@@ -57,7 +57,8 @@
             packages = {
               inherit (project.packages)
                 offchain-tests e2e-tests cardano-mpfs-offchain
-                mpfs-devnet-server mpfs-bootstrap-genesis haddock;
+                mpfs-serve mpfs-devnet-server mpfs-bootstrap-genesis
+                docker-image haddock;
               default = project.packages.cardano-mpfs-offchain;
             };
             inherit (project) devShells;

@@ -104,6 +104,17 @@ hoogle port="8080":
     echo "(includes all dependencies; local packages not yet indexed — see issue #59)"
     hoogle server --local --port={{ port }}
 
+# Build docker image via Nix
+build-docker tag='latest':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix build .#docker-image
+    docker load < result
+    version=$(nix eval --raw .#version)
+    docker image tag \
+        "ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve:$version" \
+        "ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve:{{ tag }}"
+
 # Clean build artifacts
 clean:
     #!/usr/bin/env bash

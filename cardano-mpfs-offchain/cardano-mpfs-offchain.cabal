@@ -128,6 +128,22 @@ library
     Cardano.MPFS.TxBuilder.Real.Retract
     Cardano.MPFS.TxBuilder.Real.Update
 
+executable mpfs-serve
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe
+  main-is:          Serve.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-ledger-byron
+    , cardano-ledger-core
+    , cardano-mpfs-offchain
+    , directory
+    , warp
+
+  ghc-options:      -threaded
+
 executable mpfs-run-preprod
   import:           warnings
   default-language: GHC2021
