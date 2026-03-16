@@ -45,4 +45,5 @@ mkMockContext = do
             , indexer = mkMockIndexer
             , submitter = mkMockSubmitter
             , txBuilder = mkMockTxBuilder
+            , utxoExists = \_ -> pure False
             }

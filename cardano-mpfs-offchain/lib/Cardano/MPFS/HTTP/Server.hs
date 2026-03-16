@@ -14,11 +14,16 @@ module Cardano.MPFS.HTTP.Server
       mkApp
     ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class (liftIO)
+import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
+import Data.Word (Word64)
 import Servant
     ( Application
     , Handler
+    , NoContent (..)
+    , ServerError (..)
     , err400
     , err404
     , err502
@@ -31,6 +36,7 @@ import Servant
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
 
+import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.Binary
     ( DecoderError
@@ -38,7 +44,14 @@ import Cardano.Ledger.Binary
     , natVersion
     , serialize'
     )
-import Cardano.Ledger.TxIn (mkTxInPartial)
+import Cardano.Ledger.Hashes
+    ( extractHash
+    , unsafeMakeSafeHash
+    )
+import Cardano.Ledger.TxIn
+    ( TxId (..)
+    , mkTxInPartial
+    )
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -47,7 +60,6 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , Root (..)
     , SlotNo (..)
-    , TxId
     )
 import Cardano.MPFS.HTTP.API (API)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
@@ -84,6 +96,7 @@ mkApp ctx =
             :<|> tokenFactHandler ctx
             :<|> tokenProofHandler ctx
             :<|> tokenRequestsHandler ctx
+            :<|> txAwaitHandler ctx
             :<|> txBootHandler ctx
             :<|> txInsertHandler ctx
             :<|> txDeleteHandler ctx
@@ -188,6 +201,75 @@ tokenRequestsHandler ctx (TokenIdJSON tid) = do
                 (St.requests (state ctx))
                 tid
     pure (map requestToJSON reqs)
+
+-- ---------------------------------------------------------
+-- Confirmation handler
+-- ---------------------------------------------------------
+
+-- | Default timeout for tx confirmation (seconds).
+defaultTimeout :: Word64
+defaultTimeout = 30
+
+-- | Poll interval (microseconds).
+pollInterval :: Int
+pollInterval = 500_000
+
+-- | @GET \/tx\/:txId?timeout=N@ — block until
+-- TxIn(txId, 0) appears in the indexed UTxO set.
+txAwaitHandler
+    :: Context IO
+    -> Hex
+    -> Maybe Word64
+    -> Handler NoContent
+txAwaitHandler ctx (Hex txIdBytes) mTimeout = do
+    txId <- parseTxIdRaw txIdBytes
+    let txIn = mkTxInPartial txId 0
+        timeoutSec =
+            fromMaybe defaultTimeout mTimeout
+        maxIters =
+            fromIntegral timeoutSec
+                * 1_000_000
+                `div` pollInterval
+    found <- liftIO $ poll maxIters txIn
+    if found
+        then pure NoContent
+        else
+            throwError
+                ServerError
+                    { errHTTPCode = 408
+                    , errReasonPhrase = "Request Timeout"
+                    , errBody =
+                        "Transaction not confirmed"
+                    , errHeaders = []
+                    }
+  where
+    poll 0 _ = pure False
+    poll n txIn = do
+        exists <- utxoExists ctx txIn
+        if exists
+            then pure True
+            else do
+                threadDelay pollInterval
+                poll (n - 1) txIn
+
+-- | Extract raw 32-byte hash from a 'TxId'.
+txIdToBytes :: TxId -> ByteString
+txIdToBytes (TxId sh) =
+    Crypto.hashToBytes (extractHash sh)
+
+-- | Parse a 'TxId' from 32 raw hash bytes.
+parseTxIdRaw :: ByteString -> Handler TxId
+parseTxIdRaw bs =
+    case Crypto.hashFromBytes bs of
+        Just h ->
+            pure $ TxId $ unsafeMakeSafeHash h
+        Nothing ->
+            throwError
+                err400
+                    { errBody =
+                        "Invalid transaction ID: \
+                        \expected 32 bytes"
+                    }
 
 -- ---------------------------------------------------------
 -- Transaction handlers
@@ -327,7 +409,7 @@ txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
             $ Sub.submitTx (submitter ctx) tx
     case result of
         Sub.Submitted txId ->
-            pure (Hex (serialize' (natVersion @11) txId))
+            pure (Hex (txIdToBytes txId))
         Sub.Rejected reason ->
             throwError
                 err502
