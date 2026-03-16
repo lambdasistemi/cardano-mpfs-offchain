@@ -51,6 +51,7 @@ import Cardano.Ledger.Hashes
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
+    , TxIn
     , mkTxInPartial
     )
 
@@ -105,6 +106,9 @@ mkApp ctx =
             :<|> tokenFactHandler ctx
             :<|> tokenProofHandler ctx
             :<|> tokenRequestsHandler ctx
+            :<|> utxoResolveHandler ctx
+            :<|> utxoProofHandler ctx
+            :<|> utxoRootHandler ctx
             :<|> txAwaitHandler ctx
             :<|> txBootHandler ctx
             :<|> txInsertHandler ctx
@@ -210,6 +214,52 @@ tokenRequestsHandler ctx (TokenIdJSON tid) = do
                 (St.requests (state ctx))
                 tid
     pure (map requestToJSON reqs)
+
+-- ---------------------------------------------------------
+-- UTxO CSMT handlers
+-- ---------------------------------------------------------
+
+-- | @GET \/utxo\/:txId\/:txIx@ — resolve a TxIn.
+utxoResolveHandler
+    :: Context IO
+    -> Hex
+    -> Word64
+    -> Handler Hex
+utxoResolveHandler ctx txIdHex txIx = do
+    txIn <- requireTxIn txIdHex txIx
+    mbs <- liftIO $ resolveUtxo ctx txIn
+    case mbs of
+        Nothing -> throwError err404
+        Just bs -> pure (Hex bs)
+
+-- | @GET \/utxo\/:txId\/:txIx\/proof@ — CSMT proof.
+utxoProofHandler
+    :: Context IO
+    -> Hex
+    -> Word64
+    -> Handler Hex
+utxoProofHandler ctx txIdHex txIx = do
+    txIn <- requireTxIn txIdHex txIx
+    mbs <- liftIO $ utxoProof ctx txIn
+    case mbs of
+        Nothing -> throwError err404
+        Just bs -> pure (Hex bs)
+
+-- | @GET \/utxo\/root@ — current CSMT root.
+utxoRootHandler
+    :: Context IO -> Handler Hex
+utxoRootHandler ctx = do
+    mbs <- liftIO $ utxoRoot ctx
+    case mbs of
+        Nothing -> throwError err404
+        Just bs -> pure (Hex bs)
+
+-- | Build a 'TxIn' from hex txId + index.
+requireTxIn
+    :: Hex -> Word64 -> Handler TxIn
+requireTxIn txIdHex txIx = do
+    tid <- parseTxIdRaw (unHex txIdHex)
+    pure $ mkTxInPartial tid (fromIntegral txIx)
 
 -- ---------------------------------------------------------
 -- Confirmation handler

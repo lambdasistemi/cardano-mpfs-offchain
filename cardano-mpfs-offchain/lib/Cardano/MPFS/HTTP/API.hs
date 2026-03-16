@@ -25,6 +25,11 @@ module Cardano.MPFS.HTTP.API
     , TokenProofAPI
     , TokenRequestsAPI
 
+      -- * UTxO CSMT endpoints
+    , UtxoResolveAPI
+    , UtxoProofAPI
+    , UtxoRootAPI
+
       -- * Confirmation
     , TxAwaitAPI
 
@@ -112,6 +117,29 @@ type TokenRequestsAPI =
         :> "requests"
         :> Get '[JSON] [RequestJSON]
 
+-- | @GET \/utxo\/:txId\/:txIx@ — resolve a TxIn to
+-- its CBOR-encoded TxOut (hex).
+type UtxoResolveAPI =
+    "utxo"
+        :> Capture "txId" Hex
+        :> Capture "txIx" Word64
+        :> Get '[JSON] Hex
+
+-- | @GET \/utxo\/:txId\/:txIx\/proof@ — CSMT
+-- inclusion proof for a UTxO (hex bytes).
+type UtxoProofAPI =
+    "utxo"
+        :> Capture "txId" Hex
+        :> Capture "txIx" Word64
+        :> "proof"
+        :> Get '[JSON] Hex
+
+-- | @GET \/utxo\/root@ — current CSMT Merkle root.
+type UtxoRootAPI =
+    "utxo"
+        :> "root"
+        :> Get '[JSON] Hex
+
 -- | @GET \/tx\/:txId?timeout=30@ — block until the
 -- transaction's first output (TxIn(txId, 0)) appears
 -- in the indexed UTxO set. Returns 204 on success,
@@ -191,6 +219,9 @@ type API =
         :<|> TokenFactAPI
         :<|> TokenProofAPI
         :<|> TokenRequestsAPI
+        :<|> UtxoResolveAPI
+        :<|> UtxoProofAPI
+        :<|> UtxoRootAPI
         :<|> TxAwaitAPI
         :<|> TxBootAPI
         :<|> TxInsertAPI

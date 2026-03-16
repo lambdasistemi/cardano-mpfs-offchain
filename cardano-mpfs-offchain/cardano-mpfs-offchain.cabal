@@ -61,6 +61,7 @@ library
     , lens
     , memory
     , microlens
+    , mts:csmt
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks

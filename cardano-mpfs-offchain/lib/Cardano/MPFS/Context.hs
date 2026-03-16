@@ -15,6 +15,8 @@ module Cardano.MPFS.Context
       Context (..)
     ) where
 
+import Data.ByteString (ByteString)
+
 import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Indexer (Indexer)
 import Cardano.MPFS.Provider (Provider)
@@ -40,4 +42,12 @@ data Context m = Context
     -- ^ Transaction construction
     , utxoExists :: TxIn -> m Bool
     -- ^ Check if a UTxO exists in the indexed state
+    , resolveUtxo
+        :: TxIn -> m (Maybe ByteString)
+    -- ^ Resolve a TxIn to its CBOR-encoded TxOut
+    , utxoRoot :: m (Maybe ByteString)
+    -- ^ Current CSMT Merkle root hash (raw bytes)
+    , utxoProof
+        :: TxIn -> m (Maybe ByteString)
+    -- ^ CSMT inclusion proof for a TxIn (raw bytes)
     }
