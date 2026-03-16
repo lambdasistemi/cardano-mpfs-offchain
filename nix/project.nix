@@ -1,4 +1,5 @@
 { CHaP, indexState, pkgs, mkdocs, asciinema, cardano-node-pkgs, mpfs-blueprint
+, devnet-genesis
 , ... }:
 
 let
@@ -37,6 +38,7 @@ let
     shellHook = ''
       echo "Entering cardano-mpfs-offchain dev shell"
       export MPFS_BLUEPRINT="${mpfs-blueprint}"
+      export E2E_GENESIS_DIR="${devnet-genesis}"
     '';
   };
 
@@ -60,6 +62,7 @@ in {
     project.hsPkgs.cardano-mpfs-offchain.components.library;
   packages.mpfs-devnet-server =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;
+  packages.devnet-genesis = devnet-genesis;
   packages.offchain-tests =
     project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
   packages.e2e-tests =

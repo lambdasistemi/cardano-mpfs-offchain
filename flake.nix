@@ -22,10 +22,11 @@
     cardano-node = { url = "github:IntersectMBO/cardano-node/10.5.4"; };
     cardano-mpfs-onchain = { url = "github:paolino/cardano-mpfs-onchain"; };
     cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
+    cardano-node-clients = { url = "github:lambdasistemi/cardano-node-clients"; };
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
-    , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, ... }:
+    , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients, ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -43,9 +44,10 @@
             };
             cardano-node-pkgs = cardano-node.packages.${system};
             mpfs-blueprint = cardano-mpfs-onchain.packages.${system}.default;
+            devnet-genesis = cardano-node-clients.packages.${system}.devnet-genesis;
             project = import ./nix/project.nix {
               indexState = "2025-12-07T00:00:00Z";
-              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint;
+              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis;
               mkdocs = mkdocs.packages.${system};
               asciinema = asciinema.packages.${system};
             };
