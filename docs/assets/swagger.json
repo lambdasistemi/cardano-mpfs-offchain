@@ -1,0 +1,668 @@
+Entering cardano-mpfs-offchain dev shell
+Resolving dependencies...
+{
+    "definitions": {
+        "BootRequest": {
+            "description": "Boot a new token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "address"
+            ],
+            "type": "object"
+        },
+        "DeleteRequest": {
+            "description": "Delete a key",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "address"
+            ],
+            "type": "object"
+        },
+        "EndRequest": {
+            "description": "End a token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        },
+        "Hex": {
+            "description": "Hex-encoded byte string",
+            "type": "string"
+        },
+        "InsertRequest": {
+            "description": "Insert a key-value pair",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "value",
+                "address"
+            ],
+            "type": "object"
+        },
+        "RequestJSON": {
+            "description": "Pending request",
+            "properties": {
+                "fee": {
+                    "type": "integer"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "token",
+                "owner",
+                "key",
+                "operation",
+                "fee",
+                "submitted_at"
+            ],
+            "type": "object"
+        },
+        "RetractRequest": {
+            "description": "Retract a pending request",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_ix": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tx_id",
+                "tx_ix",
+                "address"
+            ],
+            "type": "object"
+        },
+        "StatusResponse": {
+            "description": "Indexer chain tip and checkpoint",
+            "properties": {
+                "checkpoint_block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "checkpoint_slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "tip_block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tip_slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tip_slot",
+                "tip_block_id",
+                "checkpoint_slot",
+                "checkpoint_block_id"
+            ],
+            "type": "object"
+        },
+        "SubmitRequest": {
+            "description": "Submit a signed transaction",
+            "properties": {
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx"
+            ],
+            "type": "object"
+        },
+        "TokenIdJSON": {
+            "description": "Hex-encoded token identifier",
+            "type": "string"
+        },
+        "TokenStateJSON": {
+            "description": "On-chain token state",
+            "properties": {
+                "max_fee": {
+                    "type": "integer"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "process_time": {
+                    "type": "integer"
+                },
+                "retract_time": {
+                    "type": "integer"
+                },
+                "root": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "owner",
+                "root",
+                "max_fee",
+                "process_time",
+                "retract_time"
+            ],
+            "type": "object"
+        },
+        "UpdateRequest": {
+            "description": "Process pending requests",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        }
+    },
+    "info": {
+        "description": "HTTP service for the Cardano Merkle Patricia Forestry offchain node. Provides token lifecycle, trie queries, and transaction building endpoints.",
+        "license": {
+            "name": "Apache 2.0"
+        },
+        "title": "MPFS HTTP API",
+        "version": "0.0.0"
+    },
+    "paths": {
+        "/status": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/StatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/tokens": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "items": {
+                                "$ref": "#/definitions/TokenIdJSON"
+                            },
+                            "type": "array"
+                        }
+                    }
+                }
+            }
+        },
+        "/tokens/{id}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/TokenStateJSON"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/facts/{key}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `key` or `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/proofs/{key}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `key` or `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/requests": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "items": {
+                                "$ref": "#/definitions/RequestJSON"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/root": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tx/boot": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/BootRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/end": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/EndRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/request/delete": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/DeleteRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/request/insert": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/InsertRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/retract": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RetractRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/submit": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SubmitRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/{txId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "query",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "timeout",
+                        "required": false,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `timeout` or `txId`"
+                    }
+                }
+            }
+        }
+    },
+    "swagger": "2.0"
+}

@@ -36,6 +36,7 @@ module Cardano.MPFS.HTTP.Types
     , parseAddr
     ) where
 
+import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
@@ -47,10 +48,21 @@ import Data.Aeson
     )
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
+import Data.Proxy (Proxy (..))
+import Data.Swagger
+    ( ToParamSchema (..)
+    , ToSchema (..)
+    , declareSchemaRef
+    , description
+    , properties
+    , required
+    )
+import Data.Swagger qualified as Swagger
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
+import GHC.IsList (IsList (..))
 import Servant.API (FromHttpApiData (..))
 
 import Cardano.Ledger.Address (decodeAddrEither)
@@ -328,3 +340,280 @@ newtype SubmitRequest = SubmitRequest
 instance FromJSON SubmitRequest where
     parseJSON = withObject "SubmitRequest" $ \o ->
         SubmitRequest <$> o .: "tx"
+
+-- ---------------------------------------------------------
+-- Swagger ToSchema instances
+-- ---------------------------------------------------------
+
+instance ToSchema StatusResponse where
+    declareNamedSchema _ = do
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        maybeWord64 <-
+            declareSchemaRef (Proxy @(Maybe Word64))
+        maybeHex <-
+            declareSchemaRef (Proxy @(Maybe Hex))
+        pure
+            $ Swagger.NamedSchema
+                (Just "StatusResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("tip_slot", word64Schema)
+                    , ("tip_block_id", hexSchema)
+                    ,
+                        ( "checkpoint_slot"
+                        , maybeWord64
+                        )
+                    ,
+                        ( "checkpoint_block_id"
+                        , maybeHex
+                        )
+                    ]
+            & required
+                .~ [ "tip_slot"
+                   , "tip_block_id"
+                   , "checkpoint_slot"
+                   , "checkpoint_block_id"
+                   ]
+            & description
+                ?~ "Indexer chain tip and checkpoint"
+
+instance ToSchema TokenIdJSON where
+    declareNamedSchema _ =
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokenIdJSON")
+            $ Swagger.toSchema (Proxy @String)
+            & description
+                ?~ "Hex-encoded token identifier"
+
+instance ToParamSchema TokenIdJSON where
+    toParamSchema _ =
+        Swagger.toParamSchema (Proxy @String)
+
+instance ToSchema TokenStateJSON where
+    declareNamedSchema _ = do
+        textSchema <-
+            declareSchemaRef (Proxy @Text)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        intSchema <-
+            declareSchemaRef (Proxy @Integer)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokenStateJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("owner", textSchema)
+                    , ("root", hexSchema)
+                    , ("max_fee", intSchema)
+                    , ("process_time", intSchema)
+                    , ("retract_time", intSchema)
+                    ]
+            & required
+                .~ [ "owner"
+                   , "root"
+                   , "max_fee"
+                   , "process_time"
+                   , "retract_time"
+                   ]
+            & description
+                ?~ "On-chain token state"
+
+instance ToSchema RequestJSON where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        textSchema <-
+            declareSchemaRef (Proxy @Text)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        maybeHex <-
+            declareSchemaRef (Proxy @(Maybe Hex))
+        intSchema <-
+            declareSchemaRef (Proxy @Integer)
+        pure
+            $ Swagger.NamedSchema
+                (Just "RequestJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("owner", textSchema)
+                    , ("key", hexSchema)
+                    , ("operation", textSchema)
+                    , ("value", maybeHex)
+                    , ("fee", intSchema)
+                    , ("submitted_at", intSchema)
+                    ]
+            & required
+                .~ [ "token"
+                   , "owner"
+                   , "key"
+                   , "operation"
+                   , "fee"
+                   , "submitted_at"
+                   ]
+            & description
+                ?~ "Pending request"
+
+instance ToSchema BootRequest where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "BootRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [("address", hexSchema)]
+            & required .~ ["address"]
+            & description
+                ?~ "Boot a new token"
+
+instance ToSchema InsertRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "InsertRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("key", hexSchema)
+                    , ("value", hexSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ [ "token"
+                   , "key"
+                   , "value"
+                   , "address"
+                   ]
+            & description
+                ?~ "Insert a key-value pair"
+
+instance ToSchema DeleteRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "DeleteRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("key", hexSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["token", "key", "address"]
+            & description
+                ?~ "Delete a key"
+
+instance ToSchema UpdateRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "UpdateRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["token", "address"]
+            & description
+                ?~ "Process pending requests"
+
+instance ToSchema RetractRequest where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        pure
+            $ Swagger.NamedSchema
+                (Just "RetractRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("tx_id", hexSchema)
+                    , ("tx_ix", word64Schema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["tx_id", "tx_ix", "address"]
+            & description
+                ?~ "Retract a pending request"
+
+instance ToSchema EndRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "EndRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["token", "address"]
+            & description
+                ?~ "End a token"
+
+instance ToSchema SubmitRequest where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "SubmitRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList [("tx", hexSchema)]
+            & required .~ ["tx"]
+            & description
+                ?~ "Submit a signed transaction"

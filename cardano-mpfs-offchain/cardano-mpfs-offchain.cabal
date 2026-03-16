@@ -34,6 +34,7 @@ library
   hs-source-dirs:   lib
   build-depends:
     , aeson                                    >=2.1  && <2.3
+    , aeson-pretty
     , async
     , base                                     >=4.18 && <5
     , base16-bytestring                        >=1.0  && <1.1
@@ -74,6 +75,9 @@ library
     , rocksdb-kv-transactions:kv-transactions
     , servant                                  >=0.20 && <0.21
     , servant-server                           >=0.20 && <0.21
+    , servant-swagger
+    , servant-swagger-ui
+    , swagger2
     , text                                     >=2.0  && <2.2
     , time
 
@@ -87,6 +91,7 @@ library
     Cardano.MPFS.HTTP.API
     Cardano.MPFS.HTTP.Encoding
     Cardano.MPFS.HTTP.Server
+    Cardano.MPFS.HTTP.Swagger
     Cardano.MPFS.HTTP.Types
     Cardano.MPFS.Indexer
     Cardano.MPFS.Indexer.CageFollower
@@ -136,6 +141,18 @@ executable mpfs-run-preprod
     , cardano-ledger-core
     , cardano-mpfs-offchain
     , directory
+
+  ghc-options:      -threaded
+
+executable cardano-mpfs-swagger
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe/swagger
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-mpfs-offchain
 
   ghc-options:      -threaded
 
