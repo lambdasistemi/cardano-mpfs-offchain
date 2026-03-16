@@ -19,10 +19,12 @@
       url = "github:intersectmbo/cardano-haskell-packages?ref=repo";
       flake = false;
     };
-    cardano-node = { url = "github:IntersectMBO/cardano-node/10.5.4"; };
+    cardano-node-clients = {
+      url = "github:lambdasistemi/cardano-node-clients";
+    };
+    cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = { url = "github:paolino/cardano-mpfs-onchain"; };
     cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
-    cardano-node-clients = { url = "github:lambdasistemi/cardano-node-clients"; };
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
