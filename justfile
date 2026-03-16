@@ -42,9 +42,9 @@ unit match="":
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ '{{ match }}' == "" ]]; then
-        cabal test unit-tests -O0 --test-show-details=direct
+        cabal test cardano-mpfs-offchain:unit-tests -O0 --test-show-details=direct
     else
-        cabal test unit-tests -O0 \
+        cabal test cardano-mpfs-offchain:unit-tests -O0 \
             --test-show-details=direct \
             --test-option=--match \
             --test-option="{{ match }}"
