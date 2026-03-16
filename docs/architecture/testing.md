@@ -7,7 +7,8 @@ Two unit test suites:
 - **`merkle-patricia-forestry:unit-tests`** — MPF trie operations,
   hashing, proofs, insertion/deletion round-trips
 - **`cardano-mpfs-offchain:unit-tests`** — balance, on-chain type
-  encoding, proof serialization, trie manager, state tracking
+  encoding, proof serialization, trie manager, state tracking,
+  HTTP API
 
 ```bash
 just unit            # MPF unit tests
@@ -17,6 +18,19 @@ just unit-offchain   # offchain unit tests
 Unit tests use mock implementations (`mkMockState`,
 `mkPureTrieManager`, `mkMockTxBuilder`) and don't require a
 running Cardano node.
+
+### HTTP API unit tests
+
+16 tests exercise the REST API via WAI test sessions against a
+mock `Context`:
+
+| Spec | Tests | What it covers |
+|------|-------|----------------|
+| `StatusSpec` | 3 | `GET /status` field validation |
+| `TokensSpec` | 2 | `GET /tokens` list |
+| `TokenSpec` | 2 | `GET /tokens/:id` lookup + 404 |
+| `RequestsSpec` | 4 | `GET /tokens/:id/requests` filtering |
+| `TrieSpec` | 5 | `GET /tokens/:id/root`, facts, proofs |
 
 ## E2E Tests
 
@@ -55,11 +69,19 @@ single-node devnet:
 
 ### Test Specs
 
-- **ProviderSpec** — queries protocol parameters and UTxOs via the
-  real N2C `LocalStateQuery` protocol
-- **SubmitterSpec** — builds a simple ADA transfer, balances it
-  with `balanceTx`, signs with the genesis key, and submits via
-  the real N2C `LocalTxSubmission` protocol
+- **ProviderSpec** — N2C LocalStateQuery for protocol parameters
+  and UTxOs
+- **SubmitterSpec** — build, balance, sign, and submit an ADA
+  transfer via N2C LocalTxSubmission
+- **CageSpec** — cage event detection from real transactions
+- **CageFlowSpec** — full cage flow (boot, request, update,
+  retract) with `CageFollower` auto-indexing
+- **IndexerSpec** — `detectFromTx` + `applyCageEvent` against
+  real Plutus transactions
+- **ChainSyncSpec** — chain sync protocol with a real node
+- **HTTPLifecycleSpec** — full token lifecycle via HTTP API
+  (boot, insert, update, insert, retract, end), confirmed via
+  `GET /tx/:txId` blocking endpoint
 
 ### Prerequisites
 

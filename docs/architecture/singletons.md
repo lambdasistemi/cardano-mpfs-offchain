@@ -224,6 +224,7 @@ data Context m = Context
     , indexer :: Indexer m
     , submitter :: Submitter m
     , txBuilder :: TxBuilder m
+    , utxoExists :: TxIn -> m Bool
     }
 ```
 
@@ -244,3 +245,11 @@ graph TD
     CTX --> SUB
     CTX --> TXB
 ```
+
+### HTTP Server
+
+[`mkApp`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkApp+path%3AHTTP&type=code)
+from [`HTTP.Server`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&type=code)
+wraps a `Context IO` into a WAI `Application` with Swagger UI
+at `/swagger-ui`. Each HTTP handler extracts the relevant
+interface from `Context` and delegates to it.
