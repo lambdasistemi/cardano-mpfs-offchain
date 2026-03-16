@@ -13,6 +13,9 @@ module Cardano.MPFS.HTTP.API
     ( -- * Full API
       API
 
+      -- * Proxy
+    , api
+
       -- * Query endpoints
     , StatusAPI
     , TokensAPI
@@ -35,6 +38,7 @@ module Cardano.MPFS.HTTP.API
     , TxSubmitAPI
     ) where
 
+import Data.Proxy (Proxy (..))
 import Data.Word (Word64)
 import Servant.API
     ( Capture
@@ -173,6 +177,10 @@ type TxSubmitAPI =
         :> "submit"
         :> ReqBody '[JSON] SubmitRequest
         :> Post '[JSON] Hex
+
+-- | Proxy for the complete API.
+api :: Proxy API
+api = Proxy
 
 -- | Complete MPFS HTTP API.
 type API =

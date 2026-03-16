@@ -15,6 +15,7 @@ theme:
 
 plugins:
   - search
+  - swagger-ui-tag
 
 markdown_extensions:
   - admonition
@@ -47,3 +48,5 @@ nav:
       - Data Sources: architecture/data-sources.md
       - Singletons: architecture/singletons.md
       - Testing: architecture/testing.md
+  - API Reference:
+      - Swagger UI: swagger-ui.md

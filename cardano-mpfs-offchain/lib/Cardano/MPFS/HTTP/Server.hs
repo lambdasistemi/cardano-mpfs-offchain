@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.Server
@@ -63,6 +64,10 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.HTTP.API (API)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
+import Cardano.MPFS.HTTP.Swagger
+    ( SwaggerAPI
+    , swaggerServer
+    )
 import Cardano.MPFS.HTTP.Types
     ( BootRequest (..)
     , DeleteRequest (..)
@@ -85,11 +90,15 @@ import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
 import Cardano.MPFS.TxBuilder qualified as Tx
 
+-- | Combined API with Swagger UI.
+type FullAPI = SwaggerAPI :<|> API
+
 -- | Build a WAI 'Application' from a 'Context IO'.
 mkApp :: Context IO -> Application
 mkApp ctx =
-    serve (Proxy @API)
-        $ statusHandler ctx
+    serve (Proxy @FullAPI)
+        $ swaggerServer
+            :<|> statusHandler ctx
             :<|> tokensHandler ctx
             :<|> tokenHandler ctx
             :<|> tokenRootHandler ctx

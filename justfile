@@ -86,6 +86,12 @@ e2e match="":
             --test-option="{{ match }}"
     fi
 
+# Regenerate docs/assets/swagger.json
+update-swagger:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cabal -v0 run cardano-mpfs-swagger -O0 > docs/assets/swagger.json
+
 # Serve documentation locally
 docs:
     mkdocs serve
