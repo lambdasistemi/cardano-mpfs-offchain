@@ -21,6 +21,7 @@
     };
     cardano-node = { url = "github:IntersectMBO/cardano-node/10.5.4"; };
     cardano-mpfs-onchain = { url = "github:paolino/cardano-mpfs-onchain"; };
+    cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
