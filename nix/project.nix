@@ -58,6 +58,8 @@ in {
   inherit project;
   packages.cardano-mpfs-offchain =
     project.hsPkgs.cardano-mpfs-offchain.components.library;
+  packages.mpfs-devnet-server =
+    project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;
   packages.offchain-tests =
     project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
   packages.e2e-tests =

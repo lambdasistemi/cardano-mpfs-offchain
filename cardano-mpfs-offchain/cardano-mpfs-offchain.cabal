@@ -144,6 +144,25 @@ executable mpfs-run-preprod
 
   ghc-options:      -threaded
 
+executable mpfs-devnet-server
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe
+  main-is:          DevnetServer.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-ledger-byron
+    , cardano-ledger-core
+    , cardano-mpfs-offchain
+    , cardano-node-clients:devnet
+    , contra-tracer
+    , filepath
+    , temporary
+    , warp
+
+  ghc-options:      -threaded
+
 executable cardano-mpfs-swagger
   import:           warnings
   default-language: GHC2021
