@@ -28,7 +28,8 @@
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
-    , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients, ... }:
+    , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
+    , ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -46,19 +47,20 @@
             };
             cardano-node-pkgs = cardano-node.packages.${system};
             mpfs-blueprint = cardano-mpfs-onchain.packages.${system}.default;
-            devnet-genesis = cardano-node-clients.packages.${system}.devnet-genesis;
+            devnet-genesis =
+              cardano-node-clients.packages.${system}.devnet-genesis;
             project = import ./nix/project.nix {
               indexState = "2025-12-07T00:00:00Z";
-              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis version;
+              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis
+                version;
               mkdocs = mkdocs.packages.${system};
               asciinema = asciinema.packages.${system};
             };
           in {
             packages = {
               inherit (project.packages)
-                offchain-tests e2e-tests cardano-mpfs-offchain
-                mpfs-serve mpfs-devnet-server mpfs-bootstrap-genesis
-                docker-image haddock;
+                offchain-tests e2e-tests cardano-mpfs-offchain mpfs-serve
+                mpfs-devnet-server mpfs-bootstrap-genesis docker-image haddock;
               default = project.packages.cardano-mpfs-offchain;
             };
             inherit (project) devShells;

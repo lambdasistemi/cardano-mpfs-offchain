@@ -95,6 +95,7 @@ import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
     )
+import CSMT.MTS (journalEmptyT)
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
     , sgNetworkMagic
@@ -114,11 +115,9 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTContext (..)
     , CSMTOps (..)
-    , journalEmpty
-    , kvOnlyCSMTOps
+    , mkCSMTKVOnlyOps
     , mkCSMTOps
     , queryMerkleRoot
-    , replayJournal
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
@@ -146,6 +145,7 @@ import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
 import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
+import Control.Lens (iso)
 import MTS.Rollbacks.Store qualified as Store
 
 import Ouroboros.Consensus.Cardano.Node ()
@@ -326,9 +326,6 @@ withApplication cfg action = do
                             mkCSMTOps
                                 (fromKV context)
                                 (hashing context)
-                        kvOps =
-                            kvOnlyCSMTOps
-                                BSL.toStrict
 
                     -- Seed genesis UTxOs on fresh DB
                     seedGenesis
@@ -358,12 +355,22 @@ withApplication cfg action = do
                             utxoRt
                             armageddonParams
 
+                    -- Build KVOnly Ops GADT (wires
+                    -- journal replay into toFull)
+                    let kvOnlyOps =
+                            mkCSMTKVOnlyOps
+                                4
+                                1000
+                                (iso BSL.toStrict BSL.fromStrict)
+                                (fromKV context)
+                                (hashing context)
+                                (CSMT.transact utxoRt)
+
                     -- Detect starting phase for
                     -- split mode
                     jEmpty <-
-                        CSMT.transact
-                            utxoRt
-                            journalEmpty
+                        CSMT.transact utxoRt
+                            $ journalEmptyT JournalCol
                     let startPhase =
                             if not empty && jEmpty
                                 then Full
@@ -372,19 +379,10 @@ withApplication cfg action = do
                             tipSlot - curSlot
                                 < SlotNo
                                     stabilityWindow
-                        replay =
-                            replayJournal
-                                1000
-                                BSL.fromStrict
-                                (fromKV context)
-                                (hashing context)
-                                utxoRt
                     splitMode <-
                         mkSplitMode
-                            kvOps
-                            fullOps
+                            kvOnlyOps
                             isAtTip
-                            replay
                             startPhase
 
                     -- Sample rollback points for

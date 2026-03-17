@@ -1,6 +1,5 @@
 { CHaP, indexState, pkgs, mkdocs, asciinema, cardano-node-pkgs, mpfs-blueprint
-, devnet-genesis, version ? "dev"
-, ... }:
+, devnet-genesis, version ? "dev", ... }:
 
 let
   indexTool = { index-state = indexState; };
@@ -62,9 +61,8 @@ in {
     project.hsPkgs.cardano-mpfs-offchain.components.library;
   packages.mpfs-serve =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-serve;
-  packages.docker-image = import ./docker-image.nix {
-    inherit pkgs project version mpfs-blueprint;
-  };
+  packages.docker-image =
+    import ./docker-image.nix { inherit pkgs project version mpfs-blueprint; };
   packages.mpfs-devnet-server =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;
   packages.devnet-genesis = devnet-genesis;
