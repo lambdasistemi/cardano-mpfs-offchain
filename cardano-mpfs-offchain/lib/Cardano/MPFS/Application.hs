@@ -73,6 +73,7 @@ import Database.KV.Transaction
     , mapColumns
     , newRunTransaction
     , query
+    , runTransactionUnguarded
     )
 import Database.KV.Transaction qualified as L
     ( RunTransaction (..)
@@ -115,8 +116,10 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTContext (..)
     , CSMTOps (..)
-    , mkCSMTKVOnlyOps
+    , DbState (..)
+    , ReadyState (..)
     , mkCSMTOps
+    , openCSMTOps
     , queryMerkleRoot
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
@@ -355,16 +358,29 @@ withApplication cfg action = do
                             utxoRt
                             armageddonParams
 
-                    -- Build KVOnly Ops GADT (wires
-                    -- journal replay into toFull)
-                    let kvOnlyOps =
-                            mkCSMTKVOnlyOps
-                                4
-                                1000
-                                (iso BSL.toStrict BSL.fromStrict)
-                                (fromKV context)
-                                (hashing context)
-                                (CSMT.transact utxoRt)
+                    -- Open CSMT ops with crash
+                    -- recovery
+                    let utxoRunUnguarded =
+                            runTransactionUnguarded
+                                unifiedDb
+                                . mapColumns InUtxo
+                    dbState <-
+                        openCSMTOps
+                            4
+                            1000
+                            (iso BSL.toStrict BSL.fromStrict)
+                            (fromKV context)
+                            (hashing context)
+                            (CSMT.transact utxoRt)
+                            utxoRunUnguarded
+                            (const $ pure ())
+                    let resolveDb (NeedsRecovery recover) =
+                            recover >>= resolveDb
+                        resolveDb (Ready (ChooseKVOnly ops)) =
+                            pure ops
+                        resolveDb (Ready (ChooseFull _)) =
+                            error "openCSMTOps: unexpected ChooseFull"
+                    kvOnlyOps <- resolveDb dbState
 
                     -- Detect starting phase for
                     -- split mode
