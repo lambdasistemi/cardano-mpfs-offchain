@@ -56,7 +56,7 @@ import Control.Concurrent.Async
     )
 import Control.Exception (throwIO)
 import Control.Monad (when)
-import Control.Tracer (Tracer, contramap)
+import Control.Tracer (Tracer, contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef)
@@ -373,7 +373,10 @@ withApplication cfg action = do
                             (hashing context)
                             (CSMT.transact utxoRt)
                             utxoRunUnguarded
-                            (const $ pure ())
+                            ( traceWith
+                                $ contramap TraceReplay
+                                $ appTracer cfg
+                            )
                     let resolveDb (NeedsRecovery recover) =
                             recover >>= resolveDb
                         resolveDb (Ready (ChooseKVOnly ops)) =

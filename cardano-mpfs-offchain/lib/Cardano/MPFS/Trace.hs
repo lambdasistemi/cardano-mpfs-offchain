@@ -40,6 +40,9 @@ import System.IO (hFlush, stderr)
 import Cardano.UTxOCSMT.Application.Database.Implementation.Armageddon
     ( ArmageddonTrace (..)
     )
+import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
+    ( ReplayEvent (..)
+    )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
     ( UpdateTrace (..)
     )
@@ -61,6 +64,8 @@ data AppTrace
       TraceSkipProgress SlotNo SlotNo
     | -- | Raw block received from ChainSync
       TraceBlockReceived SlotNo
+    | -- | Journal replay event
+      TraceReplay ReplayEvent
     deriving (Show)
 
 instance ToJSON AppTrace where
@@ -95,6 +100,20 @@ instance ToJSON AppTrace where
                         :: String
                    )
             , "slot" .= show slot
+            ]
+    toJSON (TraceReplay (ReplayStart cs bs tb opb)) =
+        object
+            [ "event"
+                .= ("replay_start" :: String)
+            , "chunk_size" .= cs
+            , "buckets" .= bs
+            , "total_buckets" .= tb
+            , "ops_per_bucket" .= opb
+            ]
+    toJSON (TraceReplay ReplayStop) =
+        object
+            [ "event"
+                .= ("replay_stop" :: String)
             ]
 
 -- | JSON-lines tracer writing to stderr with
