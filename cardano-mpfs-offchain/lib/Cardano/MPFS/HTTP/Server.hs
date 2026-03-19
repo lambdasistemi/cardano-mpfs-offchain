@@ -19,19 +19,8 @@ import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class (liftIO)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
-import Data.Text.Encoding qualified as TE
+import Data.Text (Text)
 import Data.Word (Word64)
-import Network.HTTP.Types
-    ( hContentType
-    , status200
-    , status503
-    )
-import Network.Wai
-    ( Request
-    , Response
-    , pathInfo
-    , responseLBS
-    )
 import Servant
     ( Application
     , Handler
@@ -98,9 +87,9 @@ import Cardano.MPFS.HTTP.Types
     , tokenStateToJSON
     )
 import Cardano.UTxOCSMT.Application.Metrics
-    ( renderPrometheus
+    ( Metrics
+    , renderPrometheus
     )
-import Data.Aeson qualified as Aeson
 
 import Cardano.MPFS.Indexer qualified as Indexer
 import Cardano.MPFS.State qualified as St
@@ -112,96 +101,53 @@ import Cardano.MPFS.TxBuilder qualified as Tx
 type FullAPI = SwaggerAPI :<|> API
 
 -- | Build a WAI 'Application' from a 'Context IO'.
--- Intercepts @\/metrics@ and @\/metrics\/prometheus@
--- before Servant.
 mkApp :: Context IO -> Application
-mkApp ctx req respond =
-    case pathInfo req of
-        ["metrics", "prometheus"] ->
-            prometheusHandler ctx req respond
-        ["metrics"] ->
-            metricsJsonHandler ctx req respond
-        _ -> servantApp req respond
-  where
-    servantApp =
-        serve (Proxy @FullAPI)
-            $ swaggerServer
-                :<|> statusHandler ctx
-                :<|> tokensHandler ctx
-                :<|> tokenHandler ctx
-                :<|> tokenRootHandler ctx
-                :<|> tokenFactHandler ctx
-                :<|> tokenProofHandler ctx
-                :<|> tokenRequestsHandler ctx
-                :<|> utxoResolveHandler ctx
-                :<|> utxoProofHandler ctx
-                :<|> utxoRootHandler ctx
-                :<|> txAwaitHandler ctx
-                :<|> txBootHandler ctx
-                :<|> txInsertHandler ctx
-                :<|> txDeleteHandler ctx
-                :<|> txUpdateHandler ctx
-                :<|> txRetractHandler ctx
-                :<|> txEndHandler ctx
-                :<|> txSubmitHandler ctx
+mkApp ctx =
+    serve (Proxy @FullAPI)
+        $ swaggerServer
+            :<|> metricsPrometheusHandler ctx
+            :<|> metricsHandler ctx
+            :<|> statusHandler ctx
+            :<|> tokensHandler ctx
+            :<|> tokenHandler ctx
+            :<|> tokenRootHandler ctx
+            :<|> tokenFactHandler ctx
+            :<|> tokenProofHandler ctx
+            :<|> tokenRequestsHandler ctx
+            :<|> utxoResolveHandler ctx
+            :<|> utxoProofHandler ctx
+            :<|> utxoRootHandler ctx
+            :<|> txAwaitHandler ctx
+            :<|> txBootHandler ctx
+            :<|> txInsertHandler ctx
+            :<|> txDeleteHandler ctx
+            :<|> txUpdateHandler ctx
+            :<|> txRetractHandler ctx
+            :<|> txEndHandler ctx
+            :<|> txSubmitHandler ctx
 
--- | @GET \/metrics@ — JSON metrics snapshot.
-metricsJsonHandler
-    :: Context IO
-    -> Request
-    -> (Response -> IO a)
-    -> IO a
-metricsJsonHandler ctx _req respond = do
-    mm <- readMetrics ctx
-    case mm of
-        Just m ->
-            respond
-                $ responseLBS
-                    status200
-                    [
-                        ( hContentType
-                        , "application/json"
-                        )
-                    ]
-                    (Aeson.encode m)
-        Nothing ->
-            respond
-                $ responseLBS
-                    status503
-                    [(hContentType, "text/plain")]
-                    "Metrics not yet available"
+-- ---------------------------------------------------------
+-- Metrics handlers
+-- ---------------------------------------------------------
 
--- | @GET \/metrics\/prometheus@ — Prometheus
--- exposition text format.
-prometheusHandler
-    :: Context IO
-    -> Request
-    -> (Response -> IO a)
-    -> IO a
-prometheusHandler ctx _req respond = do
-    mm <- readMetrics ctx
+-- | @GET \/metrics\/prometheus@
+metricsPrometheusHandler
+    :: Context IO -> Handler Text
+metricsPrometheusHandler ctx = do
+    mm <- liftIO $ readMetrics ctx
     case mm of
-        Just m ->
-            respond
-                $ responseLBS
-                    status200
-                    [
-                        ( hContentType
-                        , "text/plain;\
-                          \ version=0.0.4;\
-                          \ charset=utf-8"
-                        )
-                    ]
-                    ( BL.fromStrict
-                        $ TE.encodeUtf8
-                        $ renderPrometheus m
-                    )
-        Nothing ->
-            respond
-                $ responseLBS
-                    status503
-                    [(hContentType, "text/plain")]
-                    "Metrics not yet available"
+        Just m -> pure $ renderPrometheus m
+        Nothing -> throwError err404
+
+-- | @GET \/metrics@
+metricsHandler
+    :: Context IO
+    -> Handler Metrics
+metricsHandler ctx = do
+    mm <- liftIO $ readMetrics ctx
+    case mm of
+        Just m -> pure m
+        Nothing -> throwError err404
 
 -- ---------------------------------------------------------
 -- Query handlers
