@@ -49,4 +49,5 @@ mkMockContext = do
             , resolveUtxo = \_ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , readMetrics = pure Nothing
             }

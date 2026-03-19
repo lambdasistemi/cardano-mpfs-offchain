@@ -67,6 +67,7 @@ mkTestContext = do
             , resolveUtxo = \_ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , readMetrics = pure Nothing
             }
 
 getStatus :: Context IO -> IO SResponse

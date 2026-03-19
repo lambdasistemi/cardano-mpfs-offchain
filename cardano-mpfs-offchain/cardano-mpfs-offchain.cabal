@@ -56,8 +56,10 @@ library
     , cborg
     , containers                               >=0.6  && <0.8
     , contra-tracer
+    , contra-tracer-contrib
     , crypton
     , dependent-map
+    , http-types
     , lens
     , memory
     , microlens
@@ -81,6 +83,7 @@ library
     , swagger2
     , text                                     >=2.0  && <2.2
     , time
+    , wai
 
   exposed-modules:
     Cardano.MPFS.Application
@@ -102,6 +105,7 @@ library
     Cardano.MPFS.Indexer.Follower
     Cardano.MPFS.Indexer.Persistent
     Cardano.MPFS.Indexer.Rollback
+    Cardano.MPFS.Metrics
     Cardano.MPFS.Mock.Context
     Cardano.MPFS.Mock.Indexer
     Cardano.MPFS.Mock.Provider
