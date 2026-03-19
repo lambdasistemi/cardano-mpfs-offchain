@@ -65,6 +65,7 @@ import Data.IORef
     , writeIORef
     )
 import Data.Maybe (isJust, isNothing)
+import Ouroboros.Consensus.Block (getHeader)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
     )
@@ -138,7 +139,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Update
     )
 import Cardano.UTxOCSMT.Application.Metrics
     ( Metrics
-    , MetricsEvent
+    , MetricsEvent (..)
+    , SyncPhase (..)
     , metricsFold
     , renderPrometheus
     )
@@ -488,6 +490,11 @@ withApplication cfg action = do
                                     sink
                         newThreadSafeTracer ts
 
+                    -- Track chain tip for sync phase
+                    -- detection.
+                    lastTipRef <-
+                        newIORef (SlotNo 0)
+
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
                     -- followerEnabled)
@@ -530,18 +537,63 @@ withApplication cfg action = do
                                             countRef
                                             run
                                             csmtArmageddon
+                                    -- Block tracer: log +
+                                    -- emit BlockInfoEvent +
+                                    -- emit SyncPhaseEvent
+                                    blockTracer =
+                                        Tracer $ \block -> do
+                                            let Tracer logBlock =
+                                                    contramap
+                                                        ( TraceBlockReceived
+                                                            . Network.blockSlot
+                                                        )
+                                                        (appTracer cfg)
+                                                Tracer emitBlock =
+                                                    contramap
+                                                        ( BlockInfoEvent
+                                                            . getHeader
+                                                        )
+                                                        metricsTracer
+                                                Tracer emitSync =
+                                                    contramap
+                                                        SyncPhaseEvent
+                                                        metricsTracer
+                                            logBlock block
+                                            emitBlock block
+                                            tip <-
+                                                readIORef
+                                                    lastTipRef
+                                            let phase =
+                                                    if isAtTip
+                                                        ( Network.blockSlot
+                                                            block
+                                                        )
+                                                        tip
+                                                        then Synced
+                                                        else Syncing
+                                            emitSync phase
+                                    -- Tip tracer: log +
+                                    -- emit ChainTipEvent +
+                                    -- track latest tip
+                                    tipTracer =
+                                        Tracer $ \slot -> do
+                                            writeIORef
+                                                lastTipRef
+                                                slot
+                                            let Tracer logTip =
+                                                    contramap
+                                                        TraceChainTip
+                                                        (appTracer cfg)
+                                                Tracer emitTip =
+                                                    contramap
+                                                        ChainTipEvent
+                                                        metricsTracer
+                                            logTip slot
+                                            emitTip slot
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
-                                            ( contramap
-                                                ( TraceBlockReceived
-                                                    . Network.blockSlot
-                                                )
-                                                (appTracer cfg)
-                                            )
-                                            ( contramap
-                                                TraceChainTip
-                                                (appTracer cfg)
-                                            )
+                                            blockTracer
+                                            tipTracer
                                             ( contramap
                                                 ( \p ->
                                                     TraceSkipProgress
