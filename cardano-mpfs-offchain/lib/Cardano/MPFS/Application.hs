@@ -56,10 +56,14 @@ import Control.Concurrent.Async
     )
 import Control.Exception (throwIO)
 import Control.Monad (when)
-import Control.Tracer (Tracer, contramap, traceWith)
+import Control.Tracer (Tracer (..), contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
-import Data.IORef (newIORef)
+import Data.IORef
+    ( newIORef
+    , readIORef
+    , writeIORef
+    )
 import Data.Maybe (isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
@@ -127,8 +131,16 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualifie
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
     ( Phase (..)
+    , UpdateTrace (..)
+    , measureUpdateDurations
     , mkSplitMode
     , sampleRollbackPoints
+    )
+import Cardano.UTxOCSMT.Application.Metrics
+    ( Metrics
+    , MetricsEvent
+    , metricsFold
+    , renderPrometheus
     )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
@@ -156,6 +168,14 @@ import Ouroboros.Network.Block qualified as Network
 
 import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
 
+import Data.Tracer.Fold (foldTracer)
+import Data.Tracer.ThreadSafe
+    ( newThreadSafeTracer
+    )
+import Data.Tracer.Timestamp
+    ( utcTimestampTracer
+    )
+
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -169,6 +189,7 @@ import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.Indexer.Persistent
     ( mkPersistentState
     )
+import Cardano.MPFS.Metrics (stealMetrics)
 import Cardano.MPFS.Mock.Skeleton
     ( mkSkeletonIndexer
     )
@@ -446,12 +467,47 @@ withApplication cfg action = do
                                     Origin
                                 ]
 
+                    -- Metrics pipeline: accumulate
+                    -- MetricsEvent into a Metrics
+                    -- snapshot readable by the HTTP
+                    -- /metrics endpoint.
+                    metricsRef <-
+                        newIORef
+                            (Nothing :: Maybe Metrics)
+                    metricsTracer <- do
+                        let sink =
+                                Tracer
+                                    $ \m ->
+                                        writeIORef
+                                            metricsRef
+                                            (Just m)
+                        ts <-
+                            utcTimestampTracer
+                                <$> foldTracer
+                                    metricsFold
+                                    sink
+                        newThreadSafeTracer ts
+
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
                     -- followerEnabled)
                     mChainThread <-
                         if followerEnabled cfg
                             then do
+                                -- Wrap the update tracer
+                                -- with duration measurement
+                                -- so CSMT/rollback/transact
+                                -- begin/done pairs become
+                                -- \*Measured events.
+                                let baseUpdateTracer =
+                                        contramap
+                                            adaptUpdate
+                                            (appTracer cfg)
+                                measuredTracer <-
+                                    measureUpdateDurations
+                                        $ metricsStealTracer
+                                            metricsTracer
+                                            baseUpdateTracer
                                 let csmtArmageddon =
                                         setup
                                             ( contramap
@@ -468,10 +524,7 @@ withApplication cfg action = do
                                                 $ cageConfig
                                                     cfg
                                             )
-                                            ( contramap
-                                                adaptUpdate
-                                                (appTracer cfg)
-                                            )
+                                            measuredTracer
                                             splitMode
                                             slotHash
                                             countRef
@@ -590,6 +643,10 @@ withApplication cfg action = do
                                 , resolveUtxo = resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
+                                , readMetrics =
+                                    fmap
+                                        (fmap renderPrometheus)
+                                        (readIORef metricsRef)
                                 }
                     result <- action ctx
                     mapM_ cancel mChainThread
@@ -651,6 +708,23 @@ cageCheckpointToPoint (SlotNo s) (BlockId h) =
         $ Block
             (SlotNo s)
             (OneEraHash $ toShort h)
+
+-- | Wrap a tracer to also forward extracted
+-- 'MetricsEvent' values to a metrics tracer.
+-- All events pass through to the downstream tracer
+-- unchanged; additionally, any events matching
+-- 'stealMetrics' are forwarded to the metrics
+-- pipeline.
+metricsStealTracer
+    :: Tracer IO MetricsEvent
+    -> Tracer IO (UpdateTrace Point hash)
+    -> Tracer IO (UpdateTrace Point hash)
+metricsStealTracer metrics downstream =
+    Tracer $ \ev -> do
+        traceWith downstream ev
+        mapM_ (traceWith metrics) (stealMetrics ev)
+  where
+    traceWith (Tracer f) = f
 
 -- | CBOR-encode a ledger type using protocol
 -- version 11.

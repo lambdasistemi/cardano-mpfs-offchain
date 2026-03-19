@@ -16,6 +16,7 @@ module Cardano.MPFS.Context
     ) where
 
 import Data.ByteString (ByteString)
+import Data.Text (Text)
 
 import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Indexer (Indexer)
@@ -50,4 +51,6 @@ data Context m = Context
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
     -- ^ CSMT inclusion proof for a TxIn (raw bytes)
+    , readMetrics :: m (Maybe Text)
+    -- ^ Current Prometheus metrics text (if available)
     }
