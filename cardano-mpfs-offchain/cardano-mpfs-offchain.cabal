@@ -195,6 +195,21 @@ executable cardano-mpfs-swagger
 
   ghc-options:      -threaded -with-rtsopts=-N
 
+executable mpfs-inspect-db
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe
+  main-is:          InspectDb.hs
+  build-depends:
+    , base
+    , cardano-mpfs-offchain
+    , chain-follower
+    , rocksdb-haskell-jprupp
+    , rocksdb-kv-transactions
+    , rocksdb-kv-transactions:kv-transactions
+
+  ghc-options:      -threaded -with-rtsopts=-N
+
 executable mpfs-tx-vectors
   import:           warnings
   default-language: GHC2021
