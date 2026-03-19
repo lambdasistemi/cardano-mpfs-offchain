@@ -143,7 +143,7 @@ executable mpfs-serve
     , directory
     , warp
 
-  ghc-options:      -threaded
+  ghc-options:      -threaded -with-rtsopts=-N
 
 executable mpfs-run-preprod
   import:           warnings
@@ -159,7 +159,7 @@ executable mpfs-run-preprod
     , cardano-mpfs-offchain
     , directory
 
-  ghc-options:      -threaded
+  ghc-options:      -threaded -with-rtsopts=-N
 
 executable mpfs-devnet-server
   import:           warnings
@@ -178,7 +178,7 @@ executable mpfs-devnet-server
     , temporary
     , warp
 
-  ghc-options:      -threaded
+  ghc-options:      -threaded -with-rtsopts=-N
 
 executable cardano-mpfs-swagger
   import:           warnings
@@ -190,7 +190,7 @@ executable cardano-mpfs-swagger
     , bytestring
     , cardano-mpfs-offchain
 
-  ghc-options:      -threaded
+  ghc-options:      -threaded -with-rtsopts=-N
 
 test-suite unit-tests
   import:           warnings
