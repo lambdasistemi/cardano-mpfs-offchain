@@ -142,7 +142,6 @@ import Cardano.UTxOCSMT.Application.Metrics
     , MetricsEvent (..)
     , SyncPhase (..)
     , metricsFold
-    , renderPrometheus
     )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
@@ -696,9 +695,7 @@ withApplication cfg action = do
                                 , utxoRoot = root
                                 , utxoProof = proof
                                 , readMetrics =
-                                    fmap
-                                        (fmap renderPrometheus)
-                                        (readIORef metricsRef)
+                                    readIORef metricsRef
                                 }
                     result <- action ctx
                     mapM_ cancel mChainThread

@@ -97,6 +97,11 @@ import Cardano.MPFS.HTTP.Types
     , requestToJSON
     , tokenStateToJSON
     )
+import Cardano.UTxOCSMT.Application.Metrics
+    ( renderPrometheus
+    )
+import Data.Aeson qualified as Aeson
+
 import Cardano.MPFS.Indexer qualified as Indexer
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
@@ -107,12 +112,15 @@ import Cardano.MPFS.TxBuilder qualified as Tx
 type FullAPI = SwaggerAPI :<|> API
 
 -- | Build a WAI 'Application' from a 'Context IO'.
--- Intercepts @\/metrics@ before Servant to serve
--- Prometheus exposition text format.
+-- Intercepts @\/metrics@ and @\/metrics\/prometheus@
+-- before Servant.
 mkApp :: Context IO -> Application
 mkApp ctx req respond =
     case pathInfo req of
-        ["metrics"] -> metricsHandler ctx req respond
+        ["metrics", "prometheus"] ->
+            prometheusHandler ctx req respond
+        ["metrics"] ->
+            metricsJsonHandler ctx req respond
         _ -> servantApp req respond
   where
     servantApp =
@@ -137,18 +145,57 @@ mkApp ctx req respond =
                 :<|> txEndHandler ctx
                 :<|> txSubmitHandler ctx
 
--- | @GET \/metrics@ — Prometheus exposition format.
-metricsHandler
-    :: Context IO -> Request -> (Response -> IO a) -> IO a
-metricsHandler ctx _req respond = do
-    mText <- readMetrics ctx
-    case mText of
-        Just txt ->
+-- | @GET \/metrics@ — JSON metrics snapshot.
+metricsJsonHandler
+    :: Context IO
+    -> Request
+    -> (Response -> IO a)
+    -> IO a
+metricsJsonHandler ctx _req respond = do
+    mm <- readMetrics ctx
+    case mm of
+        Just m ->
             respond
                 $ responseLBS
                     status200
-                    [(hContentType, "text/plain; version=0.0.4; charset=utf-8")]
-                    (BL.fromStrict $ TE.encodeUtf8 txt)
+                    [
+                        ( hContentType
+                        , "application/json"
+                        )
+                    ]
+                    (Aeson.encode m)
+        Nothing ->
+            respond
+                $ responseLBS
+                    status503
+                    [(hContentType, "text/plain")]
+                    "Metrics not yet available"
+
+-- | @GET \/metrics\/prometheus@ — Prometheus
+-- exposition text format.
+prometheusHandler
+    :: Context IO
+    -> Request
+    -> (Response -> IO a)
+    -> IO a
+prometheusHandler ctx _req respond = do
+    mm <- readMetrics ctx
+    case mm of
+        Just m ->
+            respond
+                $ responseLBS
+                    status200
+                    [
+                        ( hContentType
+                        , "text/plain;\
+                          \ version=0.0.4;\
+                          \ charset=utf-8"
+                        )
+                    ]
+                    ( BL.fromStrict
+                        $ TE.encodeUtf8
+                        $ renderPrometheus m
+                    )
         Nothing ->
             respond
                 $ responseLBS

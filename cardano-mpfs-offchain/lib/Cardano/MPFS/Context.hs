@@ -16,7 +16,6 @@ module Cardano.MPFS.Context
     ) where
 
 import Data.ByteString (ByteString)
-import Data.Text (Text)
 
 import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Indexer (Indexer)
@@ -25,6 +24,7 @@ import Cardano.MPFS.State (State)
 import Cardano.MPFS.Submitter (Submitter)
 import Cardano.MPFS.Trie (TrieManager)
 import Cardano.MPFS.TxBuilder (TxBuilder)
+import Cardano.UTxOCSMT.Application.Metrics (Metrics)
 
 -- | Top-level context bundling all service
 -- interfaces. Parametric in the effect @m@.
@@ -51,6 +51,6 @@ data Context m = Context
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
     -- ^ CSMT inclusion proof for a TxIn (raw bytes)
-    , readMetrics :: m (Maybe Text)
-    -- ^ Current Prometheus metrics text (if available)
+    , readMetrics :: m (Maybe Metrics)
+    -- ^ Current metrics snapshot (if available)
     }
