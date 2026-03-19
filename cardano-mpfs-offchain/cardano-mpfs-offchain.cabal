@@ -192,6 +192,37 @@ executable cardano-mpfs-swagger
 
   ghc-options:      -threaded -with-rtsopts=-N
 
+executable mpfs-tx-vectors
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   exe
+  main-is:          TxVectors.hs
+  build-depends:
+    , aeson
+    , aeson-pretty
+    , base
+    , base16-bytestring
+    , bytestring
+    , cardano-crypto-class
+    , cardano-ledger-alonzo
+    , cardano-ledger-api
+    , cardano-ledger-binary
+    , cardano-ledger-conway
+    , cardano-ledger-core
+    , cardano-ledger-mary
+    , cardano-mpfs-offchain
+    , cardano-strict-containers
+    , containers
+    , microlens
+    , plutus-tx
+    , text
+
+  other-modules:    Cardano.MPFS.Indexer.TxFixtures
+
+  -- TxFixtures lives in test/ but is reused here
+  hs-source-dirs:   test
+  ghc-options:      -threaded
+
 test-suite unit-tests
   import:           warnings
   type:             exitcode-stdio-1.0
