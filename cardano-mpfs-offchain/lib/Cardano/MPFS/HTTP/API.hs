@@ -16,6 +16,10 @@ module Cardano.MPFS.HTTP.API
       -- * Proxy
     , api
 
+      -- * Metrics endpoints
+    , MetricsAPI
+    , MetricsPrometheusAPI
+
       -- * Query endpoints
     , StatusAPI
     , TokensAPI
@@ -44,12 +48,14 @@ module Cardano.MPFS.HTTP.API
     ) where
 
 import Data.Proxy (Proxy (..))
+import Data.Text (Text)
 import Data.Word (Word64)
 import Servant.API
     ( Capture
     , Get
     , JSON
     , NoContent
+    , PlainText
     , Post
     , QueryParam
     , ReqBody
@@ -71,6 +77,18 @@ import Cardano.MPFS.HTTP.Types
     , TokenStateJSON
     , UpdateRequest
     )
+import Cardano.UTxOCSMT.Application.Metrics (Metrics)
+
+-- | @GET \/metrics\/prometheus@ — Prometheus exposition
+-- text format.
+type MetricsPrometheusAPI =
+    "metrics"
+        :> "prometheus"
+        :> Get '[PlainText] Text
+
+-- | @GET \/metrics@ — JSON metrics snapshot.
+type MetricsAPI =
+    "metrics" :> Get '[JSON] Metrics
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
@@ -212,7 +230,9 @@ api = Proxy
 
 -- | Complete MPFS HTTP API.
 type API =
-    StatusAPI
+    MetricsPrometheusAPI
+        :<|> MetricsAPI
+        :<|> StatusAPI
         :<|> TokensAPI
         :<|> TokenAPI
         :<|> TokenRootAPI

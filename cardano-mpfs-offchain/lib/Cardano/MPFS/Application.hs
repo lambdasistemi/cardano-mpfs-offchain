@@ -772,8 +772,6 @@ metricsStealTracer metrics downstream =
     Tracer $ \ev -> do
         traceWith downstream ev
         mapM_ (traceWith metrics) (stealMetrics ev)
-  where
-    traceWith (Tracer f) = f
 
 -- | CBOR-encode a ledger type using protocol
 -- version 11.
