@@ -46,6 +46,7 @@ module Cardano.MPFS.Application
     , dbConfig
     , allColumnFamilies
     , cageColumnFamilies
+    , unifiedCodecs
     ) where
 
 import Cardano.Chain.Slotting (EpochSlots)
@@ -65,7 +66,7 @@ import Ouroboros.Consensus.HardFork.Combinator
     )
 
 import Database.KV.Cursor (firstEntry)
-import Database.KV.Database (mkColumns)
+import Database.KV.Database (Codecs, mkColumns)
 import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
     ( iterating
@@ -151,6 +152,7 @@ import Ouroboros.Network.Block qualified as Network
 
 import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
 
+import CSMT.Hashes.Types (Hash)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -162,6 +164,8 @@ import Cardano.MPFS.Indexer.Backend
 import Cardano.MPFS.Indexer.CageFollower
     ( mkCageIntersector
     )
+import Data.Dependent.Map (DMap)
+
 import Cardano.MPFS.Indexer.Codecs (allUnifiedCodecs)
 import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.Indexer.Persistent
@@ -662,6 +666,21 @@ latestRollbackPoint run = do
                         (BlockId mempty)
                         (rpMeta rp)
                     )
+
+-- | Pre-applied unified codecs for all 12 column
+-- families. Useful for tools that open the database
+-- directly (e.g. inspectors) without needing to
+-- import @cardano-utxo-csmt@ internals.
+unifiedCodecs
+    :: DMap
+        ( UnifiedColumns
+            Point
+            Hash
+            BSL.ByteString
+            BSL.ByteString
+        )
+        Codecs
+unifiedCodecs = allUnifiedCodecs prisms
 
 -- | CBOR-encode a ledger type using protocol
 -- version 11.
