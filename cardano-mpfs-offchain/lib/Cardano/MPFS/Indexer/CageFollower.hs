@@ -259,7 +259,7 @@ mkCageIntersector
     -- ^ Unified transaction runner
     -> IO ()
     -- ^ CSMT armageddon action
-    -> Intersector Fetched
+    -> Intersector Point SlotNo Fetched
 mkCageIntersector
     scriptHash
     tracer
@@ -339,7 +339,7 @@ mkCageFollower
     -- ^ CSMT armageddon action
     -> Point
     -- ^ Intersection point
-    -> Follower Fetched
+    -> Follower Point SlotNo Fetched
 mkCageFollower
     scriptHash
     tracer
