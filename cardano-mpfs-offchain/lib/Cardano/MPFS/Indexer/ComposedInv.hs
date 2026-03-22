@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-
 -- |
 -- Module      : Cardano.MPFS.Indexer.ComposedInv
 -- Description : Combined inverse type for UTxO + cage

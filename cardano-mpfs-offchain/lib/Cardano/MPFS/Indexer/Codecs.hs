@@ -30,6 +30,7 @@ module Cardano.MPFS.Indexer.Codecs
     , allUnifiedCodecs
 
       -- * Individual prisms
+    , composedRollbackPrism
     , tokenIdPrism
     , tokenStatePrism
     , txInPrism
@@ -102,6 +103,9 @@ import Cardano.MPFS.Core.Types
     , TokenState (..)
     , TxIn
     )
+import ChainFollower.Rollbacks.Types qualified as CF
+    ( RollbackPoint (..)
+    )
 import MTS.Rollbacks.Types (RollbackPoint (..))
 
 import Cardano.MPFS.Indexer.Columns
@@ -110,8 +114,13 @@ import Cardano.MPFS.Indexer.Columns
     , TrieStatus (..)
     , UnifiedColumns (..)
     )
+import Cardano.MPFS.Indexer.ComposedInv (ComposedInv (..))
 import Cardano.MPFS.Indexer.Event
     ( CageInverseOp (..)
+    )
+
+import Cardano.UTxOCSMT.Application.Database.Interface qualified as UTxO
+    ( Operation (..)
     )
 
 -- | Codecs for all indexer column families.
@@ -166,6 +175,14 @@ allUnifiedCodecs ps =
         `DMap.union` DMap.mapKeysMonotonic
             InCage
             allCodecs
+        `DMap.union` fromPairList
+            [ InRollbacks
+                :=> Codecs
+                    { keyCodec = slotNoPrism
+                    , valueCodec =
+                        composedRollbackPrism
+                    }
+            ]
 
 -- | Encode/decode 'TokenId' as raw asset name
 -- bytes. No CBOR wrapping — the 'AssetName'
@@ -319,6 +336,94 @@ rollbackPointPrism = prism' enc dec
                 Just . BlockId <$> decodeBytes
             _ ->
                 fail "decodeMaybeMeta: bad len"
+
+-- | Encode/decode 'RollbackPoint ComposedInv
+-- BlockId' for the composed rollback column.
+composedRollbackPrism
+    :: Prism'
+        ByteString
+        (CF.RollbackPoint ComposedInv BlockId)
+composedRollbackPrism = prism' enc dec
+  where
+    enc CF.RollbackPoint{..} =
+        toStrictByteString
+            $ encodeListLen 2
+                <> encodeComposedInvs rpInverses
+                <> encodeMaybeMeta rpMeta
+    dec = decodeCBOR $ do
+        decodeListLenOf 2
+        invs <- decodeComposedInvs
+        meta <- decodeMaybeMeta
+        pure
+            CF.RollbackPoint
+                { CF.rpInverses = invs
+                , CF.rpMeta = meta
+                }
+    encodeMaybeMeta Nothing = encodeListLen 0
+    encodeMaybeMeta (Just (BlockId bs)) =
+        encodeListLen 1 <> encodeBytes bs
+    decodeMaybeMeta = do
+        n <- decodeListLen
+        case n of
+            0 -> pure Nothing
+            1 ->
+                Just . BlockId <$> decodeBytes
+            _ ->
+                fail "decodeMaybeMeta: bad len"
+
+    encodeComposedInvs invs =
+        encodeListLen (fromIntegral (length invs))
+            <> foldMap encodeOneComposed invs
+
+    encodeOneComposed ComposedInv{..} =
+        encodeListLen 2
+            <> encodeUtxoOps utxoInverses
+            <> encodeInvOps cageInverses
+
+    decodeComposedInvs = do
+        n <- decodeListLen
+        mapM (const decodeOneComposed) [1 .. n]
+
+    decodeOneComposed = do
+        decodeListLenOf 2
+        utxoInvs <- decodeUtxoOps
+        cageInvs <- decodeInvOps
+        pure
+            ComposedInv
+                { utxoInverses = utxoInvs
+                , cageInverses = cageInvs
+                }
+
+    encodeUtxoOps ops =
+        encodeListLen (fromIntegral (length ops))
+            <> foldMap encodeUtxoOp ops
+
+    encodeUtxoOp (UTxO.Insert k v) =
+        encodeListLen 3
+            <> encodeWord8 0
+            <> encodeBytes (BSL.toStrict k)
+            <> encodeBytes (BSL.toStrict v)
+    encodeUtxoOp (UTxO.Delete k) =
+        encodeListLen 2
+            <> encodeWord8 1
+            <> encodeBytes (BSL.toStrict k)
+
+    decodeUtxoOps = do
+        n <- decodeListLen
+        mapM (const decodeUtxoOp) [1 .. n]
+
+    decodeUtxoOp = do
+        len <- decodeListLen
+        tag <- decodeWord8
+        case (tag, len) of
+            (0, 3) ->
+                UTxO.Insert . BSL.fromStrict
+                    <$> decodeBytes
+                    <*> (BSL.fromStrict <$> decodeBytes)
+            (1, 2) ->
+                UTxO.Delete . BSL.fromStrict
+                    <$> decodeBytes
+            _ -> fail "Unknown UTxO Operation tag"
 
 -- | Prism for 'MPFHash' values in trie columns.
 -- Reuses the codec from @haskell-mts@ test lib.

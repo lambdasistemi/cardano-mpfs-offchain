@@ -44,7 +44,6 @@ import Cardano.Ledger.Binary
     )
 
 import CSMT.MTS (Ops, toFull)
-import MTS.Interface qualified as MTS (Mode (..))
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( Fetched (..)
     )
@@ -69,6 +68,7 @@ import Cardano.UTxOCSMT.Application.UTxOs
 import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
+import MTS.Interface qualified as MTS (Mode (..))
 
 import ChainFollower.Backend
     ( Following (..)
@@ -158,14 +158,13 @@ resolveUtxoT txIn = do
             Left _ -> Nothing
             Right txOut -> Just txOut
 
-{- | Create a composed 'Backend.Init' for both
-UTxO CSMT and cage state.
-
-Takes the KVOnly 'Ops' (same as @createBackend@
-in cardano-utxo-csmt). 'startRestoring' uses
-KVOnly ops; 'toFollowing' calls 'toFull' for
-journal replay and switches to Full ops.
--}
+-- | Create a composed 'Backend.Init' for both
+-- UTxO CSMT and cage state.
+--
+-- Takes the KVOnly 'Ops' (same as @createBackend@
+-- in cardano-utxo-csmt). 'startRestoring' uses
+-- KVOnly ops; 'toFollowing' calls 'toFull' for
+-- journal replay and switches to Full ops.
 composedInit
     :: ScriptHash
     -> Ops
@@ -200,8 +199,9 @@ composedInit scriptHash ops =
                         $ mkFollowing
                             (fullOpsToCSMTOps fullOps)
                 Nothing ->
-                    fail
-                        "composedInit: toFull failed"
+                    -- Fresh DB: no journal to replay,
+                    -- use KVOnly ops directly
+                    pure $ mkFollowing kvOps
         }
   where
     kvOps = kvCommonToCSMTOps (kvCommon ops)
