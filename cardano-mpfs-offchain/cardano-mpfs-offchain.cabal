@@ -252,19 +252,19 @@ test-suite unit-tests
     , cardano-node-clients
     , cardano-strict-containers
     , cardano-utxo-csmt:library
-    , chain-follower
-    , mts:csmt
-    , ouroboros-network-api
-    , containers
     , cborg
+    , chain-follower
+    , containers
     , dependent-map
     , hspec                                    >=2.11 && <2.12
     , http-types
     , lens
     , microlens
+    , mts:csmt
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks
+    , ouroboros-network-api
     , plutus-core
     , plutus-tx
     , QuickCheck                               >=2.14 && <2.18
@@ -284,15 +284,15 @@ test-suite unit-tests
     Cardano.MPFS.HTTP.TokenSpec
     Cardano.MPFS.HTTP.TokensSpec
     Cardano.MPFS.HTTP.TrieSpec
+    Cardano.MPFS.Indexer.ArmageddonSpec
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
     Cardano.MPFS.Indexer.FollowerSpec
     Cardano.MPFS.Indexer.InverseSpec
     Cardano.MPFS.Indexer.PersistentSpec
-    Cardano.MPFS.Indexer.ArmageddonSpec
-    Cardano.MPFS.Indexer.UnifiedSpec
     Cardano.MPFS.Indexer.RollbackSpec
     Cardano.MPFS.Indexer.TxFixtures
+    Cardano.MPFS.Indexer.UnifiedSpec
     Cardano.MPFS.OnChainSpec
     Cardano.MPFS.ProofSpec
     Cardano.MPFS.StateSpec
@@ -338,7 +338,6 @@ test-suite e2e-tests
   other-modules:
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
-    Cardano.MPFS.E2E.FollowerCrashSpec
     Cardano.MPFS.E2E.ChainSyncSpec
     Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
