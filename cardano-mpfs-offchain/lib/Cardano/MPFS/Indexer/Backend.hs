@@ -199,9 +199,8 @@ composedInit scriptHash ops =
                         $ mkFollowing
                             (fullOpsToCSMTOps fullOps)
                 Nothing ->
-                    -- Fresh DB: no journal to replay,
-                    -- use KVOnly ops directly
-                    pure $ mkFollowing kvOps
+                    fail
+                        "composedInit: toFull failed"
         }
   where
     kvOps = kvCommonToCSMTOps (kvCommon ops)
