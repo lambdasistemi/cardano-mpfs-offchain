@@ -69,7 +69,10 @@ import Cardano.MPFS.Core.Types
     , TokenState
     , TxIn
     )
+import Cardano.MPFS.Indexer.ComposedInv (ComposedInv)
 import Cardano.MPFS.Indexer.Event (CageInverseOp)
+
+import ChainFollower.Rollbacks.Column (RollbackKV)
 
 -- | Visibility status for a token's trie in the
 -- persistent registry. Stored in the @trie-meta@
@@ -181,14 +184,26 @@ data UnifiedColumns slot hash key value x where
     InCage
         :: AllColumns x
         -> UnifiedColumns slot hash key value x
+    -- | Composed rollback column (chain-follower)
+    InRollbacks
+        :: UnifiedColumns
+            slot
+            hash
+            key
+            value
+            (RollbackKV SlotNo ComposedInv (Maybe BlockId))
 
 instance GEq (UnifiedColumns slot hash key value) where
     geq (InUtxo a) (InUtxo b) = geq a b
     geq (InCage a) (InCage b) = geq a b
+    geq InRollbacks InRollbacks = Just Refl
     geq _ _ = Nothing
 
 instance GCompare (UnifiedColumns slot hash key value) where
     gcompare (InUtxo a) (InUtxo b) = gcompare a b
-    gcompare (InUtxo _) (InCage _) = GLT
-    gcompare (InCage _) (InUtxo _) = GGT
+    gcompare (InUtxo _) _ = GLT
+    gcompare _ (InUtxo _) = GGT
     gcompare (InCage a) (InCage b) = gcompare a b
+    gcompare (InCage _) _ = GLT
+    gcompare _ (InCage _) = GGT
+    gcompare InRollbacks InRollbacks = GEQ
