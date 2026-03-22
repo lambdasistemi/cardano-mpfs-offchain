@@ -308,7 +308,17 @@ withApplication cfg action = do
             let cageRt =
                     L.RunTransaction
                         (run . mapColumns InCage)
-                st = mkPersistentState cageRt
+                st =
+                    (mkPersistentState cageRt)
+                        { CageSt.checkpoints =
+                            CageSt.Checkpoints
+                                { CageSt.getCheckpoint =
+                                    latestRollbackPoint
+                                        run
+                                , CageSt.putCheckpoint =
+                                    \_ _ -> pure ()
+                                }
+                        }
 
             -- Project into UTxO columns (1–5)
             let utxoRt =
@@ -626,6 +636,33 @@ cageCheckpointToPoint (SlotNo s) (BlockId h) =
         $ Block
             (SlotNo s)
             (OneEraHash $ toShort h)
+
+-- | Read the latest rollback point from the
+-- composed rollback column as a checkpoint.
+latestRollbackPoint
+    :: ( forall a
+          . L.Transaction
+                IO
+                cf
+                (UnifiedColumns Point hash BSL.ByteString BSL.ByteString)
+                op
+                a
+         -> IO a
+       )
+    -> IO (Maybe (SlotNo, BlockId))
+latestRollbackPoint run = do
+    history <-
+        run $ CFStore.queryHistory InRollbacks
+    pure $ case history of
+        [] -> Nothing
+        pts ->
+            let (s, rp) = last pts
+            in  Just
+                    ( s
+                    , fromMaybe
+                        (BlockId mempty)
+                        (rpMeta rp)
+                    )
 
 -- | CBOR-encode a ledger type using protocol
 -- version 11.
