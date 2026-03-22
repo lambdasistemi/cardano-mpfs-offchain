@@ -20,13 +20,13 @@ import Cardano.MPFS.HTTP.TokenSpec qualified as TokenSpec
 import Cardano.MPFS.HTTP.TokensSpec qualified as TokensSpec
 import Cardano.MPFS.HTTP.TrieSpec qualified as HTTPTrieSpec
 import Cardano.MPFS.Indexer.ArmageddonSpec qualified as ArmageddonSpec
-import Cardano.MPFS.Indexer.UnifiedSpec qualified as UnifiedSpec
 import Cardano.MPFS.Indexer.CodecsSpec qualified as CodecsSpec
 import Cardano.MPFS.Indexer.EventSpec qualified as CageEventSpec
 import Cardano.MPFS.Indexer.FollowerSpec qualified as CageFollowerSpec
 import Cardano.MPFS.Indexer.InverseSpec qualified as InverseSpec
 import Cardano.MPFS.Indexer.PersistentSpec qualified as PersistentStateSpec
 import Cardano.MPFS.Indexer.RollbackSpec qualified as RollbackSpec
+import Cardano.MPFS.Indexer.UnifiedSpec qualified as UnifiedSpec
 import Cardano.MPFS.OnChainSpec qualified as OnChainSpec
 import Cardano.MPFS.ProofSpec qualified as ProofSpec
 import Cardano.MPFS.StateSpec qualified as StateSpec
