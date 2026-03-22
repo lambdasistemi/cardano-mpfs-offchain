@@ -20,11 +20,6 @@ module Cardano.MPFS.Indexer.CageFollower
     ) where
 
 import Data.ByteString.Lazy (LazyByteString)
-import Data.IORef
-    ( IORef
-    , readIORef
-    , writeIORef
-    )
 import Ouroboros.Network.Block qualified as Network
 import Ouroboros.Network.Point
     ( Block (..)
@@ -41,6 +36,7 @@ import Cardano.UTxOCSMT.Ouroboros.Types
     , ProgressOrRewind (..)
     )
 
+import ChainFollower.Backend (Init (..))
 import ChainFollower.Rollbacks.Store qualified as Store
 import ChainFollower.Runner
     ( Phase (..)
@@ -89,11 +85,10 @@ pointToSlot
     (Network.Point (At (Block s _))) = s
 
 -- | Build an 'Intersector' for the cage follower.
+-- Phase is threaded through continuations (no IORef).
 mkCageIntersector
     :: Int
     -- ^ Security parameter (stability window)
-    -> IORef (AppPhase hash cf op)
-    -- ^ Mutable phase reference
     -> ( forall a
           . Transaction
                 IO
@@ -104,39 +99,59 @@ mkCageIntersector
          -> IO a
        )
     -- ^ Unified transaction runner
+    -> Init
+        IO
+        ( Transaction
+            IO
+            cf
+            (Unified hash)
+            op
+        )
+        Fetched
+        ComposedInv
+        BlockId
+    -- ^ Backend initializer
     -> IO ()
     -- ^ Armageddon action (wipe + reset)
+    -> AppPhase hash cf op
+    -- ^ Current phase
     -> Intersector Point SlotNo Fetched
 mkCageIntersector
     securityParam
-    phaseRef
     run
-    armageddon =
+    backendInit
+    armageddon
+    phase =
         Intersector
-            { intersectFound = \_point -> do
+            { intersectFound = \_point ->
                 pure
                     $ mkCageFollower
                         securityParam
-                        phaseRef
                         run
+                        backendInit
                         armageddon
-            , intersectNotFound = do
+                        phase
+            , intersectNotFound =
                 pure
                     ( mkCageIntersector
                         securityParam
-                        phaseRef
                         run
+                        backendInit
                         armageddon
+                        phase
                     , [Network.Point Origin]
                     )
             }
 
 -- | Build a 'Follower' using chain-follower Runner.
+-- Phase is threaded through continuations: each
+-- 'rollForward' returns a new 'Follower' capturing
+-- the updated phase. Phase transitions (Restoring →
+-- Following) happen inside the same transaction as
+-- block processing.
 mkCageFollower
     :: Int
     -- ^ Security parameter (stability window)
-    -> IORef (AppPhase hash cf op)
-    -- ^ Mutable phase reference
     -> ( forall a
           . Transaction
                 IO
@@ -147,25 +162,39 @@ mkCageFollower
          -> IO a
        )
     -- ^ Unified transaction runner
+    -> Init
+        IO
+        ( Transaction
+            IO
+            cf
+            (Unified hash)
+            op
+        )
+        Fetched
+        ComposedInv
+        BlockId
+    -- ^ Backend initializer
     -> IO ()
     -- ^ Armageddon action (wipe + reset)
+    -> AppPhase hash cf op
+    -- ^ Current phase
     -> Follower Point SlotNo Fetched
 mkCageFollower
     securityParam
-    phaseRef
     run
+    backendInit
     armageddon =
-        follower
+        go
       where
-        follower =
+        go phase =
             Follower
-                { rollForward = rollFwd
-                , rollBackward = rollBwd
+                { rollForward = rollFwd phase
+                , rollBackward = rollBwd phase
                 }
 
-        rollFwd fetched _tipSlot = do
-            let slot = pointToSlot (fetchedPoint fetched)
-            phase <- readIORef phaseRef
+        rollFwd phase fetched _tipSlot = do
+            let slot =
+                    pointToSlot (fetchedPoint fetched)
             phase' <-
                 run
                     $ processBlock
@@ -174,13 +203,10 @@ mkCageFollower
                         slot
                         fetched
                         phase
-            writeIORef phaseRef phase'
-            pure follower
+            pure $ go phase'
 
-        rollBwd point = do
-            let targetSlot =
-                    pointToSlot point
-            phase <- readIORef phaseRef
+        rollBwd phase point = do
+            let targetSlot = pointToSlot point
             case phase of
                 InFollowing n f -> do
                     (result, n') <-
@@ -191,26 +217,32 @@ mkCageFollower
                                 n
                                 targetSlot
                     case result of
-                        Store.RollbackSucceeded _ -> do
-                            writeIORef
-                                phaseRef
-                                (InFollowing n' f)
-                            pure $ Progress follower
+                        Store.RollbackSucceeded _ ->
+                            pure
+                                $ Progress
+                                $ go (InFollowing n' f)
                         Store.RollbackImpossible -> do
                             armageddon
+                            restoring <-
+                                startRestoring
+                                    backendInit
                             pure
                                 $ Reset
                                 $ mkCageIntersector
                                     securityParam
-                                    phaseRef
                                     run
+                                    backendInit
                                     armageddon
+                                    (InRestoration 0 restoring)
                 InRestoration _ _ -> do
                     armageddon
+                    restoring <-
+                        startRestoring backendInit
                     pure
                         $ Reset
                         $ mkCageIntersector
                             securityParam
-                            phaseRef
                             run
+                            backendInit
                             armageddon
+                            (InRestoration 0 restoring)

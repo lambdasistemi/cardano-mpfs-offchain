@@ -59,7 +59,6 @@ import Control.Monad (when)
 import Control.Tracer (Tracer, contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
-import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
@@ -316,7 +315,8 @@ withApplication cfg action = do
                     CSMT.RunTransaction
                         (run . mapColumns InUtxo)
 
-            -- Trie: columns 11–13 (skip 10)
+            -- Trie: CFs at indices 10–12 (6 UTxO + 4 cage
+            -- before trie-nodes, trie-kv, trie-meta)
             case drop 10 (columnFamilies db) of
                 (nodesCF : kvCF : metaCF : _) -> do
                     tm <-
@@ -419,15 +419,26 @@ withApplication cfg action = do
                                 ]
 
                     -- Initialize Phase from Backend.Init
-                    -- resumeFollowing handles both fresh
-                    -- (KVOnly fallback) and existing DBs
-                    -- (journal replay via toFull)
-                    following <-
-                        resumeFollowing backendInit
-                    phaseRef <-
-                        newIORef
-                            (InFollowing initialCount following)
-
+                    -- Existing DB: resume following (journal
+                    -- replay via toFull)
+                    -- Fresh DB: start restoring (KVOnly ops)
+                    initialPhase <-
+                        if initialCount > 0
+                            then do
+                                following <-
+                                    resumeFollowing
+                                        backendInit
+                                pure
+                                    ( InFollowing
+                                        initialCount
+                                        following
+                                    )
+                            else do
+                                restoring <-
+                                    startRestoring
+                                        backendInit
+                                pure
+                                    (InRestoration 0 restoring)
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
                     -- followerEnabled)
@@ -447,9 +458,10 @@ withApplication cfg action = do
                                     cageIntersector =
                                         mkCageIntersector
                                             (fromIntegral stabilityWindow)
-                                            phaseRef
                                             run
+                                            backendInit
                                             csmtArmageddon
+                                            initialPhase
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
                                             ( contramap
