@@ -236,6 +236,7 @@ test-suite unit-tests
   main-is:          main.hs
   build-depends:
     , aeson
+    , async
     , base
     , base16-bytestring
     , bytestring
@@ -250,7 +251,13 @@ test-suite unit-tests
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-strict-containers
+    , cardano-utxo-csmt:library
+    , chain-follower
+    , mts:csmt
+    , ouroboros-network-api
     , containers
+    , cborg
+    , dependent-map
     , hspec                                    >=2.11 && <2.12
     , http-types
     , lens
@@ -282,6 +289,8 @@ test-suite unit-tests
     Cardano.MPFS.Indexer.FollowerSpec
     Cardano.MPFS.Indexer.InverseSpec
     Cardano.MPFS.Indexer.PersistentSpec
+    Cardano.MPFS.Indexer.ArmageddonSpec
+    Cardano.MPFS.Indexer.UnifiedSpec
     Cardano.MPFS.Indexer.RollbackSpec
     Cardano.MPFS.Indexer.TxFixtures
     Cardano.MPFS.OnChainSpec
@@ -329,6 +338,7 @@ test-suite e2e-tests
   other-modules:
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
+    Cardano.MPFS.E2E.FollowerCrashSpec
     Cardano.MPFS.E2E.ChainSyncSpec
     Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
