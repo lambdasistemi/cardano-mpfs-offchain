@@ -101,7 +101,6 @@ import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
     )
-import CSMT.MTS (journalEmptyT)
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
     , sgNetworkMagic
@@ -131,11 +130,8 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualifie
     ( RunTransaction (..)
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( Phase (..)
-    , UpdateTrace (..)
+    ( UpdateTrace (..)
     , measureUpdateDurations
-    , mkSplitMode
-    , sampleRollbackPoints
     )
 import Cardano.UTxOCSMT.Application.Metrics
     ( Metrics
@@ -147,7 +143,6 @@ import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
     , context
     , prisms
-    , slotHash
     )
 import Cardano.UTxOCSMT.Bootstrap.Genesis
     ( genesisStabilityWindow
@@ -162,7 +157,10 @@ import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
 import Control.Lens (iso)
-import MTS.Rollbacks.Store qualified as Store
+import ChainFollower.Backend (Init (..))
+import ChainFollower.Rollbacks.Store qualified as CFStore
+import ChainFollower.Rollbacks.Types (RollbackPoint (..))
+import ChainFollower.Runner (Phase (..))
 
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
@@ -181,6 +179,9 @@ import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
+    )
+import Cardano.MPFS.Indexer.Backend
+    ( composedInit
     )
 import Cardano.MPFS.Indexer.CageFollower
     ( mkCageIntersector
@@ -407,66 +408,47 @@ withApplication cfg action = do
                             error "openCSMTOps: unexpected ChooseFull"
                     kvOnlyOps <- resolveDb dbState
 
-                    -- Detect starting phase for
-                    -- split mode
-                    jEmpty <-
-                        CSMT.transact utxoRt
-                            $ journalEmptyT JournalCol
-                    let startPhase =
-                            if not empty && jEmpty
-                                then Full
-                                else KVOnly
-                        isAtTip curSlot tipSlot =
+                    let isAtTip curSlot tipSlot =
                             tipSlot - curSlot
                                 < SlotNo
                                     stabilityWindow
-                    splitMode <-
-                        mkSplitMode
-                            kvOnlyOps
-                            isAtTip
-                            startPhase
 
-                    -- Sample rollback points for
-                    -- intersection and count for
-                    -- the follower's IORef
-                    availPts <-
-                        run
-                            $ mapColumns InUtxo
-                            $ iterating
-                                RollbackPoints
-                                sampleRollbackPoints
+                    -- Initialize chain-follower Backend
+                    let backendInit =
+                            composedInit
+                                ( cfgScriptHash
+                                    $ cageConfig cfg
+                                )
+                                kvOnlyOps
+
+                    -- Count rollback points and sample
+                    -- intersection candidates from
+                    -- composed rollback column
                     initialCount <-
                         run
-                            $ mapColumns InUtxo
-                            $ Store.countPoints
-                                RollbackPoints
-                    countRef <-
-                        newIORef initialCount
-
-                    -- In KVOnly, the CSMT bypass
-                    -- doesn't store rollback points,
-                    -- so availPts may be stale. Use
-                    -- the cage checkpoint instead —
-                    -- it's updated every block.
-                    cageCp <-
-                        CageSt.getCheckpoint
-                            (CageSt.checkpoints st)
+                            $ CFStore.countPoints
+                                InRollbacks
+                    history <-
+                        run
+                            $ CFStore.queryHistory
+                                InRollbacks
                     let startPts :: [Point]
-                        startPts = case startPhase of
-                            Full
-                                | not (null availPts) ->
-                                    availPts
-                            _
-                                | Just (s, bid) <-
-                                    cageCp ->
-                                    [ cageCheckpointToPoint
-                                        s
-                                        bid
-                                    ]
-                            _ ->
-                                [ Network.Point
-                                    Origin
+                        startPts
+                            | null history =
+                                [Network.Point Origin]
+                            | otherwise =
+                                [ cageCheckpointToPoint
+                                    s
+                                    (maybe (BlockId mempty) id (rpMeta rp))
+                                | (s, rp) <- history
                                 ]
+
+                    -- Initialize Phase from Backend.Init
+                    following <-
+                        resumeFollowing backendInit
+                    phaseRef <-
+                        newIORef
+                            (InFollowing initialCount following)
 
                     -- Metrics pipeline: accumulate
                     -- MetricsEvent into a Metrics
@@ -509,7 +491,7 @@ withApplication cfg action = do
                                         contramap
                                             adaptUpdate
                                             (appTracer cfg)
-                                measuredTracer <-
+                                _measuredTracer <-
                                     measureUpdateDurations
                                         $ metricsStealTracer
                                             metricsTracer
@@ -526,14 +508,8 @@ withApplication cfg action = do
                                             armageddonParams
                                     cageIntersector =
                                         mkCageIntersector
-                                            ( cfgScriptHash
-                                                $ cageConfig
-                                                    cfg
-                                            )
-                                            measuredTracer
-                                            splitMode
-                                            slotHash
-                                            countRef
+                                            (fromIntegral stabilityWindow)
+                                            phaseRef
                                             run
                                             csmtArmageddon
                                     -- Block tracer: log +

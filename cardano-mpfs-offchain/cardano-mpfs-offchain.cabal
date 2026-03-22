@@ -63,6 +63,7 @@ library
     , lens
     , memory
     , microlens
+    , mts
     , mts:csmt
     , mts:mpf
     , mts:mpf-test-lib
