@@ -418,27 +418,15 @@ withApplication cfg action = do
                                 | (s, rp) <- history
                                 ]
 
-                    -- Initialize Phase from Backend.Init
-                    -- Existing DB: resume following (journal
-                    -- replay via toFull)
-                    -- Fresh DB: start restoring (KVOnly ops)
-                    initialPhase <-
-                        if initialCount > 0
-                            then do
-                                following <-
-                                    resumeFollowing
-                                        backendInit
-                                pure
-                                    ( InFollowing
-                                        initialCount
-                                        following
-                                    )
-                            else do
-                                restoring <-
-                                    startRestoring
-                                        backendInit
-                                pure
-                                    (InRestoration 0 restoring)
+                    -- Initialize Phase: always InFollowing
+                    -- resumeFollowing calls toFull which
+                    -- replays the journal (empty on fresh DB)
+                    following <-
+                        resumeFollowing backendInit
+                    let initialPhase =
+                            InFollowing
+                                initialCount
+                                following
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
                     -- followerEnabled)
