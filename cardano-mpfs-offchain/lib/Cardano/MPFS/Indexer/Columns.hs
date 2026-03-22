@@ -191,7 +191,7 @@ data UnifiedColumns slot hash key value x where
             hash
             key
             value
-            (RollbackKV SlotNo ComposedInv (Maybe BlockId))
+            (RollbackKV SlotNo ComposedInv BlockId)
 
 instance GEq (UnifiedColumns slot hash key value) where
     geq (InUtxo a) (InUtxo b) = geq a b
