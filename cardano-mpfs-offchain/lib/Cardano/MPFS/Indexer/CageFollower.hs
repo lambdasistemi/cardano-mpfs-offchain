@@ -221,19 +221,30 @@ mkCageFollower
                             pure
                                 $ Progress
                                 $ go (InFollowing n' f)
-                        Store.RollbackImpossible -> do
-                            armageddon
-                            restoring <-
-                                startRestoring
-                                    backendInit
-                            pure
-                                $ Reset
-                                $ mkCageIntersector
-                                    securityParam
-                                    run
-                                    backendInit
-                                    armageddon
-                                    (InRestoration 0 restoring)
+                        Store.RollbackImpossible
+                            -- No rollback points yet: the
+                            -- rollback predates any block
+                            -- we processed — safe to ignore
+                            | n' == 0 ->
+                                pure
+                                    $ Progress
+                                    $ go (InFollowing 0 f)
+                            | otherwise -> do
+                                armageddon
+                                restoring <-
+                                    startRestoring
+                                        backendInit
+                                pure
+                                    $ Reset
+                                    $ mkCageIntersector
+                                        securityParam
+                                        run
+                                        backendInit
+                                        armageddon
+                                        ( InRestoration
+                                            0
+                                            restoring
+                                        )
                 InRestoration _ _ -> do
                     armageddon
                     restoring <-
