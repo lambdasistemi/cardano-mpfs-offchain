@@ -54,7 +54,7 @@ import Control.Concurrent.Async
     , cancel
     , link
     )
-import Control.Exception (throwIO)
+import Control.Exception (finally, throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer, contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
@@ -578,10 +578,10 @@ withApplication cfg action = do
                                 , readMetrics =
                                     pure Nothing
                                 }
-                    result <- action ctx
-                    mapM_ cancel mChainThread
-                    cancel nodeThread
-                    pure result
+                    action ctx
+                        `finally` do
+                            mapM_ cancel mChainThread
+                            cancel nodeThread
                 _ ->
                     error
                         "Expected at least 14 \
