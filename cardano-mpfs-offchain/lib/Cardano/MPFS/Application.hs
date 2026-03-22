@@ -8,7 +8,7 @@
 -- Top-level wiring module that assembles all
 -- service interfaces into a fully operational
 -- 'Context IO'. The bracket 'withApplication' opens
--- a shared RocksDB database with 12 column families
+-- a shared RocksDB database with 14 column families
 -- (5 UTxO + 7 cage\/trie), connects to a local
 -- Cardano node via two N2C connections, and builds
 -- the production 'Provider', 'Submitter', persistent
@@ -56,16 +56,11 @@ import Control.Concurrent.Async
     )
 import Control.Exception (throwIO)
 import Control.Monad (when)
-import Control.Tracer (Tracer (..), contramap, traceWith)
+import Control.Tracer (Tracer, contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
-import Data.IORef
-    ( newIORef
-    , readIORef
-    , writeIORef
-    )
-import Data.Maybe (isJust, isNothing)
-import Ouroboros.Consensus.Block (getHeader)
+import Data.IORef (newIORef)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
     )
@@ -129,16 +124,6 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
     )
-import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( UpdateTrace (..)
-    , measureUpdateDurations
-    )
-import Cardano.UTxOCSMT.Application.Metrics
-    ( Metrics
-    , MetricsEvent (..)
-    , SyncPhase (..)
-    , metricsFold
-    )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
     , context
@@ -156,24 +141,16 @@ import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
 import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
-import Control.Lens (iso)
 import ChainFollower.Backend (Init (..))
 import ChainFollower.Rollbacks.Store qualified as CFStore
 import ChainFollower.Rollbacks.Types (RollbackPoint (..))
 import ChainFollower.Runner (Phase (..))
+import Control.Lens (iso)
 
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
 
 import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
-
-import Data.Tracer.Fold (foldTracer)
-import Data.Tracer.ThreadSafe
-    ( newThreadSafeTracer
-    )
-import Data.Tracer.Timestamp
-    ( utcTimestampTracer
-    )
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -191,7 +168,6 @@ import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.Indexer.Persistent
     ( mkPersistentState
     )
-import Cardano.MPFS.Metrics (stealMetrics)
 import Cardano.MPFS.Mock.Skeleton
     ( mkSkeletonIndexer
     )
@@ -202,7 +178,6 @@ import Cardano.MPFS.State qualified as CageSt
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
 import Cardano.MPFS.Trace
     ( AppTrace (..)
-    , adaptUpdate
     )
 import Cardano.MPFS.Trie.Persistent
     ( mkPersistentTrieManager
@@ -258,14 +233,18 @@ dbConfig =
         , bloomFilter = False
         }
 
--- | All column families: 5 UTxO (cardano-utxo-csmt,
--- including journal) followed by 7 cage\/trie.
--- Order matters — cardano-utxo-csmt consumes the
--- first 5 via its internal 'Columns' GADT, and our
--- 'AllColumns' GADT consumes the remaining 7.
+-- | All column families: 6 UTxO (cardano-utxo-csmt,
+-- including journal and Runner rollbacks) followed
+-- by 7 cage\/trie plus 1 composed rollback
+-- (chain-follower). Order matters — cardano-utxo-csmt
+-- consumes the first 6 via its internal 'Columns'
+-- GADT, our 'AllColumns' GADT consumes the next 7,
+-- then 'InRollbacks' gets the 14th.
 allColumnFamilies :: [(String, Config)]
 allColumnFamilies =
-    utxoColumnFamilies <> cageColumnFamilies
+    utxoColumnFamilies
+        <> cageColumnFamilies
+        <> [("composed-rollbacks", dbConfig)]
   where
     utxoColumnFamilies =
         [ ("kv", dbConfig)
@@ -273,6 +252,7 @@ allColumnFamilies =
         , ("rollbacks", dbConfig)
         , ("config", dbConfig)
         , ("journal", dbConfig)
+        , ("utxo-rollbacks", dbConfig)
         ]
 
 -- | Cage-only column families (7). Used by tests
@@ -290,7 +270,7 @@ cageColumnFamilies =
 
 -- | Run an action with a fully wired 'Context IO'.
 --
--- Opens RocksDB with 12 column families, creates
+-- Opens RocksDB with 14 column families, creates
 -- the UTxO state machine and cage state, starts
 -- two N2C connections (ChainSync + LSQ\/LTxS),
 -- and tears down on exit.
@@ -336,8 +316,8 @@ withApplication cfg action = do
                     CSMT.RunTransaction
                         (run . mapColumns InUtxo)
 
-            -- Trie: columns 10–12 (skip 9)
-            case drop 9 (columnFamilies db) of
+            -- Trie: columns 11–13 (skip 10)
+            case drop 10 (columnFamilies db) of
                 (nodesCF : kvCF : metaCF : _) -> do
                     tm <-
                         mkPersistentTrieManager
@@ -408,11 +388,6 @@ withApplication cfg action = do
                             error "openCSMTOps: unexpected ChooseFull"
                     kvOnlyOps <- resolveDb dbState
 
-                    let isAtTip curSlot tipSlot =
-                            tipSlot - curSlot
-                                < SlotNo
-                                    stabilityWindow
-
                     -- Initialize chain-follower Backend
                     let backendInit =
                             composedInit
@@ -439,42 +414,19 @@ withApplication cfg action = do
                             | otherwise =
                                 [ cageCheckpointToPoint
                                     s
-                                    (maybe (BlockId mempty) id (rpMeta rp))
+                                    (fromMaybe (BlockId mempty) (rpMeta rp))
                                 | (s, rp) <- history
                                 ]
 
                     -- Initialize Phase from Backend.Init
+                    -- resumeFollowing handles both fresh
+                    -- (KVOnly fallback) and existing DBs
+                    -- (journal replay via toFull)
                     following <-
                         resumeFollowing backendInit
                     phaseRef <-
                         newIORef
                             (InFollowing initialCount following)
-
-                    -- Metrics pipeline: accumulate
-                    -- MetricsEvent into a Metrics
-                    -- snapshot readable by the HTTP
-                    -- /metrics endpoint.
-                    metricsRef <-
-                        newIORef
-                            (Nothing :: Maybe Metrics)
-                    metricsTracer <- do
-                        let sink =
-                                Tracer
-                                    $ \m ->
-                                        writeIORef
-                                            metricsRef
-                                            (Just m)
-                        ts <-
-                            utcTimestampTracer
-                                <$> foldTracer
-                                    metricsFold
-                                    sink
-                        newThreadSafeTracer ts
-
-                    -- Track chain tip for sync phase
-                    -- detection.
-                    lastTipRef <-
-                        newIORef (SlotNo 0)
 
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
@@ -482,20 +434,6 @@ withApplication cfg action = do
                     mChainThread <-
                         if followerEnabled cfg
                             then do
-                                -- Wrap the update tracer
-                                -- with duration measurement
-                                -- so CSMT/rollback/transact
-                                -- begin/done pairs become
-                                -- \*Measured events.
-                                let baseUpdateTracer =
-                                        contramap
-                                            adaptUpdate
-                                            (appTracer cfg)
-                                _measuredTracer <-
-                                    measureUpdateDurations
-                                        $ metricsStealTracer
-                                            metricsTracer
-                                            baseUpdateTracer
                                 let csmtArmageddon =
                                         setup
                                             ( contramap
@@ -512,63 +450,18 @@ withApplication cfg action = do
                                             phaseRef
                                             run
                                             csmtArmageddon
-                                    -- Block tracer: log +
-                                    -- emit BlockInfoEvent +
-                                    -- emit SyncPhaseEvent
-                                    blockTracer =
-                                        Tracer $ \block -> do
-                                            let Tracer logBlock =
-                                                    contramap
-                                                        ( TraceBlockReceived
-                                                            . Network.blockSlot
-                                                        )
-                                                        (appTracer cfg)
-                                                Tracer emitBlock =
-                                                    contramap
-                                                        ( BlockInfoEvent
-                                                            . getHeader
-                                                        )
-                                                        metricsTracer
-                                                Tracer emitSync =
-                                                    contramap
-                                                        SyncPhaseEvent
-                                                        metricsTracer
-                                            logBlock block
-                                            emitBlock block
-                                            tip <-
-                                                readIORef
-                                                    lastTipRef
-                                            let phase =
-                                                    if isAtTip
-                                                        ( Network.blockSlot
-                                                            block
-                                                        )
-                                                        tip
-                                                        then Synced
-                                                        else Syncing
-                                            emitSync phase
-                                    -- Tip tracer: log +
-                                    -- emit ChainTipEvent +
-                                    -- track latest tip
-                                    tipTracer =
-                                        Tracer $ \slot -> do
-                                            writeIORef
-                                                lastTipRef
-                                                slot
-                                            let Tracer logTip =
-                                                    contramap
-                                                        TraceChainTip
-                                                        (appTracer cfg)
-                                                Tracer emitTip =
-                                                    contramap
-                                                        ChainTipEvent
-                                                        metricsTracer
-                                            logTip slot
-                                            emitTip slot
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
-                                            blockTracer
-                                            tipTracer
+                                            ( contramap
+                                                ( TraceBlockReceived
+                                                    . Network.blockSlot
+                                                )
+                                                (appTracer cfg)
+                                            )
+                                            ( contramap
+                                                TraceChainTip
+                                                (appTracer cfg)
+                                            )
                                             ( contramap
                                                 ( \p ->
                                                     TraceSkipProgress
@@ -671,7 +564,7 @@ withApplication cfg action = do
                                 , utxoRoot = root
                                 , utxoProof = proof
                                 , readMetrics =
-                                    readIORef metricsRef
+                                    pure Nothing
                                 }
                     result <- action ctx
                     mapM_ cancel mChainThread
@@ -679,7 +572,7 @@ withApplication cfg action = do
                     pure result
                 _ ->
                     error
-                        "Expected at least 12 \
+                        "Expected at least 14 \
                         \column families"
 
 -- | Seed a fresh database with genesis UTxOs from
@@ -733,21 +626,6 @@ cageCheckpointToPoint (SlotNo s) (BlockId h) =
         $ Block
             (SlotNo s)
             (OneEraHash $ toShort h)
-
--- | Wrap a tracer to also forward extracted
--- 'MetricsEvent' values to a metrics tracer.
--- All events pass through to the downstream tracer
--- unchanged; additionally, any events matching
--- 'stealMetrics' are forwarded to the metrics
--- pipeline.
-metricsStealTracer
-    :: Tracer IO MetricsEvent
-    -> Tracer IO (UpdateTrace Point hash)
-    -> Tracer IO (UpdateTrace Point hash)
-metricsStealTracer metrics downstream =
-    Tracer $ \ev -> do
-        traceWith downstream ev
-        mapM_ (traceWith metrics) (stealMetrics ev)
 
 -- | CBOR-encode a ledger type using protocol
 -- version 11.

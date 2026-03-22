@@ -1,6 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -207,7 +205,12 @@ mkCageFollower
                                     phaseRef
                                     run
                                     armageddon
-                InRestoration _ _ ->
-                    error
-                        "mkCageFollower: rollback in\
-                        \ restoration mode"
+                InRestoration _ _ -> do
+                    armageddon
+                    pure
+                        $ Reset
+                        $ mkCageIntersector
+                            securityParam
+                            phaseRef
+                            run
+                            armageddon
