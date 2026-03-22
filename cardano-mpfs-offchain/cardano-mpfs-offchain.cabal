@@ -97,6 +97,7 @@ library
     Cardano.MPFS.HTTP.Swagger
     Cardano.MPFS.HTTP.Types
     Cardano.MPFS.Indexer
+    Cardano.MPFS.Indexer.Backend
     Cardano.MPFS.Indexer.CageFollower
     Cardano.MPFS.Indexer.Codecs
     Cardano.MPFS.Indexer.Columns
