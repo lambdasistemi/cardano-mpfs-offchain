@@ -43,7 +43,7 @@ import Cardano.Ledger.Binary
     , serialize
     )
 
-import CSMT.MTS (Ops, toFull)
+import CSMT.MTS (Ops, kvCommon, toFull)
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( Fetched (..)
     )
@@ -52,10 +52,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTOps (..)
-    )
-import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( fullOpsToCSMTOps
-    , kvCommon
+    , fullOpsToCSMTOps
     , kvCommonToCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Database.Interface

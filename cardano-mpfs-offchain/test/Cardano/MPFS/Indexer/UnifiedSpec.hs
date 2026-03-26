@@ -41,6 +41,7 @@ import CSMT.Hashes
     , hashHashing
     , isoHash
     )
+import CSMT.MTS (kvCommon)
 import Cardano.Crypto.Hash
     ( Blake2b_224
     , Blake2b_256
@@ -58,12 +59,9 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTOps (..)
     , DbState (..)
     , ReadyState (..)
+    , kvCommonToCSMTOps
     , mkCSMTOps
     , openCSMTOps
-    )
-import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( kvCommon
-    , kvCommonToCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Database.Interface
     ( TipOf

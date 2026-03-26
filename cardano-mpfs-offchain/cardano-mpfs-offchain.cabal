@@ -106,7 +106,6 @@ library
     Cardano.MPFS.Indexer.Follower
     Cardano.MPFS.Indexer.Persistent
     Cardano.MPFS.Indexer.Rollback
-    Cardano.MPFS.Metrics
     Cardano.MPFS.Mock.Context
     Cardano.MPFS.Mock.Indexer
     Cardano.MPFS.Mock.Provider
