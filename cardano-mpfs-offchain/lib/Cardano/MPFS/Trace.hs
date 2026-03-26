@@ -17,9 +17,6 @@ module Cardano.MPFS.Trace
 
       -- * Formatters
     , jsonLinesTracer
-
-      -- * Sub-tracer adapters
-    , adaptUpdate
     ) where
 
 import Control.Tracer (Tracer (..))
@@ -28,13 +25,10 @@ import Data.Aeson
     , object
     , (.=)
     )
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.Time (getCurrentTime)
-import Ouroboros.Network.Block
-    ( SlotNo
-    , pointSlot
-    )
-import Ouroboros.Network.Point (WithOrigin (..))
+import Ouroboros.Network.Block (SlotNo)
 import System.IO (hFlush, stderr)
 
 import Cardano.UTxOCSMT.Application.Database.Implementation.Armageddon
@@ -43,14 +37,6 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Armageddon
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( ReplayEvent (..)
     )
-import Cardano.UTxOCSMT.Application.Database.Implementation.Update
-    ( UpdateTrace (..)
-    )
-import Cardano.UTxOCSMT.Ouroboros.Types
-    ( Point
-    )
-
-import Data.Aeson qualified as Aeson
 
 -- | Unified application trace type.
 data AppTrace
@@ -129,25 +115,3 @@ jsonLinesTracer = Tracer $ \ev -> do
     BSL.hPut stderr
         $ Aeson.encode entry <> "\n"
     hFlush stderr
-
--- | Adapt 'UpdateTrace' to 'AppTrace'.
--- Extracts the interesting fields from the
--- polymorphic 'UpdateTrace' sum.
-adaptUpdate
-    :: UpdateTrace Point hash -> AppTrace
-adaptUpdate (UpdateArmageddon t) =
-    TraceArmageddon t
-adaptUpdate (UpdateForwardTip pt ins del _) =
-    TraceBlock (ptSlot pt) ins del
-adaptUpdate (UpdateNewState pts) =
-    case pts of
-        (p : _) -> TraceChainTip (ptSlot p)
-        [] -> TraceChainTip 0
-adaptUpdate _ = TraceChainTip 0
-
--- | Extract 'SlotNo' from a 'Point', defaulting
--- to 0 for 'Origin'.
-ptSlot :: Point -> SlotNo
-ptSlot p = case pointSlot p of
-    Origin -> 0
-    At s -> s
