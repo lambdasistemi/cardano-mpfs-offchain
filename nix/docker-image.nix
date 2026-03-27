@@ -14,6 +14,7 @@ in pkgs.dockerTools.buildImage {
     paths = [
       project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-serve
       blueprint-dir
+      pkgs.wget
     ];
   };
 }
