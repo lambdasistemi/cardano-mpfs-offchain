@@ -142,11 +142,6 @@ allCodecs =
                 { keyCodec = unitPrism
                 , valueCodec = checkpointPrism
                 }
-        , CageRollbacks
-            :=> Codecs
-                { keyCodec = slotNoPrism
-                , valueCodec = rollbackPointPrism
-                }
         , TrieNodes
             :=> mpfCodecs isoMPFHash
         , TrieKV

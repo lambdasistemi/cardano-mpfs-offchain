@@ -11,21 +11,22 @@
 -- indexer's RocksDB-backed persistent state using
 -- @rocksdb-kv-transactions@. Two GADT selectors:
 --
---   * 'AllColumns' — the seven cage\/trie column
+--   * 'AllColumns' — the six cage\/trie column
 --     families (used inside @'mapColumns' 'InCage'@):
 --
 --       - Cage state: 'CageTokens', 'CageRequests',
 --         'CageCfg'
---       - Rollback storage: 'CageRollbacks'
 --       - Trie storage: 'TrieNodes', 'TrieKV'
 --       - Trie registry: 'TrieMeta'
 --
---   * 'UnifiedColumns' — combines the five UTxO
+--   * 'UnifiedColumns' — combines the six UTxO
 --     columns ('Columns' from @cardano-utxo-csmt@,
---     including the journal column) with the seven
---     cage\/trie columns via 'InUtxo' and 'InCage'.
+--     including the journal and Runner rollback
+--     columns) with the six cage\/trie columns via
+--     'InUtxo' and 'InCage', plus a composed
+--     rollback column 'InRollbacks'.
 --     A single 'Transaction' over 'UnifiedColumns'
---     addresses all 12 column families, enforcing
+--     addresses all 13 column families, enforcing
 --     the one-block-one-commit invariant.
 --
 -- Serialization codecs for these columns live in
@@ -59,8 +60,6 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 import MPF.Hashes (MPFHash)
 import MPF.Interface (HexIndirect, HexKey)
 
-import MTS.Rollbacks.Types (RollbackPoint)
-
 import Cardano.MPFS.Core.Types
     ( BlockId
     , Request
@@ -70,7 +69,6 @@ import Cardano.MPFS.Core.Types
     , TxIn
     )
 import Cardano.MPFS.Indexer.ComposedInv (ComposedInv)
-import Cardano.MPFS.Indexer.Event (CageInverseOp)
 
 import ChainFollower.Rollbacks.Column (RollbackKV)
 
@@ -96,8 +94,8 @@ data CageCheckpoint = CageCheckpoint
     deriving stock (Eq, Show)
 
 -- | Column family selector for indexer persistent
--- state. Covers cage state, rollback storage, and
--- per-token trie storage.
+-- state. Covers cage state and per-token trie
+-- storage.
 data AllColumns x where
     -- | Token state: maps token identifiers to
     -- their on-chain state.
@@ -111,17 +109,6 @@ data AllColumns x where
     -- processed block position.
     CageCfg
         :: AllColumns (KV () CageCheckpoint)
-    -- | Rollback storage: maps slot numbers to
-    -- inverse 'RollbackPoint's for rollback.
-    CageRollbacks
-        :: AllColumns
-            ( KV
-                SlotNo
-                ( RollbackPoint
-                    CageInverseOp
-                    BlockId
-                )
-            )
     -- | Trie nodes: MPF trie structure. Keys are
     -- 'HexKey' paths, values are 'HexIndirect'
     -- nodes containing hash pointers.
@@ -144,7 +131,6 @@ instance GEq AllColumns where
     geq CageTokens CageTokens = Just Refl
     geq CageRequests CageRequests = Just Refl
     geq CageCfg CageCfg = Just Refl
-    geq CageRollbacks CageRollbacks = Just Refl
     geq TrieNodes TrieNodes = Just Refl
     geq TrieKV TrieKV = Just Refl
     geq TrieMeta TrieMeta = Just Refl
@@ -160,9 +146,6 @@ instance GCompare AllColumns where
     gcompare CageCfg CageCfg = GEQ
     gcompare CageCfg _ = GLT
     gcompare _ CageCfg = GGT
-    gcompare CageRollbacks CageRollbacks = GEQ
-    gcompare CageRollbacks _ = GLT
-    gcompare _ CageRollbacks = GGT
     gcompare TrieNodes TrieNodes = GEQ
     gcompare TrieNodes _ = GLT
     gcompare _ TrieNodes = GGT
@@ -174,13 +157,14 @@ instance GCompare AllColumns where
 -- | Unified column selector covering both UTxO
 -- (cardano-utxo-csmt) and cage\/trie columns.
 -- Enables a single RocksDB transaction runner for
--- all 12 column families via 'mapColumns'.
+-- all 13 column families via 'mapColumns'.
 data UnifiedColumns slot hash key value x where
-    -- | UTxO columns (first 5, including journal)
+    -- | UTxO columns (first 6, including journal
+    -- and Runner rollback)
     InUtxo
         :: Columns slot hash key value x
         -> UnifiedColumns slot hash key value x
-    -- | Cage\/trie columns (last 7)
+    -- | Cage\/trie columns (next 6)
     InCage
         :: AllColumns x
         -> UnifiedColumns slot hash key value x

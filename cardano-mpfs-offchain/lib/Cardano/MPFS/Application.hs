@@ -8,8 +8,8 @@
 -- Top-level wiring module that assembles all
 -- service interfaces into a fully operational
 -- 'Context IO'. The bracket 'withApplication' opens
--- a shared RocksDB database with 14 column families
--- (5 UTxO + 7 cage\/trie), connects to a local
+-- a shared RocksDB database with 13 column families
+-- (6 UTxO + 6 cage\/trie + 1 composed rollback), connects to a local
 -- Cardano node via two N2C connections, and builds
 -- the production 'Provider', 'Submitter', persistent
 -- 'State', persistent 'TrieManager', real
@@ -234,11 +234,11 @@ dbConfig =
 
 -- | All column families: 6 UTxO (cardano-utxo-csmt,
 -- including journal and Runner rollbacks) followed
--- by 7 cage\/trie plus 1 composed rollback
+-- by 6 cage\/trie plus 1 composed rollback
 -- (chain-follower). Order matters — cardano-utxo-csmt
 -- consumes the first 6 via its internal 'Columns'
--- GADT, our 'AllColumns' GADT consumes the next 7,
--- then 'InRollbacks' gets the 14th.
+-- GADT, our 'AllColumns' GADT consumes the next 6,
+-- then 'InRollbacks' gets the 13th.
 allColumnFamilies :: [(String, Config)]
 allColumnFamilies =
     utxoColumnFamilies
@@ -261,7 +261,6 @@ cageColumnFamilies =
     [ ("tokens", dbConfig)
     , ("requests", dbConfig)
     , ("cage-cfg", dbConfig)
-    , ("cage-rollbacks", dbConfig)
     , ("trie-nodes", dbConfig)
     , ("trie-kv", dbConfig)
     , ("trie-meta", dbConfig)
@@ -269,7 +268,7 @@ cageColumnFamilies =
 
 -- | Run an action with a fully wired 'Context IO'.
 --
--- Opens RocksDB with 14 column families, creates
+-- Opens RocksDB with 13 column families, creates
 -- the UTxO state machine and cage state, starts
 -- two N2C connections (ChainSync + LSQ\/LTxS),
 -- and tears down on exit.
@@ -325,9 +324,9 @@ withApplication cfg action = do
                     CSMT.RunTransaction
                         (run . mapColumns InUtxo)
 
-            -- Trie: CFs at indices 10–12 (6 UTxO + 4 cage
+            -- Trie: CFs at indices 9–11 (6 UTxO + 3 cage
             -- before trie-nodes, trie-kv, trie-meta)
-            case drop 10 (columnFamilies db) of
+            case drop 9 (columnFamilies db) of
                 (nodesCF : kvCF : metaCF : _) -> do
                     tm <-
                         mkPersistentTrieManager
@@ -582,7 +581,7 @@ withApplication cfg action = do
                             cancel nodeThread
                 _ ->
                     error
-                        "Expected at least 14 \
+                        "Expected at least 13 \
                         \column families"
 
 -- | Seed a fresh database with genesis UTxOs from
