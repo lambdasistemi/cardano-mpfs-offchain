@@ -32,8 +32,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-utxo-csmt
-  tag: c5b34c239c9cb0243fc9d7ce05c47f587276bcf6
-  --sha256: 1fqdyi7xcc789qgbz6r9hlv1blp8i4x1753ajjys427i3x7q61hd
+  tag: b60b6d299cb680be3258982f43a4114ff17b9edc
+  --sha256: 1n46a55gmzqf1006bx781z7v3ajv3246nkvdnjqm8lxgbd9n9p00
 
 source-repository-package
   type: git
