@@ -990,7 +990,7 @@ crossLayerReadAfterWrite =
 
                     -- Phase 2: read via IO layer
                     -- (like HTTP server)
-                    case drop 4 cfs of
+                    case drop 3 cfs of
                         ( nodesCF
                                 : kvCF
                                 : metaCF
