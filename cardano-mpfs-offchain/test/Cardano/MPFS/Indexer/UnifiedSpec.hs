@@ -250,8 +250,8 @@ withUnifiedDBAndTrie action =
                     RunTransaction{runTransaction} <-
                         newRunTransaction database
                     -- Extract trie CFs at indices 10-12
-                    -- (same as drop 10 in withApplication)
-                    case drop 10 (columnFamilies db) of
+                    -- (same as drop 9 in withApplication)
+                    case drop 9 (columnFamilies db) of
                         (nodesCF : kvCF : metaCF : _) -> do
                             tm <-
                                 mkPersistentTrieManager
@@ -337,7 +337,7 @@ withUnifiedDBFull action =
                     let csmtOps =
                             kvCommonToCSMTOps (kvCommon kvOnlyOps)
                     -- Persistent trie manager
-                    case drop 10 (columnFamilies db) of
+                    case drop 9 (columnFamilies db) of
                         (nodesCF : kvCF : metaCF : _) -> do
                             tm <-
                                 mkPersistentTrieManager
