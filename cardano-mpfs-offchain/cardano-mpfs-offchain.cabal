@@ -80,6 +80,7 @@ library
     , servant-server                           >=0.20 && <0.21
     , servant-swagger
     , servant-swagger-ui
+    , stm
     , swagger2
     , text                                     >=2.0  && <2.2
     , time

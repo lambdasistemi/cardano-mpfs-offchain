@@ -113,6 +113,8 @@ mkCageIntersector
     -- ^ Backend initializer
     -> IO ()
     -- ^ Armageddon action (wipe + reset)
+    -> IO ()
+    -- ^ Post-commit callback (e.g. TVar notification)
     -> AppPhase hash cf op
     -- ^ Current phase
     -> Intersector Point SlotNo Fetched
@@ -121,6 +123,7 @@ mkCageIntersector
     run
     backendInit
     armageddon
+    onCommit
     phase =
         Intersector
             { intersectFound = \_point ->
@@ -130,6 +133,7 @@ mkCageIntersector
                         run
                         backendInit
                         armageddon
+                        onCommit
                         phase
             , intersectNotFound =
                 pure
@@ -138,6 +142,7 @@ mkCageIntersector
                         run
                         backendInit
                         armageddon
+                        onCommit
                         phase
                     , [Network.Point Origin]
                     )
@@ -176,6 +181,8 @@ mkCageFollower
     -- ^ Backend initializer
     -> IO ()
     -- ^ Armageddon action (wipe + reset)
+    -> IO ()
+    -- ^ Post-commit callback (e.g. TVar notification)
     -> AppPhase hash cf op
     -- ^ Current phase
     -> Follower Point SlotNo Fetched
@@ -183,7 +190,8 @@ mkCageFollower
     securityParam
     run
     backendInit
-    armageddon =
+    armageddon
+    onCommit =
         go
       where
         go phase =
@@ -203,6 +211,7 @@ mkCageFollower
                         slot
                         fetched
                         phase
+            onCommit
             pure $ go phase'
 
         rollBwd phase point = do
@@ -241,6 +250,7 @@ mkCageFollower
                                         run
                                         backendInit
                                         armageddon
+                                        onCommit
                                         ( InRestoration
                                             0
                                             restoring
@@ -256,4 +266,5 @@ mkCageFollower
                             run
                             backendInit
                             armageddon
+                            onCommit
                             (InRestoration 0 restoring)

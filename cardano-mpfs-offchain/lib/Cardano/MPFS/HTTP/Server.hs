@@ -15,9 +15,8 @@ module Cardano.MPFS.HTTP.Server
       mkApp
     ) where
 
-import Control.Concurrent (threadDelay)
+import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
-import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Word (Word64)
@@ -297,15 +296,12 @@ requireTxIn txIdHex txIx = do
 -- ---------------------------------------------------------
 
 -- | Default timeout for tx confirmation (seconds).
-defaultTimeout :: Word64
+defaultTimeout :: Int
 defaultTimeout = 30
-
--- | Poll interval (microseconds).
-pollInterval :: Int
-pollInterval = 500_000
 
 -- | @GET \/tx\/:txId?timeout=N@ — block until
 -- TxIn(txId, 0) appears in the indexed UTxO set.
+-- Uses STM-based push notification instead of polling.
 txAwaitHandler
     :: Context IO
     -> Hex
@@ -315,15 +311,12 @@ txAwaitHandler ctx (Hex txIdBytes) mTimeout = do
     txId <- parseTxIdRaw txIdBytes
     let txIn = mkTxInPartial txId 0
         timeoutSec =
-            fromMaybe defaultTimeout mTimeout
-        maxIters =
-            fromIntegral timeoutSec
-                * 1_000_000
-                `div` pollInterval
-    found <- liftIO $ poll maxIters txIn
-    if found
-        then pure NoContent
-        else
+            fmap fromIntegral mTimeout
+                <|> Just defaultTimeout
+    mval <- liftIO $ awaitUtxo ctx txIn timeoutSec
+    case mval of
+        Just _ -> pure NoContent
+        Nothing ->
             throwError
                 ServerError
                     { errHTTPCode = 408
@@ -332,15 +325,6 @@ txAwaitHandler ctx (Hex txIdBytes) mTimeout = do
                         "Transaction not confirmed"
                     , errHeaders = []
                     }
-  where
-    poll 0 _ = pure False
-    poll n txIn = do
-        exists <- utxoExists ctx txIn
-        if exists
-            then pure True
-            else do
-                threadDelay pollInterval
-                poll (n - 1) txIn
 
 -- | Extract raw 32-byte hash from a 'TxId'.
 txIdToBytes :: TxId -> ByteString
