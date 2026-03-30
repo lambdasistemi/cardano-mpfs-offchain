@@ -46,6 +46,9 @@ data Context m = Context
     , resolveUtxo
         :: TxIn -> m (Maybe ByteString)
     -- ^ Resolve a TxIn to its CBOR-encoded TxOut
+    , awaitUtxo
+        :: TxIn -> Maybe Int -> m (Maybe ByteString)
+    -- ^ Block until a UTxO appears or timeout expires
     , utxoRoot :: m (Maybe ByteString)
     -- ^ Current CSMT Merkle root hash (raw bytes)
     , utxoProof

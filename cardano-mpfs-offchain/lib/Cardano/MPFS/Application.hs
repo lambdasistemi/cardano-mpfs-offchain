@@ -50,10 +50,16 @@ module Cardano.MPFS.Application
     ) where
 
 import Cardano.Chain.Slotting (EpochSlots)
+import Cardano.UTxOCSMT.Application.Run.Query (queryAwaitValue)
 import Control.Concurrent.Async
     ( async
     , cancel
     , link
+    )
+import Control.Concurrent.STM
+    ( atomically
+    , modifyTVar'
+    , newTVarIO
     )
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
@@ -440,6 +446,9 @@ withApplication cfg action = do
                             InFollowing
                                 initialCount
                                 following
+                    -- Commit notification TVar for awaitUtxo
+                    commitNotify' <-
+                        newTVarIO (0 :: Int)
                     -- Connection 1: ChainSync
                     -- (optional, controlled by
                     -- followerEnabled)
@@ -456,12 +465,18 @@ withApplication cfg action = do
                                             )
                                             utxoRt
                                             armageddonParams
+                                let onCommit =
+                                        atomically
+                                            $ modifyTVar'
+                                                commitNotify'
+                                                (+ 1)
                                     cageIntersector =
                                         mkCageIntersector
                                             (fromIntegral stabilityWindow)
                                             run
                                             backendInit
                                             csmtArmageddon
+                                            onCommit
                                             initialPhase
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
@@ -574,6 +589,10 @@ withApplication cfg action = do
                                 , indexer = idx
                                 , utxoExists = exists
                                 , resolveUtxo = resolve
+                                , awaitUtxo =
+                                    queryAwaitValue
+                                        commitNotify'
+                                        resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
                                 , readMetrics =

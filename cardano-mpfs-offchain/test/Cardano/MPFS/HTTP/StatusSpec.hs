@@ -65,6 +65,7 @@ mkTestContext = do
             , txBuilder = mkMockTxBuilder
             , utxoExists = \_ -> pure False
             , resolveUtxo = \_ -> pure Nothing
+            , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
             , readMetrics = pure Nothing
