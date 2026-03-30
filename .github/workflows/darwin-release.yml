@@ -1,0 +1,86 @@
+name: Darwin Release
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: darwin-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    name: Build mpfs-serve for aarch64-darwin
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            extra-substituters = https://cache.iog.io https://paolino.cachix.org
+            extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ= paolino.cachix.org-1:ecmgO3CXdgSWA2cHlm4srknd/cLFMLmK3i3NrzeDFaE=
+
+      - name: Build mpfs-serve
+        run: nix build .#mpfs-serve -L --print-out-paths > /tmp/nix-out
+
+      - name: Bundle
+        run: |
+          mkdir -p /tmp/bundle/bin /tmp/bundle/lib
+          cp "$(cat /tmp/nix-out)/bin/mpfs-serve" /tmp/bundle/bin/
+
+          otool -L /tmp/bundle/bin/mpfs-serve \
+            | grep -v /usr/lib | grep -v /System | grep -v ":" \
+            | awk '{print $1}' | while read lib; do
+              libname=$(basename "$lib")
+              cp "$lib" /tmp/bundle/lib/
+              install_name_tool -change "$lib" "@executable_path/../lib/$libname" /tmp/bundle/bin/mpfs-serve
+            done
+
+          echo "==> Verify:"
+          otool -L /tmp/bundle/bin/mpfs-serve
+          /tmp/bundle/bin/mpfs-serve --help || true
+
+      - name: Create tarball
+        run: |
+          VERSION=$(git rev-parse --short HEAD)
+          tar czf /tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz -C /tmp/bundle .
+          shasum -a 256 /tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz
+          echo "$VERSION" > /tmp/version.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(cat /tmp/version.txt)
+          TAG="darwin-${VERSION}"
+          TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          gh release delete "$TAG" -y 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "mpfs-serve $TAG (aarch64-darwin)" \
+            --notes "aarch64-darwin build from $(git rev-parse HEAD)" \
+            "$TARBALL"
+
+      - name: Update homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          VERSION=$(cat /tmp/version.txt)
+          TAG="darwin-${VERSION}"
+          TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          SHA=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+          URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+
+          printf 'class MpfsServe < Formula\n  desc "Cardano Merkle Patricia Forestry offchain service"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-serve"\n    (libexec/"lib").install Dir["lib/*"]\n  end\nend\n' "$URL" "$SHA" "$VERSION" > /tmp/mpfs-serve.rb
+
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/lambdasistemi/homebrew-tap.git /tmp/tap
+          mkdir -p /tmp/tap/Formula
+          cp /tmp/mpfs-serve.rb /tmp/tap/Formula/mpfs-serve.rb
+          cd /tmp/tap
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add Formula/mpfs-serve.rb
+          git diff --cached --quiet || git commit -m "update mpfs-serve to ${TAG}"
+          git push
