@@ -14,7 +14,7 @@ jobs:
     name: Build Gate
     runs-on: nixos
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cachix/cachix-action@v15
         with:
           name: paolino
@@ -32,7 +32,7 @@ jobs:
     needs: build-gate
     runs-on: nixos
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: cachix/cachix-action@v15
         with:
@@ -59,7 +59,7 @@ jobs:
         run: nix build .#docker-image --quiet
 
       - name: Upload docker image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docker-image
           path: result
@@ -68,7 +68,7 @@ jobs:
     needs: build-gate
     runs-on: nixos
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: cachix/cachix-action@v15
         with:
