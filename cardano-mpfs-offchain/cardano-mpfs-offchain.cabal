@@ -337,6 +337,7 @@ test-suite e2e-tests
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-node-clients:devnet
+    , cardano-utxo-csmt:library
     , containers
     , contra-tracer
     , directory
@@ -345,6 +346,7 @@ test-suite e2e-tests
     , http-types
     , microlens
     , process
+    , stm
     , temporary
     , vector
     , wai
@@ -354,6 +356,7 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
     Cardano.MPFS.E2E.ChainSyncSpec
+    Cardano.MPFS.E2E.CrashRecoverySpec
     Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
     Cardano.MPFS.E2E.ProviderSpec

@@ -5,6 +5,7 @@ import Test.Hspec (hspec)
 import Cardano.MPFS.E2E.CageFlowSpec qualified as CageFlowSpec
 import Cardano.MPFS.E2E.CageSpec qualified as CageSpec
 import Cardano.MPFS.E2E.ChainSyncSpec qualified as ChainSyncSpec
+import Cardano.MPFS.E2E.CrashRecoverySpec qualified as CrashRecoverySpec
 import Cardano.MPFS.E2E.HTTPLifecycleSpec qualified as HTTPLifecycleSpec
 import Cardano.MPFS.E2E.IndexerSpec qualified as IndexerSpec
 import Cardano.MPFS.E2E.ProviderSpec qualified as ProviderSpec
@@ -19,3 +20,4 @@ main = hspec $ do
     IndexerSpec.spec
     ChainSyncSpec.spec
     HTTPLifecycleSpec.spec
+    CrashRecoverySpec.spec
