@@ -159,8 +159,8 @@ resolveUtxoT txIn = do
 -- UTxO CSMT and cage state.
 --
 -- Takes the KVOnly 'Ops' (same as @createBackend@
--- in cardano-utxo-csmt). 'startRestoring' uses
--- KVOnly ops; 'toFollowing' calls 'toFull' for
+-- in cardano-utxo-csmt). 'start' returns a Restoring
+-- with KVOnly ops; 'toFollowing' calls 'toFull' for
 -- journal replay and switches to Full ops.
 composedInit
     :: ScriptHash
@@ -186,18 +186,7 @@ composedInit
         BlockId
 composedInit scriptHash ops =
     Init
-        { startRestoring =
-            pure $ mkRestoring kvOps
-        , resumeFollowing = do
-            mFull <- liftIO (toFull ops)
-            case mFull of
-                Just fullOps ->
-                    pure
-                        $ mkFollowing
-                            (fullOpsToCSMTOps fullOps)
-                Nothing ->
-                    fail
-                        "composedInit: toFull failed"
+        { start = pure $ mkRestoring kvOps
         }
   where
     kvOps = kvCommonToCSMTOps (kvCommon ops)

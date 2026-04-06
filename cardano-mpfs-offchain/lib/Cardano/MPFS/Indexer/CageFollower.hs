@@ -43,6 +43,7 @@ import ChainFollower.Runner
     , processBlock
     , rollbackTo
     )
+import Control.Tracer (nullTracer)
 
 import Database.KV.Transaction
     ( Transaction
@@ -200,17 +201,23 @@ mkCageFollower
                 , rollBackward = rollBwd phase
                 }
 
-        rollFwd phase fetched _tipSlot = do
+        rollFwd phase fetched tipSlot = do
             let slot =
                     pointToSlot (fetchedPoint fetched)
+                withinWindow =
+                    unSlotNo slot
+                        + fromIntegral securityParam
+                        >= unSlotNo tipSlot
             phase' <-
-                run
-                    $ processBlock
-                        InRollbacks
-                        securityParam
-                        slot
-                        fetched
-                        phase
+                processBlock
+                    nullTracer
+                    withinWindow
+                    run
+                    InRollbacks
+                    securityParam
+                    slot
+                    fetched
+                    phase
             onCommit
             pure $ go phase'
 
@@ -241,8 +248,7 @@ mkCageFollower
                             | otherwise -> do
                                 armageddon
                                 restoring <-
-                                    startRestoring
-                                        backendInit
+                                    start backendInit
                                 pure
                                     $ Reset
                                     $ mkCageIntersector
@@ -252,13 +258,12 @@ mkCageFollower
                                         armageddon
                                         onCommit
                                         ( InRestoration
-                                            0
                                             restoring
                                         )
-                InRestoration _ _ -> do
+                InRestoration _ -> do
                     armageddon
                     restoring <-
-                        startRestoring backendInit
+                        start backendInit
                     pure
                         $ Reset
                         $ mkCageIntersector
@@ -267,4 +272,4 @@ mkCageFollower
                             backendInit
                             armageddon
                             onCommit
-                            (InRestoration 0 restoring)
+                            (InRestoration restoring)

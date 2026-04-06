@@ -32,20 +32,20 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-utxo-csmt
-  tag: cc8164d53a7aa7d20b9b22d2fdeb4f27da51082f
-  --sha256: 0rmzgx0gcr0sv808i0shawhrqgc2qn9b3686z08f8hq071jiwmzb
+  tag: 494f1778dcdff1da257a09d751ce9a65af8639d8
+  --sha256: 1n7qlxsqjr9g0ml5gzrxny294xwmspzm8c6173452hx1x2ggdb9f
 
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/chain-follower
-  tag: b6997a7f91139c6a904867d2c44500f7e0d59d5b
-  --sha256: 0ryfbhi0c79q7mzmm9sgysy02pb41gnj5h4nrdlgbkqfjl0c4mvl
+  tag: d592a5015f8d7edb2d6022936a67a054dfe5329f
+  --sha256: 1pm2yhsm2zg5nv01aixv6ss21f2ka8ysq6dv2q4mpf9smz0m8g78
 
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/haskell-mts
-  tag: 75f358157724208c257b7c9909bdbe89eb5ff337
-  --sha256: 1d715frc74jpqqzm9y4ly5hcbyh4k9ck4k5wq68gd780dn9hknqm
+  tag: a37b352041a1f90c00940ede0336dcc8d85140ee
+  --sha256: 0lfg6clc7nx8wnlsqz9haqmgw9a8kcm0cg098q44azs03hq3aqym
 
 source-repository-package
   type: git
@@ -68,8 +68,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-node-clients
-  tag: cce3f82d6917d55d5274783292bfb66c7d13fcf4
-  --sha256: 07jgj0xg42d6j99jffsvf1zb2aw0jr2zybqz6h1hqy7xdwvx2ayq
+  tag: f75a3c822d8993a0e792d9ecf40279bb734a9aea
+  --sha256: 0zcj6qvg53crgbnqbgkzacs25sgg3hgqfnzjwyib4b4f69gwz2h7
 
 -- Enable iohk flag for contra-tracer-contrib to use CHaP's simple API
 constraints: contra-tracer-contrib +iohk
