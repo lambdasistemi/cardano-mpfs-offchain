@@ -22,6 +22,7 @@
 module Cardano.MPFS.Indexer.ArmageddonSpec (spec) where
 
 import Control.Monad (forM_)
+import Control.Tracer (nullTracer)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
@@ -294,83 +295,95 @@ spec :: Spec
 spec = describe "Cage Runner E2E" $ do
     it "processes blocks in restoration" $ do
         withCageRunnerDB $ \transact -> do
-            let phase0 = InRestoration 0 mkCageRestoring
+            let phase0 = InRestoration mkCageRestoring
             phase1 <-
-                transact
-                    $ processBlock
-                        TestRollbacks
-                        maxBound
-                        1
-                        [CageBoot tokA tokStateA]
-                        phase0
+                processBlock
+                    nullTracer
+                    False
+                    transact
+                    TestRollbacks
+                    maxBound
+                    1
+                    [CageBoot tokA tokStateA]
+                    phase0
             case phase1 of
-                InRestoration _ _ -> pure ()
+                InRestoration _ -> pure ()
                 InFollowing _ _ ->
                     fail "expected Restoration"
 
-    it "restoration stores no rollback points" $ do
+    it "restoration stores a checkpoint (no inverses)" $ do
         withCageRunnerDB $ \transact -> do
-            let phase0 = InRestoration 0 mkCageRestoring
+            let phase0 = InRestoration mkCageRestoring
             _ <-
-                transact
-                    $ processBlock
-                        TestRollbacks
-                        maxBound
-                        1
-                        [CageBoot tokA tokStateA]
-                        phase0
+                processBlock
+                    nullTracer
+                    False
+                    transact
+                    TestRollbacks
+                    maxBound
+                    1
+                    [CageBoot tokA tokStateA]
+                    phase0
+            -- Runner stores one sentinel checkpoint per
+            -- restoration block (empty inverses, no meta)
             count <-
                 transact
                     $ Store.countPoints TestRollbacks
-            count `shouldBe` 0
+            count `shouldBe` 1
 
     it "restoration then transition to following" $ do
         withCageRunnerDB $ \transact -> do
-            let phase0 = InRestoration 0 mkCageRestoring
+            let phase0 = InRestoration mkCageRestoring
             phase1 <-
-                transact
-                    $ processBlock
-                        TestRollbacks
-                        maxBound
-                        1
-                        [CageBoot tokA tokStateA]
-                        phase0
+                processBlock
+                    nullTracer
+                    False
+                    transact
+                    TestRollbacks
+                    maxBound
+                    1
+                    [CageBoot tokA tokStateA]
+                    phase0
             case phase1 of
-                InRestoration _ restoring -> do
+                InRestoration restoring -> do
                     following <-
                         Backend.toFollowing restoring
                     let phase2 = InFollowing 0 following
                     phase3 <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                2
-                                [CageRequest txInA reqA]
-                                phase2
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            2
+                            [CageRequest txInA reqA]
+                            phase2
                     case phase3 of
                         InFollowing n _ ->
                             n `shouldBe` 1
-                        InRestoration _ _ ->
+                        InRestoration _ ->
                             fail "expected Following"
                 InFollowing _ _ ->
                     fail "expected Restoration"
 
     it "full lifecycle: restore, follow, rollback" $ do
         withCageRunnerDB $ \transact -> do
-            let phase0 = InRestoration 0 mkCageRestoring
+            let phase0 = InRestoration mkCageRestoring
             phase1 <-
-                transact
-                    $ processBlock
-                        TestRollbacks
-                        maxBound
-                        1
-                        [ CageBoot tokA tokStateA
-                        , CageRequest txInA reqA
-                        ]
-                        phase0
+                processBlock
+                    nullTracer
+                    False
+                    transact
+                    TestRollbacks
+                    maxBound
+                    1
+                    [ CageBoot tokA tokStateA
+                    , CageRequest txInA reqA
+                    ]
+                    phase0
             case phase1 of
-                InRestoration _ restoring -> do
+                InRestoration restoring -> do
                     following <-
                         Backend.toFollowing restoring
                     transact
@@ -380,25 +393,29 @@ spec = describe "Cage Runner E2E" $ do
                             (Just (BlockId mempty))
                     let phase2 = InFollowing 1 following
                     phase3 <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                2
-                                [ CageUpdate
-                                    tokA
-                                    (Root "new-root")
-                                    [txInA]
-                                ]
-                                phase2
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            2
+                            [ CageUpdate
+                                tokA
+                                (Root "new-root")
+                                [txInA]
+                            ]
+                            phase2
                     phase4 <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                3
-                                [CageRequest txInB reqB]
-                                phase3
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            3
+                            [CageRequest txInB reqB]
+                            phase3
                     case phase4 of
                         InFollowing n f -> do
                             (result, _) <-
@@ -413,7 +430,7 @@ spec = describe "Cage Runner E2E" $ do
                                     d `shouldBe` 1
                                 Store.RollbackImpossible ->
                                     fail "unexpected"
-                        InRestoration _ _ ->
+                        InRestoration _ ->
                             fail "expected Following"
                 InFollowing _ _ ->
                     fail "expected Restoration"
@@ -422,18 +439,20 @@ spec = describe "Cage Runner E2E" $ do
         withCageRunnerDB $ \transact -> do
             let doCycle n = do
                     let phase0 =
-                            InRestoration 0 mkCageRestoring
+                            InRestoration mkCageRestoring
                         s = n * 10
                     phase1 <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                (s + 1)
-                                [CageBoot tokA tokStateA]
-                                phase0
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            (s + 1)
+                            [CageBoot tokA tokStateA]
+                            phase0
                     case phase1 of
-                        InRestoration _ restoring -> do
+                        InRestoration restoring -> do
                             following <-
                                 Backend.toFollowing
                                     restoring
@@ -447,28 +466,32 @@ spec = describe "Cage Runner E2E" $ do
                                         1
                                         following
                             phase3 <-
-                                transact
-                                    $ processBlock
-                                        TestRollbacks
-                                        maxBound
-                                        (s + 2)
-                                        [ CageRequest
-                                            txInA
-                                            reqA
-                                        ]
-                                        phase2
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    TestRollbacks
+                                    maxBound
+                                    (s + 2)
+                                    [ CageRequest
+                                        txInA
+                                        reqA
+                                    ]
+                                    phase2
                             phase4 <-
-                                transact
-                                    $ processBlock
-                                        TestRollbacks
-                                        maxBound
-                                        (s + 3)
-                                        [ CageUpdate
-                                            tokA
-                                            (Root "r")
-                                            [txInA]
-                                        ]
-                                        phase3
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    TestRollbacks
+                                    maxBound
+                                    (s + 3)
+                                    [ CageUpdate
+                                        tokA
+                                        (Root "r")
+                                        [txInA]
+                                    ]
+                                    phase3
                             case phase4 of
                                 InFollowing nn f -> do
                                     _ <-
@@ -479,7 +502,7 @@ spec = describe "Cage Runner E2E" $ do
                                                 nn
                                                 (s + 2)
                                     pure ()
-                                InRestoration _ _ ->
+                                InRestoration _ ->
                                     fail "expected Following"
                         InFollowing _ _ ->
                             fail "expected Restoration"
@@ -487,19 +510,21 @@ spec = describe "Cage Runner E2E" $ do
 
     it "two tokens with interleaved trie ops" $ do
         withCageRunnerDB $ \transact -> do
-            let phase0 = InRestoration 0 mkCageRestoring
+            let phase0 = InRestoration mkCageRestoring
             phase1 <-
-                transact
-                    $ processBlock
-                        TestRollbacks
-                        maxBound
-                        1
-                        [ CageBoot tokA tokStateA
-                        , CageBoot tokB tokStateB
-                        ]
-                        phase0
+                processBlock
+                    nullTracer
+                    False
+                    transact
+                    TestRollbacks
+                    maxBound
+                    1
+                    [ CageBoot tokA tokStateA
+                    , CageBoot tokB tokStateB
+                    ]
+                    phase0
             case phase1 of
-                InRestoration _ restoring -> do
+                InRestoration restoring -> do
                     following <-
                         Backend.toFollowing restoring
                     transact
@@ -509,31 +534,35 @@ spec = describe "Cage Runner E2E" $ do
                             Nothing
                     let phase2 = InFollowing 1 following
                     phase3 <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                2
-                                [ CageRequest txInA reqA
-                                , CageRequest txInB reqB
-                                ]
-                                phase2
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            2
+                            [ CageRequest txInA reqA
+                            , CageRequest txInB reqB
+                            ]
+                            phase2
                     _ <-
-                        transact
-                            $ processBlock
-                                TestRollbacks
-                                maxBound
-                                3
-                                [ CageUpdate
-                                    tokA
-                                    (Root "rA")
-                                    [txInA]
-                                , CageUpdate
-                                    tokB
-                                    (Root "rB")
-                                    [txInB]
-                                ]
-                                phase3
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            TestRollbacks
+                            maxBound
+                            3
+                            [ CageUpdate
+                                tokA
+                                (Root "rA")
+                                [txInA]
+                            , CageUpdate
+                                tokB
+                                (Root "rB")
+                                [txInB]
+                            ]
+                            phase3
                     ts <-
                         transact
                             $ mapColumns InCage

@@ -87,7 +87,7 @@ instance ToJSON AppTrace where
                    )
             , "slot" .= show slot
             ]
-    toJSON (TraceReplay (ReplayStart cs bs tb opb)) =
+    toJSON (TraceReplay (ReplayStart cs bs tb opb remaining)) =
         object
             [ "event"
                 .= ("replay_start" :: String)
@@ -95,6 +95,7 @@ instance ToJSON AppTrace where
             , "buckets" .= bs
             , "total_buckets" .= tb
             , "ops_per_bucket" .= opb
+            , "remaining" .= remaining
             ]
     toJSON (TraceReplay ReplayStop) =
         object

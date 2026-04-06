@@ -147,7 +147,7 @@ import Cardano.UTxOCSMT.Ouroboros.ConnectionN2C
 import Cardano.UTxOCSMT.Ouroboros.Types
     ( Point
     )
-import ChainFollower.Backend (Init (..))
+import ChainFollower.Backend (Init (..), Restoring (..))
 import ChainFollower.Rollbacks.Store qualified as CFStore
 import ChainFollower.Rollbacks.Types (RollbackPoint (..))
 import ChainFollower.Runner (Phase (..))
@@ -258,10 +258,10 @@ allColumnFamilies =
     utxoColumnFamilies =
         [ ("kv", dbConfig)
         , ("csmt", dbConfig)
-        , ("rollbacks", dbConfig)
         , ("config", dbConfig)
         , ("journal", dbConfig)
-        , ("utxo-rollbacks", dbConfig)
+        , ("metrics", dbConfig)
+        , ("rollbacks", dbConfig)
         ]
 
 -- | Cage-only column families (7). Used by tests
@@ -368,7 +368,7 @@ withApplication cfg action = do
                     empty <-
                         CSMT.transact utxoRt
                             $ iterating
-                                RollbackPoints
+                                Rollbacks
                             $ isNothing
                                 <$> firstEntry
                     when empty
@@ -438,10 +438,12 @@ withApplication cfg action = do
                                 ]
 
                     -- Initialize Phase: always InFollowing
-                    -- resumeFollowing calls toFull which
+                    -- start → toFollowing calls toFull which
                     -- replays the journal (empty on fresh DB)
+                    restoring <-
+                        start backendInit
                     following <-
-                        resumeFollowing backendInit
+                        toFollowing restoring
                     let initialPhase =
                             InFollowing
                                 initialCount

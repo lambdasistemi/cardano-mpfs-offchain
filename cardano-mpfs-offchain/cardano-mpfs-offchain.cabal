@@ -269,6 +269,7 @@ test-suite unit-tests
     , cborg
     , chain-follower
     , containers
+    , contra-tracer
     , dependent-map
     , hspec                                    >=2.11 && <2.12
     , http-types

@@ -21,6 +21,7 @@ import Control.Concurrent.Async
     , replicateConcurrently_
     )
 import Control.Monad (forM_, replicateM_)
+import Control.Tracer (nullTracer)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short qualified as SBS
@@ -595,20 +596,22 @@ spec = describe "Unified 14-CF" $ do
                     restoring =
                         mkComposedRestoring csmtOps
                     phase0 =
-                        InRestoration 0 restoring
+                        InRestoration restoring
                 -- Restore a block
                 phase1 <-
-                    transact
-                        $ processBlock
-                            InRollbacks
-                            maxBound
-                            (1 :: SlotNo)
-                            ( [CageBoot tokA tokStateA]
-                            , [UTxO.Insert "k1-pad-32bytes-xxxxxxxxxxxx" "v1"]
-                            )
-                            phase0
+                    processBlock
+                        nullTracer
+                        False
+                        transact
+                        InRollbacks
+                        maxBound
+                        (1 :: SlotNo)
+                        ( [CageBoot tokA tokStateA]
+                        , [UTxO.Insert "k1-pad-32bytes-xxxxxxxxxxxx" "v1"]
+                        )
+                        phase0
                 case phase1 of
-                    InRestoration _ _ -> pure ()
+                    InRestoration _ -> pure ()
                     InFollowing _ _ ->
                         fail "expected Restoration"
                 -- Verify cage state persisted
@@ -626,25 +629,26 @@ spec = describe "Unified 14-CF" $ do
                         mkCSMTOps testFromKV testHashing
                     phase0 =
                         InRestoration
-                            0
                             (mkComposedRestoring csmtOps)
                 -- Restore: boot + request + UTxO insert
                 phase1 <-
-                    transact
-                        $ processBlock
-                            InRollbacks
-                            maxBound
-                            (1 :: SlotNo)
-                            (
-                                [ CageBoot tokA tokStateA
-                                , CageRequest txInA reqA
-                                ]
-                            , [UTxO.Insert "utxo1-pad-32bytes-xxxxxxxxxx" "out1"]
-                            )
-                            phase0
+                    processBlock
+                        nullTracer
+                        False
+                        transact
+                        InRollbacks
+                        maxBound
+                        (1 :: SlotNo)
+                        (
+                            [ CageBoot tokA tokStateA
+                            , CageRequest txInA reqA
+                            ]
+                        , [UTxO.Insert "utxo1-pad-32bytes-xxxxxxxxxx" "out1"]
+                        )
+                        phase0
                 -- Transition to Following
                 case phase1 of
-                    InRestoration _ r -> do
+                    InRestoration r -> do
                         following <-
                             Backend.toFollowing r
                         transact
@@ -655,35 +659,39 @@ spec = describe "Unified 14-CF" $ do
                         let phase2 = InFollowing 1 following
                         -- Follow: update + UTxO insert
                         phase3 <-
-                            transact
-                                $ processBlock
-                                    InRollbacks
-                                    maxBound
-                                    (2 :: SlotNo)
-                                    (
-                                        [ CageUpdate
-                                            tokA
-                                            (Root "root2")
-                                            [txInA]
-                                        ]
-                                    ,
-                                        [ UTxO.Insert
-                                            "utxo2-pad-32bytes-xxxxxxxxxx"
-                                            "out2"
-                                        ]
-                                    )
-                                    phase2
+                            processBlock
+                                nullTracer
+                                False
+                                transact
+                                InRollbacks
+                                maxBound
+                                (2 :: SlotNo)
+                                (
+                                    [ CageUpdate
+                                        tokA
+                                        (Root "root2")
+                                        [txInA]
+                                    ]
+                                ,
+                                    [ UTxO.Insert
+                                        "utxo2-pad-32bytes-xxxxxxxxxx"
+                                        "out2"
+                                    ]
+                                )
+                                phase2
                         -- Follow: another block
                         phase4 <-
-                            transact
-                                $ processBlock
-                                    InRollbacks
-                                    maxBound
-                                    (3 :: SlotNo)
-                                    ( [CageRequest txInB reqB]
-                                    , []
-                                    )
-                                    phase3
+                            processBlock
+                                nullTracer
+                                False
+                                transact
+                                InRollbacks
+                                maxBound
+                                (3 :: SlotNo)
+                                ( [CageRequest txInB reqB]
+                                , []
+                                )
+                                phase3
                         -- Rollback to slot 2
                         case phase4 of
                             InFollowing n f -> do
@@ -699,7 +707,7 @@ spec = describe "Unified 14-CF" $ do
                                         d `shouldBe` 1
                                     Store.RollbackImpossible ->
                                         fail "unexpected"
-                            InRestoration _ _ ->
+                            InRestoration _ ->
                                 fail "expected Following"
                     InFollowing _ _ ->
                         fail "expected Restoration"
@@ -712,23 +720,24 @@ spec = describe "Unified 14-CF" $ do
                     let s = n * 10
                         phase0 =
                             InRestoration
-                                0
                                 ( mkComposedRestoring
                                     csmtOps
                                 )
                     -- Restore
                     phase1 <-
-                        transact
-                            $ processBlock
-                                InRollbacks
-                                maxBound
-                                (s + 1)
-                                ( [CageBoot tokA tokStateA]
-                                , []
-                                )
-                                phase0
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            InRollbacks
+                            maxBound
+                            (s + 1)
+                            ( [CageBoot tokA tokStateA]
+                            , []
+                            )
+                            phase0
                     case phase1 of
-                        InRestoration _ r -> do
+                        InRestoration r -> do
                             following <-
                                 Backend.toFollowing r
                             transact
@@ -742,34 +751,38 @@ spec = describe "Unified 14-CF" $ do
                                         following
                             -- Follow 2 blocks
                             phase3 <-
-                                transact
-                                    $ processBlock
-                                        InRollbacks
-                                        maxBound
-                                        (s + 2)
-                                        (
-                                            [ CageRequest
-                                                txInA
-                                                reqA
-                                            ]
-                                        , []
-                                        )
-                                        phase2
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    InRollbacks
+                                    maxBound
+                                    (s + 2)
+                                    (
+                                        [ CageRequest
+                                            txInA
+                                            reqA
+                                        ]
+                                    , []
+                                    )
+                                    phase2
                             phase4 <-
-                                transact
-                                    $ processBlock
-                                        InRollbacks
-                                        maxBound
-                                        (s + 3)
-                                        (
-                                            [ CageUpdate
-                                                tokA
-                                                (Root "r")
-                                                [txInA]
-                                            ]
-                                        , []
-                                        )
-                                        phase3
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    InRollbacks
+                                    maxBound
+                                    (s + 3)
+                                    (
+                                        [ CageUpdate
+                                            tokA
+                                            (Root "r")
+                                            [txInA]
+                                        ]
+                                    , []
+                                    )
+                                    phase3
                             -- Rollback
                             case phase4 of
                                 InFollowing nn f -> do
@@ -781,7 +794,7 @@ spec = describe "Unified 14-CF" $ do
                                                 nn
                                                 (s + 2)
                                     pure ()
-                                InRestoration _ _ ->
+                                InRestoration _ ->
                                     fail "expected Following"
                         InFollowing _ _ ->
                             fail "expected Restoration"
@@ -791,22 +804,23 @@ spec = describe "Unified 14-CF" $ do
             withUnifiedDBFull $ \csmtOps transact _tm -> do
                 let phase0 =
                         InRestoration
-                            0
                             (mkComposedRestoring csmtOps)
                 -- Restore: boot + UTxO insert
                 phase1 <-
-                    transact
-                        $ processBlock
-                            InRollbacks
-                            maxBound
-                            (1 :: SlotNo)
-                            ( [CageBoot tokA tokStateA, CageRequest txInA reqA]
-                            , [UTxO.Insert "utxo-key-padded-to-32-bytesXX" "val1"]
-                            )
-                            phase0
+                    processBlock
+                        nullTracer
+                        False
+                        transact
+                        InRollbacks
+                        maxBound
+                        (1 :: SlotNo)
+                        ( [CageBoot tokA tokStateA, CageRequest txInA reqA]
+                        , [UTxO.Insert "utxo-key-padded-to-32-bytesXX" "val1"]
+                        )
+                        phase0
                 -- Transition
                 case phase1 of
-                    InRestoration _ r -> do
+                    InRestoration r -> do
                         following <- Backend.toFollowing r
                         transact
                             $ Store.armageddonSetup
@@ -816,23 +830,27 @@ spec = describe "Unified 14-CF" $ do
                         let phase2 = InFollowing 1 following
                         -- Follow: update + UTxO
                         phase3 <-
-                            transact
-                                $ processBlock
-                                    InRollbacks
-                                    maxBound
-                                    (2 :: SlotNo)
-                                    ( [CageUpdate tokA (Root "r2") [txInA]]
-                                    , [UTxO.Insert "utxo-key2-padded-to-32-byteX" "val2"]
-                                    )
-                                    phase2
+                            processBlock
+                                nullTracer
+                                False
+                                transact
+                                InRollbacks
+                                maxBound
+                                (2 :: SlotNo)
+                                ( [CageUpdate tokA (Root "r2") [txInA]]
+                                , [UTxO.Insert "utxo-key2-padded-to-32-byteX" "val2"]
+                                )
+                                phase2
                         phase4 <-
-                            transact
-                                $ processBlock
-                                    InRollbacks
-                                    maxBound
-                                    (3 :: SlotNo)
-                                    ([CageRequest txInB reqB], [])
-                                    phase3
+                            processBlock
+                                nullTracer
+                                False
+                                transact
+                                InRollbacks
+                                maxBound
+                                (3 :: SlotNo)
+                                ([CageRequest txInB reqB], [])
+                                phase3
                         -- Rollback
                         case phase4 of
                             InFollowing n f -> do
@@ -848,7 +866,7 @@ spec = describe "Unified 14-CF" $ do
                                         d `shouldBe` 1
                                     Store.RollbackImpossible ->
                                         fail "unexpected"
-                            InRestoration _ _ ->
+                            InRestoration _ ->
                                 fail "expected Following"
                     InFollowing _ _ ->
                         fail "expected Restoration"
@@ -859,18 +877,19 @@ spec = describe "Unified 14-CF" $ do
                     let s = n * 10
                         phase0 =
                             InRestoration
-                                0
                                 (mkComposedRestoring csmtOps)
                     phase1 <-
-                        transact
-                            $ processBlock
-                                InRollbacks
-                                maxBound
-                                (s + 1)
-                                ([CageBoot tokA tokStateA], [])
-                                phase0
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            InRollbacks
+                            maxBound
+                            (s + 1)
+                            ([CageBoot tokA tokStateA], [])
+                            phase0
                     case phase1 of
-                        InRestoration _ r -> do
+                        InRestoration r -> do
                             following <- Backend.toFollowing r
                             transact
                                 $ Store.armageddonSetup
@@ -879,23 +898,27 @@ spec = describe "Unified 14-CF" $ do
                                     Nothing
                             let phase2 = InFollowing 1 following
                             phase3 <-
-                                transact
-                                    $ processBlock
-                                        InRollbacks
-                                        maxBound
-                                        (s + 2)
-                                        ([CageRequest txInA reqA], [])
-                                        phase2
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    InRollbacks
+                                    maxBound
+                                    (s + 2)
+                                    ([CageRequest txInA reqA], [])
+                                    phase2
                             phase4 <-
-                                transact
-                                    $ processBlock
-                                        InRollbacks
-                                        maxBound
-                                        (s + 3)
-                                        ( [CageUpdate tokA (Root "r") [txInA]]
-                                        , []
-                                        )
-                                        phase3
+                                processBlock
+                                    nullTracer
+                                    False
+                                    transact
+                                    InRollbacks
+                                    maxBound
+                                    (s + 3)
+                                    ( [CageUpdate tokA (Root "r") [txInA]]
+                                    , []
+                                    )
+                                    phase3
                             case phase4 of
                                 InFollowing nn f -> do
                                     _ <-
@@ -906,7 +929,7 @@ spec = describe "Unified 14-CF" $ do
                                                 nn
                                                 (s + 2)
                                     pure ()
-                                InRestoration _ _ ->
+                                InRestoration _ ->
                                     fail "expected Following"
                         InFollowing _ _ ->
                             fail "expected Restoration"
@@ -982,7 +1005,6 @@ spec = describe "Unified 14-CF" $ do
             withUnifiedDBFull $ \csmtOps transact _tm -> do
                 let mkPhase =
                         InRestoration
-                            0
                             (mkComposedRestoring csmtOps)
                 -- Run 10 concurrent restore cycles
                 -- (each in its own phase, serialized
@@ -990,15 +1012,17 @@ spec = describe "Unified 14-CF" $ do
                 replicateConcurrently_ 10 $ do
                     let phase0 = mkPhase
                     _ <-
-                        transact
-                            $ processBlock
-                                InRollbacks
-                                maxBound
-                                (1 :: SlotNo)
-                                ( [CageBoot tokA tokStateA]
-                                , []
-                                )
-                                phase0
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            InRollbacks
+                            maxBound
+                            (1 :: SlotNo)
+                            ( [CageBoot tokA tokStateA]
+                            , []
+                            )
+                            phase0
                     pure ()
 
 -- ---------------------------------------------------------
