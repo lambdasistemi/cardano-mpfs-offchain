@@ -14,6 +14,9 @@ module Cardano.MPFS.Provider
 
       -- * Result types
     , EvaluateTxResult
+
+      -- * Re-exports
+    , SlotNo (..)
     ) where
 
 import Data.Map.Strict (Map)
@@ -28,6 +31,7 @@ import Cardano.Ledger.Alonzo.Scripts
 import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.Plutus (ExUnits)
+import Cardano.Slotting.Slot (SlotNo (..))
 
 import Cardano.MPFS.Core.Types
     ( Addr
@@ -59,4 +63,12 @@ data Provider m = Provider
         :: Tx ConwayEra
         -> m (EvaluateTxResult ConwayEra)
     -- ^ Evaluate script execution units
+    , posixMsToSlot
+        :: Integer
+        -> m SlotNo
+    -- ^ Convert POSIX time (ms) to slot (floor)
+    , posixMsCeilSlot
+        :: Integer
+        -> m SlotNo
+    -- ^ Convert POSIX time (ms) to slot (ceiling)
     }
