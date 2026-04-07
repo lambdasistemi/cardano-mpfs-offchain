@@ -65,9 +65,6 @@ dummyCageConfig =
         , defaultRetractTime = 300_000
         , defaultMaxFee = Coin 2_000_000
         , network = Testnet
-        , systemStartPosixMs =
-            1_654_041_600_000
-        , slotLengthMs = 1_000
         }
 
 main :: IO ()

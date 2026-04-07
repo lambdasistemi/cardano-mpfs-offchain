@@ -68,8 +68,6 @@ data Args = Args
     , argBlueprint :: FilePath
     , argEpochSlots :: Word
     , argNetwork :: Network
-    , argSlotLengthMs :: Integer
-    , argSystemStartMs :: Integer
     }
 
 -- | Default arguments.
@@ -84,8 +82,6 @@ defaultArgs =
         , argBlueprint = ""
         , argEpochSlots = 21_600
         , argNetwork = Testnet
-        , argSlotLengthMs = 1_000
-        , argSystemStartMs = 0
         }
 
 -- | Parse command-line arguments.
@@ -111,10 +107,6 @@ parseArgs = go defaultArgs
         go a{argEpochSlots = read v} rest
     go a ("--mainnet" : rest) =
         go a{argNetwork = Mainnet} rest
-    go a ("--slot-length-ms" : v : rest) =
-        go a{argSlotLengthMs = read v} rest
-    go a ("--system-start-ms" : v : rest) =
-        go a{argSystemStartMs = read v} rest
     go _ (unknown : _) =
         error
             $ "Unknown argument: " <> unknown
@@ -204,9 +196,6 @@ mkCageCfg args scriptBytes =
         , defaultRetractTime = 300_000
         , defaultMaxFee = Coin 2_000_000
         , network = argNetwork args
-        , systemStartPosixMs =
-            argSystemStartMs args
-        , slotLengthMs = argSlotLengthMs args
         }
 
 mkAppConfig :: Args -> CageConfig -> AppConfig

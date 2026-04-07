@@ -264,8 +264,9 @@ updateTokenImpl cfg prov _st tm tid addr = do
                             + stateProcessTime oldState
                     )
                     reqUtxos
-        upperSlot =
-            posixMsToSlot cfg earliestDeadline
+    upperSlot <-
+        posixMsToSlot prov earliestDeadline
+    let
         vldt =
             ValidityInterval
                 SNothing

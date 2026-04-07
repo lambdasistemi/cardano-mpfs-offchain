@@ -154,8 +154,8 @@ killAndVerify
     :: SBS.ShortByteString -> Phase -> IO ()
 killAndVerify scriptBytes targetPhase = do
     gDir <- genesisDir
-    withCardanoNode gDir $ \socketPath startMs -> do
-        let cfg = cageCfg scriptBytes startMs
+    withCardanoNode gDir $ \socketPath _startMs -> do
+        let cfg = cageCfg scriptBytes
 
         -- Step 1: run the app, boot a token, let
         -- the follower index it
@@ -346,10 +346,8 @@ bootAndAwait ctx = do
 -- * Config
 
 cageCfg
-    :: SBS.ShortByteString
-    -> Integer
-    -> CageConfig
-cageCfg scriptBytes startMs =
+    :: SBS.ShortByteString -> CageConfig
+cageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
         , cfgScriptHash =
@@ -358,6 +356,4 @@ cageCfg scriptBytes startMs =
         , defaultRetractTime = 15_000
         , defaultMaxFee = Coin 1_000_000
         , network = Testnet
-        , systemStartPosixMs = startMs
-        , slotLengthMs = 100
         }

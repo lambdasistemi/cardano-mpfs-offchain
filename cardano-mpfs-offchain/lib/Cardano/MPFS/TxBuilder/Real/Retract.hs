@@ -168,18 +168,17 @@ retractRequestImpl cfg prov st reqTxIn addr = do
     --   submitted_at + process_time + retract_time)
     let phase2Start = submAt + procTime
         phase2End = submAt + procTime + retrTime
-        -- Ceil for lower bound: first slot that is
-        -- at-or-after the Phase 2 start.
-        lowerSlot =
-            posixMsCeilSlot cfg phase2Start
-        -- Floor for upper bound: last slot that is
-        -- at-or-before Phase 2 end, minus 1 to
-        -- stay strictly before the deadline.
-        upperSlot =
-            let SlotNo s =
-                    posixMsToSlot cfg phase2End
-            in  SlotNo (max 0 (s - 1))
-    let script = mkCageScript cfg
+    -- Ceil for lower bound: first slot that is
+    -- at-or-after the Phase 2 start.
+    lowerSlot <-
+        posixMsCeilSlot prov phase2Start
+    -- Floor for upper bound: last slot that is
+    -- at-or-before Phase 2 end, minus 1 to
+    -- stay strictly before the deadline.
+    SlotNo s <-
+        posixMsToSlot prov phase2End
+    let upperSlot = SlotNo (max 0 (s - 1))
+        script = mkCageScript cfg
         scriptHash = hashScript script
         allInputs =
             Set.fromList [reqIn, fst feeUtxo]

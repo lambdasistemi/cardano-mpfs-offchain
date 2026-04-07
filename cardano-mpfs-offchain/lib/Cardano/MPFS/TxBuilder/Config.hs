@@ -40,8 +40,4 @@ data CageConfig = CageConfig
     -- ^ Default max fee for newly booted tokens
     , network :: !Network
     -- ^ Target network (Mainnet or Testnet)
-    , systemStartPosixMs :: !Integer
-    -- ^ Genesis system start as POSIX time (ms)
-    , slotLengthMs :: !Integer
-    -- ^ Slot length in milliseconds (e.g. 100)
     }

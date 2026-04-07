@@ -915,7 +915,7 @@ withE2E
     -> IO a
 withE2E scriptBytes action = do
     gDir <- genesisDir
-    withCardanoNode gDir $ \sock startMs ->
+    withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory "mpfs-e2e"
             $ \tmpDir -> do
                 let dbDir =
@@ -924,7 +924,7 @@ withE2E scriptBytes action = do
                         gDir
                             </> "shelley-genesis.json"
                 let cfg =
-                        cageCfg scriptBytes startMs
+                        cageCfg scriptBytes
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -1042,8 +1042,8 @@ bootAndRegister cfg ctx = do
 -- | Build a 'CageConfig' from applied script bytes
 -- and the system start time.
 cageCfg
-    :: SBS.ShortByteString -> Integer -> CageConfig
-cageCfg scriptBytes startMs =
+    :: SBS.ShortByteString -> CageConfig
+cageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
         , cfgScriptHash =
@@ -1052,6 +1052,4 @@ cageCfg scriptBytes startMs =
         , defaultRetractTime = 15_000
         , defaultMaxFee = Coin 1_000_000
         , network = Testnet
-        , systemStartPosixMs = startMs
-        , slotLengthMs = 100
         }
