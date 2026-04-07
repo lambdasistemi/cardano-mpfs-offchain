@@ -50,6 +50,7 @@ library
     , cardano-ledger-mary
     , cardano-ledger-shelley
     , cardano-node-clients
+    , cardano-slotting
     , cardano-strict-containers
     , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library

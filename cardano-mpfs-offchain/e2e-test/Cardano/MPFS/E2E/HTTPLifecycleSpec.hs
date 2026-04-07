@@ -374,14 +374,13 @@ withE2E
     -> IO a
 withE2E scriptBytes action = do
     gDir <- genesisDir
-    withCardanoNode gDir $ \sock startMs ->
+    withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory
             "mpfs-http-lifecycle"
             $ \tmpDir -> do
                 let cfg =
                         cageCfg
                             scriptBytes
-                            startMs
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -413,10 +412,8 @@ withE2E scriptBytes action = do
 -- -------------------------------------------------
 
 cageCfg
-    :: SBS.ShortByteString
-    -> Integer
-    -> CageConfig
-cageCfg scriptBytes startMs =
+    :: SBS.ShortByteString -> CageConfig
+cageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
         , cfgScriptHash =
@@ -425,6 +422,4 @@ cageCfg scriptBytes startMs =
         , defaultRetractTime = 5_000
         , defaultMaxFee = Coin 1_000_000
         , network = Testnet
-        , systemStartPosixMs = startMs
-        , slotLengthMs = 100
         }

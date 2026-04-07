@@ -74,11 +74,11 @@ main = do
         $ "Starting devnet server on port "
             <> show port
     hFlush stdout
-    withCardanoNode gDir $ \sock startMs ->
+    withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory
             "mpfs-devnet-server"
             $ \tmpDir -> do
-                let cfg = mkCageCfg scriptBytes startMs
+                let cfg = mkCageCfg scriptBytes
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -158,9 +158,8 @@ loadScript = do
 
 mkCageCfg
     :: SBS.ShortByteString
-    -> Integer
     -> CageConfig
-mkCageCfg scriptBytes startMs =
+mkCageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
         , cfgScriptHash =
@@ -169,6 +168,4 @@ mkCageCfg scriptBytes startMs =
         , defaultRetractTime = 300_000
         , defaultMaxFee = Coin 2_000_000
         , network = Testnet
-        , systemStartPosixMs = startMs
-        , slotLengthMs = 100
         }

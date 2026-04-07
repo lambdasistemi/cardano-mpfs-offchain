@@ -200,8 +200,6 @@ testCageConfig =
         , defaultRetractTime = 600_000
         , defaultMaxFee = Coin 1_000_000
         , network = Testnet
-        , systemStartPosixMs = 0
-        , slotLengthMs = 100
         }
 
 -- | Build a Provider that returns a fixed UTxO set
@@ -703,8 +701,6 @@ bootTokenWithScript scriptBytes = do
                 , defaultRetractTime = 600_000
                 , defaultMaxFee = Coin 1_000_000
                 , network = Testnet
-                , systemStartPosixMs = 0
-                , slotLengthMs = 100
                 }
 
     it "builds a balanced tx" $ do
@@ -1429,8 +1425,6 @@ bootTxPropsWithScript scriptBytes = do
                 , defaultRetractTime = 600_000
                 , defaultMaxFee = Coin 1_000_000
                 , network = Testnet
-                , systemStartPosixMs = 0
-                , slotLengthMs = 100
                 }
 
     it "all outputs satisfy minUTxO" $ do

@@ -262,6 +262,7 @@ cageFlowSpec bpPath scriptBytes =
             dumpTxForAiken
                 (provider ctx)
                 cfg
+                startMs
                 bpPath
                 "update"
                 signedUpdate
@@ -395,7 +396,7 @@ withE2E scriptBytes action = do
                 rocksDir </> "db"
             genesisJson =
                 gDir </> "shelley-genesis.json"
-        let cfg = cageCfg scriptBytes startMs
+        let cfg = cageCfg scriptBytes
             appCfg =
                 AppConfig
                     { epochSlots =
@@ -465,11 +466,12 @@ awaitTx = threadDelay 5_000_000
 dumpTxForAiken
     :: Provider IO
     -> CageConfig
+    -> Integer
     -> FilePath
     -> String
     -> Tx ConwayEra
     -> IO ()
-dumpTxForAiken prov cfg bpPath label tx = do
+dumpTxForAiken prov cfg startMs bpPath label tx = do
     let ver = eraProtVerLow @ConwayEra
     -- 1. Collect all TxIns (spent + ref)
     let spentIns =
@@ -541,9 +543,9 @@ dumpTxForAiken prov cfg bpPath label tx = do
                 , prefix <> "-inputs.hex"
                 , prefix <> "-outputs.hex"
                 , "--slot-length"
-                , show (slotLengthMs cfg)
+                , "100"
                 , "--zero-time"
-                , show (systemStartPosixMs cfg)
+                , show startMs
                 , "--zero-slot"
                 , "0"
                 , "--blueprint"
@@ -588,8 +590,8 @@ toHex =
 -- | Build a 'CageConfig' from applied script bytes
 -- and the system start time.
 cageCfg
-    :: SBS.ShortByteString -> Integer -> CageConfig
-cageCfg scriptBytes startMs =
+    :: SBS.ShortByteString -> CageConfig
+cageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
         , cfgScriptHash =
@@ -598,6 +600,4 @@ cageCfg scriptBytes startMs =
         , defaultRetractTime = 30_000
         , defaultMaxFee = Coin 1_000_000
         , network = Testnet
-        , systemStartPosixMs = startMs
-        , slotLengthMs = 100
         }
