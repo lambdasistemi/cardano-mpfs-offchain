@@ -260,16 +260,8 @@ mkCageFollower
                                         ( InRestoration
                                             restoring
                                         )
-                InRestoration _ -> do
-                    armageddon
-                    restoring <-
-                        start backendInit
-                    pure
-                        $ Reset
-                        $ mkCageIntersector
-                            securityParam
-                            run
-                            backendInit
-                            armageddon
-                            onCommit
-                            (InRestoration restoring)
+                InRestoration _ ->
+                    -- During restoration rollbacks are
+                    -- harmless — we're replaying from
+                    -- origin anyway. Just continue.
+                    pure $ Progress $ go phase

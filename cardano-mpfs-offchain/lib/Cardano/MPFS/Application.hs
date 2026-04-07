@@ -437,17 +437,23 @@ withApplication cfg action = do
                                 | (s, rp) <- history
                                 ]
 
-                    -- Initialize Phase: always InFollowing
-                    -- start → toFollowing calls toFull which
-                    -- replays the journal (empty on fresh DB)
+                    -- Initialize Phase:
+                    -- Existing DB: toFollowing replays journal
+                    -- Fresh DB: InRestoration (fast KVOnly)
                     restoring <-
                         start backendInit
-                    following <-
-                        toFollowing restoring
-                    let initialPhase =
-                            InFollowing
-                                initialCount
-                                following
+                    initialPhase <-
+                        if initialCount > 0
+                            then do
+                                following <-
+                                    toFollowing restoring
+                                pure
+                                    $ InFollowing
+                                        initialCount
+                                        following
+                            else
+                                pure
+                                    $ InRestoration restoring
                     -- Commit notification TVar for awaitUtxo
                     commitNotify' <-
                         newTVarIO (0 :: Int)
