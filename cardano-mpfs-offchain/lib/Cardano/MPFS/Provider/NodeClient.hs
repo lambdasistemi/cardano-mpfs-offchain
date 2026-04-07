@@ -32,4 +32,8 @@ mkNodeClientProvider ch =
                 Lib.queryUTxOs libProv
             , evaluateTx =
                 Lib.evaluateTx libProv
+            , posixMsToSlot =
+                Lib.posixMsToSlot libProv
+            , posixMsCeilSlot =
+                Lib.posixMsCeilSlot libProv
             }

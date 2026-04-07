@@ -32,4 +32,12 @@ mkMockProvider =
                 \not implemented"
         , evaluateTx = \_ ->
             pure Map.empty
+        , posixMsToSlot =
+            error
+                "mkMockProvider: posixMsToSlot \
+                \not implemented"
+        , posixMsCeilSlot =
+            error
+                "mkMockProvider: posixMsCeilSlot \
+                \not implemented"
         }
