@@ -279,6 +279,7 @@ instance FromJSON InsertRequest where
 data DeleteRequest = DeleteRequest
     { drToken :: TokenIdJSON
     , drKey :: Hex
+    , drValue :: Hex
     , drAddr :: Hex
     }
 
@@ -287,6 +288,7 @@ instance FromJSON DeleteRequest where
         DeleteRequest
             <$> o .: "token"
             <*> o .: "key"
+            <*> o .: "value"
             <*> o .: "address"
 
 -- | @POST \/tx\/update@ request body.
@@ -528,12 +530,14 @@ instance ToSchema DeleteRequest where
                 .~ fromList
                     [ ("token", tokenSchema)
                     , ("key", hexSchema)
+                    , ("value", hexSchema)
                     , ("address", hexSchema)
                     ]
             & required
-                .~ ["token", "key", "address"]
+                .~ ["token", "key", "value", "address"]
             & description
-                ?~ "Delete a key"
+                ?~ "Delete a key (value is the \
+                   \current stored value)"
 
 instance ToSchema UpdateRequest where
     declareNamedSchema _ = do

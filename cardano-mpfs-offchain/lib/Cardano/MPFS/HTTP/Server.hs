@@ -401,6 +401,7 @@ txDeleteHandler
     DeleteRequest
         { drToken = TokenIdJSON tid
         , drKey = Hex k
+        , drValue = Hex v
         , drAddr = addrHex
         } = do
         addr <- requireAddr addrHex
@@ -410,6 +411,7 @@ txDeleteHandler
                     (txBuilder ctx)
                     tid
                     k
+                    v
                     addr
         pure (serializeTx tx)
 

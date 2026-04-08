@@ -1539,7 +1539,7 @@ runRequestDelete :: IO (Tx ConwayEra)
 runRequestDelete = do
     (_st, _prov, builder, _txIn) <- mkTestFixture
     let feeAddr = testAddr testKh
-    requestDelete builder testTid "mykey" feeAddr
+    requestDelete builder testTid "mykey" "myval" feeAddr
 
 -- | Run retractRequest.
 runRetractRequest :: IO (Tx ConwayEra)

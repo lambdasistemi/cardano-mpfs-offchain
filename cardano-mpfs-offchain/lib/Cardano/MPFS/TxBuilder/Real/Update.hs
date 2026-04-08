@@ -347,10 +347,11 @@ processRequest trie (_txIn, txOut) = do
             mSteps <- getProofSteps trie key
             pure (fromMaybe [] mSteps)
         OpDelete _ -> do
-            mSteps <- getProofSteps trie key
             _ <- Cardano.MPFS.Trie.delete trie key
+            mSteps <- getProofSteps trie key
             pure (fromMaybe [] mSteps)
         OpUpdate _ v -> do
+            _ <- Cardano.MPFS.Trie.delete trie key
             mSteps <- getProofSteps trie key
             _ <- insert trie key v
             pure (fromMaybe [] mSteps)
