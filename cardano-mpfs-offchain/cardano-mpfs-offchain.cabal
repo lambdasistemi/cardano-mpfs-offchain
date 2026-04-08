@@ -57,6 +57,7 @@ library
     , chain-follower
     , containers                               >=0.6  && <0.8
     , contra-tracer
+    , contra-tracer-contrib
     , crypton
     , dependent-map
     , lens
