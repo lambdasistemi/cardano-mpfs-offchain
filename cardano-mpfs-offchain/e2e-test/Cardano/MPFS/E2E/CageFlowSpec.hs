@@ -80,7 +80,9 @@ import Cardano.MPFS.Submitter
     ( SubmitResult (..)
     , Submitter (..)
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( TxBuilder (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -135,7 +137,9 @@ spec = describe "CageFlow E2E" $ do
                                     applyVersion
                                         1
                                         scriptBytes
-                            in  cageFlowSpec applied
+                            in  do
+                                    cageFlowSpec applied
+                                    deleteFlowSpec applied
 
 -- ---------------------------------------------------------
 -- Test implementation
@@ -264,6 +268,227 @@ cageFlowSpec scriptBytes =
                 if null rs
                     then pure (Just ())
                     else pure Nothing
+
+-- | Delete and mixed batch via CageFollower:
+-- insert → update → delete → update → mixed batch.
+deleteFlowSpec :: SBS.ShortByteString -> Spec
+deleteFlowSpec scriptBytes =
+    it "delete and mixed batch via CageFollower"
+        $ do
+            withE2E scriptBytes $ \cfg ctx -> do
+                -- Boot
+                signedBoot <-
+                    buildAndSubmit ctx
+                        $ bootToken
+                            (txBuilder ctx)
+                            genesisAddr
+                let tokenId =
+                        extractTokenId cfg signedBoot
+                _ <-
+                    pollOrFail 30 "boot"
+                        $ getToken
+                            (tokens (state ctx))
+                            tokenId
+
+                -- Insert "aaa"
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestInsert
+                            (txBuilder ctx)
+                            tokenId
+                            "aaa"
+                            "val1"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-aaa" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if null rs
+                            then pure Nothing
+                            else pure (Just rs)
+
+                -- Update (insert "aaa")
+                _ <-
+                    buildAndSubmit ctx
+                        $ updateToken
+                            (txBuilder ctx)
+                            tokenId
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "update-insert"
+                        $ do
+                            rs <-
+                                requestsByToken
+                                    ( requests
+                                        (state ctx)
+                                    )
+                                    tokenId
+                            if null rs
+                                then pure (Just ())
+                                else pure Nothing
+
+                -- Delete "aaa" (value "val1")
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestDelete
+                            (txBuilder ctx)
+                            tokenId
+                            "aaa"
+                            "val1"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-del" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if null rs
+                            then pure Nothing
+                            else pure (Just rs)
+
+                -- Update (delete "aaa")
+                _ <-
+                    buildAndSubmit ctx
+                        $ updateToken
+                            (txBuilder ctx)
+                            tokenId
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "update-delete"
+                        $ do
+                            rs <-
+                                requestsByToken
+                                    ( requests
+                                        (state ctx)
+                                    )
+                                    tokenId
+                            if null rs
+                                then pure (Just ())
+                                else pure Nothing
+
+                -- Mixed batch: insert "bbb" +
+                -- insert "ccc"
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestInsert
+                            (txBuilder ctx)
+                            tokenId
+                            "bbb"
+                            "val2"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-bbb" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if null rs
+                            then pure Nothing
+                            else pure (Just ())
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestInsert
+                            (txBuilder ctx)
+                            tokenId
+                            "ccc"
+                            "val3"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-ccc" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if length rs >= 2
+                            then pure (Just ())
+                            else pure Nothing
+
+                -- Update (batch insert bbb+ccc)
+                _ <-
+                    buildAndSubmit ctx
+                        $ updateToken
+                            (txBuilder ctx)
+                            tokenId
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "update-batch"
+                        $ do
+                            rs <-
+                                requestsByToken
+                                    ( requests
+                                        (state ctx)
+                                    )
+                                    tokenId
+                            if null rs
+                                then pure (Just ())
+                                else pure Nothing
+
+                -- Mixed: delete "bbb" + insert "ddd"
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestDelete
+                            (txBuilder ctx)
+                            tokenId
+                            "bbb"
+                            "val2"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-del2" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if null rs
+                            then pure Nothing
+                            else pure (Just ())
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestInsert
+                            (txBuilder ctx)
+                            tokenId
+                            "ddd"
+                            "val4"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request-ddd" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if length rs >= 2
+                            then pure (Just ())
+                            else pure Nothing
+
+                -- Update (mixed: delete bbb +
+                -- insert ddd)
+                _ <-
+                    buildAndSubmit ctx
+                        $ updateToken
+                            (txBuilder ctx)
+                            tokenId
+                            genesisAddr
+                pollOrFail 30 "update-mixed" $ do
+                    rs <-
+                        requestsByToken
+                            (requests (state ctx))
+                            tokenId
+                    if null rs
+                        then pure (Just ())
+                        else pure Nothing
 
 -- ---------------------------------------------------------
 -- Bracket
