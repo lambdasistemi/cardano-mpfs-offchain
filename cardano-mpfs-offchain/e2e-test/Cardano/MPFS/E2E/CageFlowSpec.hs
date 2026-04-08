@@ -318,18 +318,25 @@ deleteFlowSpec scriptBytes =
                             (txBuilder ctx)
                             tokenId
                             genesisAddr
+                -- Wait for trie root to update
+                -- (follower must commit)
                 _ <-
-                    pollOrFail 30 "update-insert"
+                    pollOrFail 60 "update-insert"
                         $ do
-                            rs <-
-                                requestsByToken
-                                    ( requests
-                                        (state ctx)
-                                    )
+                            mTs <-
+                                getToken
+                                    (tokens (state ctx))
                                     tokenId
-                            if null rs
-                                then pure (Just ())
-                                else pure Nothing
+                            pure $ case mTs of
+                                Just t
+                                    | root t
+                                        /= Root
+                                            ( BS.replicate
+                                                32
+                                                0
+                                            ) ->
+                                        Just ()
+                                _ -> Nothing
 
                 -- Delete "aaa" (value "val1")
                 _ <-
@@ -352,6 +359,12 @@ deleteFlowSpec scriptBytes =
                             then pure Nothing
                             else pure (Just rs)
 
+                -- Save pre-delete root
+                Just preDelTs <-
+                    getToken
+                        (tokens (state ctx))
+                        tokenId
+                let preDelRoot = root preDelTs
                 -- Update (delete "aaa")
                 _ <-
                     buildAndSubmit ctx
@@ -360,17 +373,18 @@ deleteFlowSpec scriptBytes =
                             tokenId
                             genesisAddr
                 _ <-
-                    pollOrFail 30 "update-delete"
+                    pollOrFail 60 "update-delete"
                         $ do
-                            rs <-
-                                requestsByToken
-                                    ( requests
-                                        (state ctx)
-                                    )
+                            mTs <-
+                                getToken
+                                    (tokens (state ctx))
                                     tokenId
-                            if null rs
-                                then pure (Just ())
-                                else pure Nothing
+                            pure $ case mTs of
+                                Just t
+                                    | root t
+                                        /= preDelRoot ->
+                                        Just ()
+                                _ -> Nothing
 
                 -- Mixed batch: insert "bbb" +
                 -- insert "ccc"
@@ -413,6 +427,12 @@ deleteFlowSpec scriptBytes =
                             then pure (Just ())
                             else pure Nothing
 
+                -- Save pre-batch root
+                Just preBatchTs <-
+                    getToken
+                        (tokens (state ctx))
+                        tokenId
+                let preBatchRoot = root preBatchTs
                 -- Update (batch insert bbb+ccc)
                 _ <-
                     buildAndSubmit ctx
@@ -421,17 +441,18 @@ deleteFlowSpec scriptBytes =
                             tokenId
                             genesisAddr
                 _ <-
-                    pollOrFail 30 "update-batch"
+                    pollOrFail 60 "update-batch"
                         $ do
-                            rs <-
-                                requestsByToken
-                                    ( requests
-                                        (state ctx)
-                                    )
+                            mTs <-
+                                getToken
+                                    (tokens (state ctx))
                                     tokenId
-                            if null rs
-                                then pure (Just ())
-                                else pure Nothing
+                            pure $ case mTs of
+                                Just t
+                                    | root t
+                                        /= preBatchRoot ->
+                                        Just ()
+                                _ -> Nothing
 
                 -- Mixed: delete "bbb" + insert "ddd"
                 _ <-
@@ -473,6 +494,12 @@ deleteFlowSpec scriptBytes =
                             then pure (Just ())
                             else pure Nothing
 
+                -- Save pre-mixed root
+                Just preMixedTs <-
+                    getToken
+                        (tokens (state ctx))
+                        tokenId
+                let preMixedRoot = root preMixedTs
                 -- Update (mixed: delete bbb +
                 -- insert ddd)
                 _ <-
@@ -481,14 +508,17 @@ deleteFlowSpec scriptBytes =
                             (txBuilder ctx)
                             tokenId
                             genesisAddr
-                pollOrFail 30 "update-mixed" $ do
-                    rs <-
-                        requestsByToken
-                            (requests (state ctx))
+                pollOrFail 60 "update-mixed" $ do
+                    mTs <-
+                        getToken
+                            (tokens (state ctx))
                             tokenId
-                    if null rs
-                        then pure (Just ())
-                        else pure Nothing
+                    pure $ case mTs of
+                        Just t
+                            | root t
+                                /= preMixedRoot ->
+                                Just ()
+                        _ -> Nothing
 
 -- ---------------------------------------------------------
 -- Bracket

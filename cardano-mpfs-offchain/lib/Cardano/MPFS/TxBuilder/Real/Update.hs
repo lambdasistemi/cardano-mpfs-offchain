@@ -17,7 +17,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
-import Debug.Trace (traceIO)
+import Debug.Trace (traceIO, traceM)
 import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
@@ -356,9 +356,15 @@ processRequest trie (_txIn, txOut) = do
         OpInsert v -> do
             _ <- insert trie key v
             mSteps <- getProofSteps trie key
+            traceM
+                $ "processReq INSERT: mSteps="
+                    <> show (fmap length mSteps)
             pure (fromMaybe [] mSteps)
         OpDelete _ -> do
             mSteps <- getProofSteps trie key
+            traceM
+                $ "processReq DELETE: mSteps="
+                    <> show (fmap length mSteps)
             _ <- Cardano.MPFS.Trie.delete trie key
             pure (fromMaybe [] mSteps)
         OpUpdate _ v -> do
