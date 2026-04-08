@@ -130,7 +130,7 @@ import Cardano.MPFS.Generators
     , genTxIn
     )
 import Cardano.MPFS.Mock.State (mkMockState)
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider (Provider (..), SlotNo (..))
 import Cardano.MPFS.State
     ( Requests (..)
     , State (..)
@@ -211,6 +211,8 @@ mkTestProvider utxos =
         { queryUTxOs = \_ -> pure utxos
         , queryProtocolParams = pure zeroPP
         , evaluateTx = \_ -> pure Map.empty
+        , posixMsToSlot = \_ -> pure (SlotNo 0)
+        , posixMsCeilSlot = \_ -> pure (SlotNo 0)
         }
 
 -- | Dummy TrieManager that errors on use.
@@ -250,6 +252,8 @@ mkRoutingProvider routes =
                     )
         , queryProtocolParams = pure zeroPP
         , evaluateTx = \_ -> pure Map.empty
+        , posixMsToSlot = \_ -> pure (SlotNo 0)
+        , posixMsCeilSlot = \_ -> pure (SlotNo 0)
         }
 
 -- | Provider with realistic PParams.
@@ -260,6 +264,8 @@ mkRealisticProvider utxos =
         { queryUTxOs = \_ -> pure utxos
         , queryProtocolParams = pure realisticPP
         , evaluateTx = \_ -> pure Map.empty
+        , posixMsToSlot = \_ -> pure (SlotNo 0)
+        , posixMsCeilSlot = \_ -> pure (SlotNo 0)
         }
 
 -- | Routing provider with realistic PParams.
@@ -278,6 +284,8 @@ mkRealisticRoutingProvider routes =
                     )
         , queryProtocolParams = pure realisticPP
         , evaluateTx = \_ -> pure Map.empty
+        , posixMsToSlot = \_ -> pure (SlotNo 0)
+        , posixMsCeilSlot = \_ -> pure (SlotNo 0)
         }
 
 -- | Build a state TxOut with the cage token.

@@ -57,6 +57,11 @@ mkTestContext = do
                             )
                     , evaluateTx = \_ ->
                         error "unused: evaluateTx"
+                    , posixMsToSlot = \_ ->
+                        error "unused: posixMsToSlot"
+                    , posixMsCeilSlot = \_ ->
+                        error
+                            "unused: posixMsCeilSlot"
                     }
             , trieManager = tm
             , state = st
