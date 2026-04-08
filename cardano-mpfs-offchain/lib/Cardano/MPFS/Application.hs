@@ -63,9 +63,10 @@ import Control.Concurrent.STM
     )
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
-import Control.Tracer (Tracer, contramap, traceWith)
+import Control.Tracer (Tracer (..), contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
@@ -130,6 +131,10 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
     ( RunTransaction (..)
     )
+import Cardano.UTxOCSMT.Application.Metrics
+    ( MetricsEvent (..)
+    , metricsFold
+    )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
     , context
@@ -152,6 +157,8 @@ import ChainFollower.Rollbacks.Store qualified as CFStore
 import ChainFollower.Rollbacks.Types (RollbackPoint (..))
 import ChainFollower.Runner (Phase (..))
 import Control.Lens (iso)
+import Data.Tracer.Fold (foldTracer)
+import Data.Tracer.Timestamp (utcTimestampTracer)
 
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Network.Block qualified as Network
@@ -454,6 +461,21 @@ withApplication cfg action = do
                             else
                                 pure
                                     $ InRestoration restoring
+                    -- Metrics pipeline: fold events
+                    -- into a Metrics snapshot stored
+                    -- in an IORef
+                    metricsRef <- newIORef Nothing
+                    let shareMetrics downstream =
+                            Tracer $ \a -> do
+                                writeIORef metricsRef (Just a)
+                                traceWith downstream a
+                    metricsFolded <-
+                        foldTracer
+                            metricsFold
+                            (shareMetrics (Tracer $ const $ pure ()))
+                    let metricsTracer =
+                            utcTimestampTracer metricsFolded
+
                     -- Commit notification TVar for awaitUtxo
                     commitNotify' <-
                         newTVarIO (0 :: Int)
@@ -494,9 +516,16 @@ withApplication cfg action = do
                                                 )
                                                 (appTracer cfg)
                                             )
-                                            ( contramap
-                                                TraceChainTip
-                                                (appTracer cfg)
+                                            ( Tracer $ \slot -> do
+                                                traceWith
+                                                    metricsTracer
+                                                    (ChainTipEvent slot)
+                                                traceWith
+                                                    ( contramap
+                                                        TraceChainTip
+                                                        (appTracer cfg)
+                                                    )
+                                                    slot
                                             )
                                             ( contramap
                                                 ( \p ->
@@ -604,7 +633,7 @@ withApplication cfg action = do
                                 , utxoRoot = root
                                 , utxoProof = proof
                                 , readMetrics =
-                                    pure Nothing
+                                    readIORef metricsRef
                                 }
                     action ctx
                         `finally` do
