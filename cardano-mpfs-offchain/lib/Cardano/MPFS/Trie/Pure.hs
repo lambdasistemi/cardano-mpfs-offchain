@@ -133,7 +133,7 @@ getRootFromDb :: MPFInMemoryDB -> IO Root
 getRootFromDb db =
     let (mHash, _) = runMPFPure db getRootHashM
     in  pure $ case mHash of
-            Nothing -> Root B.empty
+            Nothing -> Root (B.replicate 32 0)
             Just h -> Root (renderMPFHash h)
 
 -- | Generate a Merkle proof for a key.
