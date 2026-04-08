@@ -59,7 +59,7 @@ trieManagerSpec newTM = do
         createTrie tm tokenA
         withTrie tm tokenA $ \trie -> do
             root <- getRoot trie
-            unRoot root `shouldBe` B.empty
+            unRoot root `shouldBe` B.replicate 32 0
 
     it "withTrie on missing trie throws" $ do
         tm <- newTM
@@ -103,7 +103,7 @@ trieManagerSpec newTM = do
         -- tokenB should still be empty
         withTrie tm tokenB $ \trie -> do
             root <- getRoot trie
-            unRoot root `shouldBe` B.empty
+            unRoot root `shouldBe` B.replicate 32 0
 
     it "createTrie overwrites existing" $ do
         tm <- newTM
@@ -114,7 +114,7 @@ trieManagerSpec newTM = do
         createTrie tm tokenA
         withTrie tm tokenA $ \trie -> do
             root <- getRoot trie
-            unRoot root `shouldBe` B.empty
+            unRoot root `shouldBe` B.replicate 32 0
 
     it "withTrie insert reflects in root" $ do
         tm <- newTM
@@ -139,7 +139,7 @@ trieManagerSpec newTM = do
         -- Real trie should still be empty
         withTrie tm tokenA $ \trie -> do
             root <- getRoot trie
-            unRoot root `shouldBe` B.empty
+            unRoot root `shouldBe` B.replicate 32 0
 
     it "speculative root matches real root" $ do
         tm <- newTM

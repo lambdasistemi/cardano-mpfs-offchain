@@ -1191,7 +1191,7 @@ tokStateA :: TokenState
 tokStateA =
     TokenState
         { owner = testKeyHash
-        , root = Root BS.empty
+        , root = Root (BS.replicate 32 0)
         , maxFee = Coin 1_000_000
         , processTime = 100
         , retractTime = 200

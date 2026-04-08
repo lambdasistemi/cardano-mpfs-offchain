@@ -295,7 +295,7 @@ tokStateA =
         }
 
 rootA :: Root
-rootA = Root BS.empty
+rootA = Root (BS.replicate 32 0)
 
 rootB :: Root
 rootB = Root "new-root-hash-bytes"

@@ -434,7 +434,7 @@ propPureEquivalentRoot
                             getRootHashM
                         pureRoot =
                             maybe
-                                B.empty
+                                (B.replicate 32 0)
                                 renderMPFHash
                                 mRoot
                     trie <-
@@ -659,7 +659,10 @@ propTokenIsolation
                             $ uncurry (insert trie)
                     withTrie tm tidB $ \trie -> do
                         Root root <- getRoot trie
-                        pure (root === B.empty)
+                        pure
+                            ( root
+                                === B.replicate 32 0
+                            )
 
 -- | Creating a token that already has data resets
 -- its root to empty.
@@ -693,7 +696,10 @@ propCreateOverwrites
                     createTrie tm tid
                     withTrie tm tid $ \trie -> do
                         Root root <- getRoot trie
-                        pure (root === B.empty)
+                        pure
+                            ( root
+                                === B.replicate 32 0
+                            )
 
 -- | Delete then re-insert restores root on a
 -- non-empty persistent trie.
@@ -867,7 +873,9 @@ deletedTrieStaysDeletedAfterReopen =
                             Root root <-
                                 getRoot trie
                             root
-                                `shouldBe` B.empty
+                                `shouldBe` B.replicate
+                                    32
+                                    0
 
 -- | Two tokens with data, close + reopen, both
 -- intact (no registerTrie needed).
