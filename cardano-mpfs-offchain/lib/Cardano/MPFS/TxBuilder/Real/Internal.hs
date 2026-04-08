@@ -214,6 +214,19 @@ evaluateAndBalance prov pp inputUtxos changeAddr tx =
                     & bodyTxL . inputsTxBodyL
                         .~ allIns
         evalResult <- evaluateTx prov txForEval
+        -- Check for script evaluation failures
+        let failures =
+                [ (p, e)
+                | (p, Left e) <-
+                    Map.toList evalResult
+                ]
+        if null failures
+            then pure ()
+            else
+                error
+                    $ "evaluateAndBalance: \
+                      \script eval failed: "
+                        <> show failures
         let
             -- Extract current redeemers
             Redeemers rdmrMap =
