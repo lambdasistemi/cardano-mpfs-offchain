@@ -17,6 +17,7 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
+import Debug.Trace (traceIO)
 import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
@@ -140,14 +141,22 @@ updateTokenImpl cfg prov _st tm tid addr = do
         [] -> error "updateToken: no UTxOs"
         (u : _) -> pure u
     -- 5. Compute proofs speculatively (no mutation)
-    (proofs, newRoot) <-
+    (proofs, newRoot, preRoot) <-
         withSpeculativeTrie tm tid $ \trie -> do
+            pr <- getRoot trie
             ps <-
                 mapM
                     (processRequest trie)
                     reqUtxos
             r <- getRoot trie
-            pure (ps, r)
+            pure (ps, r, pr)
+    traceIO
+        $ "updateToken: preRoot="
+            <> show preRoot
+            <> " newRoot="
+            <> show newRoot
+            <> " proofLens="
+            <> show (map length proofs)
     -- 7. Build new state output
     let oldState = case extractCageDatum stateOut of
             Just (StateDatum s) -> s
