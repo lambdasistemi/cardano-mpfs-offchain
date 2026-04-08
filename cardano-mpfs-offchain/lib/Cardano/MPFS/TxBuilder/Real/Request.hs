@@ -138,6 +138,8 @@ requestInsertImpl cfg prov st tid key value addr =
 
 -- | Build a request-delete transaction.
 -- Same structure as requestInsert with 'OpDelete'.
+-- The caller must supply the old value (needed for
+-- the on-chain proof).
 requestDeleteImpl
     :: CageConfig
     -- ^ Cage script config
@@ -149,10 +151,12 @@ requestDeleteImpl
     -- ^ Token whose trie to modify
     -> ByteString
     -- ^ Key to delete
+    -> ByteString
+    -- ^ Old value being deleted
     -> Addr
     -- ^ Requester's address
     -> IO (Tx ConwayEra)
-requestDeleteImpl cfg prov st tid key addr = do
+requestDeleteImpl cfg prov st tid key val addr = do
     mTs <- getToken (tokens st) tid
     TokenState{maxFee = Coin mf} <- case mTs of
         Nothing ->
@@ -171,7 +175,7 @@ requestDeleteImpl cfg prov st tid key addr = do
                 tid
                 addr
                 key
-                (OpDelete key)
+                (OpDelete val)
                 mf
                 now
         scriptAddr = cageAddrFromCfg cfg (network cfg)

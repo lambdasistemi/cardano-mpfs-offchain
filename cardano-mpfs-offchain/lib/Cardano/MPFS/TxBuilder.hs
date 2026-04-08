@@ -44,9 +44,10 @@ data TxBuilder m = TxBuilder
     , requestDelete
         :: TokenId
         -> ByteString
+        -> ByteString
         -> Addr
         -> m (Tx ConwayEra)
-    -- ^ Request deleting a key
+    -- ^ Request deleting a key (key, old value)
     , updateToken
         :: TokenId
         -> Addr

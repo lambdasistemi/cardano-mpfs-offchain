@@ -150,6 +150,7 @@ spec = describe "Cage E2E" $ do
                                         path
                                         applied
                                     deleteFlowSpec
+                                        path
                                         applied
 
 -- ---------------------------------------------------------
@@ -377,8 +378,9 @@ cageFlowSpec bpPath scriptBytes =
 
 -- | Tests delete requests and mixed batches:
 -- insert → update → delete → update → mixed batch.
-deleteFlowSpec :: SBS.ShortByteString -> Spec
-deleteFlowSpec scriptBytes =
+deleteFlowSpec
+    :: FilePath -> SBS.ShortByteString -> Spec
+deleteFlowSpec bpPath scriptBytes =
     it "delete and mixed batch update"
         $ withE2E scriptBytes
         $ \_sock _startMs cfg ctx -> do
@@ -461,12 +463,13 @@ deleteFlowSpec scriptBytes =
             assertSubmitted upd1Result
             awaitTx
 
-            -- Delete key "aaa" and update
+            -- Delete key "aaa" (old value "val1")
             unsignedDel <-
                 requestDelete
                     (txBuilder ctx)
                     tokenId
                     "aaa"
+                    "val1"
                     genesisAddr
             let signedDel =
                     addKeyWitness
@@ -488,6 +491,13 @@ deleteFlowSpec scriptBytes =
                     addKeyWitness
                         genesisSignKey
                         unsignedUpd2
+            dumpTxForAiken
+                (provider ctx)
+                cfg
+                _startMs
+                bpPath
+                "delete-update"
+                signedUpd2
             upd2Result <-
                 submitTx
                     (submitter ctx)
@@ -550,12 +560,14 @@ deleteFlowSpec scriptBytes =
             assertSubmitted upd3Result
             awaitTx
 
-            -- Now mixed: delete "bbb" + insert "ddd"
+            -- Now mixed: delete "bbb" (old value
+            -- "val2") + insert "ddd"
             unsignedDel2 <-
                 requestDelete
                     (txBuilder ctx)
                     tokenId
                     "bbb"
+                    "val2"
                     genesisAddr
             let signedDel2 =
                     addKeyWitness

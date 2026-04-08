@@ -30,7 +30,7 @@ mkMockTxBuilder =
             error
                 "mkMockTxBuilder: requestInsert \
                 \not implemented"
-        , requestDelete = \_ _ _ ->
+        , requestDelete = \_ _ _ _ ->
             error
                 "mkMockTxBuilder: requestDelete \
                 \not implemented"
