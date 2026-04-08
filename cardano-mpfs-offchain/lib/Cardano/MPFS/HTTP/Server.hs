@@ -86,11 +86,10 @@ import Cardano.MPFS.HTTP.Types
     , tokenStateToJSON
     )
 import Cardano.UTxOCSMT.Application.Metrics
-    ( Metrics
+    ( Metrics (..)
     , renderPrometheus
     )
 
-import Cardano.MPFS.Indexer qualified as Indexer
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
@@ -154,7 +153,7 @@ metricsHandler ctx = do
 
 statusHandler :: Context IO -> Handler StatusResponse
 statusHandler ctx = do
-    tip <- liftIO $ Indexer.getTip (indexer ctx)
+    mm <- liftIO $ readMetrics ctx
     mcp <-
         liftIO
             $ St.getCheckpoint
@@ -162,12 +161,15 @@ statusHandler ctx = do
     pure
         StatusResponse
             { tipSlot =
-                unSlotNo (Indexer.tipSlot tip)
+                maybe
+                    0
+                    unSlotNo
+                    (chainTipSlot =<< mm)
             , tipBlockId =
-                Hex
-                    ( unBlockId
-                        (Indexer.tipBlockId tip)
-                    )
+                maybe
+                    (Hex mempty)
+                    (Hex . unBlockId . snd)
+                    mcp
             , checkpointSlot =
                 fmap (unSlotNo . fst) mcp
             , checkpointBlockId =

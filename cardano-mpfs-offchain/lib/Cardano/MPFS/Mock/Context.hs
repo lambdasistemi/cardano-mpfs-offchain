@@ -6,7 +6,7 @@
 -- Convenience function that wires all mock
 -- implementations into a complete 'Context IO':
 -- 'mkMockProvider', 'mkMockSubmitter',
--- 'mkMockTxBuilder', 'mkMockState', 'mkMockIndexer',
+-- 'mkMockTxBuilder', 'mkMockState',
 -- and 'mkPureTrieManager'. Useful for integration
 -- tests and development workflows that need a fully
 -- typed 'Context' without any real infrastructure.
@@ -18,7 +18,6 @@ module Cardano.MPFS.Mock.Context
     ) where
 
 import Cardano.MPFS.Context (Context (..))
-import Cardano.MPFS.Mock.Indexer (mkMockIndexer)
 import Cardano.MPFS.Mock.Provider (mkMockProvider)
 import Cardano.MPFS.Mock.State (mkMockState)
 import Cardano.MPFS.Mock.Submitter (mkMockSubmitter)
@@ -42,7 +41,6 @@ mkMockContext = do
             { provider = mkMockProvider
             , trieManager = tm
             , state = st
-            , indexer = mkMockIndexer
             , submitter = mkMockSubmitter
             , txBuilder = mkMockTxBuilder
             , utxoExists = \_ -> pure False
