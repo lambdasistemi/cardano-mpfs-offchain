@@ -30,7 +30,6 @@ import Test.Hspec
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
-import Cardano.MPFS.Mock.Indexer (mkMockIndexer)
 import Cardano.MPFS.Mock.State (mkMockState)
 import Cardano.MPFS.Mock.Submitter (mkMockSubmitter)
 import Cardano.MPFS.Mock.TxBuilder (mkMockTxBuilder)
@@ -60,7 +59,6 @@ mkTestContext = do
                     }
             , trieManager = tm
             , state = st
-            , indexer = mkMockIndexer
             , submitter = mkMockSubmitter
             , txBuilder = mkMockTxBuilder
             , utxoExists = \_ -> pure False
@@ -99,7 +97,7 @@ spec = describe "GET /status" $ do
                 expectationFailure
                     "Expected JSON object"
 
-    it "returns tip_slot 0 for mock indexer" $ do
+    it "returns tip_slot 0 when no metrics" $ do
         ctx <- mkTestContext
         resp <- getStatus ctx
         case decode (simpleBody resp) of

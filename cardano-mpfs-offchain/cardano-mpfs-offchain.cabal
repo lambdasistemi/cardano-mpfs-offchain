@@ -98,7 +98,6 @@ library
     Cardano.MPFS.HTTP.Server
     Cardano.MPFS.HTTP.Swagger
     Cardano.MPFS.HTTP.Types
-    Cardano.MPFS.Indexer
     Cardano.MPFS.Indexer.Backend
     Cardano.MPFS.Indexer.CageFollower
     Cardano.MPFS.Indexer.Codecs
@@ -108,9 +107,7 @@ library
     Cardano.MPFS.Indexer.Follower
     Cardano.MPFS.Indexer.Persistent
     Cardano.MPFS.Mock.Context
-    Cardano.MPFS.Mock.Indexer
     Cardano.MPFS.Mock.Provider
-    Cardano.MPFS.Mock.Skeleton
     Cardano.MPFS.Mock.State
     Cardano.MPFS.Mock.Submitter
     Cardano.MPFS.Mock.TxBuilder

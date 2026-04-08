@@ -184,9 +184,6 @@ import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.Indexer.Persistent
     ( mkPersistentState
     )
-import Cardano.MPFS.Mock.Skeleton
-    ( mkSkeletonIndexer
-    )
 import Cardano.MPFS.Provider.NodeClient
     ( mkNodeClientProvider
     )
@@ -558,7 +555,6 @@ withApplication cfg action = do
                             else pure Nothing
 
                     -- Connection 2: LSQ + LTxS
-                    idx <- mkSkeletonIndexer
                     lsqCh <-
                         newLSQChannel
                             (channelCapacity cfg)
@@ -623,7 +619,6 @@ withApplication cfg action = do
                                         prov
                                         st
                                         tm
-                                , indexer = idx
                                 , utxoExists = exists
                                 , resolveUtxo = resolve
                                 , awaitUtxo =

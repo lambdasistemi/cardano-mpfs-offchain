@@ -18,7 +18,6 @@ module Cardano.MPFS.Context
 import Data.ByteString (ByteString)
 
 import Cardano.MPFS.Core.Types (TxIn)
-import Cardano.MPFS.Indexer (Indexer)
 import Cardano.MPFS.Provider (Provider)
 import Cardano.MPFS.State (State)
 import Cardano.MPFS.Submitter (Submitter)
@@ -35,8 +34,6 @@ data Context m = Context
     -- ^ Per-token trie management
     , state :: State m
     -- ^ Token and request state tracking
-    , indexer :: Indexer m
-    -- ^ Chain sync follower
     , submitter :: Submitter m
     -- ^ Transaction submission
     , txBuilder :: TxBuilder m
