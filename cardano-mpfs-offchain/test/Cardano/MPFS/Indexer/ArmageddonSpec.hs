@@ -593,7 +593,7 @@ tokStateA :: TokenState
 tokStateA =
     TokenState
         { owner = testKeyHash
-        , root = Root BS.empty
+        , root = Root (BS.replicate 32 0)
         , maxFee = Coin 1_000_000
         , processTime = 100
         , retractTime = 200
@@ -603,7 +603,7 @@ tokStateB :: TokenState
 tokStateB =
     TokenState
         { owner = testKeyHash
-        , root = Root BS.empty
+        , root = Root (BS.replicate 32 0)
         , maxFee = Coin 2_000_000
         , processTime = 150
         , retractTime = 250

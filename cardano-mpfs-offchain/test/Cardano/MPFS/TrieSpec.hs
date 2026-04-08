@@ -142,10 +142,10 @@ trieSpec newTrie = do
             Cardano.MPFS.Trie.lookup trie "keep"
         mVal `shouldSatisfy` isJust
 
-    it "getRoot on empty returns empty root" $ do
+    it "getRoot on empty returns null root" $ do
         trie <- newTrie
         root <- getRoot trie
-        unRoot root `shouldBe` B.empty
+        unRoot root `shouldBe` B.replicate 32 0
 
     it "getProof for existing key" $ do
         trie <- newTrie
