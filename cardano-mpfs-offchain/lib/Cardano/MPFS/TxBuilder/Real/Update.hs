@@ -320,12 +320,14 @@ updateTokenImpl cfg prov _st tm tid addr = do
 --   The on-chain @mpf.delete@ checks
 --   @including(key, value, proof) == old_root@.
 --   The key must still be in the trie when the proof
---   is generated.
+--   is generated (inclusion proofs require the key
+--   to exist).
 --
 -- * __Update__: proof obtained /before/ the update.
---   The proof path depends only on the key, not the
---   value, so either order works; we use before for
---   consistency with delete.
+--   The on-chain @mpf.update@ checks
+--   @including(key, old_value, proof) == old_root@
+--   and computes @including(key, new_value, proof)@.
+--   The key must exist when the proof is generated.
 processRequest
     :: Monad m
     => Trie m
@@ -347,11 +349,11 @@ processRequest trie (_txIn, txOut) = do
             mSteps <- getProofSteps trie key
             pure (fromMaybe [] mSteps)
         OpDelete _ -> do
-            _ <- Cardano.MPFS.Trie.delete trie key
             mSteps <- getProofSteps trie key
+            _ <- Cardano.MPFS.Trie.delete trie key
             pure (fromMaybe [] mSteps)
         OpUpdate _ v -> do
-            _ <- Cardano.MPFS.Trie.delete trie key
             mSteps <- getProofSteps trie key
+            _ <- Cardano.MPFS.Trie.delete trie key
             _ <- insert trie key v
             pure (fromMaybe [] mSteps)
