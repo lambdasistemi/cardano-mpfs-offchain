@@ -17,7 +17,11 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
-import Debug.Trace (traceIO, traceM)
+import Control.Exception (SomeException, try)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock.POSIX
+    ( utcTimeToPOSIXSeconds
+    )
 import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
@@ -84,7 +88,10 @@ import Cardano.MPFS.Core.Types
     , Root (..)
     , TokenId
     )
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo
+    )
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.Trie
     ( Trie (..)
@@ -141,22 +148,14 @@ updateTokenImpl cfg prov _st tm tid addr = do
         [] -> error "updateToken: no UTxOs"
         (u : _) -> pure u
     -- 5. Compute proofs speculatively (no mutation)
-    (proofs, newRoot, preRoot) <-
+    (proofs, newRoot) <-
         withSpeculativeTrie tm tid $ \trie -> do
-            pr <- getRoot trie
             ps <-
                 mapM
                     (processRequest trie)
                     reqUtxos
             r <- getRoot trie
-            pure (ps, r, pr)
-    traceIO
-        $ "updateToken: preRoot="
-            <> show preRoot
-            <> " newRoot="
-            <> show newRoot
-            <> " proofLens="
-            <> show (map length proofs)
+            pure (ps, r)
     -- 7. Build new state output
     let oldState = case extractCageDatum stateOut of
             Just (StateDatum s) -> s
@@ -273,8 +272,30 @@ updateTokenImpl cfg prov _st tm tid addr = do
                             + stateProcessTime oldState
                     )
                     reqUtxos
-    upperSlot <-
-        posixMsToSlot prov earliestDeadline
+    -- The deadline might be past the node's
+    -- forecast horizon (PastHorizon) on short-
+    -- lived devnets. Fall back to the current
+    -- time which is always within the horizon
+    -- and before the far-future deadline.
+    mUpperSlot <-
+        try @SomeException
+            (posixMsToSlot prov earliestDeadline)
+    upperSlot <- case mUpperSlot of
+        Right s -> pure s
+        Left _ -> do
+            nowUtc <- getCurrentTime
+            let posixSec =
+                    utcTimeToPOSIXSeconds nowUtc
+                -- Try now+30s, now+5s, now+2s
+                -- as fallback chain (devnet
+                -- horizon may be very short)
+            trySlots prov
+                $ map
+                    ( \d ->
+                        round
+                            ((posixSec + d) * 1000)
+                    )
+                    [30, 5, 2]
     let
         vldt =
             ValidityInterval
@@ -310,6 +331,21 @@ updateTokenImpl cfg prov _st tm tid addr = do
   where
     when False _ = pure ()
     when True act = act
+
+-- | Try converting successive POSIX ms values to
+-- slots, returning the first that succeeds.
+trySlots
+    :: Provider IO -> [Integer] -> IO SlotNo
+trySlots _ [] =
+    error
+        "posixMsToSlot: all fallbacks \
+        \past horizon"
+trySlots p (ms : rest) = do
+    r <- try @SomeException
+        (posixMsCeilSlot p ms)
+    case r of
+        Right s -> pure s
+        Left _ -> trySlots p rest
 
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.
@@ -356,15 +392,9 @@ processRequest trie (_txIn, txOut) = do
         OpInsert v -> do
             _ <- insert trie key v
             mSteps <- getProofSteps trie key
-            traceM
-                $ "processReq INSERT: mSteps="
-                    <> show (fmap length mSteps)
             pure (fromMaybe [] mSteps)
         OpDelete _ -> do
             mSteps <- getProofSteps trie key
-            traceM
-                $ "processReq DELETE: mSteps="
-                    <> show (fmap length mSteps)
             _ <- Cardano.MPFS.Trie.delete trie key
             pure (fromMaybe [] mSteps)
         OpUpdate _ v -> do

@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
@@ -36,11 +35,9 @@ module Cardano.MPFS.Trie.Persistent
     , withPersistentTrieManager
     ) where
 
-import Control.Lens (Prism', review)
-import Debug.Trace (traceIO)
+import Control.Lens (Prism')
 
 import Data.ByteString (ByteString)
-import Data.Maybe (isJust)
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.IORef
@@ -81,7 +78,6 @@ import Database.RocksDB
     , ColumnFamily
     , Config (..)
     , DB (..)
-    , Iterator
     , createIterator
     , destroyIterator
     , getCF
@@ -580,22 +576,6 @@ persistentWithSpeculativeTrie
                             nodesCF
                             kvCF
                             BS.empty
-                -- Debug: count all keys in nodes CF
-                -- with this prefix
-                let pfxBs =
-                        review hexKeyPrism hexPfx
-                mRaw <- getCF db nodesCF pfxBs
-                i <- createIterator db (Just nodesCF)
-                iterSeek i pfxBs
-                nodeCount <- countPrefix i pfxBs 0
-                destroyIterator i
-                traceIO
-                    $ "specTrie: pfxBs="
-                        <> show pfxBs
-                        <> " rootExists="
-                        <> show (isJust mRaw)
-                        <> " nodesInCF="
-                        <> show nodeCount
                 runSpeculation
                     database
                     ( action
@@ -830,21 +810,6 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
 -- --------------------------------------------------------
 -- Prefixed iterator (for IO layer)
 -- --------------------------------------------------------
-
--- | Count entries with a given prefix (debug)
-countPrefix :: Iterator -> ByteString -> Int -> IO Int
-countPrefix i pfx !n = do
-    v <- iterValid i
-    if v
-        then do
-            me <- iterEntry i
-            case me of
-                Just (k, _)
-                    | BS.isPrefixOf pfx k -> do
-                        iterNext i
-                        countPrefix i pfx (n + 1)
-                _ -> pure n
-        else pure n
 
 mkPrefixedIterator
     :: DB
