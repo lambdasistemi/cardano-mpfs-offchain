@@ -128,6 +128,7 @@ library
     Cardano.MPFS.TxBuilder.Real.Boot
     Cardano.MPFS.TxBuilder.Real.End
     Cardano.MPFS.TxBuilder.Real.Internal
+    Cardano.MPFS.TxBuilder.Real.Reject
     Cardano.MPFS.TxBuilder.Real.Request
     Cardano.MPFS.TxBuilder.Real.Retract
     Cardano.MPFS.TxBuilder.Real.Update
