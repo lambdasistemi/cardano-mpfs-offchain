@@ -13,17 +13,17 @@ module Cardano.MPFS.TxBuilder.Real.Update
     ( updateTokenImpl
     ) where
 
+import Control.Exception (SomeException, try)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
-import Control.Exception (SomeException, try)
+import Data.Sequence.Strict qualified as StrictSeq
+import Data.Set qualified as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX
     ( utcTimeToPOSIXSeconds
     )
-import Data.Sequence.Strict qualified as StrictSeq
-import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
@@ -286,9 +286,9 @@ updateTokenImpl cfg prov _st tm tid addr = do
             nowUtc <- getCurrentTime
             let posixSec =
                     utcTimeToPOSIXSeconds nowUtc
-                -- Try now+30s, now+5s, now+2s
-                -- as fallback chain (devnet
-                -- horizon may be very short)
+            -- Try now+30s, now+5s, now+2s
+            -- as fallback chain (devnet
+            -- horizon may be very short)
             trySlots prov
                 $ map
                     ( \d ->
@@ -341,8 +341,9 @@ trySlots _ [] =
         "posixMsToSlot: all fallbacks \
         \past horizon"
 trySlots p (ms : rest) = do
-    r <- try @SomeException
-        (posixMsCeilSlot p ms)
+    r <-
+        try @SomeException
+            (posixMsCeilSlot p ms)
     case r of
         Right s -> pure s
         Left _ -> trySlots p rest
