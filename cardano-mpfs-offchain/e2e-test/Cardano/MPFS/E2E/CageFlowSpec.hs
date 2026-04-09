@@ -140,6 +140,7 @@ spec = describe "CageFlow E2E" $ do
                             in  do
                                     cageFlowSpec applied
                                     deleteFlowSpec applied
+                                    rejectFlowSpec applied
 
 -- ---------------------------------------------------------
 -- Test implementation
@@ -519,6 +520,92 @@ deleteFlowSpec scriptBytes =
                                 /= preMixedRoot ->
                                 Just ()
                         _ -> Nothing
+
+-- | Reject via CageFollower:
+-- boot → insert request → wait Phase 3 → reject
+-- → verify requests consumed, root unchanged.
+rejectFlowSpec :: SBS.ShortByteString -> Spec
+rejectFlowSpec scriptBytes =
+    it "reject expired requests via CageFollower"
+        $ do
+            withE2E scriptBytes $ \cfg ctx -> do
+                -- Boot
+                signedBoot <-
+                    buildAndSubmit ctx
+                        $ bootToken
+                            (txBuilder ctx)
+                            genesisAddr
+                let tokenId =
+                        extractTokenId cfg signedBoot
+                _ <-
+                    pollOrFail 30 "boot"
+                        $ getToken
+                            (tokens (state ctx))
+                            tokenId
+
+                -- Insert request
+                _ <-
+                    buildAndSubmit ctx
+                        $ requestInsert
+                            (txBuilder ctx)
+                            tokenId
+                            "reject-me"
+                            "val"
+                            genesisAddr
+                _ <-
+                    pollOrFail 30 "request" $ do
+                        rs <-
+                            requestsByToken
+                                ( requests
+                                    (state ctx)
+                                )
+                                tokenId
+                        if null rs
+                            then pure Nothing
+                            else pure (Just rs)
+
+                -- Wait for Phase 3
+                -- process_time=15s, retract_time=15s
+                -- Phase 3 starts at submitted_at+30s
+                threadDelay 32_000_000
+
+                -- Record root before reject
+                Just preRejectTs <-
+                    getToken
+                        (tokens (state ctx))
+                        tokenId
+                let preRejectRoot = root preRejectTs
+
+                -- Reject
+                _ <-
+                    buildAndSubmit ctx
+                        $ rejectRequests
+                            (txBuilder ctx)
+                            tokenId
+                            genesisAddr
+
+                -- Verify requests consumed
+                pollOrFail 60 "reject" $ do
+                    rs <-
+                        requestsByToken
+                            (requests (state ctx))
+                            tokenId
+                    if null rs
+                        then do
+                            -- Verify root unchanged
+                            mTs <-
+                                getToken
+                                    ( tokens
+                                        (state ctx)
+                                    )
+                                    tokenId
+                            pure $ case mTs of
+                                Just t
+                                    | root t
+                                        == preRejectRoot ->
+                                        Just ()
+                                _ -> Nothing
+                        else pure Nothing
 
 -- ---------------------------------------------------------
 -- Bracket
