@@ -144,12 +144,13 @@ rejectRequestsImpl cfg prov _st tid addr = do
                     let sa = requestSubmittedAt r
                         deadline = sa + pt + rt
                     in  now > deadline
-                        || sa > now
+                            || sa > now
                 _ -> False
         reqUtxos = filter isRejectable allReqs
     when (null reqUtxos)
-        $ error "rejectRequests: no rejectable \
-                \requests"
+        $ error
+            "rejectRequests: no rejectable \
+            \requests"
     -- 4. Get wallet UTxO for fees
     pp <- queryProtocolParams prov
     walletUtxos <- queryUTxOs prov addr

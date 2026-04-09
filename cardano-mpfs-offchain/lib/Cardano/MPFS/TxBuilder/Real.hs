@@ -51,14 +51,14 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     , spendingIndex
     , toPlcData
     )
+import Cardano.MPFS.TxBuilder.Real.Reject
+    ( rejectRequestsImpl
+    )
 import Cardano.MPFS.TxBuilder.Real.Request
     ( requestDeleteImpl
     , requestInsertImpl
     , requestLockedAda
     , requestUpdateImpl
-    )
-import Cardano.MPFS.TxBuilder.Real.Reject
-    ( rejectRequestsImpl
     )
 import Cardano.MPFS.TxBuilder.Real.Retract
     ( retractRequestImpl
