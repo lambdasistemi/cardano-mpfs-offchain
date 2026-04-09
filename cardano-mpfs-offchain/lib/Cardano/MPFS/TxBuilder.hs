@@ -48,6 +48,14 @@ data TxBuilder m = TxBuilder
         -> Addr
         -> m (Tx ConwayEra)
     -- ^ Request deleting a key (key, old value)
+    , requestUpdate
+        :: TokenId
+        -> ByteString
+        -> ByteString
+        -> ByteString
+        -> Addr
+        -> m (Tx ConwayEra)
+    -- ^ Request updating a key (key, old val, new val)
     , updateToken
         :: TokenId
         -> Addr
@@ -58,6 +66,11 @@ data TxBuilder m = TxBuilder
         -> Addr
         -> m (Tx ConwayEra)
     -- ^ Cancel a pending request
+    , rejectRequests
+        :: TokenId
+        -> Addr
+        -> m (Tx ConwayEra)
+    -- ^ Reject Phase 3 requests for a token
     , endToken
         :: TokenId
         -> Addr

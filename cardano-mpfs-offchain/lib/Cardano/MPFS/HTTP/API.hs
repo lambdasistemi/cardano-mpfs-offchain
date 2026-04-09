@@ -41,6 +41,8 @@ module Cardano.MPFS.HTTP.API
     , TxBootAPI
     , TxInsertAPI
     , TxDeleteAPI
+    , TxRequestUpdateAPI
+    , TxRejectAPI
     , TxUpdateAPI
     , TxRetractAPI
     , TxEndAPI
@@ -69,6 +71,7 @@ import Cardano.MPFS.HTTP.Types
     , DeleteRequest
     , EndRequest
     , InsertRequest
+    , RejectRequest
     , RequestJSON
     , RetractRequest
     , StatusResponse
@@ -76,6 +79,7 @@ import Cardano.MPFS.HTTP.Types
     , TokenIdJSON
     , TokenStateJSON
     , UpdateRequest
+    , UpdateValueRequest
     )
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
 
@@ -193,6 +197,23 @@ type TxDeleteAPI =
         :> ReqBody '[JSON] DeleteRequest
         :> Post '[JSON] Hex
 
+-- | @POST \/tx\/request\/update@ — build an
+-- update-value request transaction.
+type TxRequestUpdateAPI =
+    "tx"
+        :> "request"
+        :> "update"
+        :> ReqBody '[JSON] UpdateValueRequest
+        :> Post '[JSON] Hex
+
+-- | @POST \/tx\/reject@ — build a reject
+-- transaction for Phase 3 requests.
+type TxRejectAPI =
+    "tx"
+        :> "reject"
+        :> ReqBody '[JSON] RejectRequest
+        :> Post '[JSON] Hex
+
 -- | @POST \/tx\/update@ — build an update
 -- transaction.
 type TxUpdateAPI =
@@ -246,6 +267,8 @@ type API =
         :<|> TxBootAPI
         :<|> TxInsertAPI
         :<|> TxDeleteAPI
+        :<|> TxRequestUpdateAPI
+        :<|> TxRejectAPI
         :<|> TxUpdateAPI
         :<|> TxRetractAPI
         :<|> TxEndAPI

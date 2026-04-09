@@ -27,6 +27,8 @@ module Cardano.MPFS.HTTP.Types
     , BootRequest (..)
     , InsertRequest (..)
     , DeleteRequest (..)
+    , UpdateValueRequest (..)
+    , RejectRequest (..)
     , UpdateRequest (..)
     , RetractRequest (..)
     , EndRequest (..)
@@ -291,6 +293,38 @@ instance FromJSON DeleteRequest where
             <*> o .: "value"
             <*> o .: "address"
 
+-- | @POST \/tx\/request\/update@ request body.
+data UpdateValueRequest = UpdateValueRequest
+    { uvrToken :: TokenIdJSON
+    , uvrKey :: Hex
+    , uvrOldValue :: Hex
+    , uvrNewValue :: Hex
+    , uvrAddr :: Hex
+    }
+
+instance FromJSON UpdateValueRequest where
+    parseJSON =
+        withObject "UpdateValueRequest" $ \o ->
+            UpdateValueRequest
+                <$> o .: "token"
+                <*> o .: "key"
+                <*> o .: "old_value"
+                <*> o .: "new_value"
+                <*> o .: "address"
+
+-- | @POST \/tx\/reject@ request body.
+data RejectRequest = RejectRequest
+    { rejToken :: TokenIdJSON
+    , rejAddr :: Hex
+    }
+
+instance FromJSON RejectRequest where
+    parseJSON =
+        withObject "RejectRequest" $ \o ->
+            RejectRequest
+                <$> o .: "token"
+                <*> o .: "address"
+
 -- | @POST \/tx\/update@ request body.
 data UpdateRequest = UpdateRequest
     { urToken :: TokenIdJSON
@@ -538,6 +572,60 @@ instance ToSchema DeleteRequest where
             & description
                 ?~ "Delete a key (value is the \
                    \current stored value)"
+
+instance ToSchema UpdateValueRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "UpdateValueRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("key", hexSchema)
+                    , ("old_value", hexSchema)
+                    , ("new_value", hexSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ [ "token"
+                   , "key"
+                   , "old_value"
+                   , "new_value"
+                   , "address"
+                   ]
+            & description
+                ?~ "Update a key's value \
+                   \(old and new values)"
+
+instance ToSchema RejectRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "RejectRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["token", "address"]
+            & description
+                ?~ "Reject Phase 3 expired \
+                   \requests for a token"
 
 instance ToSchema UpdateRequest where
     declareNamedSchema _ = do

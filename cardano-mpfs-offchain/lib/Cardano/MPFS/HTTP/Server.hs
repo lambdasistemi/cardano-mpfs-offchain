@@ -74,6 +74,7 @@ import Cardano.MPFS.HTTP.Types
     , DeleteRequest (..)
     , EndRequest (..)
     , InsertRequest (..)
+    , RejectRequest (..)
     , RequestJSON
     , RetractRequest (..)
     , StatusResponse (..)
@@ -81,6 +82,7 @@ import Cardano.MPFS.HTTP.Types
     , TokenIdJSON (..)
     , TokenStateJSON
     , UpdateRequest (..)
+    , UpdateValueRequest (..)
     , parseAddr
     , requestToJSON
     , tokenStateToJSON
@@ -119,6 +121,8 @@ mkApp ctx =
             :<|> txBootHandler ctx
             :<|> txInsertHandler ctx
             :<|> txDeleteHandler ctx
+            :<|> txUpdateValueHandler ctx
+            :<|> txRejectHandler ctx
             :<|> txUpdateHandler ctx
             :<|> txRetractHandler ctx
             :<|> txEndHandler ctx
@@ -414,6 +418,50 @@ txDeleteHandler
                     tid
                     k
                     v
+                    addr
+        pure (serializeTx tx)
+
+txUpdateValueHandler
+    :: Context IO
+    -> UpdateValueRequest
+    -> Handler Hex
+txUpdateValueHandler
+    ctx
+    UpdateValueRequest
+        { uvrToken = TokenIdJSON tid
+        , uvrKey = Hex k
+        , uvrOldValue = Hex oldV
+        , uvrNewValue = Hex newV
+        , uvrAddr = addrHex
+        } = do
+        addr <- requireAddr addrHex
+        tx <-
+            liftIO
+                $ Tx.requestUpdate
+                    (txBuilder ctx)
+                    tid
+                    k
+                    oldV
+                    newV
+                    addr
+        pure (serializeTx tx)
+
+txRejectHandler
+    :: Context IO
+    -> RejectRequest
+    -> Handler Hex
+txRejectHandler
+    ctx
+    RejectRequest
+        { rejToken = TokenIdJSON tid
+        , rejAddr = addrHex
+        } = do
+        addr <- requireAddr addrHex
+        tx <-
+            liftIO
+                $ Tx.rejectRequests
+                    (txBuilder ctx)
+                    tid
                     addr
         pure (serializeTx tx)
 
