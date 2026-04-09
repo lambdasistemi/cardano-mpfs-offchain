@@ -59,6 +59,8 @@ applyCageEvent State{..} = \case
                     ts{root = newRoot}
             Nothing -> pure ()
         mapM_ (removeRequest requests) consumed
+    CageReject _tid consumed ->
+        mapM_ (removeRequest requests) consumed
     CageRetract txIn ->
         removeRequest requests txIn
     CageBurn tid ->

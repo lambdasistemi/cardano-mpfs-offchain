@@ -125,6 +125,9 @@ data CageEvent
       -- UTxOs and updates the trie root. Carries the
       -- token, new root, and consumed request UTxOs.
       CageUpdate !TokenId !Root ![TxIn]
+    | -- | Oracle rejects expired Phase 3 requests.
+      -- Root unchanged, requests consumed.
+      CageReject !TokenId ![TxIn]
     | -- | Requester cancels a pending request.
       CageRetract !TxIn
     | -- | Burn cage token: token permanently removed.
@@ -275,6 +278,8 @@ detectCageEvents scriptHash resolvedInputs tx =
                 (BuiltinData plcData) of
                 Just (Modify _proofs) ->
                     detectUpdate txIn txOut
+                Just Reject ->
+                    detectReject txIn txOut
                 Just (Retract _ref) ->
                     detectRetract txIn
                 _ -> []
@@ -346,6 +351,18 @@ detectCageEvents scriptHash resolvedInputs tx =
                         == tid
             _ -> False
 
+    detectReject _stateTxIn _stateTxOut =
+        let outputs =
+                toList
+                    (body ^. outputsTxBodyL)
+        in  case findStateDatumWithToken outputs of
+                Just (tid, _root) ->
+                    let consumed =
+                            findConsumedRequests
+                                tid
+                    in  [CageReject tid consumed]
+                Nothing -> []
+
     detectRetract txIn = [CageRetract txIn]
 
 -- | Compute inverse operations for a cage event,
@@ -379,6 +396,14 @@ inversesOf lookupToken lookupReq = \case
                     )
                     consumed
         in  restoreRoot ++ restoreReqs
+    CageReject _tid consumed ->
+        concatMap
+            ( \txIn' -> case lookupReq txIn' of
+                Just req ->
+                    [InvRestoreRequest txIn' req]
+                Nothing -> []
+            )
+            consumed
     CageRetract txIn ->
         case lookupReq txIn of
             Just req ->
