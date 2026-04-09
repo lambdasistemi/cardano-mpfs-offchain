@@ -215,6 +215,20 @@ computeInverse
                         )
                         consumed
             pure $ restoreRoot ++ restoreReqs
+        CageReject _tid consumed ->
+            concat
+                <$> traverse
+                    ( \txIn -> do
+                        mReq <- getRequest txIn
+                        pure $ case mReq of
+                            Just req ->
+                                [ InvRestoreRequest
+                                    txIn
+                                    req
+                                ]
+                            Nothing -> []
+                    )
+                    consumed
         CageRetract txIn -> do
             mReq <- getRequest txIn
             pure $ case mReq of
@@ -279,6 +293,11 @@ applyCageEvent st tm = \case
                     ts{root = newRoot}
             Nothing -> pure ()
         pure trieInvs
+    CageReject _tid consumed -> do
+        mapM_
+            (removeRequest (requests st))
+            consumed
+        pure []
     CageRetract txIn -> do
         removeRequest (requests st) txIn
         pure []
