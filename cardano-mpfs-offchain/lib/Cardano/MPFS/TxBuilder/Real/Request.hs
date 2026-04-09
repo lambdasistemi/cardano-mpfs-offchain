@@ -11,6 +11,7 @@
 module Cardano.MPFS.TxBuilder.Real.Request
     ( requestInsertImpl
     , requestDeleteImpl
+    , requestUpdateImpl
     , requestLockedAda
     ) where
 
@@ -210,6 +211,95 @@ requestDeleteImpl cfg prov st tid key val addr = do
                 $ "requestDelete: "
                     <> show err
         Right balanced -> pure balanced
+
+-- | Build a request transaction for updating an
+-- existing key's value. Same structure as
+-- requestDelete but uses 'OpUpdate'.
+requestUpdateImpl
+    :: CageConfig
+    -- ^ Cage script config
+    -> Provider IO
+    -- ^ Blockchain query interface
+    -> State IO
+    -- ^ Token state (to look up maxFee)
+    -> TokenId
+    -- ^ Token whose trie to modify
+    -> ByteString
+    -- ^ Key to update
+    -> ByteString
+    -- ^ Old value (must match current)
+    -> ByteString
+    -- ^ New value
+    -> Addr
+    -- ^ Requester's address
+    -> IO (Tx ConwayEra)
+requestUpdateImpl
+    cfg
+    prov
+    st
+    tid
+    key
+    oldVal
+    newVal
+    addr = do
+        mTs <- getToken (tokens st) tid
+        TokenState{maxFee = Coin mf} <- case mTs of
+            Nothing ->
+                error
+                    "requestUpdate: unknown token"
+            Just x -> pure x
+        pp <- queryProtocolParams prov
+        utxos <- queryUTxOs prov addr
+        feeUtxo <- case sortOn
+            (Down . (^. coinTxOutL) . snd)
+            utxos of
+            [] ->
+                error "requestUpdate: no UTxOs"
+            (u : _) -> pure u
+        now <- currentPosixMs
+        let datum =
+                mkRequestDatum
+                    tid
+                    addr
+                    key
+                    (OpUpdate oldVal newVal)
+                    mf
+                    now
+            scriptAddr =
+                cageAddrFromCfg cfg (network cfg)
+            draftOut =
+                mkBasicTxOut
+                    scriptAddr
+                    (inject (Coin 0))
+                    & datumTxOutL
+                        .~ mkInlineDatum datum
+            refundDraft =
+                mkBasicTxOut
+                    addr
+                    (inject (Coin 0))
+            minAda =
+                requestLockedAda
+                    pp
+                    draftOut
+                    refundDraft
+                    mf
+            txOut =
+                mkBasicTxOut
+                    scriptAddr
+                    (inject minAda)
+                    & datumTxOutL
+                        .~ mkInlineDatum datum
+            body =
+                mkBasicTxBody
+                    & outputsTxBodyL
+                        .~ StrictSeq.singleton txOut
+            tx = mkBasicTx body
+        case balanceTx pp [feeUtxo] addr tx of
+            Left err ->
+                error
+                    $ "requestUpdate: "
+                        <> show err
+            Right balanced -> pure balanced
 
 -- | Compute the ADA to lock in a request output.
 --

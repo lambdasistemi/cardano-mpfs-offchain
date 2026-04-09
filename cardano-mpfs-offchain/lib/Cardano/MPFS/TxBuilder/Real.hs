@@ -55,6 +55,7 @@ import Cardano.MPFS.TxBuilder.Real.Request
     ( requestDeleteImpl
     , requestInsertImpl
     , requestLockedAda
+    , requestUpdateImpl
     )
 import Cardano.MPFS.TxBuilder.Real.Retract
     ( retractRequestImpl
@@ -82,9 +83,13 @@ mkRealTxBuilder cfg prov st tm =
             requestInsertImpl cfg prov st
         , requestDelete =
             requestDeleteImpl cfg prov st
+        , requestUpdate =
+            requestUpdateImpl cfg prov st
         , updateToken =
             updateTokenImpl cfg prov st tm
         , retractRequest =
             retractRequestImpl cfg prov st
+        , rejectRequests = \_ _ ->
+            error "rejectRequests: not yet implemented"
         , endToken = endTokenImpl cfg prov
         }

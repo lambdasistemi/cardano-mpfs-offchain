@@ -34,6 +34,10 @@ mkMockTxBuilder =
             error
                 "mkMockTxBuilder: requestDelete \
                 \not implemented"
+        , requestUpdate = \_ _ _ _ _ ->
+            error
+                "mkMockTxBuilder: requestUpdate \
+                \not implemented"
         , updateToken = \_ _ ->
             error
                 "mkMockTxBuilder: updateToken \
@@ -41,6 +45,10 @@ mkMockTxBuilder =
         , retractRequest = \_ _ ->
             error
                 "mkMockTxBuilder: retractRequest \
+                \not implemented"
+        , rejectRequests = \_ _ ->
+            error
+                "mkMockTxBuilder: rejectRequests \
                 \not implemented"
         , endToken = \_ _ ->
             error
