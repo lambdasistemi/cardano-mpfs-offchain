@@ -63,11 +63,11 @@
                 mpfs-devnet-server mpfs-bootstrap-genesis docker-image haddock;
               default = project.packages.cardano-mpfs-offchain;
             };
-            inherit (project) devShells;
+            inherit (project) devShells checks;
           };
       };
     in {
-      inherit (parts) packages devShells;
+      inherit (parts) packages devShells checks;
       inherit version;
     };
 }
