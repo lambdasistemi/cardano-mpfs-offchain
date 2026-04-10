@@ -1,4 +1,3 @@
-Entering cardano-mpfs-offchain dev shell
 {
     "definitions": {
         "BootRequest": {
@@ -14,7 +13,7 @@ Entering cardano-mpfs-offchain dev shell
             "type": "object"
         },
         "DeleteRequest": {
-            "description": "Delete a key",
+            "description": "Delete a key (value is the current stored value)",
             "properties": {
                 "address": {
                     "$ref": "#/definitions/Hex"
@@ -24,11 +23,15 @@ Entering cardano-mpfs-offchain dev shell
                 },
                 "token": {
                     "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
                 }
             },
             "required": [
                 "token",
                 "key",
+                "value",
                 "address"
             ],
             "type": "object"
@@ -77,6 +80,165 @@ Entering cardano-mpfs-offchain dev shell
             ],
             "type": "object"
         },
+        "Metrics": {
+            "description": "Metrics about CSMT operations and blockchain synchronization",
+            "properties": {
+                "averageQueueLength": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgBlockDecodeDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgCSMTDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgFinalityDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgRollbackDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgTotalBlockDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgTransactionDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "baseCheckpoint": {
+                    "type": "string"
+                },
+                "blockSpeed": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "chainTipSlot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "cumulativeBlockDecodeDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeBlocks": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "cumulativeCSMTDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeFinalityDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalCsmtOps": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalQueryTip": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalRollbackStore": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeRollbackDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeTotalBlockDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeTransactionDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "currentEra": {
+                    "type": "string"
+                },
+                "currentMerkleRoot": {
+                    "type": "string"
+                },
+                "lastBlockPoint": {
+                    "type": "string"
+                },
+                "maxQueueLength": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "syncPhase": {
+                    "$ref": "#/definitions/SyncPhase"
+                },
+                "utxoChangesCount": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "utxoSpeed": {
+                    "format": "double",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "averageQueueLength",
+                "maxQueueLength",
+                "utxoChangesCount",
+                "lastBlockPoint",
+                "utxoSpeed",
+                "blockSpeed",
+                "currentEra",
+                "currentMerkleRoot",
+                "baseCheckpoint",
+                "chainTipSlot",
+                "syncPhase",
+                "avgCSMTDuration",
+                "avgRollbackDuration",
+                "avgFinalityDuration",
+                "avgBlockDecodeDuration",
+                "avgTransactionDuration",
+                "avgTotalBlockDuration",
+                "cumulativeBlocks",
+                "cumulativeBlockDecodeDuration",
+                "cumulativeTransactionDuration",
+                "cumulativeCSMTDuration",
+                "cumulativeRollbackDuration",
+                "cumulativeFinalityDuration",
+                "cumulativeTotalBlockDuration",
+                "cumulativeInternalQueryTip",
+                "cumulativeInternalCsmtOps",
+                "cumulativeInternalRollbackStore"
+            ],
+            "type": "object"
+        },
+        "RejectRequest": {
+            "description": "Reject Phase 3 expired requests for a token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        },
         "RequestJSON": {
             "description": "Pending request",
             "properties": {
@@ -113,24 +275,17 @@ Entering cardano-mpfs-offchain dev shell
             "type": "object"
         },
         "RetractRequest": {
-            "description": "Retract a pending request",
+            "description": "Retract a pending request. UTxO format: txhash#ix",
             "properties": {
                 "address": {
                     "$ref": "#/definitions/Hex"
                 },
-                "tx_id": {
-                    "$ref": "#/definitions/Hex"
-                },
-                "tx_ix": {
-                    "format": "int64",
-                    "maximum": 1.8446744073709551615e19,
-                    "minimum": 0,
-                    "type": "integer"
+                "utxo": {
+                    "type": "string"
                 }
             },
             "required": [
-                "tx_id",
-                "tx_ix",
+                "utxo",
                 "address"
             ],
             "type": "object"
@@ -176,6 +331,16 @@ Entering cardano-mpfs-offchain dev shell
                 "tx"
             ],
             "type": "object"
+        },
+        "SyncPhase": {
+            "description": "Current synchronization phase: restoring, replaying, following, or synced",
+            "enum": [
+                "restoring",
+                "replaying",
+                "following",
+                "synced"
+            ],
+            "type": "string"
         },
         "TokenIdJSON": {
             "description": "Hex-encoded token identifier",
@@ -224,6 +389,34 @@ Entering cardano-mpfs-offchain dev shell
                 "address"
             ],
             "type": "object"
+        },
+        "UpdateValueRequest": {
+            "description": "Update a key's value (old and new values)",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "new_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "old_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "old_value",
+                "new_value",
+                "address"
+            ],
+            "type": "object"
         }
     },
     "info": {
@@ -235,6 +428,36 @@ Entering cardano-mpfs-offchain dev shell
         "version": "0.0.0"
     },
     "paths": {
+        "/metrics": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Metrics"
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/prometheus": {
+            "get": {
+                "produces": [
+                    "text/plain;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/status": {
             "get": {
                 "produces": [
@@ -475,6 +698,37 @@ Entering cardano-mpfs-offchain dev shell
                 }
             }
         },
+        "/tx/reject": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/tx/request/delete": {
             "post": {
                 "consumes": [
@@ -518,6 +772,37 @@ Entering cardano-mpfs-offchain dev shell
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/InsertRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/request/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateValueRequest"
                         }
                     }
                 ],
