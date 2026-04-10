@@ -26,6 +26,7 @@ jobs:
           .#e2e-tests
           .#cardano-mpfs-offchain
           .#docker-image
+          .#checks.x86_64-linux.swagger-up-to-date
           .#devShells.x86_64-linux.default.inputDerivation
 
   build:
