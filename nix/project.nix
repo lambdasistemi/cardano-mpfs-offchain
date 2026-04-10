@@ -71,4 +71,24 @@ in {
   packages.e2e-tests =
     project.hsPkgs.cardano-mpfs-offchain.components.tests.e2e-tests;
   packages.haddock = haddock;
+  packages.cardano-mpfs-swagger =
+    project.hsPkgs.cardano-mpfs-offchain
+      .components
+      .exes
+      .cardano-mpfs-swagger;
+  checks.swagger-up-to-date =
+    pkgs.runCommand "swagger-up-to-date" { } ''
+      ${
+        pkgs.lib.getExe
+          project.hsPkgs.cardano-mpfs-offchain
+            .components
+            .exes
+            .cardano-mpfs-swagger
+      } > $TMPDIR/swagger.json
+      diff -u ${../docs/assets/swagger.json} \
+        $TMPDIR/swagger.json \
+        || (echo "swagger.json is stale — run: \
+just update-swagger" && exit 1)
+      touch $out
+    '';
 }
