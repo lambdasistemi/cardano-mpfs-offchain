@@ -339,10 +339,8 @@ instance FromJSON UpdateRequest where
 
 -- | @POST \/tx\/retract@ request body.
 data RetractRequest = RetractRequest
-    { rrTxId :: Hex
-    -- ^ Transaction ID (32 bytes, hex)
-    , rrTxIx :: Word64
-    -- ^ Output index
+    { rrUtxo :: Text
+    -- ^ UTxO reference: @txhash#ix@
     , rrAddr :: Hex
     -- ^ Address
     }
@@ -350,8 +348,7 @@ data RetractRequest = RetractRequest
 instance FromJSON RetractRequest where
     parseJSON = withObject "RetractRequest" $ \o ->
         RetractRequest
-            <$> o .: "tx_id"
-            <*> o .: "tx_ix"
+            <$> o .: "utxo"
             <*> o .: "address"
 
 -- | @POST \/tx\/end@ request body.
@@ -651,10 +648,10 @@ instance ToSchema UpdateRequest where
 
 instance ToSchema RetractRequest where
     declareNamedSchema _ = do
+        stringSchema <-
+            declareSchemaRef (Proxy @String)
         hexSchema <-
             declareSchemaRef (Proxy @Hex)
-        word64Schema <-
-            declareSchemaRef (Proxy @Word64)
         pure
             $ Swagger.NamedSchema
                 (Just "RetractRequest")
@@ -663,14 +660,14 @@ instance ToSchema RetractRequest where
                 ?~ Swagger.SwaggerObject
             & properties
                 .~ fromList
-                    [ ("tx_id", hexSchema)
-                    , ("tx_ix", word64Schema)
+                    [ ("utxo", stringSchema)
                     , ("address", hexSchema)
                     ]
             & required
-                .~ ["tx_id", "tx_ix", "address"]
+                .~ ["utxo", "address"]
             & description
-                ?~ "Retract a pending request"
+                ?~ "Retract a pending request. \
+                   \UTxO format: txhash#ix"
 
 instance ToSchema EndRequest where
     declareNamedSchema _ = do

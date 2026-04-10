@@ -17,8 +17,11 @@ module Cardano.MPFS.HTTP.Server
 
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
+import Data.ByteString.Base16 qualified as B16
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
 import Servant
     ( Application
@@ -33,6 +36,7 @@ import Servant
     , throwError
     , (:<|>) (..)
     )
+import Text.Read (readMaybe)
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
@@ -487,13 +491,11 @@ txRetractHandler
 txRetractHandler
     ctx
     RetractRequest
-        { rrTxId = Hex tidBytes
-        , rrTxIx = ix
+        { rrUtxo = utxoRef
         , rrAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        txId <- parseTxIdRaw tidBytes
-        let txIn = mkTxInPartial txId (fromIntegral ix)
+        txIn <- parseUtxoRef utxoRef
         tx <-
             liftIO
                 $ Tx.retractRequest
@@ -546,6 +548,45 @@ txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
 -- ---------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------
+
+-- | Parse a UTxO reference in @txhash#ix@ format.
+parseUtxoRef :: Text -> Handler TxIn
+parseUtxoRef t =
+    case T.splitOn "#" t of
+        [hashHex, ixText] -> do
+            let hashBs =
+                    B16.decode
+                        (TE.encodeUtf8 hashHex)
+            case hashBs of
+                Right bs -> do
+                    txId <- parseTxIdRaw bs
+                    case readMaybe (T.unpack ixText) of
+                        Just ix ->
+                            pure
+                                $ mkTxInPartial
+                                    txId
+                                    ix
+                        Nothing ->
+                            throwError
+                                err400
+                                    { errBody =
+                                        "Invalid \
+                                        \output index"
+                                    }
+                Left _ ->
+                    throwError
+                        err400
+                            { errBody =
+                                "Invalid tx hash \
+                                \hex"
+                            }
+        _ ->
+            throwError
+                err400
+                    { errBody =
+                        "Invalid UTxO ref: \
+                        \expected txhash#ix"
+                    }
 
 -- | Decode CBOR bytes to a 'Tx ConwayEra'.
 decodeTx
