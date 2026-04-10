@@ -492,7 +492,7 @@ txRetractHandler
         , rrAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        txId <- parseTxId tidBytes
+        txId <- parseTxIdRaw tidBytes
         let txIn = mkTxInPartial txId (fromIntegral ix)
         tx <-
             liftIO
@@ -552,15 +552,3 @@ decodeTx
     :: ByteString
     -> Either DecoderError (Tx ConwayEra)
 decodeTx = decodeFull' (natVersion @11)
-
--- | Parse a 32-byte TxId from raw bytes.
-parseTxId :: ByteString -> Handler TxId
-parseTxId bs =
-    case decodeFull' (natVersion @11) bs of
-        Right tid -> pure tid
-        Left _err ->
-            throwError
-                err400
-                    { errBody =
-                        "Invalid transaction ID"
-                    }
