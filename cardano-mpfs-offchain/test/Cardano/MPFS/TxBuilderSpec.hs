@@ -198,7 +198,7 @@ testCageConfig =
         , cfgScriptHash = cageScriptHashLedger
         , defaultProcessTime = 300_000
         , defaultRetractTime = 600_000
-        , defaultMaxFee = Coin 1_000_000
+        , defaultTip = Coin 1_000_000
         , network = Testnet
         }
 
@@ -311,7 +311,7 @@ mkStateTxOut =
                     , stateRoot =
                         OnChainRoot
                             (BS.replicate 32 0)
-                    , stateMaxFee = 1_000_000
+                    , stateTip = 1_000_000
                     , stateProcessTime = 300_000
                     , stateRetractTime = 600_000
                     }
@@ -470,12 +470,12 @@ requestInsertSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has maxFee (zeroPP)" $ do
+        it "cage output has tip (zeroPP)" $ do
             tx <- runRequestInsert
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so locked=maxFee
+                    -- zeroPP: minUTxO=0, so locked=tip
                     outCoin `shouldBe` Coin 1_000_000
                 [] -> expectationFailure "no outputs"
 
@@ -508,12 +508,12 @@ requestDeleteSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has maxFee (zeroPP)" $ do
+        it "cage output has tip (zeroPP)" $ do
             tx <- runRequestDelete
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so locked=maxFee
+                    -- zeroPP: minUTxO=0, so locked=tip
                     outCoin `shouldBe` Coin 1_000_000
                 [] -> expectationFailure "no outputs"
 
@@ -707,7 +707,7 @@ bootTokenWithScript scriptBytes = do
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000
                 , defaultRetractTime = 600_000
-                , defaultMaxFee = Coin 1_000_000
+                , defaultTip = Coin 1_000_000
                 , network = Testnet
                 }
 
@@ -808,7 +808,7 @@ requestLockedAdaProps =
                                                 draft
                                     in  la >= reqMin
 
-        it "locked >= maxFee + refund minUTxO"
+        it "locked >= tip + refund minUTxO"
             $ property
             $ forAll genTokenId
             $ \tid ->
@@ -1198,7 +1198,7 @@ updateTxProps =
                 (refund : _) -> do
                     let Coin c =
                             refund ^. coinTxOutL
-                    -- request had 3M, maxFee=1M
+                    -- request had 3M, tip=1M
                     c `shouldBe` 2_000_000
                 _ ->
                     expectationFailure "no refund output"
@@ -1431,7 +1431,7 @@ bootTxPropsWithScript scriptBytes = do
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000
                 , defaultRetractTime = 600_000
-                , defaultMaxFee = Coin 1_000_000
+                , defaultTip = Coin 1_000_000
                 , network = Testnet
                 }
 
@@ -1564,7 +1564,7 @@ runRetractRequestWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1629,7 +1629,7 @@ runUpdateTokenWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1687,7 +1687,7 @@ runEndTokenWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1760,7 +1760,7 @@ mkTestFixture = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1798,7 +1798,7 @@ mkRealisticFixture = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1858,7 +1858,7 @@ runRealisticUpdateWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1911,7 +1911,7 @@ runTightUpdate = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1964,7 +1964,7 @@ runRealisticRetractWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -2025,7 +2025,7 @@ runRealisticEndWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }

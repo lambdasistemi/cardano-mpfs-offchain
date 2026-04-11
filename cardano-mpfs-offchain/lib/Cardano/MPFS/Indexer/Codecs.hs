@@ -195,7 +195,7 @@ tokenIdPrism =
         )
 
 -- | Encode/decode 'TokenState' as a 5-element CBOR
--- list: @[owner, root, maxFee, processTime,
+-- list: @[owner, root, tip, processTime,
 -- retractTime]@. Ledger types are embedded as
 -- sub-encoded byte strings.
 tokenStatePrism :: Prism' ByteString TokenState
@@ -208,21 +208,21 @@ tokenStatePrism = prism' enc dec
                     (ledgerEnc owner)
                 <> encodeBytes (unRoot root)
                 <> encodeBytes
-                    (ledgerEnc maxFee)
+                    (ledgerEnc tip)
                 <> encodeInteger processTime
                 <> encodeInteger retractTime
     dec = decodeCBOR $ do
         decodeListLenOf 5
         owner' <- ledgerDec =<< decodeBytes
         root' <- Root <$> decodeBytes
-        maxFee' <- ledgerDec =<< decodeBytes
+        tip' <- ledgerDec =<< decodeBytes
         processTime' <- decodeInteger
         retractTime' <- decodeInteger
         pure
             TokenState
                 { owner = owner'
                 , root = root'
-                , maxFee = maxFee'
+                , tip = tip'
                 , processTime = processTime'
                 , retractTime = retractTime'
                 }
@@ -573,7 +573,7 @@ encodeTokenState TokenState{..} =
     encodeListLen 5
         <> encodeBytes (ledgerEnc owner)
         <> encodeBytes (unRoot root)
-        <> encodeBytes (ledgerEnc maxFee)
+        <> encodeBytes (ledgerEnc tip)
         <> encodeInteger processTime
         <> encodeInteger retractTime
 
@@ -640,14 +640,14 @@ decTokenState bs = case decodeCBOR dec bs of
         decodeListLenOf 5
         owner' <- ledgerDec =<< decodeBytes
         root' <- Root <$> decodeBytes
-        maxFee' <- ledgerDec =<< decodeBytes
+        tip' <- ledgerDec =<< decodeBytes
         processTime' <- decodeInteger
         retractTime' <- decodeInteger
         pure
             TokenState
                 { owner = owner'
                 , root = root'
-                , maxFee = maxFee'
+                , tip = tip'
                 , processTime = processTime'
                 , retractTime = retractTime'
                 }

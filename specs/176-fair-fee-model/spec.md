@@ -93,12 +93,21 @@ Rename `stateMaxFee` → `stateTip` and `requestFee` → `requestTip` in all on-
 - **SC-004**: No local copies of upstream helpers remain in `Internal.hs`.
 - **SC-005**: No references to `maxFee` or `max_fee` remain in the codebase.
 
+## Known Gap: Minimum Locked ADA
+
+The conservation equation `refund = locked - tip - fee/N` requires sufficient locked ADA for `refund >= minUTxO`. Currently there is no on-chain enforcement — requests can lock too little, making them unprocessable. The oracle must filter these off-chain.
+
+Tracked in cardano-foundation/cardano-mpfs-onchain#38: add `minLocked` field to State datum and enforce in `Contribute` validator.
+
+For now, the offchain `requestLockedAda` uses `tip + refundMinUTxO` as the minimum. The E2E tests use a low `tip` (100_000) to leave room for the fee share. Production deployments should set `tip` conservatively.
+
 ## Assumptions
 
 - The `cardano-mpfs-onchain` PR (#37) is merged before we start implementation.
-- The upstream `balanceFeeLoop` handles the PlutusV3 script evaluation correctly.
+- The TxBuild DSL (cardano-node-clients fix/eval-retry branch) handles conservation-aware fee convergence.
 - Existing preprod tokens (old validator) are abandoned — new tokens use the updated blueprint.
 - The `tip` value is set by the oracle at boot time and is immutable (same as `max_fee` was).
+- Requests that can't cover `tip + fee_share + minUTxO` are skipped by the oracle during update (not enforced on-chain yet, see #38).
 
 ## Vertical Slice Strategy
 

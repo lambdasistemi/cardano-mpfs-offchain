@@ -15,6 +15,9 @@ import Control.Exception (SomeException, try)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
+
+import Cardano.Ledger.Plutus (Language (PlutusV3))
+import Cardano.Node.Client.Balance qualified as Upstream
 import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Data.Time.Clock (getCurrentTime)
@@ -34,6 +37,7 @@ import Cardano.Ledger.Alonzo.TxBody
     )
 import Cardano.Ledger.Api.Tx
     ( Tx
+    , bodyTxL
     , mkBasicTx
     , witsTxL
     )
@@ -169,24 +173,11 @@ rejectRequestsImpl cfg prov _st tid addr = do
                         ( toPlcData
                             (StateDatum oldState)
                         )
-    -- 6. Build refund outputs
-    let mkRefund (_, reqOut) =
-            let Coin reqVal =
-                    reqOut ^. coinTxOutL
-                Coin mf = defaultMaxFee cfg
-                refundAddr =
-                    addrFromKeyHashBytes
-                        (network cfg)
-                        (extractOwnerBytes reqOut)
-                rawRefund = Coin (reqVal - mf)
-                draft =
-                    mkBasicTxOut
-                        refundAddr
-                        (inject rawRefund)
-                minCoin = getMinCoinTxOut pp draft
-            in  mkBasicTxOut
-                    refundAddr
-                    (inject (max rawRefund minCoin))
+    -- 6. Build refund outputs (fee-dependent)
+    let OnChainTokenState
+            { stateTip = tipAmount
+            } = oldState
+        nReqs = fromIntegral (length reqUtxos)
         extractOwnerBytes out =
             case extractCageDatum out of
                 Just (RequestDatum req) ->
@@ -199,10 +190,48 @@ rejectRequestsImpl cfg prov _st tid addr = do
                     error
                         "extractOwnerBytes: \
                         \not a request"
-        refundOuts = map mkRefund reqUtxos
-        allOuts =
-            StrictSeq.fromList
-                (newStateOut : refundOuts)
+        mkRefunds txFee =
+            let Coin fee = txFee
+                perReqFee = fee `div` nReqs
+            in  map
+                    ( \(_, reqOut) ->
+                        let Coin reqVal =
+                                reqOut ^. coinTxOutL
+                            rawRefund =
+                                Coin
+                                    ( reqVal
+                                        - tipAmount
+                                        - perReqFee
+                                    )
+                            refundAddr =
+                                addrFromKeyHashBytes
+                                    (network cfg)
+                                    ( extractOwnerBytes
+                                        reqOut
+                                    )
+                            draft =
+                                mkBasicTxOut
+                                    refundAddr
+                                    (inject rawRefund)
+                            minCoin =
+                                getMinCoinTxOut
+                                    pp
+                                    draft
+                        in  mkBasicTxOut
+                                refundAddr
+                                ( inject
+                                    ( max
+                                        rawRefund
+                                        minCoin
+                                    )
+                                )
+                    )
+                    reqUtxos
+        mkAllOuts fee =
+            Right
+                $ StrictSeq.fromList
+                $ newStateOut
+                    : mkRefunds fee
     -- 7. Build redeemers
     let script = mkCageScript cfg
         scriptHash = hashScript script
@@ -286,7 +315,8 @@ rejectRequestsImpl cfg prov _st tid addr = do
             mkBasicTxBody
                 & inputsTxBodyL
                     .~ allScriptIns
-                & outputsTxBodyL .~ allOuts
+                & outputsTxBodyL
+                    .~ StrictSeq.empty
                 & collateralInputsTxBodyL
                     .~ Set.singleton
                         (fst feeUtxo)
@@ -295,7 +325,7 @@ rejectRequestsImpl cfg prov _st tid addr = do
                 & vldtTxBodyL .~ vldt
                 & scriptIntegrityHashTxBodyL
                     .~ integrity
-        tx =
+        templateTx =
             mkBasicTx body
                 & witsTxL . scriptTxWitsL
                     .~ Map.singleton
@@ -303,12 +333,65 @@ rejectRequestsImpl cfg prov _st tid addr = do
                         script
                 & witsTxL . rdmrsTxWitsL
                     .~ redeemers
-    evaluateAndBalance
-        prov
+    -- Evaluate scripts, patch ExUnits, balance
+    let allIns =
+            Set.insert (fst feeUtxo) allScriptIns
+        txForEval =
+            templateTx
+                & bodyTxL . inputsTxBodyL
+                    .~ allIns
+    evalResult <- evaluateTx prov txForEval
+    let failures =
+            [ (p, e)
+            | (p, Left e) <-
+                Map.toList evalResult
+            ]
+    if null failures
+        then pure ()
+        else
+            error
+                $ "rejectRequests: script eval \
+                  \failed: "
+                    <> show failures
+    let Redeemers rdmrMap =
+            templateTx
+                ^. witsTxL . rdmrsTxWitsL
+        patchedRdmrs =
+            Map.mapWithKey
+                ( \purpose (dat, eu) ->
+                    case Map.lookup
+                        purpose
+                        evalResult of
+                        Just (Right eu') ->
+                            (dat, eu')
+                        _ -> (dat, eu)
+                )
+                rdmrMap
+        newRedeemers = Redeemers patchedRdmrs
+        newIntegrity =
+            Upstream.computeScriptIntegrity
+                PlutusV3
+                pp
+                newRedeemers
+        patchedTx =
+            templateTx
+                & bodyTxL . inputsTxBodyL
+                    .~ allIns
+                & witsTxL . rdmrsTxWitsL
+                    .~ newRedeemers
+                & bodyTxL
+                    . scriptIntegrityHashTxBodyL
+                    .~ newIntegrity
+    case Upstream.balanceFeeLoop
         pp
-        (feeUtxo : stateUtxo : reqUtxos)
-        addr
-        tx
+        mkAllOuts
+        1
+        patchedTx of
+        Left err ->
+            error
+                $ "rejectRequests: fee loop: "
+                    <> show err
+        Right balanced -> pure balanced
   where
     when False _ = pure ()
     when True act = act

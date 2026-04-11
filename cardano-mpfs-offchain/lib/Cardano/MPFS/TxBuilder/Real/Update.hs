@@ -1,3 +1,6 @@
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Update
 -- Description : Update token transaction
@@ -14,12 +17,11 @@ module Cardano.MPFS.TxBuilder.Real.Update
     ) where
 
 import Control.Exception (SomeException, try)
+import Data.Void (Void)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
-import Data.Sequence.Strict qualified as StrictSeq
-import Data.Set qualified as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX
     ( utcTimeToPOSIXSeconds
@@ -27,25 +29,15 @@ import Data.Time.Clock.POSIX
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Allegra.Scripts
-    ( ValidityInterval (..)
-    )
-import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
-import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
-    )
 import Cardano.Ledger.Api.Tx
     ( Tx
-    , mkBasicTx
-    , witsTxL
+    , bodyTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , inputsTxBodyL
-    , mkBasicTxBody
-    , outputsTxBodyL
-    , vldtTxBodyL
+    ( feeTxBodyL
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
     )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
@@ -55,20 +47,6 @@ import Cardano.Ledger.Api.Tx.Out
     , mkBasicTxOut
     , valueTxOutL
     )
-import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
-    , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.BaseTypes
-    ( Inject (..)
-    , StrictMaybe (SJust, SNothing)
-    )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
-import Cardano.Ledger.Core (hashScript)
-import Cardano.Ledger.TxIn (TxIn)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -87,6 +65,7 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , Root (..)
     , TokenId
+    , TxIn
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -101,236 +80,10 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
+import Cardano.Node.Client.TxBuild qualified as Tx
 
--- | Build an update-token transaction.
---
--- Consumes the state UTxO and all pending request
--- UTxOs, processes each request through the trie,
--- and outputs a new state UTxO with updated root.
-updateTokenImpl
-    :: CageConfig
-    -- ^ Cage script config
-    -> Provider IO
-    -- ^ Blockchain query interface
-    -> State IO
-    -- ^ Token and request state
-    -> TrieManager IO
-    -- ^ Trie manager (for speculative proof generation)
-    -> TokenId
-    -- ^ Token to process requests for
-    -> Addr
-    -- ^ Oracle's address (pays fee, receives fee income)
-    -> IO (Tx ConwayEra)
-updateTokenImpl cfg prov _st tm tid addr = do
-    -- 1. Query cage UTxOs
-    let scriptAddr = cageAddrFromCfg cfg (network cfg)
-    cageUtxos <- queryUTxOs prov scriptAddr
-    -- 2. Find state UTxO
-    let policyId = cagePolicyIdFromCfg cfg
-    stateUtxo <- case findStateUtxo policyId tid cageUtxos of
-        Nothing ->
-            error
-                "updateToken: state UTxO not found"
-        Just x -> pure x
-    let (stateIn, stateOut) = stateUtxo
-    -- 3. Find request UTxOs for this token
-    let reqUtxos =
-            sortOn fst
-                $ findRequestUtxos tid cageUtxos
-    when (null reqUtxos)
-        $ error "updateToken: no pending requests"
-    -- 4. Get wallet UTxO for fees
-    pp <- queryProtocolParams prov
-    walletUtxos <- queryUTxOs prov addr
-    feeUtxo <- case sortOn
-        (Down . (^. coinTxOutL) . snd)
-        walletUtxos of
-        [] -> error "updateToken: no UTxOs"
-        (u : _) -> pure u
-    -- 5. Compute proofs speculatively (no mutation)
-    (proofs, newRoot) <-
-        withSpeculativeTrie tm tid $ \trie -> do
-            ps <-
-                mapM
-                    (processRequest trie)
-                    reqUtxos
-            r <- getRoot trie
-            pure (ps, r)
-    -- 7. Build new state output
-    let oldState = case extractCageDatum stateOut of
-            Just (StateDatum s) -> s
-            _ ->
-                error
-                    "updateToken: invalid state datum"
-        OnChainTokenState
-            { stateOwner = BuiltinByteString ownerBs
-            } = oldState
-        newStateDatum =
-            StateDatum
-                oldState
-                    { stateRoot =
-                        OnChainRoot (unRoot newRoot)
-                    }
-        newStateOut =
-            mkBasicTxOut
-                scriptAddr
-                (stateOut ^. valueTxOutL)
-                & datumTxOutL
-                    .~ mkInlineDatum
-                        (toPlcData newStateDatum)
-    -- 8. Build refund outputs (one per request)
-    let mkRefund (_, reqOut) =
-            let Coin reqVal =
-                    reqOut ^. coinTxOutL
-                Coin mf = defaultMaxFee cfg
-                refundAddr =
-                    addrFromKeyHashBytes
-                        (network cfg)
-                        (extractOwnerBytes reqOut)
-                rawRefund = Coin (reqVal - mf)
-                draft =
-                    mkBasicTxOut
-                        refundAddr
-                        (inject rawRefund)
-                minCoin = getMinCoinTxOut pp draft
-            in  mkBasicTxOut
-                    refundAddr
-                    (inject (max rawRefund minCoin))
-        extractOwnerBytes out =
-            case extractCageDatum out of
-                Just (RequestDatum req) ->
-                    let OnChainRequest
-                            { requestOwner =
-                                BuiltinByteString bs
-                            } = req
-                    in  bs
-                _ ->
-                    error
-                        "extractOwnerBytes: \
-                        \not a request"
-        refundOuts = map mkRefund reqUtxos
-        allOuts =
-            StrictSeq.fromList
-                (newStateOut : refundOuts)
-    -- 9. Build redeemers
-    let script = mkCageScript cfg
-        scriptHash = hashScript script
-        reqIns = map fst reqUtxos
-        allScriptIns =
-            Set.fromList (stateIn : reqIns)
-        allInputs =
-            Set.insert (fst feeUtxo) allScriptIns
-        stateRef = txInToRef stateIn
-        stateIx =
-            spendingIndex stateIn allInputs
-        modifyRedeemer = Modify proofs
-        contributeEntries =
-            map
-                ( \rIn ->
-                    let ix =
-                            spendingIndex
-                                rIn
-                                allInputs
-                        rdm = Contribute stateRef
-                    in  ( ConwaySpending (AsIx ix)
-                        ,
-                            ( toLedgerData rdm
-                            , placeholderExUnits
-                            )
-                        )
-                )
-                reqIns
-        redeemers =
-            Redeemers
-                $ Map.fromList
-                $ ( ConwaySpending
-                        (AsIx stateIx)
-                  ,
-                      ( toLedgerData modifyRedeemer
-                      , placeholderExUnits
-                      )
-                  )
-                    : contributeEntries
-        integrity =
-            computeScriptIntegrity pp redeemers
-        ownerKh =
-            addrWitnessKeyHash ownerBs
-        -- Phase 1: upper bound must be before
-        -- the earliest submitted_at + process_time.
-        -- Extract submitted_at from each request
-        -- and take the minimum deadline.
-        extractSubmittedAt (_, rOut) =
-            case extractCageDatum rOut of
-                Just (RequestDatum r) ->
-                    requestSubmittedAt r
-                _ -> 0
-        earliestDeadline =
-            minimum
-                $ map
-                    ( \u ->
-                        extractSubmittedAt u
-                            + stateProcessTime oldState
-                    )
-                    reqUtxos
-    -- The deadline might be past the node's
-    -- forecast horizon (PastHorizon) on short-
-    -- lived devnets. Fall back to the current
-    -- time which is always within the horizon
-    -- and before the far-future deadline.
-    mUpperSlot <-
-        try @SomeException
-            (posixMsToSlot prov earliestDeadline)
-    upperSlot <- case mUpperSlot of
-        Right s -> pure s
-        Left _ -> do
-            nowUtc <- getCurrentTime
-            let posixSec =
-                    utcTimeToPOSIXSeconds nowUtc
-            -- Try now+30s, now+5s, now+2s
-            -- as fallback chain (devnet
-            -- horizon may be very short)
-            trySlots prov
-                $ map
-                    ( \d ->
-                        round
-                            ((posixSec + d) * 1000)
-                    )
-                    [30, 5, 2]
-    let
-        vldt =
-            ValidityInterval
-                SNothing
-                (SJust upperSlot)
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL
-                    .~ allScriptIns
-                & outputsTxBodyL .~ allOuts
-                & collateralInputsTxBodyL
-                    .~ Set.singleton
-                        (fst feeUtxo)
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerKh
-                & vldtTxBodyL .~ vldt
-                & scriptIntegrityHashTxBodyL
-                    .~ integrity
-        tx =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton
-                        scriptHash
-                        script
-                & witsTxL . rdmrsTxWitsL
-                    .~ redeemers
-    evaluateAndBalance
-        prov
-        pp
-        (feeUtxo : stateUtxo : reqUtxos)
-        addr
-        tx
-  where
-    when False _ = pure ()
-    when True act = act
+-- | Empty query GADT (no context needed).
+data NoCtx a
 
 -- | Try converting successive POSIX ms values to
 -- slots, returning the first that succeeds.
@@ -347,6 +100,220 @@ trySlots p (ms : rest) = do
     case r of
         Right s -> pure s
         Left _ -> trySlots p rest
+
+-- | Build an update-token transaction (fair fee).
+--
+-- Uses the TxBuild DSL for convergent fee/refund
+-- balancing. Conservation equation:
+-- sum(refunds) = sum(inputs) - fee - N * tip
+updateTokenImpl
+    :: CageConfig
+    -> Provider IO
+    -> State IO
+    -> TrieManager IO
+    -> TokenId
+    -> Addr
+    -> IO (Tx ConwayEra)
+updateTokenImpl cfg prov _st tm tid addr = do
+    let scriptAddr =
+            cageAddrFromCfg cfg (network cfg)
+    cageUtxos <- queryUTxOs prov scriptAddr
+    let policyId = cagePolicyIdFromCfg cfg
+    stateUtxo <- case findStateUtxo
+        policyId
+        tid
+        cageUtxos of
+        Nothing ->
+            error
+                "updateToken: state UTxO \
+                \not found"
+        Just x -> pure x
+    let (stateIn, stateOut) = stateUtxo
+        reqUtxos =
+            sortOn fst
+                $ findRequestUtxos tid cageUtxos
+    when (null reqUtxos)
+        $ error "updateToken: no pending requests"
+    pp <- queryProtocolParams prov
+    walletUtxos <- queryUTxOs prov addr
+    feeUtxo <- case sortOn
+        (Down . (^. coinTxOutL) . snd)
+        walletUtxos of
+        [] -> error "updateToken: no UTxOs"
+        (u : _) -> pure u
+    -- Compute proofs
+    (proofs, newRoot) <-
+        withSpeculativeTrie tm tid $ \trie -> do
+            ps <-
+                mapM
+                    (processRequest trie)
+                    reqUtxos
+            r <- getRoot trie
+            pure (ps, r)
+    let oldState =
+            case extractCageDatum stateOut of
+                Just (StateDatum s) -> s
+                _ ->
+                    error
+                        "updateToken: invalid \
+                        \state datum"
+        OnChainTokenState
+            { stateOwner =
+                BuiltinByteString ownerBs
+            , stateTip = tipAmount
+            } = oldState
+        newStateDatum =
+            StateDatum
+                oldState
+                    { stateRoot =
+                        OnChainRoot (unRoot newRoot)
+                    }
+        newStateOut =
+            mkBasicTxOut
+                scriptAddr
+                (stateOut ^. valueTxOutL)
+                & datumTxOutL
+                    .~ mkInlineDatum
+                        (toPlcData newStateDatum)
+        stateRef = txInToRef stateIn
+        script = mkCageScript cfg
+        ownerKh = addrWitnessKeyHash ownerBs
+        nReqs =
+            fromIntegral (length reqUtxos)
+                :: Integer
+    -- Validity interval
+    let extractSubmittedAt (_, rOut) =
+            case extractCageDatum rOut of
+                Just (RequestDatum r) ->
+                    requestSubmittedAt r
+                _ -> 0
+        earliestDeadline =
+            minimum
+                $ map
+                    ( \u ->
+                        extractSubmittedAt u
+                            + stateProcessTime
+                                oldState
+                    )
+                    reqUtxos
+    mUpperSlot <-
+        try @SomeException
+            (posixMsToSlot prov earliestDeadline)
+    upperSlot <- case mUpperSlot of
+        Right s -> pure s
+        Left _ -> do
+            nowUtc <- getCurrentTime
+            let posixSec =
+                    utcTimeToPOSIXSeconds nowUtc
+            trySlots prov
+                $ map
+                    ( \d ->
+                        round
+                            ((posixSec + d) * 1000)
+                    )
+                    [30, 5, 2]
+    -- Build with DSL
+    let evalTx tx = do
+            r <- evaluateTx prov tx
+            pure
+                $ Map.map
+                    ( \case
+                        Left e -> Left (show e)
+                        Right eu -> Right eu
+                    )
+                    r
+        prog = do
+            -- Spend state UTxO
+            _ <-
+                Tx.spendScript
+                    stateIn
+                    (Modify proofs)
+            -- Spend request UTxOs
+            mapM_
+                ( \(rIn, _) ->
+                    Tx.spendScript
+                        rIn
+                        (Contribute stateRef)
+                )
+                reqUtxos
+            -- State output (unchanged value)
+            _ <- Tx.output newStateOut
+            -- Fee-dependent refund outputs
+            Coin fee <- Tx.peek $ \tx ->
+                let f = tx ^. bodyTxL . feeTxBodyL
+                in  if f > Coin 0
+                        then Tx.Ok f
+                        else Tx.Iterate f
+            let perReqFee = fee `div` nReqs
+            mapM_
+                ( \(_, reqOut) -> do
+                    let Coin reqVal =
+                            reqOut ^. coinTxOutL
+                        rawRefund =
+                            Coin
+                                ( reqVal
+                                    - tipAmount
+                                    - perReqFee
+                                )
+                        refundAddr =
+                            addrFromKeyHashBytes
+                                (network cfg)
+                                ( extractOwnerBytes
+                                    reqOut
+                                )
+                        draft =
+                            mkBasicTxOut
+                                refundAddr
+                                (inject rawRefund)
+                        minCoin =
+                            getMinCoinTxOut
+                                pp
+                                draft
+                    Tx.output
+                        $ mkBasicTxOut
+                            refundAddr
+                            ( inject
+                                ( max
+                                    rawRefund
+                                    minCoin
+                                )
+                            )
+                )
+                reqUtxos
+            -- Constraints
+            Tx.attachScript script
+            Tx.requireSignature ownerKh
+            Tx.collateral (fst feeUtxo)
+            Tx.validTo upperSlot
+    result <-
+        Tx.build
+            pp
+            (Tx.InterpretIO (const (pure undefined)))
+            evalTx
+            (feeUtxo : stateUtxo : reqUtxos)
+            addr
+            (prog :: Tx.TxBuild NoCtx Void ())
+    case result of
+        Right tx -> pure tx
+        Left err ->
+            error
+                $ "updateToken: build failed: "
+                    <> show err
+  where
+    when False _ = pure ()
+    when True act = act
+    extractOwnerBytes out =
+        case extractCageDatum out of
+            Just (RequestDatum req) ->
+                let OnChainRequest
+                        { requestOwner =
+                            BuiltinByteString bs
+                        } = req
+                in  bs
+            _ ->
+                error
+                    "extractOwnerBytes: \
+                    \not a request"
 
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.

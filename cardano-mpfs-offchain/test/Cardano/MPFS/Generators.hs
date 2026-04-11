@@ -125,7 +125,7 @@ genPosixTime =
         <$> choose (0 :: Int, 2_000_000_000)
 
 -- | Generate a 'TokenState' with random owner,
--- root, maxFee, processTime, and retractTime.
+-- root, tip, processTime, and retractTime.
 genTokenState :: Gen TokenState
 genTokenState =
     TokenState
@@ -191,7 +191,7 @@ genCageEvent = do
         , pure (CageBurn tid)
         ]
 
--- | Generate a maxFee in the range
+-- | Generate a tip in the range
 -- 500,000 .. 5,000,000 lovelace.
 genMaxFee :: Gen Coin
 genMaxFee = Coin <$> choose (500_000, 5_000_000)

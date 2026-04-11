@@ -148,7 +148,7 @@ data TokenStateJSON = TokenStateJSON
     -- ^ Owner payment key hash (hex)
     , root :: Hex
     -- ^ Current trie root hash
-    , maxFee :: Integer
+    , tip :: Integer
     -- ^ Maximum fee in lovelace
     , processTime :: Integer
     -- ^ Processing window (ms)
@@ -162,7 +162,7 @@ instance ToJSON TokenStateJSON where
         object
             [ "owner" .= owner
             , "root" .= root
-            , "max_fee" .= maxFee
+            , "tip" .= tip
             , "process_time" .= processTime
             , "retract_time" .= retractTime
             ]
@@ -173,14 +173,14 @@ tokenStateToJSON
     TokenState
         { owner = tsOwner
         , root = tsRoot
-        , maxFee = tsMaxFee
+        , tip = tsMaxFee
         , processTime = tsProcessTime
         , retractTime = tsRetractTime
         } =
         TokenStateJSON
             { owner = hashToHex tsOwner
             , root = Hex (unRoot tsRoot)
-            , maxFee = unCoin tsMaxFee
+            , tip = unCoin tsMaxFee
             , processTime = tsProcessTime
             , retractTime = tsRetractTime
             }
@@ -447,14 +447,14 @@ instance ToSchema TokenStateJSON where
                 .~ fromList
                     [ ("owner", textSchema)
                     , ("root", hexSchema)
-                    , ("max_fee", intSchema)
+                    , ("tip", intSchema)
                     , ("process_time", intSchema)
                     , ("retract_time", intSchema)
                     ]
             & required
                 .~ [ "owner"
                    , "root"
-                   , "max_fee"
+                   , "tip"
                    , "process_time"
                    , "retract_time"
                    ]

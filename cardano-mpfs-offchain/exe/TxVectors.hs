@@ -136,7 +136,7 @@ testTokenState =
     TokenState
         { owner = testKeyHash
         , root = Root (BS.replicate 32 0xbb)
-        , maxFee = Coin 2_000_000
+        , tip = Coin 2_000_000
         , processTime = 300_000
         , retractTime = 600_000
         }

@@ -81,7 +81,7 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 --
 -- Picks a wallet UTxO as seed for the asset name,
 -- mints +1 token at the cage policy, and creates
--- a State UTxO with empty root and maxFee.
+-- a State UTxO with empty root and tip.
 bootTokenImpl
     :: CageConfig
     -- ^ Cage script config
@@ -126,9 +126,9 @@ bootTokenImpl cfg prov addr = do
                                     (addrKeyHashBytes addr)
                             , stateRoot =
                                 OnChainRoot emptyRoot
-                            , stateMaxFee =
+                            , stateTip =
                                 let Coin c =
-                                        defaultMaxFee cfg
+                                        defaultTip cfg
                                 in  c
                             , stateProcessTime =
                                 defaultProcessTime cfg

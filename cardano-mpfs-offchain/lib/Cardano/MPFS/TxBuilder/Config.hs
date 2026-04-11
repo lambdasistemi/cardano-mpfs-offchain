@@ -36,7 +36,7 @@ data CageConfig = CageConfig
     -- ^ Phase 1 window (ms) for oracle processing
     , defaultRetractTime :: !Integer
     -- ^ Phase 2 window (ms) for requester retract
-    , defaultMaxFee :: !Coin
+    , defaultTip :: !Coin
     -- ^ Default max fee for newly booted tokens
     , network :: !Network
     -- ^ Target network (Mainnet or Testnet)

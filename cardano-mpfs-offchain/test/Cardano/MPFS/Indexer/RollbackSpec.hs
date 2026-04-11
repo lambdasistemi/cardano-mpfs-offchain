@@ -289,7 +289,7 @@ tokStateA =
     TokenState
         { owner = testKeyHash
         , root = rootA
-        , maxFee = Coin 1_000_000
+        , tip = Coin 1_000_000
         , processTime = 100
         , retractTime = 200
         }
