@@ -22,11 +22,16 @@ module Cardano.MPFS.TxBuilder.Real
       -- * Request locked ADA
     , requestLockedAda
 
+      -- * Refund computation
+    , computeRefund
+
       -- * Internals (for testing)
     , mkInlineDatum
     , mkRequestDatum
     , toPlcData
     , extractCageDatum
+    , extractOwnerBytes
+    , addrFromKeyHashBytes
     , spendingIndex
     ) where
 
@@ -44,8 +49,11 @@ import Cardano.MPFS.TxBuilder.Real.End
     ( endTokenImpl
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-    ( computeScriptHash
+    ( addrFromKeyHashBytes
+    , computeRefund
+    , computeScriptHash
     , extractCageDatum
+    , extractOwnerBytes
     , mkInlineDatum
     , mkRequestDatum
     , spendingIndex
