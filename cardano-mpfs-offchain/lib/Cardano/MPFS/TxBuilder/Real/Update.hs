@@ -17,6 +17,7 @@ module Cardano.MPFS.TxBuilder.Real.Update
     ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (when)
 import Data.Void (Void)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
@@ -69,7 +70,6 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
-    , SlotNo
     )
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.Trie
@@ -84,22 +84,6 @@ import Cardano.Node.Client.TxBuild qualified as Tx
 
 -- | Empty query GADT (no context needed).
 data NoCtx a
-
--- | Try converting successive POSIX ms values to
--- slots, returning the first that succeeds.
-trySlots
-    :: Provider IO -> [Integer] -> IO SlotNo
-trySlots _ [] =
-    error
-        "posixMsToSlot: all fallbacks \
-        \past horizon"
-trySlots p (ms : rest) = do
-    r <-
-        try @SomeException
-            (posixMsCeilSlot p ms)
-    case r of
-        Right s -> pure s
-        Left _ -> trySlots p rest
 
 -- | Build an update-token transaction (fair fee).
 --
@@ -299,22 +283,6 @@ updateTokenImpl cfg prov _st tm tid addr = do
             error
                 $ "updateToken: build failed: "
                     <> show err
-  where
-    when False _ = pure ()
-    when True act = act
-    extractOwnerBytes out =
-        case extractCageDatum out of
-            Just (RequestDatum req) ->
-                let OnChainRequest
-                        { requestOwner =
-                            BuiltinByteString bs
-                        } = req
-                in  bs
-            _ ->
-                error
-                    "extractOwnerBytes: \
-                    \not a request"
-
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.
 --

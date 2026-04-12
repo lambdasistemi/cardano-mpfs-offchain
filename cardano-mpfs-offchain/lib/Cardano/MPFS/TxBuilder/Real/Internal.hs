@@ -51,6 +51,13 @@ module Cardano.MPFS.TxBuilder.Real.Internal
 
       -- * Constants
     , emptyRoot
+
+      -- * Time and slot helpers
+    , currentPosixMs
+    , trySlots
+
+      -- * Request helpers
+    , extractOwnerBytes
     ) where
 
 import Data.ByteString (ByteString)
@@ -159,7 +166,11 @@ import Cardano.MPFS.Core.Types
     , PParams
     , TokenId (..)
     )
+import Control.Exception (SomeException, try)
+import Data.Time.Clock.POSIX (getPOSIXTime)
+
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.Slotting.Slot (SlotNo)
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -531,3 +542,48 @@ computeScriptIntegrity pp rdmrs =
                 (getLanguageView pp PlutusV3)
         emptyDats = TxDats mempty
     in  hashScriptIntegrity langViews rdmrs emptyDats
+
+-- | Get current POSIX time in milliseconds.
+currentPosixMs :: IO Integer
+currentPosixMs = do
+    t <- getPOSIXTime
+    pure $ floor (t * 1000)
+
+-- | Try converting successive POSIX ms values to
+-- slots, returning the first that succeeds.
+--
+-- Ouroboros slot conversion can fail when the
+-- target time is past the forecast horizon. This
+-- helper tries each candidate in order and returns
+-- the first successful conversion.
+trySlots
+    :: Provider IO -> [Integer] -> IO SlotNo
+trySlots _ [] =
+    error
+        "posixMsToSlot: all fallbacks \
+        \past horizon"
+trySlots p (ms : rest) = do
+    r <-
+        try @SomeException
+            (posixMsCeilSlot p ms)
+    case r of
+        Right s -> pure s
+        Left _ -> trySlots p rest
+
+-- | Extract the owner key hash bytes from a
+-- request 'TxOut'. Fails if the output does not
+-- carry a 'RequestDatum'.
+extractOwnerBytes
+    :: TxOut ConwayEra -> ByteString
+extractOwnerBytes out =
+    case extractCageDatum out of
+        Just (RequestDatum req) ->
+            let OnChainRequest
+                    { requestOwner =
+                        BuiltinByteString bs
+                    } = req
+            in  bs
+        _ ->
+            error
+                "extractOwnerBytes: \
+                \not a request"
