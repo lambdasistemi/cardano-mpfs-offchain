@@ -76,7 +76,7 @@ spec = describe "GET /tokens/:id" $ do
                     `shouldBe` True
                 KM.member "root" obj
                     `shouldBe` True
-                KM.member "max_fee" obj
+                KM.member "tip" obj
                     `shouldBe` True
                 KM.member "process_time" obj
                     `shouldBe` True

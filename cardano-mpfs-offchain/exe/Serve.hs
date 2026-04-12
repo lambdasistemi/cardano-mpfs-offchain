@@ -194,7 +194,7 @@ mkCageCfg args scriptBytes =
             computeScriptHash scriptBytes
         , defaultProcessTime = 300_000
         , defaultRetractTime = 300_000
-        , defaultMaxFee = Coin 2_000_000
+        , defaultTip = Coin 2_000_000
         , network = argNetwork args
         }
 

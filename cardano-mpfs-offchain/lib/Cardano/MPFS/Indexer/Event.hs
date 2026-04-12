@@ -425,7 +425,7 @@ fromOnChainState OnChainTokenState{..} =
     TokenState
         { owner = keyHashFromBBS stateOwner
         , root = Root (unOnChainRoot stateRoot)
-        , maxFee = Coin stateMaxFee
+        , tip = Coin stateTip
         , processTime = stateProcessTime
         , retractTime = stateRetractTime
         }

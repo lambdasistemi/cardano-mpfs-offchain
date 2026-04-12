@@ -275,7 +275,7 @@ spec = do
                             BuiltinByteString "own"
                         , stateRoot =
                             OnChainRoot "rt"
-                        , stateMaxFee = 1000
+                        , stateTip = 1000
                         , stateProcessTime = 300
                         , stateRetractTime = 600
                         }

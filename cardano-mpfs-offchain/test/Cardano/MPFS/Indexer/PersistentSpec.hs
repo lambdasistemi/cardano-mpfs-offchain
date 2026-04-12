@@ -482,7 +482,7 @@ fixTokenState =
     TokenState
         { owner = fixKeyHash
         , root = Root (BS.replicate 32 0)
-        , maxFee = Coin 1_000_000
+        , tip = Coin 1_000_000
         , processTime = 60
         , retractTime = 120
         }

@@ -23,7 +23,9 @@
       url = "github:lambdasistemi/cardano-node-clients";
     };
     cardano-node.follows = "cardano-node-clients/cardano-node";
-    cardano-mpfs-onchain = { url = "github:paolino/cardano-mpfs-onchain"; };
+    cardano-mpfs-onchain = {
+      url = "github:cardano-foundation/cardano-mpfs-onchain/001-fair-fee-model";
+    };
     cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
   };
 

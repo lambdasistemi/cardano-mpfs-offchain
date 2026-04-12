@@ -349,9 +349,6 @@
         "TokenStateJSON": {
             "description": "On-chain token state",
             "properties": {
-                "max_fee": {
-                    "type": "integer"
-                },
                 "owner": {
                     "type": "string"
                 },
@@ -363,12 +360,15 @@
                 },
                 "root": {
                     "$ref": "#/definitions/Hex"
+                },
+                "tip": {
+                    "type": "integer"
                 }
             },
             "required": [
                 "owner",
                 "root",
-                "max_fee",
+                "tip",
                 "process_time",
                 "retract_time"
             ],

@@ -157,7 +157,7 @@ data OnChainTokenState = OnChainTokenState
     -- ^ Payment key hash of the token owner (28 bytes)
     , stateRoot :: !OnChainRoot
     -- ^ Current Merkle root of the token's trie
-    , stateMaxFee :: !Integer
+    , stateTip :: !Integer
     -- ^ Maximum fee (lovelace) charged per request
     , stateProcessTime :: !Integer
     -- ^ Oracle processing window duration (ms)
@@ -441,7 +441,7 @@ instance ToData OnChainTokenState where
                 0
                 [ bbsToD stateOwner
                 , unD (toBuiltinData stateRoot)
-                , I stateMaxFee
+                , I stateTip
                 , I stateProcessTime
                 , I stateRetractTime
                 ]
@@ -451,7 +451,7 @@ instance FromData OnChainTokenState where
         Constr 0 [own, r, I mf, I pt, I rt] -> do
             stateOwner <- bbsFromD own
             stateRoot <- fromBuiltinData (mkD r)
-            let stateMaxFee = mf
+            let stateTip = mf
                 stateProcessTime = pt
                 stateRetractTime = rt
             Just OnChainTokenState{..}
@@ -465,7 +465,7 @@ instance UnsafeFromData OnChainTokenState where
                     BuiltinByteString own
                 , stateRoot =
                     unsafeFromBuiltinData (mkD r)
-                , stateMaxFee = mf
+                , stateTip = mf
                 , stateProcessTime = pt
                 , stateRetractTime = rt
                 }
@@ -719,34 +719,34 @@ instance UnsafeFromData UpdateRedeemer where
 cageScriptHash :: ByteString
 cageScriptHash =
     BS.pack
-        [ 0x7f
-        , 0xbe
-        , 0xb9
-        , 0xca
-        , 0x9c
-        , 0xbd
-        , 0x42
-        , 0xaf
-        , 0x3d
-        , 0xf0
-        , 0x70
-        , 0xf0
-        , 0xff
-        , 0xb8
-        , 0xc5
-        , 0x16
-        , 0xe2
-        , 0x83
+        [ 0xe4
+        , 0x62
+        , 0xb3
+        , 0x8f
+        , 0xe5
+        , 0xcd
+        , 0xb6
+        , 0xee
+        , 0x3e
+        , 0xe5
+        , 0x1f
+        , 0x9d
+        , 0xc2
         , 0xda
-        , 0x31
-        , 0xfe
-        , 0x04
-        , 0x9e
-        , 0x03
-        , 0xfe
-        , 0xce
-        , 0x89
-        , 0xb8
+        , 0xa7
+        , 0x3c
+        , 0x77
+        , 0x1b
+        , 0x26
+        , 0x99
+        , 0x57
+        , 0xa9
+        , 0x9a
+        , 0x06
+        , 0x99
+        , 0x99
+        , 0x23
+        , 0x93
         ]
 
 -- | The cage validator 'ScriptHash' (ledger type).
