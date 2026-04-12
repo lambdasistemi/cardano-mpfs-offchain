@@ -18,7 +18,6 @@ module Cardano.MPFS.TxBuilder.Real.Update
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Void (Void)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -27,6 +26,7 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Clock.POSIX
     ( utcTimeToPOSIXSeconds
     )
+import Data.Void (Void)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
@@ -37,9 +37,6 @@ import Cardano.Ledger.Api.Tx
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
     )
-import Cardano.Ledger.BaseTypes
-    ( Inject (..)
-    )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , coinTxOutL
@@ -47,6 +44,9 @@ import Cardano.Ledger.Api.Tx.Out
     , getMinCoinTxOut
     , mkBasicTxOut
     , valueTxOutL
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
     )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -283,6 +283,7 @@ updateTokenImpl cfg prov _st tm tid addr = do
             error
                 $ "updateToken: build failed: "
                     <> show err
+
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.
 --

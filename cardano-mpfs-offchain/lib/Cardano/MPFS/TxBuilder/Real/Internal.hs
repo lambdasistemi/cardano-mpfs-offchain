@@ -170,11 +170,11 @@ import Control.Exception (SomeException, try)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Cardano.MPFS.Provider (Provider (..))
-import Cardano.Slotting.Slot (SlotNo)
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.Node.Client.Balance (balanceTx)
+import Cardano.Slotting.Slot (SlotNo)
 
 -- | Empty MPF root (32 zero bytes).
 emptyRoot :: ByteString
