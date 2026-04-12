@@ -147,7 +147,8 @@ import Cardano.MPFS.Trie.PureManager
 import Cardano.MPFS.TxBuilder (TxBuilder (..))
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real
-    ( computeScriptHash
+    ( computeRefund
+    , computeScriptHash
     , extractCageDatum
     , mkInlineDatum
     , mkRealTxBuilder
@@ -415,6 +416,7 @@ spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     endTokenSpec
     bootTokenSpec
     requestLockedAdaProps
+    refundComputationProps
     spendingIndexProps
     requestTxProps
     updateTxProps
@@ -981,6 +983,77 @@ requestLockedAdaProps =
                                     in  la
                                             == Coin
                                                 (mf + feeBuffer)
+
+-- ---------------------------------------------------------
+-- Group A2: computeRefund (pure)
+-- ---------------------------------------------------------
+
+refundComputationProps :: Spec
+refundComputationProps =
+    describe "computeRefund" $ do
+        it
+            "refund + tip + feeShare <= reqVal"
+            $ do
+                let tip = 100_000
+                    perReqFee = 500_000
+                    refundOut =
+                        computeRefund
+                            realisticPP
+                            Testnet
+                            tip
+                            perReqFee
+                            mkRequestTxOut
+                    Coin refund =
+                        refundOut ^. coinTxOutL
+                    Coin reqVal =
+                        mkRequestTxOut ^. coinTxOutL
+                (refund + tip + perReqFee)
+                    `shouldSatisfy` (<= reqVal)
+
+        it
+            "refund >= minUTxO for viable request"
+            $ do
+                let tip = 100_000
+                    perReqFee = 200_000
+                    refundOut =
+                        computeRefund
+                            realisticPP
+                            Testnet
+                            tip
+                            perReqFee
+                            mkRequestTxOut
+                    refund =
+                        refundOut ^. coinTxOutL
+                    minUtxo =
+                        getMinCoinTxOut
+                            realisticPP
+                            refundOut
+                refund
+                    `shouldSatisfy` (>= minUtxo)
+
+        it
+            "exact conservation equation"
+            $ do
+                let tip = 100_000
+                    perReqFee = 500_000
+                    Coin reqVal =
+                        mkRequestTxOut ^. coinTxOutL
+                    refundOut =
+                        computeRefund
+                            zeroPP
+                            Testnet
+                            tip
+                            perReqFee
+                            mkRequestTxOut
+                    Coin refund =
+                        refundOut ^. coinTxOutL
+                -- zeroPP: minUTxO=0, so refund is
+                -- exact (no clamping).
+                refund
+                    `shouldBe` ( reqVal
+                                    - tip
+                                    - perReqFee
+                               )
 
 -- ---------------------------------------------------------
 -- Group B: spendingIndex (pure)

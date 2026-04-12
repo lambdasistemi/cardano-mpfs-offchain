@@ -58,6 +58,9 @@ module Cardano.MPFS.TxBuilder.Real.Internal
 
       -- * Request helpers
     , extractOwnerBytes
+
+      -- * Refund computation
+    , computeRefund
     ) where
 
 import Data.ByteString (ByteString)
@@ -105,14 +108,18 @@ import Cardano.Ledger.Api.Tx.Body
     )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
+    , coinTxOutL
     , datumTxOutL
+    , getMinCoinTxOut
+    , mkBasicTxOut
     , valueTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( rdmrsTxWitsL
     )
 import Cardano.Ledger.BaseTypes
-    ( Network
+    ( Inject (..)
+    , Network
     , StrictMaybe
     , TxIx (..)
     )
@@ -162,6 +169,7 @@ import Cardano.MPFS.Core.OnChain
     )
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
+    , Coin (..)
     , ConwayEra
     , PParams
     , TokenId (..)
@@ -587,3 +595,38 @@ extractOwnerBytes out =
             error
                 "extractOwnerBytes: \
                 \not a request"
+
+-- | Compute a refund output for a request.
+--
+-- Conservation equation per request:
+-- @refund = reqVal - tip - fee\/nReqs@
+--
+-- The refund is clamped to 'getMinCoinTxOut' so
+-- the output is always viable on-chain.
+computeRefund
+    :: PParams ConwayEra
+    -- ^ Protocol parameters (for minUTxO)
+    -> Network
+    -- ^ Network (for refund address)
+    -> Integer
+    -- ^ Tip amount (lovelace)
+    -> Integer
+    -- ^ Per-request fee share (fee \/ nReqs)
+    -> TxOut ConwayEra
+    -- ^ Request output (to extract value + owner)
+    -> TxOut ConwayEra
+    -- ^ Refund output
+computeRefund pp net tipAmount perReqFee reqOut =
+    let Coin reqVal = reqOut ^. coinTxOutL
+        rawRefund =
+            Coin (reqVal - tipAmount - perReqFee)
+        refundAddr =
+            addrFromKeyHashBytes
+                net
+                (extractOwnerBytes reqOut)
+        draft =
+            mkBasicTxOut refundAddr (inject rawRefund)
+        minCoin = getMinCoinTxOut pp draft
+    in  mkBasicTxOut
+            refundAddr
+            (inject (max rawRefund minCoin))
