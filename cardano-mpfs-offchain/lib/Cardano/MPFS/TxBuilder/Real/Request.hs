@@ -19,7 +19,6 @@ import Data.ByteString (ByteString)
 import Data.List (sortOn)
 import Data.Ord (Down (..))
 import Data.Sequence.Strict qualified as StrictSeq
-import Data.Time.Clock.POSIX (getPOSIXTime)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
@@ -347,8 +346,3 @@ requestLockedAda pp reqDraft refDraft tip =
                 )
     in  max adjusted (Coin locked)
 
--- | Get current POSIX time in milliseconds.
-currentPosixMs :: IO Integer
-currentPosixMs = do
-    t <- getPOSIXTime
-    pure $ floor (t * 1000)

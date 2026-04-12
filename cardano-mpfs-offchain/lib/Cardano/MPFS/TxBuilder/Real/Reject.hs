@@ -12,6 +12,7 @@ module Cardano.MPFS.TxBuilder.Real.Reject
     ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (when)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
@@ -85,7 +86,6 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
-    , SlotNo
     )
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.TxBuilder.Config
@@ -178,18 +178,6 @@ rejectRequestsImpl cfg prov _st tid addr = do
             { stateTip = tipAmount
             } = oldState
         nReqs = fromIntegral (length reqUtxos)
-        extractOwnerBytes out =
-            case extractCageDatum out of
-                Just (RequestDatum req) ->
-                    let OnChainRequest
-                            { requestOwner =
-                                BuiltinByteString bs
-                            } = req
-                    in  bs
-                _ ->
-                    error
-                        "extractOwnerBytes: \
-                        \not a request"
         mkRefunds txFee =
             let Coin fee = txFee
                 perReqFee = fee `div` nReqs
@@ -392,28 +380,3 @@ rejectRequestsImpl cfg prov _st tid addr = do
                 $ "rejectRequests: fee loop: "
                     <> show err
         Right balanced -> pure balanced
-  where
-    when False _ = pure ()
-    when True act = act
-    currentPosixMs :: IO Integer
-    currentPosixMs = do
-        nowUtc <- getCurrentTime
-        let posixSec =
-                utcTimeToPOSIXSeconds nowUtc
-        pure (round (posixSec * 1000))
-
--- | Try converting successive POSIX ms values
--- to slots, returning the first that succeeds.
-trySlots
-    :: Provider IO -> [Integer] -> IO SlotNo
-trySlots _ [] =
-    error
-        "posixMsCeilSlot: all fallbacks \
-        \past horizon"
-trySlots p (ms : rest) = do
-    r <-
-        try @SomeException
-            (posixMsCeilSlot p ms)
-    case r of
-        Right s -> pure s
-        Left _ -> trySlots p rest
