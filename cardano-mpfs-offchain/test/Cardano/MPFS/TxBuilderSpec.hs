@@ -415,6 +415,7 @@ spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     updateTokenSpec
     endTokenSpec
     bootTokenSpec
+    rejectRequestsSpec
     requestLockedAdaProps
     refundComputationProps
     spendingIndexProps
@@ -755,6 +756,52 @@ bootTokenWithScript scriptBytes = do
                 let outCoin = cageOut ^. coinTxOutL
                 outCoin `shouldBe` Coin 2_000_000
             [] -> expectationFailure "no outputs"
+
+-- ---------------------------------------------------------
+-- rejectRequests
+-- ---------------------------------------------------------
+
+rejectRequestsSpec :: Spec
+rejectRequestsSpec =
+    describe "rejectRequests" $ do
+        it "builds a balanced tx" $ do
+            tx <- runRejectRequests
+            let outList = toOutList tx
+            -- 1 state + 1 refund + 1 change
+            length outList
+                `shouldSatisfy` (>= 2)
+
+        it "state output preserves datum" $ do
+            tx <- runRejectRequests
+            case toOutList tx of
+                (stOut : _) -> do
+                    let mDatum =
+                            extractCageDatum stOut
+                    case mDatum of
+                        Just (StateDatum _) ->
+                            pure ()
+                        _ ->
+                            expectationFailure
+                                "first output is \
+                                \not a StateDatum"
+                [] ->
+                    expectationFailure
+                        "no outputs"
+
+        it "has cage script witness" $ do
+            tx <- runRejectRequests
+            let scripts =
+                    tx ^. witsTxL . scriptTxWitsL
+            Map.size scripts `shouldBe` 1
+
+        it
+            "has redeemers for state and request"
+            $ do
+                tx <- runRejectRequests
+                let (Redeemers rdmrs) =
+                        tx ^. witsTxL . rdmrsTxWitsL
+                -- 1 Reject + 1 Contribute
+                Map.size rdmrs `shouldBe` 2
 
 -- ---------------------------------------------------------
 -- Group A: requestLockedAda (pure)
@@ -2174,3 +2221,48 @@ runRealisticBootToken cfg = do
                 st
                 dummyTrieManager
     bootToken builder feeAddr
+
+-- | Run rejectRequests with mock expired request.
+-- The request has submittedAt=0, processTime=300s,
+-- retractTime=600s — guaranteed expired.
+runRejectRequests :: IO (Tx ConwayEra)
+runRejectRequests = do
+    st <- mkMockState
+    let ts =
+            TokenState
+                { owner = testKh
+                , root = Root (BS.replicate 32 0)
+                , tip = Coin 1_000_000
+                , processTime = 300_000
+                , retractTime = 600_000
+                }
+    putToken (tokens st) testTid ts
+    stateIn <- generate genTxIn
+    reqIn <- generate genTxIn
+    feeIn <- generate genTxIn
+    let feeAddr = testAddr testKh
+        cageUtxos =
+            [ (stateIn, mkStateTxOut)
+            , (reqIn, mkRequestTxOut)
+            ]
+        walletUtxos =
+            [
+                ( feeIn
+                , mkBasicTxOut
+                    feeAddr
+                    (inject (Coin 50_000_000))
+                )
+            ]
+        prov =
+            mkRoutingProvider
+                [ (cageAddr Testnet, cageUtxos)
+                , (feeAddr, walletUtxos)
+                ]
+        trieManager = dummyTrieManager
+        builder =
+            mkRealTxBuilder
+                testCageConfig
+                prov
+                st
+                trieManager
+    rejectRequests builder testTid feeAddr
