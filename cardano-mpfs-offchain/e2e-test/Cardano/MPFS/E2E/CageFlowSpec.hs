@@ -757,6 +757,6 @@ cageCfg scriptBytes =
             computeScriptHash scriptBytes
         , defaultProcessTime = 15_000
         , defaultRetractTime = 15_000
-        , defaultMaxFee = Coin 1_000_000
+        , defaultTip = Coin 100_000
         , network = Testnet
         }

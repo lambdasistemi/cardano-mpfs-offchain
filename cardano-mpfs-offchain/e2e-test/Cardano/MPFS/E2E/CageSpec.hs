@@ -200,7 +200,7 @@ cageFlowSpec bpPath scriptBytes =
                                     32
                                     0
                                 )
-                        , maxFee =
+                        , tip =
                             Coin 1_000_000
                         , processTime =
                             30_000
@@ -599,6 +599,6 @@ cageCfg scriptBytes =
             computeScriptHash scriptBytes
         , defaultProcessTime = 30_000
         , defaultRetractTime = 30_000
-        , defaultMaxFee = Coin 1_000_000
+        , defaultTip = Coin 1_000_000
         , network = Testnet
         }

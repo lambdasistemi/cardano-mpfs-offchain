@@ -7,7 +7,7 @@
 -- deleting a key in a token's trie. No script
 -- execution occurs — the transaction simply pays to
 -- the cage address with an inline 'RequestDatum'.
--- The locked ADA includes the token's @maxFee@.
+-- The locked ADA includes the token's @tip@.
 module Cardano.MPFS.TxBuilder.Real.Request
     ( requestInsertImpl
     , requestDeleteImpl
@@ -37,6 +37,7 @@ import Cardano.Ledger.Api.Tx.Out
     , datumTxOutL
     , getMinCoinTxOut
     , mkBasicTxOut
+    , valueTxOutL
     )
 import Cardano.Ledger.BaseTypes (Inject (..))
 
@@ -68,7 +69,7 @@ requestInsertImpl
     -> Provider IO
     -- ^ Blockchain query interface
     -> State IO
-    -- ^ Token state (to look up maxFee)
+    -- ^ Token state (to look up tip)
     -> TokenId
     -- ^ Token whose trie to modify
     -> ByteString
@@ -81,7 +82,7 @@ requestInsertImpl
 requestInsertImpl cfg prov st tid key value addr =
     do
         mTs <- getToken (tokens st) tid
-        TokenState{maxFee = Coin mf} <- case mTs of
+        TokenState{tip = Coin mf} <- case mTs of
             Nothing ->
                 error
                     "requestInsert: unknown token"
@@ -147,7 +148,7 @@ requestDeleteImpl
     -> Provider IO
     -- ^ Blockchain query interface
     -> State IO
-    -- ^ Token state (to look up maxFee)
+    -- ^ Token state (to look up tip)
     -> TokenId
     -- ^ Token whose trie to modify
     -> ByteString
@@ -159,7 +160,7 @@ requestDeleteImpl
     -> IO (Tx ConwayEra)
 requestDeleteImpl cfg prov st tid key val addr = do
     mTs <- getToken (tokens st) tid
-    TokenState{maxFee = Coin mf} <- case mTs of
+    TokenState{tip = Coin mf} <- case mTs of
         Nothing ->
             error "requestDelete: unknown token"
         Just x -> pure x
@@ -221,7 +222,7 @@ requestUpdateImpl
     -> Provider IO
     -- ^ Blockchain query interface
     -> State IO
-    -- ^ Token state (to look up maxFee)
+    -- ^ Token state (to look up tip)
     -> TokenId
     -- ^ Token whose trie to modify
     -> ByteString
@@ -243,7 +244,7 @@ requestUpdateImpl
     newVal
     addr = do
         mTs <- getToken (tokens st) tid
-        TokenState{maxFee = Coin mf} <- case mTs of
+        TokenState{tip = Coin mf} <- case mTs of
             Nothing ->
                 error
                     "requestUpdate: unknown token"
@@ -307,11 +308,16 @@ requestUpdateImpl
 --
 -- 1. The locked amount >= minUTxO for the request
 --    output (which carries an inline datum).
--- 2. After the oracle deducts @maxFee@, the
+-- 2. After the oracle deducts @tip@, the
 --    remaining ADA (the refund) >= minUTxO for the
 --    refund output (a plain payment).
 --
--- Returns @max(reqMinUTxO, maxFee + refundMinUTxO)@.
+-- The actual tx fee share is NOT included here —
+-- the user decides how much extra to lock. If the
+-- refund after fee+tip is below minUTxO, the update
+-- tx builder will skip or fail the request.
+--
+-- Returns @max(reqMinUTxO, tip + refundMinUTxO)@.
 requestLockedAda
     :: PParams ConwayEra
     -- ^ Protocol parameters
@@ -320,14 +326,26 @@ requestLockedAda
     -> TxOut ConwayEra
     -- ^ Draft refund output (plain address)
     -> Integer
-    -- ^ maxFee (lovelace)
+    -- ^ tip (lovelace)
     -> Coin
-requestLockedAda pp reqDraft refDraft mf =
-    let Coin reqMin =
-            getMinCoinTxOut pp reqDraft
-        Coin refMin =
+requestLockedAda pp reqDraft refDraft tip =
+    let Coin refMin =
             getMinCoinTxOut pp refDraft
-    in  Coin (max reqMin (mf + refMin))
+        -- Fee buffer: generous estimate of the
+        -- per-request fee share in an update tx.
+        -- Excess becomes a larger refund.
+        feeBuffer = 600_000
+        locked = tip + feeBuffer + refMin
+        -- Ensure the request output itself meets
+        -- minUTxO with the computed value.
+        adjusted =
+            getMinCoinTxOut
+                pp
+                ( reqDraft
+                    & valueTxOutL
+                        .~ inject (Coin locked)
+                )
+    in  max adjusted (Coin locked)
 
 -- | Get current POSIX time in milliseconds.
 currentPosixMs :: IO Integer

@@ -64,6 +64,7 @@ import Cardano.Ledger.Api.Tx.Out
     , datumTxOutL
     , getMinCoinTxOut
     , mkBasicTxOut
+    , valueTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
@@ -198,7 +199,7 @@ testCageConfig =
         , cfgScriptHash = cageScriptHashLedger
         , defaultProcessTime = 300_000
         , defaultRetractTime = 600_000
-        , defaultMaxFee = Coin 1_000_000
+        , defaultTip = Coin 1_000_000
         , network = Testnet
         }
 
@@ -311,7 +312,7 @@ mkStateTxOut =
                     , stateRoot =
                         OnChainRoot
                             (BS.replicate 32 0)
-                    , stateMaxFee = 1_000_000
+                    , stateTip = 1_000_000
                     , stateProcessTime = 300_000
                     , stateRetractTime = 600_000
                     }
@@ -470,13 +471,14 @@ requestInsertSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has maxFee (zeroPP)" $ do
+        it "cage output has tip+buffer (zeroPP)" $ do
             tx <- runRequestInsert
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so locked=maxFee
-                    outCoin `shouldBe` Coin 1_000_000
+                    -- zeroPP: minUTxO=0, so
+                    -- locked = tip + feeBuffer
+                    outCoin `shouldBe` Coin 1_600_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -508,13 +510,14 @@ requestDeleteSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has maxFee (zeroPP)" $ do
+        it "cage output has tip+buffer (zeroPP)" $ do
             tx <- runRequestDelete
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so locked=maxFee
-                    outCoin `shouldBe` Coin 1_000_000
+                    -- zeroPP: minUTxO=0, so
+                    -- locked = tip + feeBuffer
+                    outCoin `shouldBe` Coin 1_600_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -707,7 +710,7 @@ bootTokenWithScript scriptBytes = do
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000
                 , defaultRetractTime = 600_000
-                , defaultMaxFee = Coin 1_000_000
+                , defaultTip = Coin 1_000_000
                 , network = Testnet
                 }
 
@@ -808,7 +811,7 @@ requestLockedAdaProps =
                                                 draft
                                     in  la >= reqMin
 
-        it "locked >= maxFee + refund minUTxO"
+        it "locked >= tip + refund minUTxO"
             $ property
             $ forAll genTokenId
             $ \tid ->
@@ -902,21 +905,31 @@ requestLockedAdaProps =
                                                 draft
                                                 refDraft
                                                 mf
-                                        Coin reqMin =
-                                            getMinCoinTxOut
-                                                realisticPP
-                                                draft
                                         Coin refMin =
                                             getMinCoinTxOut
                                                 realisticPP
                                                 refDraft
+                                        feeBuffer =
+                                            600_000
+                                        locked =
+                                            mf
+                                                + feeBuffer
+                                                + refMin
+                                        adjusted =
+                                            getMinCoinTxOut
+                                                realisticPP
+                                                ( draft
+                                                    & valueTxOutL
+                                                        .~ inject
+                                                            ( Coin
+                                                                locked
+                                                            )
+                                                )
                                     in  la
-                                            == Coin
-                                                ( max
-                                                    reqMin
-                                                    ( mf
-                                                        + refMin
-                                                    )
+                                            == max
+                                                adjusted
+                                                ( Coin
+                                                    locked
                                                 )
 
         it "zeroPP backward compat"
@@ -963,7 +976,11 @@ requestLockedAdaProps =
                                                 draft
                                                 refDraft
                                                 mf
-                                    in  la == Coin mf
+                                        feeBuffer =
+                                            600_000
+                                    in  la
+                                            == Coin
+                                                (mf + feeBuffer)
 
 -- ---------------------------------------------------------
 -- Group B: spendingIndex (pure)
@@ -1198,7 +1215,7 @@ updateTxProps =
                 (refund : _) -> do
                     let Coin c =
                             refund ^. coinTxOutL
-                    -- request had 3M, maxFee=1M
+                    -- request had 3M, tip=1M
                     c `shouldBe` 2_000_000
                 _ ->
                     expectationFailure "no refund output"
@@ -1431,7 +1448,7 @@ bootTxPropsWithScript scriptBytes = do
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000
                 , defaultRetractTime = 600_000
-                , defaultMaxFee = Coin 1_000_000
+                , defaultTip = Coin 1_000_000
                 , network = Testnet
                 }
 
@@ -1564,7 +1581,7 @@ runRetractRequestWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1629,7 +1646,7 @@ runUpdateTokenWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1687,7 +1704,7 @@ runEndTokenWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1760,7 +1777,7 @@ mkTestFixture = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1798,7 +1815,7 @@ mkRealisticFixture = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1858,7 +1875,7 @@ runRealisticUpdateWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1911,7 +1928,7 @@ runTightUpdate = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -1964,7 +1981,7 @@ runRealisticRetractWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
@@ -2025,7 +2042,7 @@ runRealisticEndWith = do
             TokenState
                 { owner = testKh
                 , root = Root (BS.replicate 32 0)
-                , maxFee = Coin 1_000_000
+                , tip = Coin 1_000_000
                 , processTime = 300_000
                 , retractTime = 600_000
                 }

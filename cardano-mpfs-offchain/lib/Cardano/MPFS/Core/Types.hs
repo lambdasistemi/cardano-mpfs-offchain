@@ -126,7 +126,7 @@ data TokenState = TokenState
     -- ^ Owner's payment key hash
     , root :: !Root
     -- ^ Current root hash of the token's trie
-    , maxFee :: !Coin
+    , tip :: !Coin
     -- ^ Maximum fee charged per request
     , processTime :: !Integer
     -- ^ Duration (ms) of the oracle processing window

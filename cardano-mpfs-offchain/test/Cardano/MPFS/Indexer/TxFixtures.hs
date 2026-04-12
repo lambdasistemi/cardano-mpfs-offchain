@@ -396,7 +396,7 @@ toOnChainOp (Update o n) = OpUpdate o n
 mkStateDatum :: TokenState -> Root -> CageDatum
 mkStateDatum TokenState{..} r =
     let KeyHash ownerH = owner
-        Coin mf = maxFee
+        Coin mf = tip
     in  StateDatum
             OnChainTokenState
                 { stateOwner =
@@ -404,7 +404,7 @@ mkStateDatum TokenState{..} r =
                         (hashToBytes ownerH)
                 , stateRoot =
                     OnChainRoot (unRoot r)
-                , stateMaxFee = mf
+                , stateTip = mf
                 , stateProcessTime = processTime
                 , stateRetractTime = retractTime
                 }

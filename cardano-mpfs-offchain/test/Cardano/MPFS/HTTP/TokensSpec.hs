@@ -60,7 +60,7 @@ mkDummyTokenState = do
         TokenState
             { owner = kh
             , root = Root (BS.replicate 32 0)
-            , maxFee = Coin 1_000_000
+            , tip = Coin 1_000_000
             , processTime = 60_000
             , retractTime = 30_000
             }
