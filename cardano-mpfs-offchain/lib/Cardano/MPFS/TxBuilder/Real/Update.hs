@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -30,6 +31,7 @@ import Data.Void (Void)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Alonzo.Scripts (AsIx)
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
@@ -48,6 +50,15 @@ import Cardano.Ledger.Api.Tx.Out
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     )
+import Cardano.Ledger.Conway.Scripts
+    ( ConwayPlutusPurpose
+    )
+import Cardano.Ledger.Core (Script)
+import Cardano.Ledger.Keys
+    ( KeyHash
+    , KeyRole (..)
+    )
+import Cardano.Ledger.Plutus.ExUnits (ExUnits)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -64,6 +75,7 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
+    , PParams
     , Root (..)
     , TokenId
     , TxIn
@@ -81,6 +93,7 @@ import Cardano.MPFS.TxBuilder.Config
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
 import Cardano.Node.Client.TxBuild qualified as Tx
+import Cardano.Slotting.Slot (SlotNo)
 
 -- | Empty query GADT (no context needed).
 data NoCtx a
@@ -89,7 +102,7 @@ data NoCtx a
 --
 -- Uses the TxBuild DSL for convergent fee/refund
 -- balancing. Conservation equation:
--- sum(refunds) = sum(inputs) - fee - N * tip
+-- @sum(refunds) = sum(inputs) - fee - N * tip@
 updateTokenImpl
     :: CageConfig
     -> Provider IO
@@ -99,6 +112,67 @@ updateTokenImpl
     -> Addr
     -> IO (Tx ConwayEra)
 updateTokenImpl cfg prov _st tm tid addr = do
+    -- 1. Query on-chain context
+    (stateUtxo, reqUtxos, feeUtxo, pp) <-
+        queryContext cfg prov tid addr
+    let (stateIn, stateOut) = stateUtxo
+    -- 2. Compute proofs via speculative trie
+    (proofs, newRoot) <-
+        computeProofs tm tid reqUtxos
+    -- 3. Extract state and build new datum
+    let (oldState, newStateOut, script, ownerKh) =
+            prepareState
+                cfg
+                stateOut
+                newRoot
+    -- 4. Compute validity upper slot
+    upperSlot <-
+        computeUpperSlot prov oldState reqUtxos
+    -- 5. Build DSL program and execute
+    let evalTx = mkEvalTx prov
+        prog =
+            buildProgram
+                cfg
+                pp
+                stateIn
+                stateOut
+                reqUtxos
+                feeUtxo
+                oldState
+                newStateOut
+                script
+                ownerKh
+                proofs
+                upperSlot
+    result <-
+        Tx.build
+            pp
+            (Tx.InterpretIO (const (pure undefined)))
+            evalTx
+            (feeUtxo : stateUtxo : reqUtxos)
+            addr
+            (prog :: Tx.TxBuild NoCtx Void ())
+    case result of
+        Right tx -> pure tx
+        Left err ->
+            error
+                $ "updateToken: build failed: "
+                    <> show err
+
+-- | Query cage UTxOs, find the state and request
+-- UTxOs, pick a fee-paying wallet UTxO.
+queryContext
+    :: CageConfig
+    -> Provider IO
+    -> TokenId
+    -> Addr
+    -> IO
+        ( (TxIn, TxOut ConwayEra)
+        , [(TxIn, TxOut ConwayEra)]
+        , (TxIn, TxOut ConwayEra)
+        , PParams ConwayEra
+        )
+queryContext cfg prov tid addr = do
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
     cageUtxos <- queryUTxOs prov scriptAddr
@@ -112,8 +186,7 @@ updateTokenImpl cfg prov _st tm tid addr = do
                 "updateToken: state UTxO \
                 \not found"
         Just x -> pure x
-    let (stateIn, stateOut) = stateUtxo
-        reqUtxos =
+    let reqUtxos =
             sortOn fst
                 $ findRequestUtxos tid cageUtxos
     when (null reqUtxos)
@@ -125,16 +198,36 @@ updateTokenImpl cfg prov _st tm tid addr = do
         walletUtxos of
         [] -> error "updateToken: no UTxOs"
         (u : _) -> pure u
-    -- Compute proofs
-    (proofs, newRoot) <-
-        withSpeculativeTrie tm tid $ \trie -> do
-            ps <-
-                mapM
-                    (processRequest trie)
-                    reqUtxos
-            r <- getRoot trie
-            pure (ps, r)
-    let oldState =
+    pure (stateUtxo, reqUtxos, feeUtxo, pp)
+
+-- | Run speculative trie operations to compute
+-- proofs and the new root hash.
+computeProofs
+    :: TrieManager IO
+    -> TokenId
+    -> [(TxIn, TxOut ConwayEra)]
+    -> IO ([[ProofStep]], Root)
+computeProofs tm tid reqUtxos =
+    withSpeculativeTrie tm tid $ \trie -> do
+        ps <- mapM (processRequest trie) reqUtxos
+        r <- getRoot trie
+        pure (ps, r)
+
+-- | Extract old state, build new state output,
+-- cage script, and owner key hash.
+prepareState
+    :: CageConfig
+    -> TxOut ConwayEra
+    -> Root
+    -> ( OnChainTokenState
+       , TxOut ConwayEra
+       , Script ConwayEra
+       , KeyHash 'Witness
+       )
+prepareState cfg stateOut newRoot =
+    let scriptAddr =
+            cageAddrFromCfg cfg (network cfg)
+        oldState =
             case extractCageDatum stateOut of
                 Just (StateDatum s) -> s
                 _ ->
@@ -144,7 +237,6 @@ updateTokenImpl cfg prov _st tm tid addr = do
         OnChainTokenState
             { stateOwner =
                 BuiltinByteString ownerBs
-            , stateTip = tipAmount
             } = oldState
         newStateDatum =
             StateDatum
@@ -159,13 +251,20 @@ updateTokenImpl cfg prov _st tm tid addr = do
                 & datumTxOutL
                     .~ mkInlineDatum
                         (toPlcData newStateDatum)
-        stateRef = txInToRef stateIn
         script = mkCageScript cfg
         ownerKh = addrWitnessKeyHash ownerBs
-        nReqs =
-            fromIntegral (length reqUtxos)
-                :: Integer
-    -- Validity interval
+    in  (oldState, newStateOut, script, ownerKh)
+
+-- | Compute the validity upper slot from the
+-- earliest request deadline. Falls back to
+-- now + 30s/5s/2s if the slot is past the
+-- Ouroboros forecast horizon.
+computeUpperSlot
+    :: Provider IO
+    -> OnChainTokenState
+    -> [(TxIn, TxOut ConwayEra)]
+    -> IO SlotNo
+computeUpperSlot prov oldState reqUtxos = do
     let extractSubmittedAt (_, rOut) =
             case extractCageDatum rOut of
                 Just (RequestDatum r) ->
@@ -183,7 +282,7 @@ updateTokenImpl cfg prov _st tm tid addr = do
     mUpperSlot <-
         try @SomeException
             (posixMsToSlot prov earliestDeadline)
-    upperSlot <- case mUpperSlot of
+    case mUpperSlot of
         Right s -> pure s
         Left _ -> do
             nowUtc <- getCurrentTime
@@ -196,93 +295,122 @@ updateTokenImpl cfg prov _st tm tid addr = do
                             ((posixSec + d) * 1000)
                     )
                     [30, 5, 2]
-    -- Build with DSL
-    let evalTx tx = do
-            r <- evaluateTx prov tx
-            pure
-                $ Map.map
-                    ( \case
-                        Left e -> Left (show e)
-                        Right eu -> Right eu
-                    )
-                    r
-        prog = do
-            -- Spend state UTxO
-            _ <-
+
+-- | Wrap the Provider's evaluateTx for the DSL.
+mkEvalTx
+    :: Provider IO
+    -> Tx ConwayEra
+    -> IO
+        ( Map.Map
+            ( ConwayPlutusPurpose
+                AsIx
+                ConwayEra
+            )
+            (Either String ExUnits)
+        )
+mkEvalTx prov tx = do
+    r <- evaluateTx prov tx
+    pure
+        $ Map.map
+            ( \case
+                Left e -> Left (show e)
+                Right eu -> Right eu
+            )
+            r
+
+-- | The TxBuild DSL program for an update tx.
+--
+-- Spends: state UTxO (Modify) + all request UTxOs
+-- (Contribute). Outputs: new state + refunds.
+-- Peeks at the fee to compute per-request refund.
+buildProgram
+    :: CageConfig
+    -> PParams ConwayEra
+    -> TxIn
+    -> TxOut ConwayEra
+    -> [(TxIn, TxOut ConwayEra)]
+    -> (TxIn, TxOut ConwayEra)
+    -> OnChainTokenState
+    -> TxOut ConwayEra
+    -> Script ConwayEra
+    -> KeyHash 'Witness
+    -> [[ProofStep]]
+    -> SlotNo
+    -> Tx.TxBuild NoCtx Void ()
+buildProgram
+    cfg
+    pp
+    stateIn
+    _stateOut
+    reqUtxos
+    feeUtxo
+    oldState
+    newStateOut
+    script
+    ownerKh
+    proofs
+    upperSlot = do
+        let stateRef = txInToRef stateIn
+            OnChainTokenState
+                { stateTip = tipAmount
+                } = oldState
+            nReqs =
+                fromIntegral (length reqUtxos)
+                    :: Integer
+        -- Spend state UTxO
+        _ <- Tx.spendScript stateIn (Modify proofs)
+        -- Spend request UTxOs
+        mapM_
+            ( \(rIn, _) ->
                 Tx.spendScript
-                    stateIn
-                    (Modify proofs)
-            -- Spend request UTxOs
-            mapM_
-                ( \(rIn, _) ->
-                    Tx.spendScript
-                        rIn
-                        (Contribute stateRef)
-                )
-                reqUtxos
-            -- State output (unchanged value)
-            _ <- Tx.output newStateOut
-            -- Fee-dependent refund outputs
-            Coin fee <- Tx.peek $ \tx ->
-                let f = tx ^. bodyTxL . feeTxBodyL
-                in  if f > Coin 0
-                        then Tx.Ok f
-                        else Tx.Iterate f
-            let perReqFee = fee `div` nReqs
-            mapM_
-                ( \(_, reqOut) -> do
-                    let Coin reqVal =
-                            reqOut ^. coinTxOutL
-                        rawRefund =
-                            Coin
-                                ( reqVal
-                                    - tipAmount
-                                    - perReqFee
-                                )
-                        refundAddr =
-                            addrFromKeyHashBytes
-                                (network cfg)
-                                ( extractOwnerBytes
-                                    reqOut
-                                )
-                        draft =
-                            mkBasicTxOut
-                                refundAddr
-                                (inject rawRefund)
-                        minCoin =
-                            getMinCoinTxOut
-                                pp
-                                draft
-                    Tx.output
-                        $ mkBasicTxOut
-                            refundAddr
-                            ( inject
-                                ( max
-                                    rawRefund
-                                    minCoin
-                                )
+                    rIn
+                    (Contribute stateRef)
+            )
+            reqUtxos
+        -- State output (unchanged value)
+        _ <- Tx.output newStateOut
+        -- Fee-dependent refund outputs
+        Coin fee <- Tx.peek $ \tx ->
+            let f = tx ^. bodyTxL . feeTxBodyL
+            in  if f > Coin 0
+                    then Tx.Ok f
+                    else Tx.Iterate f
+        let perReqFee = fee `div` nReqs
+        mapM_
+            ( \(_, reqOut) -> do
+                let Coin reqVal =
+                        reqOut ^. coinTxOutL
+                    rawRefund =
+                        Coin
+                            ( reqVal
+                                - tipAmount
+                                - perReqFee
                             )
-                )
-                reqUtxos
-            -- Constraints
-            Tx.attachScript script
-            Tx.requireSignature ownerKh
-            Tx.collateral (fst feeUtxo)
-            Tx.validTo upperSlot
-    result <-
-        Tx.build
-            pp
-            (Tx.InterpretIO (const (pure undefined)))
-            evalTx
-            (feeUtxo : stateUtxo : reqUtxos)
-            addr
-            (prog :: Tx.TxBuild NoCtx Void ())
-    case result of
-        Right tx -> pure tx
-        Left err ->
-            error
-                $ "updateToken: build failed: "
-                    <> show err
+                    refundAddr =
+                        addrFromKeyHashBytes
+                            (network cfg)
+                            ( extractOwnerBytes
+                                reqOut
+                            )
+                    draft =
+                        mkBasicTxOut
+                            refundAddr
+                            (inject rawRefund)
+                    minCoin =
+                        getMinCoinTxOut pp draft
+                Tx.output
+                    $ mkBasicTxOut
+                        refundAddr
+                        ( inject
+                            (max rawRefund minCoin)
+                        )
+            )
+            reqUtxos
+        -- Constraints
+        Tx.attachScript script
+        Tx.requireSignature ownerKh
+        Tx.collateral (fst feeUtxo)
+        Tx.validTo upperSlot
 
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.
