@@ -40,7 +40,14 @@ import Cardano.Ledger.Api.Tx
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
     )
-import Cardano.Ledger.Api.Tx.Out (TxOut, coinTxOutL, datumTxOutL, getMinCoinTxOut, mkBasicTxOut, valueTxOutL)
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , coinTxOutL
+    , datumTxOutL
+    , getMinCoinTxOut
+    , mkBasicTxOut
+    , valueTxOutL
+    )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     )
