@@ -68,7 +68,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-node-clients
-  tag: dcad2ebf4c15d4c07d0885d0d4ddcfb5712758b7
+  tag: b9d4a4dd5d6edbcf1c2a845ccade163726e19765
   --sha256: 1sv91a6g9817fklpkn8fm5gwcql1p98w9xvg2c0xs4fy1z11cz7x
 
 -- Enable iohk flag for contra-tracer-contrib to use CHaP's simple API
