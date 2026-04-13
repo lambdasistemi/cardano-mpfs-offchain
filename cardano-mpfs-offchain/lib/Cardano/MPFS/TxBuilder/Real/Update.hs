@@ -31,13 +31,28 @@ import Data.Void (Void)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Api.Tx (sizeTxF)
+import Cardano.Ledger.Binary (Version, serialize, natVersion)
+import Cardano.Ledger.BaseTypes (pvMajor)
+import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
+
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
+import Data.Set qualified as Set
+import Cardano.Ledger.Alonzo.TxWits (Redeemers (..))
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
+    , estimateMinFeeTx
+    , witsTxL
     )
+import Cardano.Ledger.Core (getMinFeeTx)
+import Cardano.Ledger.Api.Tx.Wits (rdmrsTxWitsL)
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
+    , inputsTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
@@ -153,7 +168,51 @@ updateTokenImpl cfg prov _st tm tid addr = do
             addr
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
-        Right tx -> pure tx
+        Right tx -> do
+            let Coin fee =
+                    tx ^. bodyTxL . feeTxBodyL
+                unsignedSize =
+                    tx ^. sizeTxF
+                estFee =
+                    estimateMinFeeTx pp tx 1 0 0
+                getMin =
+                    getMinFeeTx pp tx 0
+            -- Also dump what estimateMinFeeTx
+            -- sees inside balanceTx: the tx
+            -- that was passed to balanceTx is
+            -- the BUILD-RESULT tx. If it has
+            -- ExUnits 0, patchExUnits failed.
+            let Redeemers rdmrs =
+                    tx ^. witsTxL . rdmrsTxWitsL
+                rdmrEUs =
+                    [ (show p, show eu)
+                    | (p, (_, eu)) <-
+                        Map.toList rdmrs
+                    ]
+            appendFile "/tmp/mpfs-dsl.log"
+                $ "RESULT-EUS: "
+                    <> show rdmrEUs
+                    <> "\n"
+            let ver = pvMajor (pp ^. ppProtocolVersionL)
+                txHex =
+                    B16.encode
+                        ( BSL.toStrict
+                            (serialize ver tx)
+                        )
+            BS.writeFile
+                "/tmp/mpfs-unsigned.cbor.hex"
+                txHex
+            appendFile "/tmp/mpfs-dsl.log"
+                $ "BUILD: fee="
+                    <> show fee
+                    <> " unsignedSize="
+                    <> show unsignedSize
+                    <> " estimateMinFee(1)="
+                    <> show estFee
+                    <> " getMinFee(0)="
+                    <> show getMin
+                    <> "\n"
+            pure tx
         Left err ->
             error
                 $ "updateToken: build failed: "
@@ -309,7 +368,16 @@ mkEvalTx
             (Either String ExUnits)
         )
 mkEvalTx prov tx = do
+    let ins = tx ^. bodyTxL . inputsTxBodyL
     r <- evaluateTx prov tx
+    appendFile "/tmp/mpfs-dsl.log"
+        $ "EVAL: ins="
+            <> show (Set.size ins)
+            <> " sorted="
+            <> show (Set.toAscList ins)
+            <> " result="
+            <> show (Map.keys r)
+            <> "\n"
     pure
         $ Map.map
             ( \case

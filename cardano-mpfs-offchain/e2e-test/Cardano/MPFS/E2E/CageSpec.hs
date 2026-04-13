@@ -10,6 +10,13 @@
 -- License     : Apache-2.0
 module Cardano.MPFS.E2E.CageSpec (spec) where
 
+import Cardano.Ledger.Api.Tx (sizeTxF)
+import Cardano.Ledger.Binary (serialize)
+import Cardano.Ledger.BaseTypes (pvMajor)
+import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
+import Cardano.Ledger.Core (getMinFeeTx)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Data.ByteString qualified as BS
@@ -52,6 +59,8 @@ import Cardano.Ledger.BaseTypes
     , TxIx (..)
     )
 import Cardano.Ledger.Binary (serialize)
+import Cardano.Ledger.BaseTypes (pvMajor)
+import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
 import Cardano.Ledger.Core (eraProtVerLow)
 import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
@@ -257,6 +266,27 @@ cageFlowSpec bpPath scriptBytes =
                     addKeyWitness
                         genesisSignKey
                         unsignedUpdate
+            -- Trace sizes
+            pp <- queryProtocolParams (provider ctx)
+            let signedSize =
+                    signedUpdate ^. sizeTxF
+                signedGetMin =
+                    getMinFeeTx pp signedUpdate 0
+            let ver = pvMajor (pp ^. ppProtocolVersionL)
+                signedHex =
+                    B16.encode
+                        ( BSL.toStrict
+                            (serialize ver signedUpdate)
+                        )
+            BS.writeFile
+                "/tmp/mpfs-signed.cbor.hex"
+                signedHex
+            appendFile "/tmp/mpfs-dsl.log"
+                $ "SIGNED: size="
+                    <> show signedSize
+                    <> " getMinFee(0)="
+                    <> show signedGetMin
+                    <> "\n"
             -- Dump for aiken simulate (before
             -- submit so UTxOs still exist)
             dumpTxForAiken
