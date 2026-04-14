@@ -441,15 +441,24 @@ buildProgram
                     then Tx.Ok f
                     else Tx.Iterate f
         let perReqFee = fee `div` nReqs
+            remainder = fee - perReqFee * nReqs
         mapM_
-            ( \(_, reqOut) -> do
+            ( \(i, (_, reqOut)) -> do
                 let Coin reqVal =
                         reqOut ^. coinTxOutL
+                    -- First request absorbs the
+                    -- integer division remainder
+                    -- so conservation holds exactly.
+                    extra =
+                        if i == (0 :: Int)
+                            then remainder
+                            else 0
                     rawRefund =
                         Coin
                             ( reqVal
                                 - tipAmount
                                 - perReqFee
+                                - extra
                             )
                     refundAddr =
                         addrFromKeyHashBytes
@@ -462,7 +471,7 @@ buildProgram
                         refundAddr
                         (inject rawRefund)
             )
-            reqUtxos
+            (zip [0 ..] reqUtxos)
         -- Constraints
         Tx.attachScript script
         Tx.requireSignature ownerKh
