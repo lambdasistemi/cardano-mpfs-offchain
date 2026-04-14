@@ -222,7 +222,7 @@ requestLockedAda
 requestLockedAda pp reqDraft refDraft tip =
     let Coin refMin =
             getMinCoinTxOut pp refDraft
-        feeBuffer = 600_000
+        feeBuffer = 1_000_000
         locked = tip + feeBuffer + refMin
         adjusted =
             getMinCoinTxOut
