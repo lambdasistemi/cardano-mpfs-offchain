@@ -31,25 +31,16 @@ import Data.Void (Void)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Api.Tx (sizeTxF)
-import Cardano.Ledger.Binary (Version, serialize, natVersion)
-import Cardano.Ledger.BaseTypes (pvMajor)
-import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
-import Data.ByteString qualified as BS
-import Data.ByteString.Base16 qualified as B16
-import Data.ByteString.Lazy qualified as BSL
-
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
-import Data.Set qualified as Set
 import Cardano.Ledger.Alonzo.TxWits (Redeemers (..))
+import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
     , estimateMinFeeTx
+    , sizeTxF
     , witsTxL
     )
-import Cardano.Ledger.Core (getMinFeeTx)
-import Cardano.Ledger.Api.Tx.Wits (rdmrsTxWitsL)
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
     , inputsTxBodyL
@@ -58,22 +49,28 @@ import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , coinTxOutL
     , datumTxOutL
-    , getMinCoinTxOut
     , mkBasicTxOut
     , valueTxOutL
     )
+import Cardano.Ledger.Api.Tx.Wits (rdmrsTxWitsL)
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
+    , pvMajor
     )
+import Cardano.Ledger.Binary (serialize)
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose
     )
-import Cardano.Ledger.Core (Script)
+import Cardano.Ledger.Core (Script, getMinFeeTx)
 import Cardano.Ledger.Keys
     ( KeyHash
     , KeyRole (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (ExUnits)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
+import Data.Set qualified as Set
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -407,7 +404,7 @@ buildProgram
     -> Tx.TxBuild NoCtx Void ()
 buildProgram
     cfg
-    pp
+    _pp
     stateIn
     _stateOut
     reqUtxos
@@ -460,18 +457,10 @@ buildProgram
                             ( extractOwnerBytes
                                 reqOut
                             )
-                    draft =
-                        mkBasicTxOut
-                            refundAddr
-                            (inject rawRefund)
-                    minCoin =
-                        getMinCoinTxOut pp draft
                 Tx.output
                     $ mkBasicTxOut
                         refundAddr
-                        ( inject
-                            (max rawRefund minCoin)
-                        )
+                        (inject rawRefund)
             )
             reqUtxos
         -- Constraints

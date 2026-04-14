@@ -10,16 +10,11 @@
 -- License     : Apache-2.0
 module Cardano.MPFS.E2E.CageSpec (spec) where
 
-import Cardano.Ledger.Api.Tx (sizeTxF)
-import Cardano.Ledger.Binary (serialize)
-import Cardano.Ledger.BaseTypes (pvMajor)
 import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
-import Data.ByteString.Base16 qualified as B16
-import Data.ByteString.Lazy qualified as BSL
-import Cardano.Ledger.Core (getMinFeeTx)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
@@ -46,6 +41,7 @@ import Test.Hspec
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
+    , sizeTxF
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -57,11 +53,10 @@ import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.BaseTypes
     ( Network (..)
     , TxIx (..)
+    , pvMajor
     )
 import Cardano.Ledger.Binary (serialize)
-import Cardano.Ledger.BaseTypes (pvMajor)
-import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
-import Cardano.Ledger.Core (eraProtVerLow)
+import Cardano.Ledger.Core (eraProtVerLow, getMinFeeTx)
 import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
     )

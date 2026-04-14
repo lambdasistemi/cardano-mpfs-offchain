@@ -481,7 +481,7 @@ requestInsertSpec =
                     let outCoin = cageOut ^. coinTxOutL
                     -- zeroPP: minUTxO=0, so
                     -- locked = tip + feeBuffer
-                    outCoin `shouldBe` Coin 1_600_000
+                    outCoin `shouldBe` Coin 2_000_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -520,7 +520,7 @@ requestDeleteSpec =
                     let outCoin = cageOut ^. coinTxOutL
                     -- zeroPP: minUTxO=0, so
                     -- locked = tip + feeBuffer
-                    outCoin `shouldBe` Coin 1_600_000
+                    outCoin `shouldBe` Coin 2_000_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -959,7 +959,7 @@ requestLockedAdaProps =
                                                 realisticPP
                                                 refDraft
                                         feeBuffer =
-                                            600_000
+                                            1_000_000
                                         locked =
                                             mf
                                                 + feeBuffer
@@ -1026,7 +1026,7 @@ requestLockedAdaProps =
                                                 refDraft
                                                 mf
                                         feeBuffer =
-                                            600_000
+                                            1_000_000
                                     in  la
                                             == Coin
                                                 (mf + feeBuffer)
