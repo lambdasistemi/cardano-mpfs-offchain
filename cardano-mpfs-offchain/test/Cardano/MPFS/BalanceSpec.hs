@@ -54,6 +54,7 @@ import Cardano.MPFS.Generators
     )
 import Cardano.Node.Client.Balance
     ( BalanceError (..)
+    , BalanceResult (..)
     , balanceTx
     )
 
@@ -134,7 +135,7 @@ propChangeCorrect =
                         emptyTx
             in  case result of
                     Left _ -> False
-                    Right tx ->
+                    Right BalanceResult{balancedTx = tx} ->
                         let fee =
                                 tx
                                     ^. bodyTxL
@@ -175,7 +176,7 @@ propFeeSet =
                         emptyTx
             in  case result of
                     Left _ -> False
-                    Right tx ->
+                    Right BalanceResult{balancedTx = tx} ->
                         let fee =
                                 tx
                                     ^. bodyTxL

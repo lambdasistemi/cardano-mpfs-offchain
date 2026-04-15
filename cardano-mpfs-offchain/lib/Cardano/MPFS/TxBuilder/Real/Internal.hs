@@ -181,7 +181,10 @@ import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
-import Cardano.Node.Client.Balance (balanceTx)
+import Cardano.Node.Client.Balance
+    ( BalanceResult (..)
+    , balanceTx
+    )
 import Cardano.Slotting.Slot (SlotNo)
 
 -- | Empty MPF root (32 zero bytes).
@@ -283,7 +286,7 @@ evaluateAndBalance prov pp inputUtxos changeAddr tx =
                 error
                     $ "evaluateAndBalance: "
                         <> show err
-            Right balanced -> pure balanced
+            Right br -> pure (balancedTx br)
 
 -- | Build the cage 'Script' from config bytes.
 mkCageScript
