@@ -487,16 +487,15 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1776265675,
-        "narHash": "sha256-DDdlg1CGImcgRGG+CWrXHtwquEnEQnS5zpGFYqw0nGM=",
+        "lastModified": 1776269029,
+        "narHash": "sha256-2KSiKl4/Yb5sxASPiR7ZqwemUozusuZc0kX2eEbs1v0=",
         "owner": "cardano-foundation",
         "repo": "cardano-mpfs-onchain",
-        "rev": "c45ceef8b8538a19c8760aa2fe792006e7c988b5",
+        "rev": "72412a4efd4d003320cba85f547dfb4049bb1942",
         "type": "github"
       },
       "original": {
         "owner": "cardano-foundation",
-        "ref": "fix/fair-fee-v2",
         "repo": "cardano-mpfs-onchain",
         "type": "github"
       }
