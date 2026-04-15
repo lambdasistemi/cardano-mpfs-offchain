@@ -28,6 +28,7 @@ module Cardano.MPFS.Core.OnChain
     , Mint (..)
     , Migration (..)
     , UpdateRedeemer (..)
+    , RequestAction (..)
 
       -- * On-chain domain types
     , OnChainTokenId (..)
@@ -215,12 +216,19 @@ data UpdateRedeemer
       End
     | -- | Link a request to a state UTxO (Constr 1)
       Contribute !OnChainTxOutRef
-    | -- | Fold requests with proofs (Constr 2)
-      Modify ![[ProofStep]]
+    | -- | Fold requests with actions (Constr 2)
+      Modify ![RequestAction]
     | -- | Reclaim a pending request (Constr 3)
       Retract !OnChainTxOutRef
-    | -- | Reject expired requests (Constr 4)
-      Reject
+    deriving stock (Show, Eq)
+
+-- | Action per request in a Modify transaction.
+-- Matches Aiken @types/RequestAction@.
+data RequestAction
+    = -- | Apply proofs to update the MPF (Constr 0)
+      UpdateAction ![ProofStep]
+    | -- | Reject an expired request (Constr 1)
+      Rejected
     deriving stock (Show, Eq)
 
 -- | A single step in an MPF Merkle proof, matching
@@ -652,40 +660,63 @@ instance ToData UpdateRedeemer where
     toBuiltinData End = mkD $ Constr 0 []
     toBuiltinData (Contribute ref) =
         mkD $ Constr 1 [unD (toBuiltinData ref)]
-    toBuiltinData (Modify proofs) =
+    toBuiltinData (Modify actions) =
         mkD
             $ Constr
                 2
                 [ List
-                    ( map
-                        ( List
-                            . map
-                                (unD . toBuiltinData)
-                        )
-                        proofs
-                    )
+                    (map (unD . toBuiltinData) actions)
                 ]
     toBuiltinData (Retract ref) =
         mkD $ Constr 3 [unD (toBuiltinData ref)]
-    toBuiltinData Reject = mkD $ Constr 4 []
+
+instance ToData RequestAction where
+    toBuiltinData (UpdateAction proofs) =
+        mkD
+            $ Constr
+                0
+                [ List
+                    (map (unD . toBuiltinData) proofs)
+                ]
+    toBuiltinData Rejected =
+        mkD $ Constr 1 []
+
+instance FromData RequestAction where
+    fromBuiltinData bd = case unD bd of
+        Constr 0 [List steps] ->
+            UpdateAction
+                <$> traverse
+                    (fromBuiltinData . mkD)
+                    steps
+        Constr 1 [] -> Just Rejected
+        _ -> Nothing
 
 instance FromData UpdateRedeemer where
     fromBuiltinData bd = case unD bd of
         Constr 0 [] -> Just End
         Constr 1 [d] ->
             Contribute <$> fromBuiltinData (mkD d)
-        Constr 2 [List ps] ->
-            Modify <$> traverse parseProof ps
-          where
-            parseProof (List steps) =
-                traverse
+        Constr 2 [List as] ->
+            Modify
+                <$> traverse
                     (fromBuiltinData . mkD)
-                    steps
-            parseProof _ = Nothing
+                    as
         Constr 3 [d] ->
             Retract <$> fromBuiltinData (mkD d)
-        Constr 4 [] -> Just Reject
         _ -> Nothing
+
+instance UnsafeFromData RequestAction where
+    unsafeFromBuiltinData bd = case unD bd of
+        Constr 0 [List steps] ->
+            UpdateAction
+                $ map
+                    (unsafeFromBuiltinData . mkD)
+                    steps
+        Constr 1 [] -> Rejected
+        _ ->
+            error
+                "unsafeFromBuiltinData:\
+                \ RequestAction"
 
 instance UnsafeFromData UpdateRedeemer where
     unsafeFromBuiltinData bd = case unD bd of
@@ -693,19 +724,14 @@ instance UnsafeFromData UpdateRedeemer where
         Constr 1 [d] ->
             Contribute
                 $ unsafeFromBuiltinData (mkD d)
-        Constr 2 [List ps] ->
-            Modify $ map parseProof ps
-          where
-            parseProof (List steps) =
-                map (unsafeFromBuiltinData . mkD) steps
-            parseProof _ =
-                error
-                    "unsafeFromBuiltinData:\
-                    \ UpdateRedeemer"
+        Constr 2 [List as] ->
+            Modify
+                $ map
+                    (unsafeFromBuiltinData . mkD)
+                    as
         Constr 3 [d] ->
             Retract
                 $ unsafeFromBuiltinData (mkD d)
-        Constr 4 [] -> Reject
         _ ->
             error
                 "unsafeFromBuiltinData:\

@@ -82,6 +82,7 @@ import Cardano.MPFS.Core.OnChain
     , OnChainRoot (..)
     , OnChainTokenState (..)
     , ProofStep
+    , RequestAction (..)
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
@@ -423,7 +424,8 @@ buildProgram
                 fromIntegral (length reqUtxos)
                     :: Integer
         -- Spend state UTxO
-        _ <- Tx.spendScript stateIn (Modify proofs)
+        let actions = map UpdateAction proofs
+        _ <- Tx.spendScript stateIn (Modify actions)
         -- Spend request UTxOs
         mapM_
             ( \(rIn, _) ->

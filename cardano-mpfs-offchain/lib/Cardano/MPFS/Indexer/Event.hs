@@ -98,6 +98,7 @@ import Cardano.MPFS.Core.OnChain
     , OnChainRoot (..)
     , OnChainTokenId (..)
     , OnChainTokenState (..)
+    , RequestAction (..)
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
@@ -276,10 +277,16 @@ detectCageEvents scriptHash resolvedInputs tx =
         let Data plcData = redeemerData
         in  case fromBuiltinData
                 (BuiltinData plcData) of
-                Just (Modify _proofs) ->
-                    detectUpdate txIn txOut
-                Just Reject ->
-                    detectReject txIn txOut
+                Just (Modify actions)
+                    | all
+                        ( \case
+                            Rejected -> True
+                            _ -> False
+                        )
+                        actions ->
+                        detectReject txIn txOut
+                    | otherwise ->
+                        detectUpdate txIn txOut
                 Just (Retract _ref) ->
                     detectRetract txIn
                 _ -> []
