@@ -57,7 +57,10 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.Balance (balanceTx)
+import Cardano.Node.Client.Balance
+    ( BalanceResult (..)
+    , balanceTx
+    )
 
 -- | Build a request-insert transaction.
 requestInsertImpl
@@ -192,7 +195,7 @@ requestImpl cfg prov st tid key op addr = do
         Left err ->
             error
                 $ "requestImpl: " <> show err
-        Right balanced -> pure balanced
+        Right br -> pure (balancedTx br)
 
 -- | Compute the ADA to lock in a request output.
 --

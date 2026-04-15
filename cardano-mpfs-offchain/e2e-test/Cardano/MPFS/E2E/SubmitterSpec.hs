@@ -39,7 +39,10 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
-import Cardano.Node.Client.Balance (balanceTx)
+import Cardano.Node.Client.Balance
+    ( BalanceResult (..)
+    , balanceTx
+    )
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
     , genesisAddr
@@ -91,7 +94,7 @@ spec =
                                     error
                                         $ "balanceTx failed: "
                                             <> show err
-                                Right balanced -> do
+                                Right BalanceResult{balancedTx = balanced} -> do
                                     let signed =
                                             addKeyWitness
                                                 genesisSignKey
