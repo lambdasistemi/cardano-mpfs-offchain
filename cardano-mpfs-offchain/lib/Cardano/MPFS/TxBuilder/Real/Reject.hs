@@ -68,6 +68,7 @@ import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , OnChainRequest (..)
     , OnChainTokenState (..)
+    , RequestAction (..)
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
@@ -342,8 +343,10 @@ buildRejectProgram
             nReqs =
                 fromIntegral (length reqUtxos)
                     :: Integer
-        -- Spend state UTxO (Reject redeemer)
-        _ <- Tx.spendScript stateIn Reject
+        -- Spend state UTxO (Modify with Rejected actions)
+        let actions =
+                replicate (length reqUtxos) Rejected
+        _ <- Tx.spendScript stateIn (Modify actions)
         -- Spend request UTxOs
         mapM_
             ( \(rIn, _) ->
