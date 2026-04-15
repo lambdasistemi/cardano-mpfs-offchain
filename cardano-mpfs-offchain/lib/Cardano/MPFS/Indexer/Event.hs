@@ -278,12 +278,13 @@ detectCageEvents scriptHash resolvedInputs tx =
         in  case fromBuiltinData
                 (BuiltinData plcData) of
                 Just (Modify actions)
-                    | all
-                        ( \case
-                            Rejected -> True
-                            _ -> False
-                        )
-                        actions ->
+                    | not (null actions)
+                        && all
+                            ( \case
+                                Rejected -> True
+                                _ -> False
+                            )
+                            actions ->
                         detectReject txIn txOut
                     | otherwise ->
                         detectUpdate txIn txOut

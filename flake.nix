@@ -24,7 +24,7 @@
     };
     cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = {
-      url = "github:cardano-foundation/cardano-mpfs-onchain/fix/fair-fee-v2";
+      url = "github:cardano-foundation/cardano-mpfs-onchain";
     };
     cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
   };

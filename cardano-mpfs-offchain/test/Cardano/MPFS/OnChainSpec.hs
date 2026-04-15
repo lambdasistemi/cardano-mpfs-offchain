@@ -22,6 +22,7 @@ import Cardano.MPFS.Core.OnChain
     , OnChainTokenState (..)
     , OnChainTxOutRef (..)
     , ProofStep (..)
+    , RequestAction (..)
     , UpdateRedeemer (..)
     , cageScriptHash
     , deriveAssetName
@@ -200,16 +201,21 @@ instance Arbitrary ProofStep where
                 <*> genBS 32
             ]
 
+instance Arbitrary RequestAction where
+    arbitrary =
+        oneof
+            [ UpdateAction <$> listOf arbitrary
+            , pure Rejected
+            ]
+
 instance Arbitrary UpdateRedeemer where
     arbitrary =
         oneof
             [ pure End
             , Contribute <$> arbitrary
             , Modify
-                <$> listOf
-                    (listOf arbitrary)
+                <$> listOf arbitrary
             , Retract <$> arbitrary
-            , pure Reject
             ]
 
 -- ---------------------------------------------------------
@@ -262,9 +268,9 @@ spec = do
                 `shouldBe` Constr
                     3
                     [Constr 0 [B "tx", I 7]]
-        it "Reject encodes to Constr 4 []"
-            $ toData' Reject
-            `shouldBe` Constr 4 []
+        it "Rejected encodes to Constr 1 []"
+            $ toData' Rejected
+            `shouldBe` Constr 1 []
         it "OpInsert encodes to Constr 0 [B v]"
             $ toData' (OpInsert "hello")
             `shouldBe` Constr 0 [B "hello"]
