@@ -74,9 +74,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  tag: 72412a4efd4d003320cba85f547dfb4049bb1942
-  --sha256: 1zfnxi37ixj5s9ffdcpfii9ac1xbv4g8k3q4qinbwq9zbqma596q
-  subdir: cardano-mpfs-onchain
+  tag: 4f36c20920491bbd6b705bec1bc8db9c73689a5d
+  subdir: haskell
 
 -- Enable iohk flag for contra-tracer-contrib to use CHaP's simple API
 constraints: contra-tracer-contrib +iohk

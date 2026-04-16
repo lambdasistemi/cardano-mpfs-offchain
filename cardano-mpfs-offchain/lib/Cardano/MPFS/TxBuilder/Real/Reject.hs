@@ -338,7 +338,7 @@ buildRejectProgram
     lowerSlot = do
         let stateRef = txInToRef stateIn
             OnChainTokenState
-                { stateTip = tipAmount
+                { stateMaxFee = tipAmount
                 } = oldState
             nReqs =
                 fromIntegral (length reqUtxos)

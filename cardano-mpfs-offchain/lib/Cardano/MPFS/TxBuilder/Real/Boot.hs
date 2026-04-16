@@ -126,7 +126,7 @@ bootTokenImpl cfg prov addr = do
                                     (addrKeyHashBytes addr)
                             , stateRoot =
                                 OnChainRoot emptyRoot
-                            , stateTip =
+                            , stateMaxFee =
                                 let Coin c =
                                         defaultTip cfg
                                 in  c

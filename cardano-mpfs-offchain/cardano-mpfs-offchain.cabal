@@ -40,6 +40,7 @@ library
     , base16-bytestring                        >=1.0  && <1.1
     , bytestring                               >=0.11 && <0.13
     , cardano-crypto-class
+    , cardano-mpfs-cage
     , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
@@ -59,10 +60,8 @@ library
     , containers                               >=0.6  && <0.8
     , contra-tracer
     , contra-tracer-contrib
-    , crypton
     , dependent-map
     , lens
-    , memory
     , microlens
     , mts
     , mts:csmt
@@ -73,7 +72,6 @@ library
     , ouroboros-consensus-cardano
     , ouroboros-network-api
     , plutus-core
-    , plutus-ledger-api
     , plutus-tx
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
