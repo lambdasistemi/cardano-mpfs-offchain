@@ -74,7 +74,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  tag: 4f36c20920491bbd6b705bec1bc8db9c73689a5d
+  tag: e3214cf0ee707c4a974f1129d289a1c0e6dcda1e
   --sha256: 02i6pzqvy8ifffkq2k8dwssvdld246168dh9v3rm28abk06ib1l1
   subdir: haskell
 
