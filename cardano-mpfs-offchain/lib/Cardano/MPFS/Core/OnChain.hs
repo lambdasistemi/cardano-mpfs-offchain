@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- |
 -- Module      : Cardano.MPFS.Core.OnChain
 -- Description : On-chain type encodings (re-exports from cage)
