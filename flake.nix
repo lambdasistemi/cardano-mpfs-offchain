@@ -26,7 +26,6 @@
     cardano-mpfs-onchain = {
       url = "github:cardano-foundation/cardano-mpfs-onchain";
     };
-    cardano-mpfs-cage.follows = "cardano-mpfs-onchain/cardano-mpfs-cage";
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
