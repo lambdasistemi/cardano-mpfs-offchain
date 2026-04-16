@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- |
 -- Module      : Cardano.MPFS.Core.Blueprint
 -- Description : CIP-57 blueprint (re-exports from cage)
