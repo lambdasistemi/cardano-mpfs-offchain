@@ -313,7 +313,7 @@ mkStateTxOut =
                     , stateRoot =
                         OnChainRoot
                             (BS.replicate 32 0)
-                    , stateTip = 1_000_000
+                    , stateMaxFee = 1_000_000
                     , stateProcessTime = 300_000
                     , stateRetractTime = 600_000
                     }

@@ -404,7 +404,7 @@ mkStateDatum TokenState{..} r =
                         (hashToBytes ownerH)
                 , stateRoot =
                     OnChainRoot (unRoot r)
-                , stateTip = mf
+                , stateMaxFee = mf
                 , stateProcessTime = processTime
                 , stateRetractTime = retractTime
                 }

@@ -418,13 +418,13 @@ buildProgram
     upperSlot = do
         let stateRef = txInToRef stateIn
             OnChainTokenState
-                { stateTip = tipAmount
+                { stateMaxFee = tipAmount
                 } = oldState
             nReqs =
                 fromIntegral (length reqUtxos)
                     :: Integer
         -- Spend state UTxO
-        let actions = map UpdateAction proofs
+        let actions = map Update proofs
         _ <- Tx.spendScript stateIn (Modify actions)
         -- Spend request UTxOs
         mapM_

@@ -962,7 +962,7 @@ mkStateOut tid ts =
                 , stateRoot =
                     OnChainRoot
                         (unRoot (root ts))
-                , stateTip =
+                , stateMaxFee =
                     let Coin c = tip ts in c
                 , stateProcessTime =
                     processTime ts

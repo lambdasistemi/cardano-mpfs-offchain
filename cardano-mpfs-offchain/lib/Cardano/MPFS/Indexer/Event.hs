@@ -98,7 +98,7 @@ import Cardano.MPFS.Core.OnChain
     , OnChainRoot (..)
     , OnChainTokenId (..)
     , OnChainTokenState (..)
-    , RequestAction (..)
+    , RequestAction (Rejected)
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
@@ -433,7 +433,7 @@ fromOnChainState OnChainTokenState{..} =
     TokenState
         { owner = keyHashFromBBS stateOwner
         , root = Root (unOnChainRoot stateRoot)
-        , tip = Coin stateTip
+        , tip = Coin stateMaxFee
         , processTime = stateProcessTime
         , retractTime = stateRetractTime
         }
