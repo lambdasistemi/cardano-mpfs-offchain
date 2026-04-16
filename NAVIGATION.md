@@ -28,14 +28,15 @@ Pure types and logic with no IO dependencies.
 | Module | Description |
 |--------|-------------|
 | [`Core.Types`][s-core-types] | `TokenId`, `Root`, `Request`, `TokenState`, `Operation`, `BlockId`, ledger re-exports |
-| [`Core.OnChain`][s-core-onchain] | Plutus datum/redeemer encodings, `cageScriptHash`, `cageAddr`, `deriveAssetName` |
-| [`Core.Proof`][s-core-proof] | MPF proof to on-chain `ProofStep` conversion, Aiken-compatible CBOR serialization |
-| [`Core.Blueprint`][s-core-blueprint] | CIP-57 blueprint loading, schema validation, UPLC script extraction |
+| [`Core.OnChain`][s-core-onchain] | Re-exports from [`cardano-mpfs-cage`][cage] + offchain-specific `cageScriptHash`, `cageAddr` |
+| [`Core.Proof`][s-core-proof] | Re-exports from [`cardano-mpfs-cage`][cage]: `serializeProof`, `toProofSteps` |
+| [`Core.Blueprint`][s-core-blueprint] | Re-exports from [`cardano-mpfs-cage`][cage]: blueprint loading, schema validation |
 
 [s-core-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
 [s-core-onchain]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
 [s-core-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
 [s-core-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
+[cage]: https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell
 
 ---
 

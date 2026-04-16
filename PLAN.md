@@ -274,8 +274,8 @@ graph LR
     P2["Phase 2 ✓\nTx Builders +\nBalance"]
     P3["Phase 3 ✓\nE2E Tests"]
     P4["Phase 4 ✓\nIndexer +\nPersistence"]
-    P5["Phase 5\nHTTP Service"]
-    P6["Phase 6\nDeployment"]
+    P5["Phase 5 ✓\nHTTP Service"]
+    P6["Phase 6 ✓\nDeployment"]
 
     P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6
 
@@ -284,6 +284,8 @@ graph LR
     style P2 fill:#2d6,color:#fff
     style P3 fill:#2d6,color:#fff
     style P4 fill:#2d6,color:#fff
+    style P5 fill:#2d6,color:#fff
+    style P6 fill:#2d6,color:#fff
 ```
 
 ### Phase 0 — MPF Library ✓
@@ -347,17 +349,17 @@ graph LR
 - Application wiring with shared RocksDB instance
 - 197 unit tests (14 CageFollower, 27 persistent trie)
 
-### Phase 5 — HTTP Service
+### Phase 5 — HTTP Service ✓
 
-- Servant HTTP API matching TypeScript interface
+- Servant HTTP API
 - Endpoints: facts, proofs, tokens, requests
 - Swagger/OpenAPI documentation
-- Submitter with retry logic
+- Submitter with N2C LocalTxSubmission
 
-### Phase 6 — Deployment
+### Phase 6 — Deployment ✓
 
 - Docker image via Nix
-- Deploy to plutimus.com
+- Deployed to plutimus.com
 - Integration with production Cardano node
 
 ## Open Questions

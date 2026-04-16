@@ -129,9 +129,9 @@ All modules live under `Cardano.MPFS`.
 | Module | Purpose |
 |--------|---------|
 | [`Core.Types`][s-types] | `TokenId`, `Root`, `Request`, `TokenState`, `CageConfig` |
-| [`Core.OnChain`][s-onchain] | Datum/redeemer encodings, `cagePolicyId`, `cageAddress`, PlutusV3 script |
-| [`Core.Blueprint`][s-blueprint] | CIP-57 blueprint schema loading and validation |
-| [`Core.Proof`][s-proof] | MPF proof to on-chain `ProofStep` conversion |
+| [`Core.OnChain`][s-onchain] | Re-exports from [cage][cage-lib] + offchain-specific `cagePolicyId`, `cageAddr` |
+| [`Core.Blueprint`][s-blueprint] | Re-exports from [cage][cage-lib]: blueprint loading, validation |
+| [`Core.Proof`][s-proof] | Re-exports from [cage][cage-lib]: proof serialization |
 | [`Core.Balance`][s-balance] | `balanceTx` — fee estimation fixpoint loop |
 
 [s-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
@@ -139,6 +139,7 @@ All modules live under `Cardano.MPFS`.
 [s-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
 [s-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
 [s-balance]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code
+[cage-lib]: https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell
 
 ### Interfaces — record-of-functions singletons
 
