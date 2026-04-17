@@ -1,20 +1,19 @@
 # Cardano MPFS Offchain
 
-Haskell offchain companion to
+Off-chain service for
 [cardano-mpfs-onchain](https://github.com/cardano-foundation/cardano-mpfs-onchain)
---- indexing, transaction building, and submission for Cardano Merkle
+--- indexing, transaction building, and HTTP API for Cardano Merkle
 Patricia Forestry.
 
-## Packages
-
-| Package | Description |
-|---|---|
-| `merkle-patricia-forestry` | 16-ary hex Patricia trie with Blake2b-256, compatible with the [Aiken on-chain implementation](https://github.com/aiken-lang/merkle-patricia-forestry) |
-| `cardano-mpfs-offchain` | Off-chain service layer: N2C node client, UTxO provider, transaction balancing, submission, and skeleton indexer |
+Connects to a Cardano node via N2C, indexes cage UTxOs into RocksDB,
+and exposes a REST API for building and submitting cage transactions.
+On-chain types and proof serialization come from the
+[cage library](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell).
 
 ## Documentation
 
-- [Architecture Overview](architecture/overview.md) --- system diagram, phases, design principles
+- [Architecture Overview](architecture/overview.md) --- system diagram, dependency graph, module hierarchy
+- [Block Processing](architecture/block-processing.md) --- one block = one RocksDB transaction
 - [Data Sources](architecture/data-sources.md) --- N2C connection, mini-protocols, data flow
 - [Singletons](architecture/singletons.md) --- record-of-functions interfaces
 - [Testing](architecture/testing.md) --- unit tests, E2E tests with cardano-node subprocess

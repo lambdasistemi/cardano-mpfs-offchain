@@ -132,7 +132,7 @@ Per-token MPF trie backends. Each cage token has an isolated trie.
 ## Transaction Building
 
 Real `TxBuilder` implementations for all cage protocol operations.
-Each builds a full `Tx ConwayEra` with PlutusV3 script witnesses.
+Each builds a full transaction with PlutusV3 script witnesses.
 
 | Module | Description |
 |--------|-------------|

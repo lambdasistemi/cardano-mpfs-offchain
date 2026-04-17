@@ -89,32 +89,32 @@ processing each block in a single atomic transaction. The `Provider`,
 
 ```mermaid
 graph TD
-    OFFCHAIN["cardano-mpfs-offchain<br/>Service interfaces + N2C client"]
-    MPF["merkle-patricia-forestry<br/>MPF trie library"]
-    ONCHAIN["cardano-mpfs-onchain<br/>Aiken validators"]
+    OFFCHAIN["cardano-mpfs-offchain<br/>Service: indexer + HTTP API"]
+    CAGE["cardano-mpfs-cage<br/>On-chain types, proofs,<br/>tx builders"]
+    CLIENTS["cardano-node-clients<br/>TxBuild DSL, N2C provider,<br/>fee balancing"]
+    MTS["haskell-mts<br/>MPF trie library"]
+    ONCHAIN["cardano-mpfs-onchain<br/>Aiken validators + cage lib"]
     LEDGER["cardano-ledger<br/>Conway era types"]
-    OUROBOROS["ouroboros-network<br/>N2C protocols"]
-    PLUTUS["plutus-core / plutus-tx<br/>PlutusData encoding"]
 
-    OFFCHAIN --> MPF
+    OFFCHAIN --> CAGE
+    OFFCHAIN --> CLIENTS
+    OFFCHAIN --> MTS
     OFFCHAIN --> LEDGER
-    OFFCHAIN --> OUROBOROS
-    OFFCHAIN --> PLUTUS
-    OFFCHAIN -.->|"on-chain types<br/>& script hash"| ONCHAIN
+    CAGE -.->|"lives in"| ONCHAIN
 
     style OFFCHAIN fill:#e1f5fe
-    style MPF fill:#e8f5e9
+    style CAGE fill:#fff3e0
+    style CLIENTS fill:#e8f5e9
+    style MTS fill:#e8f5e9
     style ONCHAIN fill:#fff3e0
     style LEDGER fill:#f3e5f5
-    style OUROBOROS fill:#f3e5f5
-    style PLUTUS fill:#f3e5f5
 ```
 
 | Color | Meaning |
 |-------|---------|
 | Blue | This project |
-| Green | MPF trie library (same repo) |
-| Orange | On-chain Aiken validators (separate repo) |
+| Orange | On-chain repo (validators + cage library) |
+| Green | lambdasistemi libraries |
 | Purple | Cardano ecosystem dependencies |
 
 ## Module Hierarchy
@@ -132,13 +132,11 @@ All modules live under `Cardano.MPFS`.
 | [`Core.OnChain`][s-onchain] | Re-exports from [cage][cage-lib] + offchain-specific `cagePolicyId`, `cageAddr` |
 | [`Core.Blueprint`][s-blueprint] | Re-exports from [cage][cage-lib]: blueprint loading, validation |
 | [`Core.Proof`][s-proof] | Re-exports from [cage][cage-lib]: proof serialization |
-| [`Core.Balance`][s-balance] | `balanceTx` — fee estimation fixpoint loop |
 
 [s-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
 [s-onchain]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
 [s-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
 [s-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
-[s-balance]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code
 [cage-lib]: https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell
 
 ### Interfaces — record-of-functions singletons
@@ -203,22 +201,15 @@ All modules live under `Cardano.MPFS`.
 [s-idx-rollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
 [s-inverseop]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
 
-### NodeClient — N2C protocol clients
+### Node integration — thin wrappers over [cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients)
 
 | Module | Purpose |
 |--------|---------|
-| [`NodeClient.Connection`][s-nc-conn] | [`runNodeClient`][s-runnc] — multiplexed N2C connection |
-| [`NodeClient.LocalStateQuery`][s-nc-lsq] | LSQ protocol client for UTxOs and PParams |
-| [`NodeClient.LocalTxSubmission`][s-nc-ltxs] | Tx submission protocol client |
-| [`NodeClient.Codecs`][s-nc-codecs] | N2C codec bundle |
-| [`NodeClient.Types`][s-nc-types] | `LSQChannel`, `LTxSChannel` |
+| [`Provider.NodeClient`][s-prov-nc] | N2C-backed `Provider` (UTxOs, PParams, script eval, slot conversion) |
+| [`Submitter.N2C`][s-sub-n2c] | N2C-backed `Submitter` (LocalTxSubmission) |
 
-[s-nc-conn]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Connection%22&type=code
-[s-runnc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=runNodeClient+path%3ANodeClient&type=code
-[s-nc-lsq]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalStateQuery%22&type=code
-[s-nc-ltxs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.LocalTxSubmission%22&type=code
-[s-nc-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Codecs%22&type=code
-[s-nc-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.NodeClient.Types%22&type=code
+[s-prov-nc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&type=code
+[s-sub-n2c]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter.N2C%22&type=code
 
 ### TxBuilder — cage protocol transactions
 
