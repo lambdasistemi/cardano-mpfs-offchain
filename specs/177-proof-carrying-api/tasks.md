@@ -29,6 +29,9 @@
 **Checkpoint**: Read-side responses are verifiable offline against one
 reported snapshot.
 
+**First milestone**: This is the first HTTP-client scenario we should
+implement end-to-end before starting transaction-bundle refactors.
+
 ---
 
 ## Slice 3: Rich transaction builder boundary (US2 foundation, #212)
@@ -94,7 +97,7 @@ and ready for review.
 ```text
 T001-T004 -> T005
 T005 -> T006-T013
-T005 -> T014-T019
+T013 -> T014-T019
 T014-T019 -> T020-T029
 T014-T019 -> T030-T034
 T020-T029 -> T035-T039
@@ -104,8 +107,11 @@ T030-T034 -> T035-T039
 ## Notes
 
 - Slice 1 is the narrowest vertical slice and should land first.
-- Slice 3 is the main architectural refactor; slices 4 and 5 depend on
-  it even if they touch different endpoint families.
+- Slices 1 and 2 together are the first client-visible milestone:
+  `GET /status` plus proof-carrying token read endpoints.
+- Slice 3 is the main architectural refactor; it starts only after the
+  read-side milestone is settled, and slices 4 and 5 depend on it even
+  if they touch different endpoint families.
 - `POST /tx/update` is intentionally isolated from the other tx
   endpoints because batching and proof association make it the highest
   risk implementation area.
