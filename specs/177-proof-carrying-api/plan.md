@@ -11,6 +11,9 @@ can mostly assemble bundles in the HTTP layer using existing `Context`
 proof hooks, while transaction endpoints likely require a richer
 `TxBuilder` return type so the server can return the unsigned
 transaction plus the exact UTxO and MPF witnesses the builder relied on.
+The first milestone is explicitly the HTTP client read-verification
+scenario: discover the root via `GET /status`, fetch proof-bearing token
+data, and verify it offline before tackling transaction-signing flows.
 
 ## Technical Context
 
@@ -132,6 +135,9 @@ business payloads.
 **Goal**: Clients can verify all read-side responses offline against one
 reported snapshot.
 
+**Milestone**: After slices 1 and 2, the first client-side scenario is
+complete without touching transaction-signing flows.
+
 ### Slice 3: Rich transaction builder boundary
 
 Replace the current `TxBuilder` return type of bare `Tx ConwayEra` with
@@ -149,7 +155,8 @@ Update mocks and the top-level wiring in `TxBuilder/Real.hs`.
 
 **Why this slice exists**: Parsing the final tx in `HTTP.Server` is not
 enough to reconstruct MPF proof intent or stable proof-to-request
-association for batched flows.
+association for batched flows. It starts only after the read-side
+HTTP-client scenario is accepted.
 
 ### Slice 4: Simple tx endpoints on the new bundle type
 
