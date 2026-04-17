@@ -51,4 +51,4 @@ just update-swagger  # regenerate docs/assets/swagger.json
 
 ## Documentation
 
-https://paolino.github.io/cardano-mpfs-offchain/
+https://lambdasistemi.github.io/cardano-mpfs-offchain/
