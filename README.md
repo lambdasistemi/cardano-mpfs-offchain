@@ -7,9 +7,51 @@ Patricia Forestry.
 
 Connects to a Cardano node via N2C, indexes cage UTxOs into RocksDB,
 and exposes a REST API for building and submitting cage transactions.
-On-chain types and proof serialization come from the
-[cage library](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell)
-in the onchain repo.
+
+## Dependencies
+
+```mermaid
+graph TD
+    OFFCHAIN["cardano-mpfs-offchain"]
+    ONCHAIN["cardano-mpfs-onchain/haskell<br/><i>cage library</i>"]
+    CLIENTS["cardano-node-clients"]
+    MTS["haskell-mts"]
+    FOLLOWER["chain-follower"]
+    NODE["cardano-node<br/><i>Unix socket</i>"]
+
+    OFFCHAIN -->|"on-chain types<br/>proof serialization<br/>blueprint loading"| ONCHAIN
+    OFFCHAIN -->|"TxBuild DSL<br/>fee balancing<br/>N2C provider"| CLIENTS
+    OFFCHAIN -->|"MPF trie<br/>pure + RocksDB"| MTS
+    OFFCHAIN -->|"ChainSync<br/>block streaming"| FOLLOWER
+    CLIENTS --> NODE
+    FOLLOWER --> NODE
+
+    click ONCHAIN "https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell"
+    click CLIENTS "https://github.com/lambdasistemi/cardano-node-clients"
+    click MTS "https://github.com/lambdasistemi/haskell-mts"
+    click FOLLOWER "https://github.com/lambdasistemi/chain-follower"
+```
+
+- **[cardano-mpfs-onchain/haskell](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell)** ---
+  canonical Haskell types matching the Aiken validator (`CageDatum`, `UpdateRedeemer`, `RequestAction`, `ProofStep`),
+  MPF proof serialization, CIP-57 blueprint parsing, and asset-name derivation.
+  The offchain re-exports these via `Core.OnChain`, `Core.Proof`, and `Core.Blueprint`.
+
+- **[cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients)** ---
+  operational-monad DSL for building transactions with convergent fee balancing (`Tx.build` + `Peek`),
+  N2C `Provider` (UTxO queries, protocol params, script evaluation, slot conversion),
+  and `Submitter` (LocalTxSubmission).
+
+- **[haskell-mts](https://github.com/lambdasistemi/haskell-mts)** ---
+  16-ary hex Merkle Patricia Forestry trie with Blake2b-256 hashing.
+  Pure in-memory backend for testing, RocksDB backend for production.
+  Proof generation compatible with the
+  [Aiken MPF library](https://github.com/aiken-lang/merkle-patricia-forestry).
+
+- **[chain-follower](https://github.com/lambdasistemi/chain-follower)** ---
+  ChainSync protocol client that streams blocks from a Cardano node.
+  The offchain's `CageFollower` processes each block in a single atomic
+  RocksDB transaction.
 
 ## HTTP API
 
@@ -47,15 +89,6 @@ just unit-offchain   # offchain unit tests
 just e2e             # E2E tests (requires cardano-node in PATH)
 just update-swagger  # regenerate docs/assets/swagger.json
 ```
-
-## Dependencies
-
-| Package | Source | Role |
-|---------|--------|------|
-| [cardano-mpfs-cage](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell) | cardano-mpfs-onchain | On-chain types, proof serialization, blueprint loading |
-| [cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients) | lambdasistemi | TxBuild DSL, N2C provider, fee balancing |
-| [haskell-mts](https://github.com/lambdasistemi/haskell-mts) | lambdasistemi | MPF trie (pure + RocksDB backends) |
-| [chain-follower](https://github.com/lambdasistemi/chain-follower) | lambdasistemi | ChainSync protocol client |
 
 ## Documentation
 
