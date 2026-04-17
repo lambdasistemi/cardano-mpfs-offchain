@@ -1,16 +1,15 @@
 # cardano-mpfs-offchain
 
-Off-chain companion to
+Off-chain service for
 [cardano-mpfs-onchain](https://github.com/cardano-foundation/cardano-mpfs-onchain)
---- indexing, transaction building, and submission for Cardano Merkle
+--- indexing, transaction building, and HTTP API for Cardano Merkle
 Patricia Forestry.
 
-## Packages
-
-| Package | Description |
-|---|---|
-| `merkle-patricia-forestry` | 16-ary hex Patricia trie with Blake2b-256, compatible with the [Aiken on-chain implementation](https://github.com/aiken-lang/merkle-patricia-forestry) |
-| `cardano-mpfs-offchain` | Off-chain service layer: N2C node client, UTxO provider, transaction balancing, submission, and skeleton indexer |
+Connects to a Cardano node via N2C, indexes cage UTxOs into RocksDB,
+and exposes a REST API for building and submitting cage transactions.
+On-chain types and proof serialization come from the
+[cage library](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell)
+in the onchain repo.
 
 ## HTTP API
 
@@ -48,6 +47,15 @@ just unit-offchain   # offchain unit tests
 just e2e             # E2E tests (requires cardano-node in PATH)
 just update-swagger  # regenerate docs/assets/swagger.json
 ```
+
+## Dependencies
+
+| Package | Source | Role |
+|---------|--------|------|
+| [cardano-mpfs-cage](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell) | cardano-mpfs-onchain | On-chain types, proof serialization, blueprint loading |
+| [cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients) | lambdasistemi | TxBuild DSL, N2C provider, fee balancing |
+| [haskell-mts](https://github.com/lambdasistemi/haskell-mts) | lambdasistemi | MPF trie (pure + RocksDB backends) |
+| [chain-follower](https://github.com/lambdasistemi/chain-follower) | lambdasistemi | ChainSync protocol client |
 
 ## Documentation
 
