@@ -61,6 +61,8 @@ import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
@@ -129,20 +131,22 @@ unitTests = do
         it "boot inserts token and creates trie"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 getToken (tokens st) tid
-                    `shouldReturn` Just ts
+                    `shouldReturn` Just
+                        (LocatedTokenState stRef ts)
 
         it "request inserts into requests"
             $ property
@@ -162,7 +166,8 @@ unitTests = do
                         tm
                         (CageRequest txIn req)
                 getRequest (requests st) txIn
-                    `shouldReturn` Just req
+                    `shouldReturn` Just
+                        (LocatedRequest txIn req)
 
         it "retract removes request"
             $ property
@@ -192,18 +197,19 @@ unitTests = do
         it "burn removes token and hides trie"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 _ <-
                     applyCageEvent
                         st
@@ -215,46 +221,50 @@ unitTests = do
         it "update changes token root"
             $ property
             $ forAll
-                ( (,,)
+                ( (,,,,)
                     <$> genTokenId
+                    <*> genTxIn
+                    <*> genTxIn
                     <*> genTokenState
                     <*> genRoot
                 )
-            $ \(tid, ts, newRoot) -> do
+            $ \(tid, bootRef, newRef, ts, newRoot) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid bootRef ts)
                 _ <-
                     applyCageEvent
                         st
                         tm
                         ( CageUpdate
                             tid
+                            newRef
                             newRoot
                             []
                         )
                 mTs <- getToken (tokens st) tid
-                fmap root mTs
+                fmap (root . tokenState) mTs
                     `shouldBe` Just newRoot
 
     describe "computeInverse" $ do
         it "boot inverse is InvRemoveToken"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 inv <-
                     computeInverse
                         st
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 inv `shouldBe` [InvRemoveToken tid]
 
         it
@@ -262,30 +272,34 @@ unitTests = do
             \ when token exists"
             $ property
             $ forAll
-                ( (,,)
+                ( (,,,,)
                     <$> genTokenId
+                    <*> genTxIn
+                    <*> genTxIn
                     <*> genTokenState
                     <*> genRoot
                 )
-            $ \(tid, ts, newRoot) -> do
+            $ \(tid, bootRef, newRef, ts, newRoot) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid bootRef ts)
                 inv <-
                     computeInverse
                         st
                         ( CageUpdate
                             tid
+                            newRef
                             newRoot
                             []
                         )
                 inv
                     `shouldBe` [ InvRestoreRoot
                                     tid
+                                    bootRef
                                     (root ts)
                                ]
 
@@ -294,22 +308,27 @@ unitTests = do
             \ token exists"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 inv <-
                     computeInverse st (CageBurn tid)
                 inv
-                    `shouldBe` [InvRestoreToken tid ts]
+                    `shouldBe` [ InvRestoreToken
+                                    tid
+                                    stRef
+                                    ts
+                               ]
 
     describe "applyCageInverses" $ do
         it
@@ -317,18 +336,19 @@ unitTests = do
             \ original state"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 _ <-
                     applyCageEvent
                         st
@@ -337,25 +357,27 @@ unitTests = do
                 applyCageInverses
                     st
                     tm
-                    [InvRestoreToken tid ts]
+                    [InvRestoreToken tid stRef ts]
                 getToken (tokens st) tid
-                    `shouldReturn` Just ts
+                    `shouldReturn` Just
+                        (LocatedTokenState stRef ts)
 
         it "InvRemoveToken undoes a boot"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 applyCageInverses
                     st
                     tm
@@ -366,12 +388,14 @@ unitTests = do
         it "InvRestoreRoot restores previous root"
             $ property
             $ forAll
-                ( (,,)
+                ( (,,,,)
                     <$> genTokenId
+                    <*> genTxIn
+                    <*> genTxIn
                     <*> genTokenState
                     <*> genRoot
                 )
-            $ \(tid, ts, newRoot) -> do
+            $ \(tid, bootRef, newRef, ts, newRoot) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 let origRoot = root ts
@@ -379,43 +403,49 @@ unitTests = do
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid bootRef ts)
                 _ <-
                     applyCageEvent
                         st
                         tm
                         ( CageUpdate
                             tid
+                            newRef
                             newRoot
                             []
                         )
                 applyCageInverses
                     st
                     tm
-                    [InvRestoreRoot tid origRoot]
+                    [ InvRestoreRoot
+                        tid
+                        bootRef
+                        origRoot
+                    ]
                 mTs <- getToken (tokens st) tid
-                fmap root mTs
+                fmap (root . tokenState) mTs
                     `shouldBe` Just origRoot
 
         it "full boot → inverse roundtrip"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 inv <-
                     computeInverse
                         st
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 _ <-
                     applyCageEvent
                         st
                         tm
-                        (CageBoot tid ts)
+                        (CageBoot tid stRef ts)
                 applyCageInverses st tm inv
                 getToken (tokens st) tid
                     `shouldReturn` Nothing
@@ -497,18 +527,21 @@ pipelineTests =
             "booted token present if not burned"
             $ property
             $ forAll
-                ( (,,)
+                ( (,,,,)
                     <$> genTokenId
+                    <*> genTxIn
+                    <*> genTxIn
                     <*> genTokenState
                     <*> genRoot
                 )
-            $ \(tid, ts, newRoot) -> do
+            $ \(tid, bootRef, newRef, ts, newRoot) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 let events =
-                        [ CageBoot tid ts
+                        [ CageBoot tid bootRef ts
                         , CageUpdate
                             tid
+                            newRef
                             newRoot
                             []
                         ]
@@ -518,24 +551,25 @@ pipelineTests =
                         tm
                         events
                 mTs <- getToken (tokens st) tid
-                fmap root mTs
+                fmap (root . tokenState) mTs
                     `shouldBe` Just newRoot
 
         it "burned token is absent"
             $ property
             $ forAll
-                ( (,)
+                ( (,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tid, ts) -> do
+            $ \(tid, stRef, ts) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageBlockEvents
                         st
                         tm
-                        [ CageBoot tid ts
+                        [ CageBoot tid stRef ts
                         , CageBurn tid
                         ]
                 getToken (tokens st) tid
@@ -544,13 +578,15 @@ pipelineTests =
         it "independent tokens don't interfere"
             $ property
             $ forAll
-                ( (,,,)
+                ( (,,,,,)
                     <$> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                     <*> genTokenId
+                    <*> genTxIn
                     <*> genTokenState
                 )
-            $ \(tidA, tsA, tidB, tsB) ->
+            $ \(tidA, refA, tsA, tidB, refB, tsB) ->
                 tidA /= tidB ==> do
                     st <- mkMockState
                     tm <- mkPureTrieManager
@@ -558,56 +594,63 @@ pipelineTests =
                         applyCageBlockEvents
                             st
                             tm
-                            [ CageBoot tidA tsA
-                            , CageBoot tidB tsB
+                            [ CageBoot tidA refA tsA
+                            , CageBoot tidB refB tsB
                             , CageBurn tidA
                             ]
                     getToken (tokens st) tidA
                         `shouldReturn` Nothing
                     getToken (tokens st) tidB
-                        `shouldReturn` Just tsB
+                        `shouldReturn` Just
+                            ( LocatedTokenState
+                                refB
+                                tsB
+                            )
 
         it "request present after boot+request"
             $ property
             $ forAll
                 ( do
                     tid <- genTokenId
+                    stRef <- genTxIn
                     ts <- genTokenState
                     txIn <- genTxIn
                     req <- genRequest tid
-                    pure (tid, ts, txIn, req)
+                    pure (tid, stRef, ts, txIn, req)
                 )
-            $ \(tid, ts, txIn, req) -> do
+            $ \(tid, stRef, ts, txIn, req) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageBlockEvents
                         st
                         tm
-                        [ CageBoot tid ts
+                        [ CageBoot tid stRef ts
                         , CageRequest txIn req
                         ]
                 getRequest (requests st) txIn
-                    `shouldReturn` Just req
+                    `shouldReturn` Just
+                        (LocatedRequest txIn req)
 
         it "retracted request is absent"
             $ property
             $ forAll
                 ( do
                     tid <- genTokenId
+                    stRef <- genTxIn
                     ts <- genTokenState
                     txIn <- genTxIn
                     req <- genRequest tid
-                    pure (tid, ts, txIn, req)
+                    pure (tid, stRef, ts, txIn, req)
                 )
-            $ \(tid, ts, txIn, req) -> do
+            $ \(tid, stRef, ts, txIn, req) -> do
                 st <- mkMockState
                 tm <- mkPureTrieManager
                 _ <-
                     applyCageBlockEvents
                         st
                         tm
-                        [ CageBoot tid ts
+                        [ CageBoot tid stRef ts
                         , CageRequest txIn req
                         , CageRetract txIn
                         ]
@@ -796,8 +839,15 @@ detectionTests =
                                 testScriptHash
                                 []
                                 tx
-                    events
-                        `shouldBe` [CageBoot tid ts]
+                    case events of
+                        [CageBoot tid' _ ts'] -> do
+                            tid' `shouldBe` tid
+                            ts' `shouldBe` ts
+                        other ->
+                            fail
+                                $ "expected [CageBoot\
+                                  \ ...], got "
+                                    ++ show other
 
             it
                 "request roundtrips all Request\
@@ -866,7 +916,7 @@ detectionTests =
 -- ---------------------------------------------------------
 
 isBoot :: TokenId -> CageEvent -> Bool
-isBoot tid (CageBoot tid' _) = tid == tid'
+isBoot tid (CageBoot tid' _ _) = tid == tid'
 isBoot _ _ = False
 
 isRequestEvt :: CageEvent -> Bool
@@ -874,7 +924,8 @@ isRequestEvt (CageRequest _ _) = True
 isRequestEvt _ = False
 
 isUpdate :: TokenId -> CageEvent -> Bool
-isUpdate tid (CageUpdate tid' _ _) = tid == tid'
+isUpdate tid (CageUpdate tid' _ _ _) =
+    tid == tid'
 isUpdate _ _ = False
 
 -- ---------------------------------------------------------

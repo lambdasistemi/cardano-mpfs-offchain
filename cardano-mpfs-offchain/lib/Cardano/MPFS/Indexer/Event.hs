@@ -116,19 +116,22 @@ import Cardano.MPFS.Core.Types
 -- | A cage-protocol event detected in a transaction.
 data CageEvent
     = -- | Mint with cage policyId: new token created.
-      -- Carries the new 'TokenId' and its initial
-      -- 'TokenState' from the output datum.
-      CageBoot !TokenId !TokenState
+      -- Carries the new 'TokenId', the 'TxIn' of the
+      -- continuing-state output, and the initial
+      -- 'TokenState' from that output's datum.
+      CageBoot !TokenId !TxIn !TokenState
     | -- | Output to cage address with a 'RequestDatum'.
       -- Carries the UTxO reference and decoded 'Request'.
       CageRequest !TxIn !Request
     | -- | Oracle processes requests: consumes request
       -- UTxOs and updates the trie root. Carries the
-      -- token, new root, and consumed request UTxOs.
-      CageUpdate !TokenId !Root ![TxIn]
+      -- token, the new state 'TxIn', new root, and
+      -- consumed request UTxOs.
+      CageUpdate !TokenId !TxIn !Root ![TxIn]
     | -- | Oracle rejects expired Phase 3 requests.
-      -- Root unchanged, requests consumed.
-      CageReject !TokenId ![TxIn]
+      -- Root unchanged; carries the new state 'TxIn'
+      -- and the consumed request UTxOs.
+      CageReject !TokenId !TxIn ![TxIn]
     | -- | Requester cancels a pending request.
       CageRetract !TxIn
     | -- | Burn cage token: token permanently removed.
@@ -137,16 +140,20 @@ data CageEvent
 
 -- | Inverse of a cage event, used for rollback.
 data CageInverseOp
-    = -- | Re-insert a deleted token
-      InvRestoreToken !TokenId !TokenState
+    = -- | Re-insert a deleted token, together with
+      -- the 'TxIn' of the UTxO that carried it.
+      InvRestoreToken !TokenId !TxIn !TokenState
     | -- | Remove an inserted token
       InvRemoveToken !TokenId
     | -- | Re-insert a deleted request
       InvRestoreRequest !TxIn !Request
     | -- | Remove an inserted request
       InvRemoveRequest !TxIn
-    | -- | Restore a token's previous root
-      InvRestoreRoot !TokenId !Root
+    | -- | Restore a token's previous state location
+      -- and root (undo update or reject). 'TxIn' is
+      -- the previous state UTxO; 'Root' is the root
+      -- at that point.
+      InvRestoreRoot !TokenId !TxIn !Root
     | -- | Restore key→value in token's trie (undo delete/update)
       InvTrieInsert !TokenId !ByteString !ByteString
     | -- | Remove key from token's trie (undo insert)
@@ -187,26 +194,38 @@ detectCageEvents scriptHash resolvedInputs tx =
         | qty == 1 =
             -- Boot: find StateDatum in outputs
             let tid = TokenId assetName
+                thisTxId = txIdTx tx
                 outputs =
-                    toList
-                        (body ^. outputsTxBodyL)
-                mState = findStateDatum outputs
+                    zip
+                        [0 ..]
+                        ( toList
+                            (body ^. outputsTxBodyL)
+                        )
+                mState =
+                    findStateDatum
+                        thisTxId
+                        outputs
             in  case mState of
-                    Just ts -> [CageBoot tid ts]
+                    Just (txIn, ts) ->
+                        [CageBoot tid txIn ts]
                     Nothing -> []
         | qty == -1 =
             [CageBurn (TokenId assetName)]
         | otherwise = []
 
-    findStateDatum =
+    findStateDatum thisTxId =
         foldr
-            ( \txOut acc -> case acc of
+            ( \(ix, txOut) acc -> case acc of
                 Just _ -> acc
                 Nothing ->
                     case extractDatum txOut of
                         Just (StateDatum ocs) ->
                             Just
-                                (fromOnChainState ocs)
+                                ( TxIn
+                                    thisTxId
+                                    (TxIx ix)
+                                , fromOnChainState ocs
+                                )
                         _ -> Nothing
             )
             Nothing
@@ -294,24 +313,31 @@ detectCageEvents scriptHash resolvedInputs tx =
 
     detectUpdate _stateTxIn _stateTxOut =
         -- Find the continuing output (new state)
-        let outputs =
-                toList
-                    (body ^. outputsTxBodyL)
-        in  case findStateDatumWithToken outputs of
-                Just (tid, newRoot) ->
+        let thisTxId = txIdTx tx
+            outputs =
+                zip
+                    [0 ..]
+                    ( toList
+                        (body ^. outputsTxBodyL)
+                    )
+        in  case findStateDatumWithToken
+                thisTxId
+                outputs of
+                Just (newTxIn, tid, newRoot) ->
                     let consumed =
                             findConsumedRequests
                                 tid
                     in  [ CageUpdate
                             tid
+                            newTxIn
                             newRoot
                             consumed
                         ]
                 Nothing -> []
 
-    findStateDatumWithToken =
+    findStateDatumWithToken thisTxId =
         foldr
-            ( \txOut acc -> case acc of
+            ( \(ix, txOut) acc -> case acc of
                 Just _ -> acc
                 Nothing ->
                     case txOut ^. addrTxOutL of
@@ -319,9 +345,19 @@ detectCageEvents scriptHash resolvedInputs tx =
                             | sh == scriptHash ->
                                 case extractDatum txOut of
                                     Just (StateDatum ocs) ->
-                                        extractTokenId
-                                            txOut
-                                            ocs
+                                        fmap
+                                            ( \(tid, r) ->
+                                                ( TxIn
+                                                    thisTxId
+                                                    (TxIx ix)
+                                                , tid
+                                                , r
+                                                )
+                                            )
+                                            ( extractTokenId
+                                                txOut
+                                                ocs
+                                            )
                                     _ -> Nothing
                         _ -> Nothing
             )
@@ -360,15 +396,25 @@ detectCageEvents scriptHash resolvedInputs tx =
             _ -> False
 
     detectReject _stateTxIn _stateTxOut =
-        let outputs =
-                toList
-                    (body ^. outputsTxBodyL)
-        in  case findStateDatumWithToken outputs of
-                Just (tid, _root) ->
+        let thisTxId = txIdTx tx
+            outputs =
+                zip
+                    [0 ..]
+                    ( toList
+                        (body ^. outputsTxBodyL)
+                    )
+        in  case findStateDatumWithToken
+                thisTxId
+                outputs of
+                Just (newTxIn, tid, _root) ->
                     let consumed =
                             findConsumedRequests
                                 tid
-                    in  [CageReject tid consumed]
+                    in  [ CageReject
+                            tid
+                            newTxIn
+                            consumed
+                        ]
                 Nothing -> []
 
     detectRetract txIn = [CageRetract txIn]
@@ -379,21 +425,25 @@ detectCageEvents scriptHash resolvedInputs tx =
 -- Used to record rollback information alongside
 -- cardano-utxo-csmt's rollback points.
 inversesOf
-    :: (TokenId -> Maybe TokenState)
-    -- ^ Token lookup in current state
+    :: (TokenId -> Maybe (TxIn, TokenState))
+    -- ^ Token lookup: returns state UTxO ref and state
     -> (TxIn -> Maybe Request)
     -- ^ Request lookup in current state
     -> CageEvent
     -> [CageInverseOp]
 inversesOf lookupToken lookupReq = \case
-    CageBoot tid _ts ->
+    CageBoot tid _txIn _ts ->
         [InvRemoveToken tid]
     CageRequest txIn _req ->
         [InvRemoveRequest txIn]
-    CageUpdate tid _newRoot consumed ->
+    CageUpdate tid _newTxIn _newRoot consumed ->
         let restoreRoot = case lookupToken tid of
-                Just ts ->
-                    [InvRestoreRoot tid (root ts)]
+                Just (oldTxIn, ts) ->
+                    [ InvRestoreRoot
+                        tid
+                        oldTxIn
+                        (root ts)
+                    ]
                 Nothing -> []
             restoreReqs =
                 concatMap
@@ -404,14 +454,24 @@ inversesOf lookupToken lookupReq = \case
                     )
                     consumed
         in  restoreRoot ++ restoreReqs
-    CageReject _tid consumed ->
-        concatMap
-            ( \txIn' -> case lookupReq txIn' of
-                Just req ->
-                    [InvRestoreRequest txIn' req]
+    CageReject tid _newTxIn consumed ->
+        let restoreRoot = case lookupToken tid of
+                Just (oldTxIn, ts) ->
+                    [ InvRestoreRoot
+                        tid
+                        oldTxIn
+                        (root ts)
+                    ]
                 Nothing -> []
-            )
-            consumed
+            restoreReqs =
+                concatMap
+                    ( \txIn' -> case lookupReq txIn' of
+                        Just req ->
+                            [InvRestoreRequest txIn' req]
+                        Nothing -> []
+                    )
+                    consumed
+        in  restoreRoot ++ restoreReqs
     CageRetract txIn ->
         case lookupReq txIn of
             Just req ->
@@ -419,7 +479,8 @@ inversesOf lookupToken lookupReq = \case
             Nothing -> []
     CageBurn tid ->
         case lookupToken tid of
-            Just ts -> [InvRestoreToken tid ts]
+            Just (txIn, ts) ->
+                [InvRestoreToken tid txIn ts]
             Nothing -> []
 
 -- --------------------------------------------------------

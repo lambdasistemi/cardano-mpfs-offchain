@@ -78,6 +78,8 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -211,10 +213,14 @@ cageFlowSpec bpPath scriptBytes =
                         , retractTime =
                             30_000
                         }
+            let bootStateTxIn =
+                    TxIn
+                        (txIdTx signedBoot)
+                        (TxIx 1)
             putToken
                 (tokens (state ctx))
                 tokenId
-                ts
+                (LocatedTokenState bootStateTxIn ts)
 
             -- Assert: cage address has UTxO
             cageUtxos <-
@@ -353,8 +359,7 @@ cageFlowSpec bpPath scriptBytes =
                         }
             putRequest
                 (requests (state ctx))
-                req2TxIn
-                req2
+                (LocatedRequest req2TxIn req2)
 
             cageUtxos4 <-
                 queryUTxOs

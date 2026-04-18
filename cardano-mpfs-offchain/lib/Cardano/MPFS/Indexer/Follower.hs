@@ -57,6 +57,8 @@ import Ouroboros.Consensus.Shelley.Ledger
 
 import Cardano.MPFS.Core.Types
     ( ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , TokenId
@@ -190,15 +192,23 @@ computeInverse
         { tokens = Tokens{getToken}
         , requests = Requests{getRequest}
         } = \case
-        CageBoot tid _ts ->
+        CageBoot tid _txIn _ts ->
             pure [InvRemoveToken tid]
         CageRequest txIn _req ->
             pure [InvRemoveRequest txIn]
-        CageUpdate tid _newRoot consumed -> do
+        CageUpdate tid _newTxIn _newRoot consumed -> do
             mTs <- getToken tid
             let restoreRoot = case mTs of
-                    Just ts ->
-                        [InvRestoreRoot tid (root ts)]
+                    Just
+                        LocatedTokenState
+                            { tokenStateRef
+                            , tokenState
+                            } ->
+                            [ InvRestoreRoot
+                                tid
+                                tokenStateRef
+                                (root tokenState)
+                            ]
                     Nothing -> []
             restoreReqs <-
                 concat
@@ -206,40 +216,69 @@ computeInverse
                         ( \txIn -> do
                             mReq <- getRequest txIn
                             pure $ case mReq of
-                                Just req ->
-                                    [ InvRestoreRequest
-                                        txIn
-                                        req
-                                    ]
+                                Just
+                                    LocatedRequest
+                                        { request
+                                        } ->
+                                        [ InvRestoreRequest
+                                            txIn
+                                            request
+                                        ]
                                 Nothing -> []
                         )
                         consumed
             pure $ restoreRoot ++ restoreReqs
-        CageReject _tid consumed ->
-            concat
-                <$> traverse
-                    ( \txIn -> do
-                        mReq <- getRequest txIn
-                        pure $ case mReq of
-                            Just req ->
-                                [ InvRestoreRequest
-                                    txIn
-                                    req
-                                ]
-                            Nothing -> []
-                    )
-                    consumed
+        CageReject tid _newTxIn consumed -> do
+            mTs <- getToken tid
+            let restoreRoot = case mTs of
+                    Just
+                        LocatedTokenState
+                            { tokenStateRef
+                            , tokenState
+                            } ->
+                            [ InvRestoreRoot
+                                tid
+                                tokenStateRef
+                                (root tokenState)
+                            ]
+                    Nothing -> []
+            restoreReqs <-
+                concat
+                    <$> traverse
+                        ( \txIn -> do
+                            mReq <- getRequest txIn
+                            pure $ case mReq of
+                                Just
+                                    LocatedRequest
+                                        { request
+                                        } ->
+                                        [ InvRestoreRequest
+                                            txIn
+                                            request
+                                        ]
+                                Nothing -> []
+                        )
+                        consumed
+            pure $ restoreRoot ++ restoreReqs
         CageRetract txIn -> do
             mReq <- getRequest txIn
             pure $ case mReq of
-                Just req ->
-                    [InvRestoreRequest txIn req]
+                Just LocatedRequest{request} ->
+                    [InvRestoreRequest txIn request]
                 Nothing -> []
         CageBurn tid -> do
             mTs <- getToken tid
             pure $ case mTs of
-                Just ts ->
-                    [InvRestoreToken tid ts]
+                Just
+                    LocatedTokenState
+                        { tokenStateRef
+                        , tokenState
+                        } ->
+                        [ InvRestoreToken
+                            tid
+                            tokenStateRef
+                            tokenState
+                        ]
                 Nothing -> []
 
 -- | Apply a cage event to the state and trie
@@ -252,14 +291,25 @@ applyCageEvent
     -> CageEvent
     -> m [CageInverseOp]
 applyCageEvent st tm = \case
-    CageBoot tid ts -> do
-        putToken (tokens st) tid ts
+    CageBoot tid txIn ts -> do
+        putToken
+            (tokens st)
+            tid
+            LocatedTokenState
+                { tokenStateRef = txIn
+                , tokenState = ts
+                }
         createTrie tm tid
         pure []
     CageRequest txIn req -> do
-        putRequest (requests st) txIn req
+        putRequest
+            (requests st)
+            LocatedRequest
+                { requestRef = txIn
+                , request = req
+                }
         pure []
-    CageUpdate tid newRoot consumed -> do
+    CageUpdate tid newTxIn newRoot consumed -> do
         -- Apply trie mutations, collecting inverses
         trieInvs <-
             withTrie tm tid $ \trie ->
@@ -271,11 +321,14 @@ applyCageEvent st tm = \case
                                     (requests st)
                                     txIn
                             case mReq of
-                                Just req ->
-                                    applyRequestOp
-                                        tid
-                                        trie
-                                        req
+                                Just
+                                    LocatedRequest
+                                        { request
+                                        } ->
+                                        applyRequestOp
+                                            tid
+                                            trie
+                                            request
                                 Nothing -> pure []
                         )
                         consumed
@@ -283,20 +336,38 @@ applyCageEvent st tm = \case
         mapM_
             (removeRequest (requests st))
             consumed
-        -- Update token root
+        -- Update token root and move state ref
         mTs <- getToken (tokens st) tid
         case mTs of
-            Just ts ->
+            Just LocatedTokenState{tokenState} ->
                 putToken
                     (tokens st)
                     tid
-                    ts{root = newRoot}
+                    LocatedTokenState
+                        { tokenStateRef = newTxIn
+                        , tokenState =
+                            tokenState
+                                { root = newRoot
+                                }
+                        }
             Nothing -> pure ()
         pure trieInvs
-    CageReject _tid consumed -> do
+    CageReject tid newTxIn consumed -> do
         mapM_
             (removeRequest (requests st))
             consumed
+        -- Move the state ref to the continuing UTxO
+        mTs <- getToken (tokens st) tid
+        case mTs of
+            Just LocatedTokenState{tokenState} ->
+                putToken
+                    (tokens st)
+                    tid
+                    LocatedTokenState
+                        { tokenStateRef = newTxIn
+                        , tokenState = tokenState
+                        }
+            Nothing -> pure ()
         pure []
     CageRetract txIn -> do
         removeRequest (requests st) txIn
@@ -383,24 +454,41 @@ applyCageInverses
 applyCageInverses st tm = mapM_ applyInv
   where
     applyInv = \case
-        InvRestoreToken tid ts -> do
-            putToken (tokens st) tid ts
+        InvRestoreToken tid txIn ts -> do
+            putToken
+                (tokens st)
+                tid
+                LocatedTokenState
+                    { tokenStateRef = txIn
+                    , tokenState = ts
+                    }
             unhideTrie tm tid
         InvRemoveToken tid -> do
             removeToken (tokens st) tid
             deleteTrie tm tid
         InvRestoreRequest txIn req ->
-            putRequest (requests st) txIn req
+            putRequest
+                (requests st)
+                LocatedRequest
+                    { requestRef = txIn
+                    , request = req
+                    }
         InvRemoveRequest txIn ->
             removeRequest (requests st) txIn
-        InvRestoreRoot tid r -> do
+        InvRestoreRoot tid oldTxIn r -> do
             mTs <- getToken (tokens st) tid
             case mTs of
-                Just ts ->
+                Just LocatedTokenState{tokenState} ->
                     putToken
                         (tokens st)
                         tid
-                        ts{root = r}
+                        LocatedTokenState
+                            { tokenStateRef = oldTxIn
+                            , tokenState =
+                                tokenState
+                                    { root = r
+                                    }
+                            }
                 Nothing -> pure ()
         InvTrieInsert tid key val ->
             withTrie tm tid $ \trie ->

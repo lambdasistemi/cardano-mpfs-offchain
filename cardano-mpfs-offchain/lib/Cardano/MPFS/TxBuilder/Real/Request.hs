@@ -47,6 +47,7 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
+    , LocatedTokenState (..)
     , PParams
     , TokenId
     , TokenState (..)
@@ -150,10 +151,13 @@ requestImpl
     -> IO (Tx ConwayEra)
 requestImpl cfg prov st tid key op addr = do
     mTs <- getToken (tokens st) tid
-    TokenState{tip = Coin mf} <- case mTs of
-        Nothing ->
-            error "requestImpl: unknown token"
-        Just x -> pure x
+    LocatedTokenState
+        { tokenState = TokenState{tip = Coin mf}
+        } <-
+        case mTs of
+            Nothing ->
+                error "requestImpl: unknown token"
+            Just x -> pure x
     pp <- queryProtocolParams prov
     utxos <- queryUTxOs prov addr
     feeUtxo <- case sortOn

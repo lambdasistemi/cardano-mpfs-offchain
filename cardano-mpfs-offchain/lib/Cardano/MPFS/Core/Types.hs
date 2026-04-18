@@ -41,9 +41,11 @@ module Cardano.MPFS.Core.Types
 
       -- * Requests
     , Request (..)
+    , LocatedRequest (..)
 
       -- * Token state
     , TokenState (..)
+    , LocatedTokenState (..)
 
       -- * Facts
     , Fact (..)
@@ -103,6 +105,18 @@ data Operation
         -- ^ New value to store
     deriving (Eq, Show)
 
+-- | A pending request together with the reference
+-- of the UTxO currently carrying it on-chain. The
+-- UTxO body ('TxOut') is recoverable via a
+-- 'resolveUtxo' hook.
+data LocatedRequest = LocatedRequest
+    { requestRef :: !TxIn
+    -- ^ Reference of the UTxO carrying this request
+    , request :: !Request
+    -- ^ The request payload
+    }
+    deriving (Eq, Show)
+
 -- | A request to modify a token's trie.
 data Request = Request
     { requestToken :: !TokenId
@@ -117,6 +131,18 @@ data Request = Request
     -- ^ Fee the requester agrees to pay
     , requestSubmittedAt :: !Integer
     -- ^ POSIXTime (ms) when the request was created
+    }
+    deriving (Eq, Show)
+
+-- | On-chain token state together with the
+-- reference of the UTxO currently carrying it.
+-- The UTxO body ('TxOut') is recoverable via a
+-- 'resolveUtxo' hook.
+data LocatedTokenState = LocatedTokenState
+    { tokenStateRef :: !TxIn
+    -- ^ Reference of the UTxO holding this state
+    , tokenState :: !TokenState
+    -- ^ The state payload
     }
     deriving (Eq, Show)
 

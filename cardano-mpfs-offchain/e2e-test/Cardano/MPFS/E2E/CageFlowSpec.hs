@@ -66,6 +66,7 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
+    , LocatedTokenState (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
@@ -162,7 +163,7 @@ cageFlowSpec scriptBytes =
                     extractTokenId cfg signedBoot
 
             -- Step 2: Poll until boot auto-indexed
-            ts <-
+            LocatedTokenState _ ts <-
                 pollOrFail 30 "boot"
                     $ getToken
                         (tokens (state ctx))
@@ -329,7 +330,7 @@ deleteFlowSpec scriptBytes =
                                     (tokens (state ctx))
                                     tokenId
                             pure $ case mTs of
-                                Just t
+                                Just (LocatedTokenState _ t)
                                     | root t
                                         /= Root
                                             ( BS.replicate
@@ -361,7 +362,7 @@ deleteFlowSpec scriptBytes =
                             else pure (Just rs)
 
                 -- Save pre-delete root
-                Just preDelTs <-
+                Just (LocatedTokenState _ preDelTs) <-
                     getToken
                         (tokens (state ctx))
                         tokenId
@@ -381,7 +382,7 @@ deleteFlowSpec scriptBytes =
                                     (tokens (state ctx))
                                     tokenId
                             pure $ case mTs of
-                                Just t
+                                Just (LocatedTokenState _ t)
                                     | root t
                                         /= preDelRoot ->
                                         Just ()
@@ -429,7 +430,7 @@ deleteFlowSpec scriptBytes =
                             else pure Nothing
 
                 -- Save pre-batch root
-                Just preBatchTs <-
+                Just (LocatedTokenState _ preBatchTs) <-
                     getToken
                         (tokens (state ctx))
                         tokenId
@@ -449,7 +450,7 @@ deleteFlowSpec scriptBytes =
                                     (tokens (state ctx))
                                     tokenId
                             pure $ case mTs of
-                                Just t
+                                Just (LocatedTokenState _ t)
                                     | root t
                                         /= preBatchRoot ->
                                         Just ()
@@ -496,7 +497,7 @@ deleteFlowSpec scriptBytes =
                             else pure Nothing
 
                 -- Save pre-mixed root
-                Just preMixedTs <-
+                Just (LocatedTokenState _ preMixedTs) <-
                     getToken
                         (tokens (state ctx))
                         tokenId
@@ -515,7 +516,7 @@ deleteFlowSpec scriptBytes =
                             (tokens (state ctx))
                             tokenId
                     pure $ case mTs of
-                        Just t
+                        Just (LocatedTokenState _ t)
                             | root t
                                 /= preMixedRoot ->
                                 Just ()
@@ -570,7 +571,7 @@ rejectFlowSpec scriptBytes =
                 threadDelay 32_000_000
 
                 -- Record root before reject
-                Just preRejectTs <-
+                Just (LocatedTokenState _ preRejectTs) <-
                     getToken
                         (tokens (state ctx))
                         tokenId
@@ -600,7 +601,7 @@ rejectFlowSpec scriptBytes =
                                     )
                                     tokenId
                             pure $ case mTs of
-                                Just t
+                                Just (LocatedTokenState _ t)
                                     | root t
                                         == preRejectRoot ->
                                         Just ()

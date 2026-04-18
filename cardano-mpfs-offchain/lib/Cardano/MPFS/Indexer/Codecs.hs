@@ -33,6 +33,7 @@ module Cardano.MPFS.Indexer.Codecs
     , composedRollbackPrism
     , tokenIdPrism
     , tokenStatePrism
+    , locatedTokenStatePrism
     , txInPrism
     , requestPrism
     , unitPrism
@@ -95,6 +96,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -130,7 +132,7 @@ allCodecs =
         [ CageTokens
             :=> Codecs
                 { keyCodec = tokenIdPrism
-                , valueCodec = tokenStatePrism
+                , valueCodec = locatedTokenStatePrism
                 }
         , CageRequests
             :=> Codecs
@@ -225,6 +227,35 @@ tokenStatePrism = prism' enc dec
                 , tip = tip'
                 , processTime = processTime'
                 , retractTime = retractTime'
+                }
+
+-- | Encode/decode 'LocatedTokenState' as a
+-- 2-element CBOR list @[tokenStateRef, tokenState]@.
+-- The ref is embedded as a ledger-CBOR byte string
+-- and the state reuses 'tokenStatePrism'.
+locatedTokenStatePrism
+    :: Prism' ByteString LocatedTokenState
+locatedTokenStatePrism = prism' enc dec
+  where
+    enc LocatedTokenState{..} =
+        toStrictByteString
+            $ encodeListLen 2
+                <> encodeBytes
+                    (ledgerEnc tokenStateRef)
+                <> encodeBytes
+                    ( toStrictByteString
+                        $ encodeTokenState
+                            tokenState
+                    )
+    dec = decodeCBOR $ do
+        decodeListLenOf 2
+        ref <- ledgerDec =<< decodeBytes
+        tsBytes <- decodeBytes
+        ts <- decTokenState tsBytes
+        pure
+            LocatedTokenState
+                { tokenStateRef = ref
+                , tokenState = ts
                 }
 
 -- | Encode/decode 'TxIn' via its ledger CBOR
@@ -530,10 +561,11 @@ encodeInvOps ops =
 
 encodeInvOp :: CageInverseOp -> Encoding
 encodeInvOp = \case
-    InvRestoreToken tid ts ->
-        encodeListLen 3
+    InvRestoreToken tid txIn ts ->
+        encodeListLen 4
             <> encodeWord8 0
             <> encodeBytes (encTokenId tid)
+            <> encodeBytes (ledgerEnc txIn)
             <> encodeBytes
                 ( toStrictByteString
                     $ encodeTokenState ts
@@ -551,10 +583,11 @@ encodeInvOp = \case
         encodeListLen 2
             <> encodeWord8 3
             <> encodeBytes (ledgerEnc txIn)
-    InvRestoreRoot tid root ->
-        encodeListLen 3
+    InvRestoreRoot tid txIn root ->
+        encodeListLen 4
             <> encodeWord8 4
             <> encodeBytes (encTokenId tid)
+            <> encodeBytes (ledgerEnc txIn)
             <> encodeBytes (unRoot root)
     InvTrieInsert tid k v ->
         encodeListLen 4
@@ -601,11 +634,12 @@ decodeInvOp = do
     len <- decodeListLen
     tag <- decodeWord8
     case (tag, len) of
-        (0, 3) -> do
+        (0, 4) -> do
             tid <- decTokenId =<< decodeBytes
+            txIn <- ledgerDec =<< decodeBytes
             tsBytes <- decodeBytes
             ts <- decTokenState tsBytes
-            pure $ InvRestoreToken tid ts
+            pure $ InvRestoreToken tid txIn ts
         (1, 2) ->
             InvRemoveToken
                 <$> (decTokenId =<< decodeBytes)
@@ -617,10 +651,11 @@ decodeInvOp = do
         (3, 2) ->
             InvRemoveRequest
                 <$> (ledgerDec =<< decodeBytes)
-        (4, 3) -> do
+        (4, 4) -> do
             tid <- decTokenId =<< decodeBytes
+            txIn <- ledgerDec =<< decodeBytes
             r <- Root <$> decodeBytes
-            pure $ InvRestoreRoot tid r
+            pure $ InvRestoreRoot tid txIn r
         (5, 4) -> do
             tid <- decTokenId =<< decodeBytes
             k <- decodeBytes

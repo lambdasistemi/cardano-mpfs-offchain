@@ -66,6 +66,7 @@ import Cardano.MPFS.Core.OnChain
     )
 import Cardano.MPFS.Core.Types
     ( ConwayEra
+    , LocatedRequest (..)
     , Request (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -104,7 +105,7 @@ retractRequestImpl cfg prov st reqTxIn addr = do
     req <- case mReq of
         Nothing ->
             error "retractRequest: unknown request"
-        Just x -> pure x
+        Just LocatedRequest{request = r} -> pure r
     -- 2. Query cage UTxOs to find request + state
     let scriptAddr = cageAddrFromCfg cfg (network cfg)
     cageUtxos <- queryUTxOs prov scriptAddr

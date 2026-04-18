@@ -45,7 +45,10 @@ import Database.KV.Transaction
     , query
     )
 
-import Cardano.MPFS.Core.Types (Request (..))
+import Cardano.MPFS.Core.Types
+    ( LocatedRequest (..)
+    , Request (..)
+    )
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
     , CageCheckpoint (..)
@@ -121,8 +124,22 @@ mkTransactionalRequests
         (Transaction m cf AllColumns ops)
 mkTransactionalRequests =
     Requests
-        { getRequest = query CageRequests
-        , putRequest = insert CageRequests
+        { getRequest = \txIn -> do
+            mr <- query CageRequests txIn
+            pure
+                $ fmap
+                    ( \r ->
+                        LocatedRequest
+                            { requestRef = txIn
+                            , request = r
+                            }
+                    )
+                    mr
+        , putRequest = \LocatedRequest{..} ->
+            insert
+                CageRequests
+                requestRef
+                request
         , removeRequest = delete CageRequests
         , requestsByToken =
             iterating CageRequests . filterReqs
@@ -132,16 +149,21 @@ mkTransactionalRequests =
         me <- firstEntry
         case me of
             Nothing -> pure []
-            Just (Entry _ v) ->
-                goR tid (add tid v [])
+            Just (Entry k v) ->
+                goR tid (add tid k v [])
     goR tid acc = do
         me <- nextEntry
         case me of
             Nothing -> pure (reverse acc)
-            Just (Entry _ v) ->
-                goR tid (add tid v acc)
-    add tid v acc
-        | requestToken v == tid = v : acc
+            Just (Entry k v) ->
+                goR tid (add tid k v acc)
+    add tid k v acc
+        | requestToken v == tid =
+            LocatedRequest
+                { requestRef = k
+                , request = v
+                }
+                : acc
         | otherwise = acc
 
 -- --------------------------------------------------------

@@ -16,6 +16,10 @@ import Test.Hspec.QuickCheck (prop)
 import Test.QuickCheck (forAll, (==>))
 import Test.QuickCheck.Monadic (assert, monadicIO, run)
 
+import Cardano.MPFS.Core.Types
+    ( LocatedRequest (..)
+    , LocatedTokenState (..)
+    )
 import Cardano.MPFS.Generators
     ( genBlockId
     , genRequest
@@ -58,45 +62,64 @@ tokensSpec newTokens = do
     prop "put/get round-trip"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    tok <- run newTokens
-                    run $ putToken tok tid ts
-                    r <- run $ getToken tok tid
-                    assert (r == Just ts)
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
+                    let lts = LocatedTokenState ref ts
+                    in  monadicIO $ do
+                            tok <- run newTokens
+                            run $ putToken tok tid lts
+                            r <- run $ getToken tok tid
+                            assert (r == Just lts)
 
     prop "put/remove/get returns Nothing"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    tok <- run newTokens
-                    run $ putToken tok tid ts
-                    run $ removeToken tok tid
-                    r <- run $ getToken tok tid
-                    assert (isNothing r)
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
+                    monadicIO $ do
+                        tok <- run newTokens
+                        run
+                            $ putToken
+                                tok
+                                tid
+                                (LocatedTokenState ref ts)
+                        run $ removeToken tok tid
+                        r <- run $ getToken tok tid
+                        assert (isNothing r)
 
     prop "put appears in listTokens"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    tok <- run newTokens
-                    run $ putToken tok tid ts
-                    ids <- run $ listTokens tok
-                    assert (tid `elem` ids)
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
+                    monadicIO $ do
+                        tok <- run newTokens
+                        run
+                            $ putToken
+                                tok
+                                tid
+                                (LocatedTokenState ref ts)
+                        ids <- run $ listTokens tok
+                        assert (tid `elem` ids)
 
     prop "put overwrites previous"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts1 ->
-                forAll genTokenState $ \ts2 ->
-                    monadicIO $ do
-                        tok <- run newTokens
-                        run $ putToken tok tid ts1
-                        run $ putToken tok tid ts2
-                        r <- run $ getToken tok tid
-                        assert (r == Just ts2)
+            forAll genTxIn $ \ref1 ->
+                forAll genTxIn $ \ref2 ->
+                    forAll genTokenState $ \ts1 ->
+                        forAll genTokenState $ \ts2 ->
+                            let lts2 = LocatedTokenState ref2 ts2
+                            in  monadicIO $ do
+                                    tok <- run newTokens
+                                    run
+                                        $ putToken
+                                            tok
+                                            tid
+                                            (LocatedTokenState ref1 ts1)
+                                    run $ putToken tok tid lts2
+                                    r <- run $ getToken tok tid
+                                    assert (r == Just lts2)
 
     prop "remove on empty doesn't crash"
         $ forAll genTokenId
@@ -113,11 +136,12 @@ requestsSpec newRequests = do
         $ \txin ->
             forAll genTokenId $ \tid ->
                 forAll (genRequest tid) $ \req ->
-                    monadicIO $ do
-                        rs <- run newRequests
-                        run $ putRequest rs txin req
-                        r <- run $ getRequest rs txin
-                        assert (r == Just req)
+                    let lr = LocatedRequest txin req
+                    in  monadicIO $ do
+                            rs <- run newRequests
+                            run $ putRequest rs lr
+                            r <- run $ getRequest rs txin
+                            assert (r == Just lr)
 
     prop "put/remove/get returns Nothing"
         $ forAll genTxIn
@@ -126,7 +150,10 @@ requestsSpec newRequests = do
                 forAll (genRequest tid) $ \req ->
                     monadicIO $ do
                         rs <- run newRequests
-                        run $ putRequest rs txin req
+                        run
+                            $ putRequest
+                                rs
+                                (LocatedRequest txin req)
                         run $ removeRequest rs txin
                         r <- run $ getRequest rs txin
                         assert (isNothing r)
@@ -141,12 +168,14 @@ requestsSpec newRequests = do
                             txin1 /= txin2 ==>
                                 forAll (genRequest tid1) $ \req1 ->
                                     forAll (genRequest tid2) $ \req2 ->
-                                        monadicIO $ do
-                                            rs <- run newRequests
-                                            run $ putRequest rs txin1 req1
-                                            run $ putRequest rs txin2 req2
-                                            r <- run $ requestsByToken rs tid1
-                                            assert (r == [req1])
+                                        let lr1 = LocatedRequest txin1 req1
+                                            lr2 = LocatedRequest txin2 req2
+                                        in  monadicIO $ do
+                                                rs <- run newRequests
+                                                run $ putRequest rs lr1
+                                                run $ putRequest rs lr2
+                                                r <- run $ requestsByToken rs tid1
+                                                assert (r == [lr1])
 
     prop "requestsByToken on empty returns []"
         $ forAll genTokenId

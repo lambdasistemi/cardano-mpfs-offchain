@@ -32,10 +32,10 @@ module Cardano.MPFS.State
 
 import Cardano.MPFS.Core.Types
     ( BlockId
-    , Request
+    , LocatedRequest
+    , LocatedTokenState
     , SlotNo
     , TokenId
-    , TokenState
     , TxIn
     )
 
@@ -52,10 +52,10 @@ data State m = State
 
 -- | Interface for managing token state.
 data Tokens m = Tokens
-    { getToken :: TokenId -> m (Maybe TokenState)
-    -- ^ Look up a token's current state
-    , putToken :: TokenId -> TokenState -> m ()
-    -- ^ Store or update a token's state
+    { getToken :: TokenId -> m (Maybe LocatedTokenState)
+    -- ^ Look up a token's current located state
+    , putToken :: TokenId -> LocatedTokenState -> m ()
+    -- ^ Store or update a token's located state
     , removeToken :: TokenId -> m ()
     -- ^ Remove a token
     , listTokens :: m [TokenId]
@@ -65,16 +65,16 @@ data Tokens m = Tokens
 -- | Interface for managing pending requests.
 data Requests m = Requests
     { getRequest
-        :: TxIn -> m (Maybe Request)
-    -- ^ Look up a request by its UTxO reference
+        :: TxIn -> m (Maybe LocatedRequest)
+    -- ^ Look up a located request by its UTxO reference
     , putRequest
-        :: TxIn -> Request -> m ()
-    -- ^ Store a new request
+        :: LocatedRequest -> m ()
+    -- ^ Store a new located request
     , removeRequest :: TxIn -> m ()
     -- ^ Remove a fulfilled or retracted request
     , requestsByToken
-        :: TokenId -> m [Request]
-    -- ^ List all pending requests for a token
+        :: TokenId -> m [LocatedRequest]
+    -- ^ List all located pending requests for a token
     }
 
 -- | Interface for chain sync checkpoints.
@@ -106,7 +106,7 @@ hoistTokens
 hoistTokens f Tokens{..} =
     Tokens
         { getToken = f . getToken
-        , putToken = \tid ts -> f (putToken tid ts)
+        , putToken = \tid lts -> f (putToken tid lts)
         , removeToken = f . removeToken
         , listTokens = f listTokens
         }
@@ -119,8 +119,7 @@ hoistRequests
 hoistRequests f Requests{..} =
     Requests
         { getRequest = f . getRequest
-        , putRequest =
-            \txIn req -> f (putRequest txIn req)
+        , putRequest = f . putRequest
         , removeRequest = f . removeRequest
         , requestsByToken = f . requestsByToken
         }
