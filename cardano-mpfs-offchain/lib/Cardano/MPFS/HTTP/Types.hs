@@ -14,6 +14,10 @@ module Cardano.MPFS.HTTP.Types
     ( -- * Status
       StatusResponse (..)
 
+      -- * Proof-bearing snapshot
+    , ChainPointJSON (..)
+    , VerificationSnapshot (..)
+
       -- * Tokens
     , TokenIdJSON (..)
     , TokenStateJSON (..)
@@ -94,6 +98,12 @@ data StatusResponse = StatusResponse
     -- ^ Last processed checkpoint slot
     , checkpointBlockId :: Maybe Hex
     -- ^ Last processed checkpoint block hash
+    , currentUtxoRoot :: Maybe Hex
+    -- ^ Current UTxO-CSMT root hash for the indexed
+    -- snapshot at the checkpoint above. 'Nothing' if
+    -- the CSMT is not yet available. Matches the root
+    -- returned by @GET \/utxo\/root@ and the
+    -- @utxo_root@ baked into proof-bearing responses.
     }
     deriving (Eq, Show)
 
@@ -105,7 +115,60 @@ instance ToJSON StatusResponse where
             , "checkpoint_slot" .= checkpointSlot
             , "checkpoint_block_id"
                 .= checkpointBlockId
+            , "utxo_root" .= currentUtxoRoot
             ]
+
+-- | Indexed chain point baked into proof-bearing
+-- responses. Identifies the exact block at which
+-- the bundled proofs are valid.
+data ChainPointJSON = ChainPointJSON
+    { cpSlot :: Word64
+    -- ^ Slot of the indexed chain point
+    , cpBlockId :: Hex
+    -- ^ Block hash at that slot (hex)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON ChainPointJSON where
+    toJSON ChainPointJSON{..} =
+        object
+            [ "slot" .= cpSlot
+            , "block_id" .= cpBlockId
+            ]
+
+instance FromJSON ChainPointJSON where
+    parseJSON = withObject "ChainPointJSON" $ \o ->
+        ChainPointJSON
+            <$> o .: "slot"
+            <*> o .: "block_id"
+
+-- | Verification snapshot: the exact UTxO-CSMT root
+-- plus indexed chain point against which a
+-- proof-bearing response's bundled proofs are valid.
+-- Every proof-bearing response embeds one of these so
+-- clients can verify offline without a separate
+-- @GET \/status@ call.
+data VerificationSnapshot = VerificationSnapshot
+    { vsUtxoRoot :: Hex
+    -- ^ UTxO-CSMT root hash
+    , vsChainPoint :: ChainPointJSON
+    -- ^ Indexed chain point
+    }
+    deriving (Eq, Show)
+
+instance ToJSON VerificationSnapshot where
+    toJSON VerificationSnapshot{..} =
+        object
+            [ "utxo_root" .= vsUtxoRoot
+            , "chainpoint" .= vsChainPoint
+            ]
+
+instance FromJSON VerificationSnapshot where
+    parseJSON =
+        withObject "VerificationSnapshot" $ \o ->
+            VerificationSnapshot
+                <$> o .: "utxo_root"
+                <*> o .: "chainpoint"
 
 -- | Hex-encoded token identifier for JSON transport.
 newtype TokenIdJSON = TokenIdJSON
@@ -406,15 +469,64 @@ instance ToSchema StatusResponse where
                         ( "checkpoint_block_id"
                         , maybeHex
                         )
+                    , ("utxo_root", maybeHex)
                     ]
             & required
                 .~ [ "tip_slot"
                    , "tip_block_id"
                    , "checkpoint_slot"
                    , "checkpoint_block_id"
+                   , "utxo_root"
                    ]
             & description
-                ?~ "Indexer chain tip and checkpoint"
+                ?~ "Indexer chain tip, checkpoint, \
+                   \and current UTxO-CSMT root"
+
+instance ToSchema ChainPointJSON where
+    declareNamedSchema _ = do
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "ChainPointJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("slot", word64Schema)
+                    , ("block_id", hexSchema)
+                    ]
+            & required .~ ["slot", "block_id"]
+            & description
+                ?~ "Indexed chain point baked into \
+                   \proof-bearing responses"
+
+instance ToSchema VerificationSnapshot where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        chainPointSchema <-
+            declareSchemaRef (Proxy @ChainPointJSON)
+        pure
+            $ Swagger.NamedSchema
+                (Just "VerificationSnapshot")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("utxo_root", hexSchema)
+                    , ("chainpoint", chainPointSchema)
+                    ]
+            & required
+                .~ ["utxo_root", "chainpoint"]
+            & description
+                ?~ "UTxO-CSMT root and indexed chain \
+                   \point against which bundled \
+                   \proofs are valid"
 
 instance ToSchema TokenIdJSON where
     declareNamedSchema _ =
