@@ -105,13 +105,15 @@ facts justified the unsigned transaction.
 Add the shared proof-bearing response types in `HTTP.Types` and extend
 `StatusResponse` with the current UTxO-CSMT root. Wire `statusHandler`
 to surface the root from `Context.utxoRoot` alongside existing chain tip
-and checkpoint metadata.
+and checkpoint metadata. Treat `GET /utxo/root` as an explicitly
+supported sibling endpoint, not incidental duplication.
 
 **Files**: `HTTP/API.hs`, `HTTP/Types.hs`, `HTTP/Server.hs`,
 `test/Cardano/MPFS/HTTP/StatusSpec.hs`
 
 **Goal**: Establish the verification snapshot contract before changing
-the token and tx endpoints.
+the token and tx endpoints, and make `/status` and `/utxo/root` agree as
+the same source of truth.
 
 ### Slice 2: Proof-bearing query endpoints
 
@@ -205,6 +207,8 @@ every contributing request before signing.
 Regenerate `docs/assets/swagger.json`, make the freshness check pass,
 and add contract-style tests that cross-check inline proof data against
 the existing direct `/utxo/*` endpoints for the same indexed snapshot.
+That includes explicit root-consistency checks between `GET /status` and
+`GET /utxo/root`.
 
 **Files**: `docs/assets/swagger.json`,
 `HTTP/Types.hs`, `HTTP/Swagger.hs`,

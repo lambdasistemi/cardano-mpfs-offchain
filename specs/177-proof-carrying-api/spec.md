@@ -110,6 +110,10 @@ documented with a structured response schema.
    **When** the client cross-checks inline proofs against `GET
    /utxo/root` and `GET /utxo/:txId/:txIx/proof`, **Then** the witness
    bytes agree for the same indexed snapshot.
+4. **Given** a debugging or isolated deployment scenario, **When** the
+   client uses `GET /utxo/root` instead of `GET /status`, **Then** it
+   can obtain the same UTxO-CSMT root from the same indexed source of
+   truth without depending on a separate CSMT service.
 
 ### Edge Cases
 
@@ -170,6 +174,10 @@ documented with a structured response schema.
 - **FR-014**: Existing direct UTxO proof endpoints (`GET /utxo/:txId/:txIx`,
   `GET /utxo/:txId/:txIx/proof`, `GET /utxo/root`) MUST remain usable
   for cross-checking and debugging.
+- **FR-015**: `GET /utxo/root` MUST remain a first-class root-discovery
+  endpoint that returns the same indexed UTxO-CSMT root as `GET /status`,
+  so debugging and isolated deployments can use this service as the root
+  source of truth even without a separate CSMT endpoint.
 
 ### Key Entities
 
@@ -210,6 +218,9 @@ documented with a structured response schema.
 - `GET /tokens` and `GET /tokens/:id/root` are unchanged in this
   feature. Clients that require trust-minimized reads use the
   proof-bearing endpoints listed above.
+- Keeping both `GET /status` and `GET /utxo/root` as root-discovery
+  surfaces is acceptable duplication because they serve different client
+  workflows while remaining backed by the same indexed state.
 - Changing the JSON shape of the affected endpoints is acceptable for
   this feature, and downstream clients will be updated to consume the new
   object responses.

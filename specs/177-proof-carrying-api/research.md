@@ -20,6 +20,26 @@ This means the feature does not require new indexer persistence or new
 cryptographic formats for UTxO proofs. The missing work is bundling these
 proofs into the higher-level API responses.
 
+## Root Endpoint Duplication Is Intentional
+
+The service already exposes `GET /utxo/root`, and this should stay true
+even after `GET /status` starts returning the same root.
+
+Decision: treat the duplication as intentional, not accidental.
+
+Why:
+
+- `GET /status` is the ergonomic entry point for the high-level
+  proof-carrying client flow.
+- `GET /utxo/root` is the low-level debugging and compatibility endpoint
+  that mirrors the underlying CSMT source of truth more directly.
+- In isolated deployments, a client may have no separate CSMT service to
+  consult, so this service must still be able to act as the Merkle-root
+  source.
+
+Constraint: both endpoints must read from the same indexed state, and
+tests should assert they return the same root for the same snapshot.
+
 ## Query Endpoints Need Structured Response Objects
 
 The affected query endpoints currently return scalar or flat payloads:
