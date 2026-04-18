@@ -166,6 +166,7 @@ statusHandler ctx = do
         liftIO
             $ St.getCheckpoint
                 (St.checkpoints (state ctx))
+    mRoot <- liftIO $ utxoRoot ctx
     pure
         StatusResponse
             { tipSlot =
@@ -182,6 +183,7 @@ statusHandler ctx = do
                 fmap (unSlotNo . fst) mcp
             , checkpointBlockId =
                 fmap (Hex . unBlockId . snd) mcp
+            , currentUtxoRoot = fmap Hex mRoot
             }
 
 tokensHandler

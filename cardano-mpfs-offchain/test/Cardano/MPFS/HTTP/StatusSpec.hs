@@ -82,6 +82,14 @@ getStatus ctx =
         )
         (mkApp ctx)
 
+getUtxoRoot :: Context IO -> IO SResponse
+getUtxoRoot ctx =
+    runSession
+        ( request
+            (setPath defaultRequest "/utxo/root")
+        )
+        (mkApp ctx)
+
 spec :: Spec
 spec = describe "GET /status" $ do
     it "returns 200 with expected fields" $ do
@@ -97,6 +105,8 @@ spec = describe "GET /status" $ do
                 KM.member "checkpoint_slot" obj
                     `shouldBe` True
                 KM.member "checkpoint_block_id" obj
+                    `shouldBe` True
+                KM.member "utxo_root" obj
                     `shouldBe` True
             _ ->
                 expectationFailure
@@ -125,3 +135,39 @@ spec = describe "GET /status" $ do
             _ ->
                 expectationFailure
                     "Expected JSON object"
+
+    it "returns null utxo_root when CSMT unavailable" $ do
+        ctx <- mkTestContext
+        resp <- getStatus ctx
+        case decode (simpleBody resp) of
+            Just (Object obj) ->
+                KM.lookup "utxo_root" obj
+                    `shouldBe` Just Null
+            _ ->
+                expectationFailure
+                    "Expected JSON object"
+
+    it "agrees with /utxo/root when CSMT available" $ do
+        let rootBs = "\x01\x02\x03"
+            ctxWith =
+                fmap
+                    ( \c ->
+                        c{utxoRoot = pure (Just rootBs)}
+                    )
+                    mkTestContext
+        ctx <- ctxWith
+        statusResp <- getStatus ctx
+        utxoRootResp <- getUtxoRoot ctx
+        simpleStatus utxoRootResp `shouldBe` status200
+        let statusRoot = case decode (simpleBody statusResp) of
+                Just (Object obj) ->
+                    KM.lookup "utxo_root" obj
+                _ -> Nothing
+            directRoot = decode (simpleBody utxoRootResp)
+        case (statusRoot, directRoot) of
+            (Just rootVal, Just directVal) ->
+                rootVal `shouldBe` directVal
+            _ ->
+                expectationFailure
+                    "Expected both endpoints to return a \
+                    \utxo root"
