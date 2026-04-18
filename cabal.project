@@ -5,6 +5,7 @@ index-state:
 
 packages:
   cardano-mpfs-offchain/
+  cardano-mpfs-client/
 
 repository cardano-haskell-packages
   url: https://chap.intersectmbo.org/

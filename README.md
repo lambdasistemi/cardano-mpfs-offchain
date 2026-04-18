@@ -79,6 +79,21 @@ transactions; the client signs and submits via `POST /tx/submit`.
 
 Swagger UI is served at `/swagger-ui`.
 
+## Verification client
+
+The `cardano-mpfs-client` package (under `cardano-mpfs-client/`) is the
+canonical consumer of the proof-bearing responses. Its library exposes
+`verifyVerificationSnapshot` and its `mpfs-verify` CLI reads a JSON
+response from a file or stdin and prints pass/fail with the baked-in
+`utxo_root` and `chainpoint`:
+
+```bash
+curl -s https://host/status | cabal run mpfs-verify
+```
+
+Further verifier entry points are added alongside the response shapes
+they consume as the proof-carrying slices land.
+
 ## Building
 
 ```bash
