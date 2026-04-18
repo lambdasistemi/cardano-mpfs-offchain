@@ -7,7 +7,7 @@
 - [ ] T001 Add shared proof-bearing response types to `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs`
 - [ ] T002 Change `GET /status` response schema in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs` and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` to include the UTxO-CSMT root
 - [ ] T003 Update `statusHandler` in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs` to read `Context.utxoRoot`
-- [ ] T004 Update `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/StatusSpec.hs` for the new status contract
+- [ ] T004 Update `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/StatusSpec.hs` for the new status contract and root agreement with `GET /utxo/root`
 - [ ] T005 Verify the HTTP test suite still compiles and `StatusSpec` passes
 
 **Checkpoint**: Clients can discover the verification snapshot from
@@ -83,7 +83,7 @@ signing.
 
 - [ ] T035 Update Swagger `ToSchema` coverage in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` and tighten docs in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Swagger.hs` if needed
 - [ ] T036 Regenerate `docs/assets/swagger.json` with `just update-swagger`
-- [ ] T037 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` with cross-endpoint contract checks for snapshot/root consistency
+- [ ] T037 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` with cross-endpoint contract checks for snapshot/root consistency, including `/status` versus `/utxo/root`
 - [ ] T038 Run `just ci`
 - [ ] T039 Update the PR description, push, and wait for CI before merge
 
@@ -109,6 +109,9 @@ T030-T034 -> T035-T039
 - Slice 1 is the narrowest vertical slice and should land first.
 - Slices 1 and 2 together are the first client-visible milestone:
   `GET /status` plus proof-carrying token read endpoints.
+- `GET /utxo/root` remains a first-class sibling root endpoint for
+  debugging and isolated deployments; tests should keep it aligned with
+  `/status`.
 - Slice 3 is the main architectural refactor; it starts only after the
   read-side milestone is settled, and slices 4 and 5 depend on it even
   if they touch different endpoint families.
