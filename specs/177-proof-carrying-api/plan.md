@@ -11,9 +11,12 @@ can mostly assemble bundles in the HTTP layer using existing `Context`
 proof hooks, while transaction endpoints likely require a richer
 `TxBuilder` return type so the server can return the unsigned
 transaction plus the exact UTxO and MPF witnesses the builder relied on.
-The first milestone is explicitly the HTTP client read-verification
-scenario: discover the root via `GET /status`, fetch proof-bearing token
-data, and verify it offline before tackling transaction-signing flows.
+The design correction is that proof-bearing JSON must carry its own
+`utxo_root` and indexed `chainpoint`; verification must not depend on a
+separate metadata-discovery call. The first milestone is explicitly the
+HTTP client read-verification scenario: fetch proof-bearing token data,
+read the baked-in root and chain point, and verify it offline before
+tackling transaction-signing flows.
 
 ## Technical Context
 
@@ -29,7 +32,8 @@ queries
 **Performance Goals**: Preserve current synchronous request model while
 adding proof generation bounded by the number of bundled UTxOs and trie
 facts in the response
-**Constraints**: One indexed snapshot per response, unsigned txs only,
+**Constraints**: One indexed root plus one indexed chain point per
+response, unsigned txs only,
 direct `/utxo/*` debugging endpoints remain valid, Swagger JSON must stay
 fresh
 **Scale/Scope**: 13 affected endpoints (`GET /status`, 4 token query
@@ -106,7 +110,9 @@ Add the shared proof-bearing response types in `HTTP.Types` and extend
 `StatusResponse` with the current UTxO-CSMT root. Wire `statusHandler`
 to surface the root from `Context.utxoRoot` alongside existing chain tip
 and checkpoint metadata. Treat `GET /utxo/root` as an explicitly
-supported sibling endpoint, not incidental duplication.
+supported sibling endpoint, not incidental duplication. Define the
+shared `VerificationSnapshot` shape so later proof-bearing responses bake
+in `utxo_root` and indexed `chainpoint`.
 
 **Files**: `HTTP/API.hs`, `HTTP/Types.hs`, `HTTP/Server.hs`,
 `test/Cardano/MPFS/HTTP/StatusSpec.hs`
@@ -127,18 +133,20 @@ structured objects:
 
 Use the existing `Context.resolveUtxo`, `Context.utxoProof`, and trie
 proof code to attach witnessed state/request UTxOs and MPF proofs to the
-business payloads.
+business payloads. Each proof-bearing response object must include the
+exact `utxo_root` and indexed `chainpoint` it targets.
 
 **Files**: `HTTP/API.hs`, `HTTP/Types.hs`, `HTTP/Server.hs`,
 `test/Cardano/MPFS/HTTP/TokenSpec.hs`,
 `test/Cardano/MPFS/HTTP/TrieSpec.hs`,
 `test/Cardano/MPFS/HTTP/RequestsSpec.hs`
 
-**Goal**: Clients can verify all read-side responses offline against one
-reported snapshot.
+**Goal**: Clients can verify all read-side responses offline using the
+snapshot baked into each response.
 
 **Milestone**: After slices 1 and 2, the first client-side scenario is
-complete without touching transaction-signing flows.
+complete without touching transaction-signing flows: read a proof-bearing
+response, extract `utxo_root` and `chainpoint`, and verify.
 
 ### Slice 3: Rich transaction builder boundary
 
@@ -147,7 +155,7 @@ a proof-bearing bundle type that can carry:
 
 - the unsigned transaction
 - the set of consumed inputs as witnessed UTxOs
-- snapshot metadata
+- baked-in `utxo_root` and indexed `chainpoint`
 - optional trie proof payloads for trie-dependent operations
 
 Update mocks and the top-level wiring in `TxBuilder/Real.hs`.
@@ -175,6 +183,7 @@ at most, minimal state context:
 
 Boot omits MPF sections entirely; the others include them only when the
 builder actually relies on trie/state facts that the client must trust.
+All of them still carry `utxo_root` and indexed `chainpoint`.
 
 **Files**: `TxBuilder/Real/Boot.hs`,
 `TxBuilder/Real/Request.hs`,
@@ -208,7 +217,8 @@ Regenerate `docs/assets/swagger.json`, make the freshness check pass,
 and add contract-style tests that cross-check inline proof data against
 the existing direct `/utxo/*` endpoints for the same indexed snapshot.
 That includes explicit root-consistency checks between `GET /status` and
-`GET /utxo/root`.
+`GET /utxo/root`, and explicit checks that proof-bearing JSON already
+contains the root and chain point needed for external matching.
 
 **Files**: `docs/assets/swagger.json`,
 `HTTP/Types.hs`, `HTTP/Swagger.hs`,
@@ -218,8 +228,8 @@ That includes explicit root-consistency checks between `GET /status` and
 
 - **Snapshot drift during response assembly**: If the indexer advances
   between reading data and building proofs, the response can mix roots.
-  The implementation must capture one snapshot root per response and
-  reject or retry inconsistent bundles.
+  The implementation must capture one `utxo_root` plus one indexed
+  `chainpoint` per response and reject or retry inconsistent bundles.
 - **TxBuilder boundary expansion**: Changing the builder return type
   touches every tx endpoint and the mock builder. The migration should be
   staged so each commit still compiles.
