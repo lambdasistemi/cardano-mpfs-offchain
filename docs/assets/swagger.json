@@ -291,7 +291,7 @@
             "type": "object"
         },
         "StatusResponse": {
-            "description": "Indexer chain tip and checkpoint",
+            "description": "Indexer chain tip, checkpoint, and current UTxO-CSMT root",
             "properties": {
                 "checkpoint_block_id": {
                     "$ref": "#/definitions/Hex"
@@ -310,13 +310,17 @@
                     "maximum": 1.8446744073709551615e19,
                     "minimum": 0,
                     "type": "integer"
+                },
+                "utxo_root": {
+                    "$ref": "#/definitions/Hex"
                 }
             },
             "required": [
                 "tip_slot",
                 "tip_block_id",
                 "checkpoint_slot",
-                "checkpoint_block_id"
+                "checkpoint_block_id",
+                "utxo_root"
             ],
             "type": "object"
         },
