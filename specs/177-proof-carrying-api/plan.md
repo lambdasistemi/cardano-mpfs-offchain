@@ -121,6 +121,28 @@ in `utxo_root` and indexed `chainpoint`.
 the token and tx endpoints, and make `/status` and `/utxo/root` agree as
 the same source of truth.
 
+### Slice 1b: Verification client library and CLI
+
+Build a `cardano-mpfs-client` Haskell package whose library reuses
+`cardano-utxo-csmt` and the existing MPF proof verifier to check every
+proof-bearing response shape offline. Expose a `mpfs-verify` CLI that
+accepts a proof-bearing JSON response and prints a pass/fail result
+with the `utxo_root` and `chainpoint` it verified against. Wire the
+library into the E2E HTTP and cage-flow specs so every shipped
+response is verified by a real consumer before signing.
+
+**Files**: `cardano-mpfs-client/` (new package), `README.md`,
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs`,
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/CageFlowSpec.hs`
+
+**Goal**: The "verify before sign" scenario has a real implementation,
+not only tests hand-rolled against individual endpoints. Every later
+slice must keep its responses verifiable by this client.
+
+**Follow-up outside this feature**: Integrate `cardano-mpfs-client`
+into `cardano-wallet` so `sign` refuses to proceed unless the inbound
+proof-bearing bundle verifies. Tracked as a separate issue.
+
 ### Slice 2: Proof-bearing query endpoints
 
 Convert the affected token query endpoints from scalar payloads to

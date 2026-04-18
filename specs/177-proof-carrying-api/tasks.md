@@ -15,6 +15,46 @@
 
 ---
 
+## Slice 1b: Verification client library and CLI
+
+Implements the downstream consumer that exercises every proof-bearing
+response shape as soon as it ships. Without this the server side has
+no end-to-end oracle and clients have no turnkey way to verify bundles
+before signing.
+
+- [ ] TC01 Add a new `cardano-mpfs-client` package under
+  `cardano-mpfs-client/` with a Haskell library exposing
+  `verifyVerificationSnapshot`, `verifyWitnessedUtxo`,
+  `verifyFactWitness`, and `verifyUnsignedTxWitnessBundle`
+- [ ] TC02 Reuse `cardano-utxo-csmt` proof verification and the
+  existing MPF proof verifier; do not reimplement
+- [ ] TC03 Add a `mpfs-verify` CLI inside the same package that
+  accepts a proof-bearing JSON response (stdin or file) and prints a
+  pass/fail result with the `utxo_root` and `chainpoint` it verified
+  against
+- [ ] TC04 Unit tests for the verifier covering positive,
+  root-mismatch, chainpoint-mismatch, and malformed-proof cases
+- [ ] TC05 Wire the verifier into
+  `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs`
+  so every proof-bearing read response is verified by the real client
+  before the test assertions run
+- [ ] TC06 Wire the verifier into
+  `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/CageFlowSpec.hs`
+  so every proof-bearing tx response is verified before signing
+- [ ] TC07 Document the client in `README.md` and link it from the
+  Swagger description
+
+**Checkpoint**: Every proof-bearing response shape has a real consumer
+that verifies it offline, and E2E tests refuse to proceed if the
+bundles fail verification.
+
+**Why this slice exists**: The user-critical scenario is
+"verify-before-sign." Building the verifier in parallel with the
+response-shape slices forces each shape to remain verifiable, and
+produces the library the wallet sign tool will consume in a follow-up.
+
+---
+
 ## Slice 2: Proof-bearing query endpoints (US1, #211)
 
 - [ ] T006 Change `GET /tokens/:id` to a structured proof-bearing response in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs`, and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
@@ -98,12 +138,17 @@ and ready for review.
 
 ```text
 T001-T004 -> T005
+T005 -> TC01-TC04
 T005 -> T006-T014
+T006-T014 -> TC05
 T014 -> T015-T021
 T015-T021 -> T022-T031
 T015-T021 -> T032-T036
+T022-T031 -> TC06
+T032-T036 -> TC06
 T022-T031 -> T037-T041
 T032-T036 -> T037-T041
+TC01-TC07 -> T037-T041
 ```
 
 ## Notes

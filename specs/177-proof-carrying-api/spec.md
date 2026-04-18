@@ -199,6 +199,15 @@ that those values can be compared with `GET /status` and `GET /utxo/root`.
   endpoint that returns the same indexed UTxO-CSMT root as `GET /status`,
   so debugging and isolated deployments can use this service as the root
   source of truth even without a separate CSMT endpoint.
+- **FR-017**: This feature MUST ship a reusable verification client
+  library (and companion CLI) that can verify every proof-bearing
+  response shape offline. The library is the canonical consumer of the
+  new response contracts and is the artifact that wallets/signers
+  integrate to enforce "verify before sign and submit."
+- **FR-018**: E2E tests MUST use the verification client library to
+  validate every proof-bearing response before making assertions, so
+  that the server-side response contracts and the client-side
+  verification logic remain co-evolved.
 
 ### Key Entities
 
