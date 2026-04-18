@@ -54,6 +54,8 @@ import Cardano.MPFS.Core.Types
     ( Addr
     , Coin (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -172,20 +174,20 @@ indexerSpecs scriptBytes = do
                     signedBoot
             length events `shouldBe` 1
             case events of
-                [CageBoot tid ts] -> do
+                [CageBoot tid stRef ts] -> do
                     -- Apply event
                     _ <-
                         applyCageEvent
                             (state ctx)
                             (trieManager ctx)
-                            (CageBoot tid ts)
+                            (CageBoot tid stRef ts)
                     -- Verify state
                     mTs <-
                         getToken
                             (tokens (state ctx))
                             tid
                     mTs `shouldSatisfy` \case
-                        Just ts' ->
+                        Just (LocatedTokenState _ ts') ->
                             owner ts'
                                 == keyHashFromSignKey
                                     genesisSignKey
@@ -254,7 +256,7 @@ indexerSpecs scriptBytes = do
                             (requests (state ctx))
                             txIn
                     mReq `shouldSatisfy` \case
-                        Just r ->
+                        Just (LocatedRequest _ r) ->
                             requestKey r == "hello"
                                 && requestValue r
                                     == Insert "world"
@@ -310,8 +312,7 @@ indexerSpecs scriptBytes = do
                         }
             putRequest
                 (requests (state ctx))
-                reqTxIn
-                req
+                (LocatedRequest reqTxIn req)
 
             -- Snapshot before update
             preUtxos <-
@@ -349,7 +350,7 @@ indexerSpecs scriptBytes = do
                     ]
             length updates `shouldBe` 1
             case updates of
-                [evt@(CageUpdate _ newRoot consumed)] ->
+                [evt@(CageUpdate _ _ newRoot consumed)] ->
                     do
                         -- Root changed from empty
                         newRoot
@@ -375,7 +376,7 @@ indexerSpecs scriptBytes = do
                                 (tokens (state ctx))
                                 tid
                         case mTs of
-                            Just ts ->
+                            Just (LocatedTokenState _ ts) ->
                                 root ts
                                     `shouldBe` newRoot
                             Nothing ->
@@ -456,8 +457,7 @@ indexerSpecs scriptBytes = do
                         }
             putRequest
                 (requests (state ctx))
-                reqTxIn
-                req
+                (LocatedRequest reqTxIn req)
 
             -- Wait for Phase 2 (process_time = 15s)
             threadDelay 17_000_000
@@ -694,7 +694,7 @@ indexerSpecs scriptBytes = do
                     (pure . resolver)
                     signedBoot
             case events of
-                [evt@(CageBoot tid _ts)] -> do
+                [evt@(CageBoot tid _stRef _ts)] -> do
                     -- Compute inverse BEFORE apply
                     let inverses =
                             inversesOf
@@ -778,8 +778,7 @@ indexerSpecs scriptBytes = do
                         }
             putRequest
                 (requests (state ctx))
-                reqTxIn1
-                req1
+                (LocatedRequest reqTxIn1 req1)
 
             -- Submit request 2
             signedReq2 <-
@@ -809,8 +808,7 @@ indexerSpecs scriptBytes = do
                         }
             putRequest
                 (requests (state ctx))
-                reqTxIn2
-                req2
+                (LocatedRequest reqTxIn2 req2)
 
             -- Snapshot before update
             preUtxos <-

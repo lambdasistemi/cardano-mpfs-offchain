@@ -109,6 +109,7 @@ import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , BlockId (..)
     , Coin (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -369,7 +370,7 @@ spec = describe "Unified 14-CF" $ do
                     $ applyCageBlockEvents
                         mkTransactionalState
                         mkUnifiedTrieManager
-                        [CageBoot tokA tokStateA]
+                        [CageBoot tokA stRefA tokStateA]
             -- Read it back
             mts <-
                 transact
@@ -377,7 +378,9 @@ spec = describe "Unified 14-CF" $ do
                     $ getToken
                         (tokens mkTransactionalState)
                         tokA
-            mts `shouldBe` Just tokStateA
+            mts
+                `shouldBe` Just
+                    (LocatedTokenState stRefA tokStateA)
 
     it "write/read UTxO KV via InUtxo" $ do
         withUnifiedDB $ \transact -> do
@@ -409,7 +412,7 @@ spec = describe "Unified 14-CF" $ do
                         $ applyCageBlockEvents
                             mkTransactionalState
                             mkUnifiedTrieManager
-                            [CageBoot tokA tokStateA]
+                            [CageBoot tokA stRefA tokStateA]
                 mapColumns InUtxo
                     $ csmtInsert csmtOps "key-pad-32-bytes-xxxxxxxxxx" "val"
             -- Verify both
@@ -419,7 +422,9 @@ spec = describe "Unified 14-CF" $ do
                     $ getToken
                         (tokens mkTransactionalState)
                         tokA
-            mts `shouldBe` Just tokStateA
+            mts
+                `shouldBe` Just
+                    (LocatedTokenState stRefA tokStateA)
             mv <-
                 transact
                     $ mapColumns InUtxo
@@ -437,7 +442,7 @@ spec = describe "Unified 14-CF" $ do
                     $ applyCageBlockEvents
                         mkTransactionalState
                         mkUnifiedTrieManager
-                        [CageBoot tokA tokStateA]
+                        [CageBoot tokA stRefA tokStateA]
             -- Request
             _ <-
                 transact
@@ -455,6 +460,7 @@ spec = describe "Unified 14-CF" $ do
                         mkUnifiedTrieManager
                         [ CageUpdate
                             tokA
+                            newStRefA
                             (Root "new-root")
                             [txInA]
                         ]
@@ -467,7 +473,10 @@ spec = describe "Unified 14-CF" $ do
                         tokA
             mts
                 `shouldBe` Just
-                    tokStateA{root = Root "new-root"}
+                    ( LocatedTokenState
+                        newStRefA
+                        tokStateA{root = Root "new-root"}
+                    )
 
     describe "with persistent trie manager" $ do
         it "tx boot then IO trie read" $ do
@@ -479,7 +488,7 @@ spec = describe "Unified 14-CF" $ do
                         $ applyCageBlockEvents
                             mkTransactionalState
                             mkUnifiedTrieManager
-                            [ CageBoot tokA tokStateA
+                            [ CageBoot tokA stRefA tokStateA
                             , CageRequest txInA reqA
                             ]
                 -- Update via transaction (trie mutation)
@@ -491,6 +500,7 @@ spec = describe "Unified 14-CF" $ do
                             mkUnifiedTrieManager
                             [ CageUpdate
                                 tokA
+                                newStRefA
                                 (Root "new-root")
                                 [txInA]
                             ]
@@ -509,7 +519,7 @@ spec = describe "Unified 14-CF" $ do
                         $ applyCageBlockEvents
                             mkTransactionalState
                             mkUnifiedTrieManager
-                            [CageBoot tokA tokStateA]
+                            [CageBoot tokA stRefA tokStateA]
                 -- IO read after boot
                 withTrie tm tokA $ \trie -> do
                     _ <- getRoot trie
@@ -530,6 +540,7 @@ spec = describe "Unified 14-CF" $ do
                             mkUnifiedTrieManager
                             [ CageUpdate
                                 tokA
+                                newStRefA
                                 (Root "updated")
                                 [txInA]
                             ]
@@ -552,6 +563,7 @@ spec = describe "Unified 14-CF" $ do
                                     mkUnifiedTrieManager
                                     [ CageBoot
                                         tokA
+                                        stRefA
                                         tokStateA
                                     , CageRequest txInA reqA
                                     ]
@@ -570,6 +582,7 @@ spec = describe "Unified 14-CF" $ do
                             mkUnifiedTrieManager
                             [ CageUpdate
                                 tokA
+                                newStRefA
                                 (Root "mixed")
                                 [txInA]
                             ]
@@ -606,7 +619,7 @@ spec = describe "Unified 14-CF" $ do
                         InRollbacks
                         maxBound
                         (1 :: SlotNo)
-                        ( [CageBoot tokA tokStateA]
+                        ( [CageBoot tokA stRefA tokStateA]
                         , [UTxO.Insert "k1-pad-32bytes-xxxxxxxxxxxx" "v1"]
                         )
                         phase0
@@ -621,7 +634,9 @@ spec = describe "Unified 14-CF" $ do
                         $ getToken
                             (tokens mkTransactionalState)
                             tokA
-                mts `shouldBe` Just tokStateA
+                mts
+                    `shouldBe` Just
+                        (LocatedTokenState stRefA tokStateA)
 
         it "full composed lifecycle: restore, follow, rollback" $ do
             withUnifiedDB $ \transact -> do
@@ -640,7 +655,7 @@ spec = describe "Unified 14-CF" $ do
                         maxBound
                         (1 :: SlotNo)
                         (
-                            [ CageBoot tokA tokStateA
+                            [ CageBoot tokA stRefA tokStateA
                             , CageRequest txInA reqA
                             ]
                         , [UTxO.Insert "utxo1-pad-32bytes-xxxxxxxxxx" "out1"]
@@ -669,6 +684,7 @@ spec = describe "Unified 14-CF" $ do
                                 (
                                     [ CageUpdate
                                         tokA
+                                        newStRefA
                                         (Root "root2")
                                         [txInA]
                                     ]
@@ -732,7 +748,7 @@ spec = describe "Unified 14-CF" $ do
                             InRollbacks
                             maxBound
                             (s + 1)
-                            ( [CageBoot tokA tokStateA]
+                            ( [CageBoot tokA stRefA tokStateA]
                             , []
                             )
                             phase0
@@ -777,6 +793,7 @@ spec = describe "Unified 14-CF" $ do
                                     (
                                         [ CageUpdate
                                             tokA
+                                            newStRefA
                                             (Root "r")
                                             [txInA]
                                         ]
@@ -814,7 +831,7 @@ spec = describe "Unified 14-CF" $ do
                         InRollbacks
                         maxBound
                         (1 :: SlotNo)
-                        ( [CageBoot tokA tokStateA, CageRequest txInA reqA]
+                        ( [CageBoot tokA stRefA tokStateA, CageRequest txInA reqA]
                         , [UTxO.Insert "utxo-key-padded-to-32-bytesXX" "val1"]
                         )
                         phase0
@@ -837,7 +854,7 @@ spec = describe "Unified 14-CF" $ do
                                 InRollbacks
                                 maxBound
                                 (2 :: SlotNo)
-                                ( [CageUpdate tokA (Root "r2") [txInA]]
+                                ( [CageUpdate tokA newStRefA (Root "r2") [txInA]]
                                 , [UTxO.Insert "utxo-key2-padded-to-32-byteX" "val2"]
                                 )
                                 phase2
@@ -886,7 +903,7 @@ spec = describe "Unified 14-CF" $ do
                             InRollbacks
                             maxBound
                             (s + 1)
-                            ([CageBoot tokA tokStateA], [])
+                            ([CageBoot tokA stRefA tokStateA], [])
                             phase0
                     case phase1 of
                         InRestoration r -> do
@@ -915,7 +932,7 @@ spec = describe "Unified 14-CF" $ do
                                     InRollbacks
                                     maxBound
                                     (s + 3)
-                                    ( [CageUpdate tokA (Root "r") [txInA]]
+                                    ( [CageUpdate tokA newStRefA (Root "r") [txInA]]
                                     , []
                                     )
                                     phase3
@@ -944,7 +961,7 @@ spec = describe "Unified 14-CF" $ do
                         $ applyCageBlockEvents
                             mkTransactionalState
                             mkUnifiedTrieManager
-                            [CageBoot tokA tokStateA]
+                            [CageBoot tokA stRefA tokStateA]
                 -- Concurrent: tx writes and IO reads
                 concurrently_
                     ( do
@@ -1019,7 +1036,7 @@ spec = describe "Unified 14-CF" $ do
                             InRollbacks
                             maxBound
                             (1 :: SlotNo)
-                            ( [CageBoot tokA tokStateA]
+                            ( [CageBoot tokA stRefA tokStateA]
                             , []
                             )
                             phase0
@@ -1202,6 +1219,12 @@ txInA = genTestTxIn 0
 
 txInB :: TxIn
 txInB = genTestTxIn 1
+
+stRefA :: TxIn
+stRefA = genTestTxIn 10
+
+newStRefA :: TxIn
+newStRefA = genTestTxIn 20
 
 reqA :: Request
 reqA =

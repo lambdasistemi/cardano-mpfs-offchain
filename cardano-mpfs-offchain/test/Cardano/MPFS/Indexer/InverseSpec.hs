@@ -19,7 +19,9 @@ import Test.QuickCheck (forAll)
 import Test.QuickCheck.Monadic (assert, monadicIO, run)
 
 import Cardano.MPFS.Core.Types
-    ( TokenState (..)
+    ( LocatedRequest (..)
+    , LocatedTokenState (..)
+    , TokenState (..)
     )
 import Cardano.MPFS.Generators
     ( genRequest
@@ -45,21 +47,35 @@ import Cardano.MPFS.State
 -- | Apply a cage event to the state interface.
 applyCageEvent :: State IO -> CageEvent -> IO ()
 applyCageEvent State{..} = \case
-    CageBoot tid ts ->
-        putToken tokens tid ts
+    CageBoot tid stRef ts ->
+        putToken
+            tokens
+            tid
+            (LocatedTokenState stRef ts)
     CageRequest txIn req ->
-        putRequest requests txIn req
-    CageUpdate tid newRoot consumed -> do
-        mts <- getToken tokens tid
-        case mts of
-            Just ts ->
+        putRequest requests (LocatedRequest txIn req)
+    CageUpdate tid newStRef newRoot consumed -> do
+        mlts <- getToken tokens tid
+        case mlts of
+            Just LocatedTokenState{tokenState = ts} ->
                 putToken
                     tokens
                     tid
-                    ts{root = newRoot}
+                    ( LocatedTokenState
+                        newStRef
+                        ts{root = newRoot}
+                    )
             Nothing -> pure ()
         mapM_ (removeRequest requests) consumed
-    CageReject _tid consumed ->
+    CageReject tid newStRef consumed -> do
+        mlts <- getToken tokens tid
+        case mlts of
+            Just LocatedTokenState{tokenState = ts} ->
+                putToken
+                    tokens
+                    tid
+                    (LocatedTokenState newStRef ts)
+            Nothing -> pure ()
         mapM_ (removeRequest requests) consumed
     CageRetract txIn ->
         removeRequest requests txIn
@@ -69,22 +85,28 @@ applyCageEvent State{..} = \case
 -- | Apply an inverse operation to the state.
 applyInverseOp :: State IO -> CageInverseOp -> IO ()
 applyInverseOp State{..} = \case
-    InvRestoreToken tid ts ->
-        putToken tokens tid ts
+    InvRestoreToken tid stRef ts ->
+        putToken
+            tokens
+            tid
+            (LocatedTokenState stRef ts)
     InvRemoveToken tid ->
         removeToken tokens tid
     InvRestoreRequest txIn req ->
-        putRequest requests txIn req
+        putRequest requests (LocatedRequest txIn req)
     InvRemoveRequest txIn ->
         removeRequest requests txIn
-    InvRestoreRoot tid newRoot -> do
-        mts <- getToken tokens tid
-        case mts of
-            Just ts ->
+    InvRestoreRoot tid oldStRef newRoot -> do
+        mlts <- getToken tokens tid
+        case mlts of
+            Just LocatedTokenState{tokenState = ts} ->
                 putToken
                     tokens
                     tid
-                    ts{root = newRoot}
+                    ( LocatedTokenState
+                        oldStRef
+                        ts{root = newRoot}
+                    )
             Nothing -> pure ()
     InvTrieInsert{} -> pure ()
     InvTrieDelete{} -> pure ()
@@ -98,19 +120,27 @@ spec = describe "Inverse operations" $ do
         $ prop "token is present after boot"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    st <- run mkMockState
-                    run
-                        $ applyCageEvent
-                            st
-                            (CageBoot tid ts)
-                    r <-
+            forAll genTxIn $ \stRef ->
+                forAll genTokenState $ \ts ->
+                    monadicIO $ do
+                        st <- run mkMockState
                         run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (r == Just ts)
+                            $ applyCageEvent
+                                st
+                                (CageBoot tid stRef ts)
+                        r <-
+                            run
+                                $ getToken
+                                    (tokens st)
+                                    tid
+                        assert
+                            ( r
+                                == Just
+                                    ( LocatedTokenState
+                                        stRef
+                                        ts
+                                    )
+                            )
 
     -- -----------------------------------------------
     -- Lean: request_mem_requests
@@ -132,7 +162,14 @@ spec = describe "Inverse operations" $ do
                                 $ getRequest
                                     (requests st)
                                     txIn
-                        assert (r == Just req)
+                        assert
+                            ( r
+                                == Just
+                                    ( LocatedRequest
+                                        txIn
+                                        req
+                                    )
+                            )
 
     -- -----------------------------------------------
     -- Lean: boot_preserves_requests
@@ -143,24 +180,38 @@ spec = describe "Inverse operations" $ do
         $ \txIn ->
             forAll genTokenId $ \tid ->
                 forAll (genRequest tid) $ \req ->
-                    forAll genTokenState $ \ts ->
-                        monadicIO $ do
-                            st <- run mkMockState
-                            run
-                                $ putRequest
-                                    (requests st)
-                                    txIn
-                                    req
-                            run
-                                $ applyCageEvent
-                                    st
-                                    (CageBoot tid ts)
-                            r <-
+                    forAll genTxIn $ \stRef ->
+                        forAll genTokenState $ \ts ->
+                            monadicIO $ do
+                                st <- run mkMockState
                                 run
-                                    $ getRequest
+                                    $ putRequest
                                         (requests st)
-                                        txIn
-                            assert (r == Just req)
+                                        ( LocatedRequest
+                                            txIn
+                                            req
+                                        )
+                                run
+                                    $ applyCageEvent
+                                        st
+                                        ( CageBoot
+                                            tid
+                                            stRef
+                                            ts
+                                        )
+                                r <-
+                                    run
+                                        $ getRequest
+                                            (requests st)
+                                            txIn
+                                assert
+                                    ( r
+                                        == Just
+                                            ( LocatedRequest
+                                                txIn
+                                                req
+                                            )
+                                    )
 
     -- -----------------------------------------------
     -- Lean: retract_preserves_tokens
@@ -169,25 +220,27 @@ spec = describe "Inverse operations" $ do
         $ prop "retract does not affect tokens"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                forAll genTxIn $ \txIn ->
-                    monadicIO $ do
-                        st <- run mkMockState
-                        run
-                            $ putToken
-                                (tokens st)
-                                tid
-                                ts
-                        run
-                            $ applyCageEvent
-                                st
-                                (CageRetract txIn)
-                        r <-
-                            run
-                                $ getToken
-                                    (tokens st)
-                                    tid
-                        assert (r == Just ts)
+            forAll genTxIn $ \stRef ->
+                forAll genTokenState $ \ts ->
+                    forAll genTxIn $ \txIn ->
+                        let lts = LocatedTokenState stRef ts
+                        in  monadicIO $ do
+                                st <- run mkMockState
+                                run
+                                    $ putToken
+                                        (tokens st)
+                                        tid
+                                        lts
+                                run
+                                    $ applyCageEvent
+                                        st
+                                        (CageRetract txIn)
+                                r <-
+                                    run
+                                        $ getToken
+                                            (tokens st)
+                                            tid
+                                assert (r == Just lts)
 
     -- -----------------------------------------------
     -- Lean: prop_inverseRoundTrip (boot)
@@ -196,34 +249,39 @@ spec = describe "Inverse operations" $ do
         $ prop "boot then inverse removes token"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    st <- run mkMockState
-                    let invs =
-                            inversesOf
-                                (const Nothing)
-                                (const Nothing)
-                                (CageBoot tid ts)
-                    run
-                        $ applyCageEvent
-                            st
-                            (CageBoot tid ts)
-                    r1 <-
+            forAll genTxIn $ \stRef ->
+                forAll genTokenState $ \ts ->
+                    monadicIO $ do
+                        st <- run mkMockState
+                        let invs =
+                                inversesOf
+                                    (const Nothing)
+                                    (const Nothing)
+                                    ( CageBoot
+                                        tid
+                                        stRef
+                                        ts
+                                    )
                         run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (isJust r1)
-                    run
-                        $ mapM_
-                            (applyInverseOp st)
-                            invs
-                    r2 <-
+                            $ applyCageEvent
+                                st
+                                (CageBoot tid stRef ts)
+                        r1 <-
+                            run
+                                $ getToken
+                                    (tokens st)
+                                    tid
+                        assert (isJust r1)
                         run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (isNothing r2)
+                            $ mapM_
+                                (applyInverseOp st)
+                                invs
+                        r2 <-
+                            run
+                                $ getToken
+                                    (tokens st)
+                                    tid
+                        assert (isNothing r2)
 
     -- -----------------------------------------------
     -- Lean: prop_inverseRoundTrip (request)
@@ -272,43 +330,45 @@ spec = describe "Inverse operations" $ do
         $ prop "burn then inverse restores token"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    st <- run mkMockState
-                    run
-                        $ putToken
-                            (tokens st)
-                            tid
-                            ts
-                    let lookupT t =
-                            if t == tid
-                                then Just ts
-                                else Nothing
-                        invs =
-                            inversesOf
-                                lookupT
-                                (const Nothing)
-                                (CageBurn tid)
-                    run
-                        $ applyCageEvent
-                            st
-                            (CageBurn tid)
-                    r1 <-
-                        run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (isNothing r1)
-                    run
-                        $ mapM_
-                            (applyInverseOp st)
-                            invs
-                    r2 <-
-                        run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (r2 == Just ts)
+            forAll genTxIn $ \stRef ->
+                forAll genTokenState $ \ts ->
+                    let lts = LocatedTokenState stRef ts
+                    in  monadicIO $ do
+                            st <- run mkMockState
+                            run
+                                $ putToken
+                                    (tokens st)
+                                    tid
+                                    lts
+                            let lookupT t =
+                                    if t == tid
+                                        then Just (stRef, ts)
+                                        else Nothing
+                                invs =
+                                    inversesOf
+                                        lookupT
+                                        (const Nothing)
+                                        (CageBurn tid)
+                            run
+                                $ applyCageEvent
+                                    st
+                                    (CageBurn tid)
+                            r1 <-
+                                run
+                                    $ getToken
+                                        (tokens st)
+                                        tid
+                            assert (isNothing r1)
+                            run
+                                $ mapM_
+                                    (applyInverseOp st)
+                                    invs
+                            r2 <-
+                                run
+                                    $ getToken
+                                        (tokens st)
+                                        tid
+                            assert (r2 == Just lts)
 
     -- -----------------------------------------------
     -- Lean: prop_inverseRoundTrip (retract)
@@ -326,8 +386,10 @@ spec = describe "Inverse operations" $ do
                         run
                             $ putRequest
                                 (requests st)
-                                txIn
-                                req
+                                ( LocatedRequest
+                                    txIn
+                                    req
+                                )
                         let lookupR t =
                                 if t == txIn
                                     then Just req
@@ -356,7 +418,14 @@ spec = describe "Inverse operations" $ do
                                 $ getRequest
                                     (requests st)
                                     txIn
-                        assert (r2 == Just req)
+                        assert
+                            ( r2
+                                == Just
+                                    ( LocatedRequest
+                                        txIn
+                                        req
+                                    )
+                            )
 
     -- -----------------------------------------------
     -- Lean: prop_inverseRoundTrip (update)
@@ -368,71 +437,87 @@ spec = describe "Inverse operations" $ do
             "update then inverse restores root and requests"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                forAll genRoot $ \newRoot ->
-                    forAll genTxIn $ \txIn ->
-                        forAll (genRequest tid)
-                            $ \req ->
-                                monadicIO $ do
-                                    st <-
-                                        run mkMockState
-                                    run
-                                        $ putToken
-                                            (tokens st)
-                                            tid
-                                            ts
-                                    run
-                                        $ putRequest
-                                            (requests st)
-                                            txIn
-                                            req
-                                    let lookupT t =
-                                            if t == tid
-                                                then Just ts
-                                                else Nothing
-                                        lookupR t =
-                                            if t == txIn
-                                                then Just req
-                                                else Nothing
-                                        invs =
-                                            inversesOf
-                                                lookupT
-                                                lookupR
-                                                ( CageUpdate
+            forAll genTxIn $ \oldStRef ->
+                forAll genTxIn $ \newStRef ->
+                    forAll genTokenState $ \ts ->
+                        forAll genRoot $ \newRoot ->
+                            forAll genTxIn $ \txIn ->
+                                forAll (genRequest tid)
+                                    $ \req ->
+                                        monadicIO $ do
+                                            st <- run mkMockState
+                                            run
+                                                $ putToken
+                                                    (tokens st)
                                                     tid
-                                                    newRoot
-                                                    [txIn]
+                                                    ( LocatedTokenState
+                                                        oldStRef
+                                                        ts
+                                                    )
+                                            run
+                                                $ putRequest
+                                                    (requests st)
+                                                    ( LocatedRequest
+                                                        txIn
+                                                        req
+                                                    )
+                                            let lookupT t =
+                                                    if t == tid
+                                                        then Just (oldStRef, ts)
+                                                        else Nothing
+                                                lookupR t =
+                                                    if t == txIn
+                                                        then Just req
+                                                        else Nothing
+                                                invs =
+                                                    inversesOf
+                                                        lookupT
+                                                        lookupR
+                                                        ( CageUpdate
+                                                            tid
+                                                            newStRef
+                                                            newRoot
+                                                            [txIn]
+                                                        )
+                                            run
+                                                $ applyCageEvent
+                                                    st
+                                                    ( CageUpdate
+                                                        tid
+                                                        newStRef
+                                                        newRoot
+                                                        [txIn]
+                                                    )
+                                            run
+                                                $ mapM_
+                                                    (applyInverseOp st)
+                                                    invs
+                                            r1 <-
+                                                run
+                                                    $ getToken
+                                                        (tokens st)
+                                                        tid
+                                            assert
+                                                ( r1
+                                                    == Just
+                                                        ( LocatedTokenState
+                                                            oldStRef
+                                                            ts
+                                                        )
                                                 )
-                                    run
-                                        $ applyCageEvent
-                                            st
-                                            ( CageUpdate
-                                                tid
-                                                newRoot
-                                                [txIn]
-                                            )
-                                    run
-                                        $ mapM_
-                                            (applyInverseOp st)
-                                            invs
-                                    r1 <-
-                                        run
-                                            $ getToken
-                                                (tokens st)
-                                                tid
-                                    assert
-                                        ( r1
-                                            == Just ts
-                                        )
-                                    r2 <-
-                                        run
-                                            $ getRequest
-                                                (requests st)
-                                                txIn
-                                    assert
-                                        ( r2
-                                            == Just req
-                                        )
+                                            r2 <-
+                                                run
+                                                    $ getRequest
+                                                        (requests st)
+                                                        txIn
+                                            assert
+                                                ( r2
+                                                    == Just
+                                                        ( LocatedRequest
+                                                            txIn
+                                                            req
+                                                        )
+                                                )
 
     -- -----------------------------------------------
     -- Lean: prop_bootBurnRoundTrip
@@ -442,23 +527,24 @@ spec = describe "Inverse operations" $ do
             "boot then burn restores empty state"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                monadicIO $ do
-                    st <- run mkMockState
-                    run
-                        $ applyCageEvent
-                            st
-                            (CageBoot tid ts)
-                    run
-                        $ applyCageEvent
-                            st
-                            (CageBurn tid)
-                    r <-
+            forAll genTxIn $ \stRef ->
+                forAll genTokenState $ \ts ->
+                    monadicIO $ do
+                        st <- run mkMockState
                         run
-                            $ getToken
-                                (tokens st)
-                                tid
-                    assert (isNothing r)
+                            $ applyCageEvent
+                                st
+                                (CageBoot tid stRef ts)
+                        run
+                            $ applyCageEvent
+                                st
+                                (CageBurn tid)
+                        r <-
+                            run
+                                $ getToken
+                                    (tokens st)
+                                    tid
+                        assert (isNothing r)
 
     -- -----------------------------------------------
     -- Lean: prop_requestRetractRoundTrip

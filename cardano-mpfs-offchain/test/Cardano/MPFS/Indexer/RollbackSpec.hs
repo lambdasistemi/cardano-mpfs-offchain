@@ -47,6 +47,8 @@ import Cardano.Ledger.TxIn qualified as Ledger
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -144,9 +146,10 @@ tokenTests = describe "Token rollback" $ do
         let st = envState env
             tid = tokA
             ts = tokStateA
-        applyAtSlot env 1 (CageBoot tid ts)
+            stRef = stRefA
+        applyAtSlot env 1 (CageBoot tid stRef ts)
         getToken (tokens st) tid
-            `shouldReturn` Just ts
+            `shouldReturn` Just (LocatedTokenState stRef ts)
         rollback env 0
         getToken (tokens st) tid
             `shouldReturn` Nothing
@@ -156,13 +159,14 @@ tokenTests = describe "Token rollback" $ do
         let st = envState env
             tid = tokA
             ts = tokStateA
-        applyAtSlot env 1 (CageBoot tid ts)
+            stRef = stRefA
+        applyAtSlot env 1 (CageBoot tid stRef ts)
         applyAtSlot env 2 (CageBurn tid)
         getToken (tokens st) tid
             `shouldReturn` Nothing
         rollback env 1
         getToken (tokens st) tid
-            `shouldReturn` Just ts
+            `shouldReturn` Just (LocatedTokenState stRef ts)
 
     it
         "can rollback a token removal to before \
@@ -172,7 +176,8 @@ tokenTests = describe "Token rollback" $ do
             let st = envState env
                 tid = tokA
                 ts = tokStateA
-            applyAtSlot env 1 (CageBoot tid ts)
+                stRef = stRefA
+            applyAtSlot env 1 (CageBoot tid stRef ts)
             applyAtSlot env 2 (CageBurn tid)
             rollback env 0
             getToken (tokens st) tid
@@ -189,7 +194,7 @@ requestTests = describe "Request rollback" $ do
         let st = envState env
         applyAtSlot env 1 (CageRequest txInA reqA)
         getRequest (requests st) txInA
-            `shouldReturn` Just reqA
+            `shouldReturn` Just (LocatedRequest txInA reqA)
         rollback env 0
         getRequest (requests st) txInA
             `shouldReturn` Nothing
@@ -203,7 +208,7 @@ requestTests = describe "Request rollback" $ do
             `shouldReturn` Nothing
         rollback env 1
         getRequest (requests st) txInA
-            `shouldReturn` Just reqA
+            `shouldReturn` Just (LocatedRequest txInA reqA)
 
     it
         "can rollback a request removal to before \
@@ -231,17 +236,21 @@ updateTests = describe "Update rollback" $ do
         let st = envState env
             tid = tokA
             ts = tokStateA
+            stRef = stRefA
+            newStRef = stRefB
             newRoot = rootB
-        applyAtSlot env 1 (CageBoot tid ts)
+        applyAtSlot env 1 (CageBoot tid stRef ts)
         applyAtSlot
             env
             2
-            (CageUpdate tid newRoot [])
+            (CageUpdate tid newStRef newRoot [])
         mTs <- getToken (tokens st) tid
-        fmap root mTs `shouldBe` Just newRoot
+        fmap (root . tokenState) mTs
+            `shouldBe` Just newRoot
         rollback env 1
         mTs' <- getToken (tokens st) tid
-        fmap root mTs' `shouldBe` Just (root ts)
+        fmap (root . tokenState) mTs'
+            `shouldBe` Just (root ts)
 
     it
         "can rollback a token update with \
@@ -251,8 +260,10 @@ updateTests = describe "Update rollback" $ do
             let st = envState env
                 tid = tokA
                 ts = tokStateA
+                stRef = stRefA
+                newStRef = stRefB
                 newRoot = rootB
-            applyAtSlot env 1 (CageBoot tid ts)
+            applyAtSlot env 1 (CageBoot tid stRef ts)
             applyAtSlot
                 env
                 1
@@ -262,6 +273,7 @@ updateTests = describe "Update rollback" $ do
                 2
                 ( CageUpdate
                     tid
+                    newStRef
                     newRoot
                     [txInA]
                 )
@@ -271,11 +283,12 @@ updateTests = describe "Update rollback" $ do
             rollback env 1
             -- Token root restored
             mTs <- getToken (tokens st) tid
-            fmap root mTs
+            fmap (root . tokenState) mTs
                 `shouldBe` Just (root ts)
             -- Request restored
             getRequest (requests st) txInA
-                `shouldReturn` Just reqA
+                `shouldReturn` Just
+                    (LocatedRequest txInA reqA)
 
 -- ---------------------------------------------------------
 -- Fixed test data
@@ -302,6 +315,12 @@ rootB = Root "new-root-hash-bytes"
 
 txInA :: TxIn
 txInA = genTestTxIn 0
+
+stRefA :: TxIn
+stRefA = genTestTxIn 1
+
+stRefB :: TxIn
+stRefB = genTestTxIn 2
 
 reqA :: Request
 reqA =

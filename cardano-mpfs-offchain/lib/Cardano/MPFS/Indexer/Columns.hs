@@ -62,10 +62,10 @@ import MPF.Interface (HexIndirect, HexKey)
 
 import Cardano.MPFS.Core.Types
     ( BlockId
+    , LocatedTokenState
     , Request
     , SlotNo
     , TokenId
-    , TokenState
     , TxIn
     )
 import Cardano.MPFS.Indexer.ComposedInv (ComposedInv)
@@ -97,10 +97,11 @@ data CageCheckpoint = CageCheckpoint
 -- state. Covers cage state and per-token trie
 -- storage.
 data AllColumns x where
-    -- | Token state: maps token identifiers to
-    -- their on-chain state.
+    -- | Located token state: maps token identifiers
+    -- to their on-chain state together with the
+    -- reference of the UTxO currently carrying it.
     CageTokens
-        :: AllColumns (KV TokenId TokenState)
+        :: AllColumns (KV TokenId LocatedTokenState)
     -- | Pending requests: maps UTxO references to
     -- request details.
     CageRequests

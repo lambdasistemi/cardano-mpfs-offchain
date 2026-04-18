@@ -98,6 +98,7 @@ import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , BlockId (..)
     , Coin (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -304,7 +305,7 @@ spec = describe "Cage Runner E2E" $ do
                     TestRollbacks
                     maxBound
                     1
-                    [CageBoot tokA tokStateA]
+                    [CageBoot tokA stRefA tokStateA]
                     phase0
             case phase1 of
                 InRestoration _ -> pure ()
@@ -322,7 +323,7 @@ spec = describe "Cage Runner E2E" $ do
                     TestRollbacks
                     maxBound
                     1
-                    [CageBoot tokA tokStateA]
+                    [CageBoot tokA stRefA tokStateA]
                     phase0
             -- Runner stores one sentinel checkpoint per
             -- restoration block (empty inverses, no meta)
@@ -342,7 +343,7 @@ spec = describe "Cage Runner E2E" $ do
                     TestRollbacks
                     maxBound
                     1
-                    [CageBoot tokA tokStateA]
+                    [CageBoot tokA stRefA tokStateA]
                     phase0
             case phase1 of
                 InRestoration restoring -> do
@@ -378,7 +379,7 @@ spec = describe "Cage Runner E2E" $ do
                     TestRollbacks
                     maxBound
                     1
-                    [ CageBoot tokA tokStateA
+                    [ CageBoot tokA stRefA tokStateA
                     , CageRequest txInA reqA
                     ]
                     phase0
@@ -402,6 +403,7 @@ spec = describe "Cage Runner E2E" $ do
                             2
                             [ CageUpdate
                                 tokA
+                                newStRefA
                                 (Root "new-root")
                                 [txInA]
                             ]
@@ -449,7 +451,7 @@ spec = describe "Cage Runner E2E" $ do
                             TestRollbacks
                             maxBound
                             (s + 1)
-                            [CageBoot tokA tokStateA]
+                            [CageBoot tokA stRefA tokStateA]
                             phase0
                     case phase1 of
                         InRestoration restoring -> do
@@ -488,6 +490,7 @@ spec = describe "Cage Runner E2E" $ do
                                     (s + 3)
                                     [ CageUpdate
                                         tokA
+                                        newStRefA
                                         (Root "r")
                                         [txInA]
                                     ]
@@ -519,8 +522,8 @@ spec = describe "Cage Runner E2E" $ do
                     TestRollbacks
                     maxBound
                     1
-                    [ CageBoot tokA tokStateA
-                    , CageBoot tokB tokStateB
+                    [ CageBoot tokA stRefA tokStateA
+                    , CageBoot tokB stRefB tokStateB
                     ]
                     phase0
             case phase1 of
@@ -555,10 +558,12 @@ spec = describe "Cage Runner E2E" $ do
                             3
                             [ CageUpdate
                                 tokA
+                                newStRefA
                                 (Root "rA")
                                 [txInA]
                             , CageUpdate
                                 tokB
+                                newStRefB
                                 (Root "rB")
                                 [txInB]
                             ]
@@ -571,7 +576,12 @@ spec = describe "Cage Runner E2E" $ do
                                 tokA
                     ts
                         `shouldBe` Just
-                            tokStateA{root = Root "rA"}
+                            ( LocatedTokenState
+                                newStRefA
+                                tokStateA
+                                    { root = Root "rA"
+                                    }
+                            )
                 InFollowing _ _ ->
                     fail "expected Restoration"
 
@@ -614,6 +624,18 @@ txInA = genTestTxIn 0
 
 txInB :: TxIn
 txInB = genTestTxIn 1
+
+stRefA :: TxIn
+stRefA = genTestTxIn 10
+
+stRefB :: TxIn
+stRefB = genTestTxIn 11
+
+newStRefA :: TxIn
+newStRefA = genTestTxIn 20
+
+newStRefB :: TxIn
+newStRefB = genTestTxIn 21
 
 reqA :: Request
 reqA =

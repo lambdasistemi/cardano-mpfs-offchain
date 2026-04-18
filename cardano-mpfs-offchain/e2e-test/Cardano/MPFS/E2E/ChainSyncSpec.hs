@@ -55,6 +55,8 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( Coin (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -158,7 +160,7 @@ chainsyncSpecs scriptBytes = do
                     expectationFailure
                         "token not auto-indexed \
                         \within timeout"
-                Just ts -> do
+                Just (LocatedTokenState _ ts) -> do
                     owner ts
                         `shouldBe` keyHashFromSignKey
                             genesisSignKey
@@ -222,7 +224,7 @@ chainsyncSpecs scriptBytes = do
                         Just rs ->
                             rs
                                 `shouldSatisfy` any
-                                    ( \r ->
+                                    ( \(LocatedRequest _ r) ->
                                         requestKey r
                                             == "hello"
                                             && requestValue

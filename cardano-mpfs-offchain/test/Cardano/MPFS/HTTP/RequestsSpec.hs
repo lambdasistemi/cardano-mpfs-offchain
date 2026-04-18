@@ -32,7 +32,10 @@ import Test.QuickCheck (generate)
 import Cardano.Ledger.Mary.Value (AssetName (..))
 
 import Cardano.MPFS.Context (Context (..))
-import Cardano.MPFS.Core.Types (TokenId (..))
+import Cardano.MPFS.Core.Types
+    ( LocatedRequest (LocatedRequest)
+    , TokenId (..)
+    )
 import Cardano.MPFS.Generators
     ( genRequest
     , genTxIn
@@ -65,8 +68,7 @@ spec = describe "GET /tokens/:id/requests" $ do
             req <- generate (genRequest cafeTid)
             St.putRequest
                 (St.requests (state ctx))
-                txIn
-                req
+                (LocatedRequest txIn req)
             resp <- getRequests ctx "63616665"
             simpleStatus resp `shouldBe` status200
             assertJsonArray resp 1
@@ -81,12 +83,10 @@ spec = describe "GET /tokens/:id/requests" $ do
             req2 <- generate (genRequest cafeTid)
             St.putRequest
                 (St.requests (state ctx))
-                txIn1
-                req1
+                (LocatedRequest txIn1 req1)
             St.putRequest
                 (St.requests (state ctx))
-                txIn2
-                req2
+                (LocatedRequest txIn2 req2)
             resp <- getRequests ctx "63616665"
             simpleStatus resp `shouldBe` status200
             assertJsonArray resp 2
@@ -100,12 +100,10 @@ spec = describe "GET /tokens/:id/requests" $ do
             req2 <- generate (genRequest aabbTid)
             St.putRequest
                 (St.requests (state ctx))
-                txIn1
-                req1
+                (LocatedRequest txIn1 req1)
             St.putRequest
                 (St.requests (state ctx))
-                txIn2
-                req2
+                (LocatedRequest txIn2 req2)
             resp1 <- getRequests ctx "63616665"
             simpleStatus resp1 `shouldBe` status200
             assertJsonArray resp1 1

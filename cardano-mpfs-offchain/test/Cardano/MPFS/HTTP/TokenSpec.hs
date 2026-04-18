@@ -28,8 +28,14 @@ import Test.Hspec
 
 import Cardano.Ledger.Mary.Value (AssetName (..))
 
+import Test.QuickCheck (generate)
+
 import Cardano.MPFS.Context (Context (..))
-import Cardano.MPFS.Core.Types (TokenId (..))
+import Cardano.MPFS.Core.Types
+    ( LocatedTokenState (..)
+    , TokenId (..)
+    )
+import Cardano.MPFS.Generators (genTxIn)
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.TokensSpec (mkDummyTokenState)
@@ -53,13 +59,14 @@ spec = describe "GET /tokens/:id" $ do
     it "returns token state for known token" $ do
         ctx <- mkTestContext
         ts <- mkDummyTokenState
+        txIn <- generate genTxIn
         let tid =
                 TokenId
                     (AssetName (SBS.toShort "cafe"))
         St.putToken
             (St.tokens (state ctx))
             tid
-            ts
+            (LocatedTokenState txIn ts)
         resp <-
             runSession
                 ( request

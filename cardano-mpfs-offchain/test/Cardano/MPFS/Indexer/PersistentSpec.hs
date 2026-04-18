@@ -73,6 +73,8 @@ import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , BlockId (..)
     , Coin (..)
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -167,63 +169,88 @@ tokensSpec = do
     prop "put/get round-trip"
         $ forAll genTokenId
         $ \tid ->
-            forAll genTokenState $ \ts ->
-                ioProperty
-                    $ withTestState
-                    $ \st -> do
-                        putToken (tokens st) tid ts
-                        r <- getToken (tokens st) tid
-                        pure (r === Just ts)
-
-    prop "put/remove/get returns Nothing"
-        $ forAll genTokenId
-        $ \tid ->
-            forAll genTokenState $ \ts ->
-                ioProperty
-                    $ withTestState
-                    $ \st -> do
-                        putToken (tokens st) tid ts
-                        removeToken (tokens st) tid
-                        r <- getToken (tokens st) tid
-                        pure
-                            (isNothing r === True)
-
-    prop "put appears in listTokens"
-        $ forAll genTokenId
-        $ \tid ->
-            forAll genTokenState $ \ts ->
-                ioProperty
-                    $ withTestState
-                    $ \st -> do
-                        putToken (tokens st) tid ts
-                        ids <-
-                            listTokens (tokens st)
-                        pure
-                            ( (tid `elem` ids)
-                                === True
-                            )
-
-    prop "put overwrites previous"
-        $ forAll genTokenId
-        $ \tid ->
-            forAll genTokenState $ \ts1 ->
-                forAll genTokenState $ \ts2 ->
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
                     ioProperty
                         $ withTestState
                         $ \st -> do
                             putToken
                                 (tokens st)
                                 tid
-                                ts1
-                            putToken
-                                (tokens st)
-                                tid
-                                ts2
+                                (LocatedTokenState ref ts)
                             r <-
                                 getToken
                                     (tokens st)
                                     tid
-                            pure (r === Just ts2)
+                            pure
+                                ( r
+                                    === Just
+                                        (LocatedTokenState ref ts)
+                                )
+
+    prop "put/remove/get returns Nothing"
+        $ forAll genTokenId
+        $ \tid ->
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
+                    ioProperty
+                        $ withTestState
+                        $ \st -> do
+                            putToken
+                                (tokens st)
+                                tid
+                                (LocatedTokenState ref ts)
+                            removeToken (tokens st) tid
+                            r <- getToken (tokens st) tid
+                            pure
+                                (isNothing r === True)
+
+    prop "put appears in listTokens"
+        $ forAll genTokenId
+        $ \tid ->
+            forAll genTxIn $ \ref ->
+                forAll genTokenState $ \ts ->
+                    ioProperty
+                        $ withTestState
+                        $ \st -> do
+                            putToken
+                                (tokens st)
+                                tid
+                                (LocatedTokenState ref ts)
+                            ids <-
+                                listTokens (tokens st)
+                            pure
+                                ( (tid `elem` ids)
+                                    === True
+                                )
+
+    prop "put overwrites previous"
+        $ forAll genTokenId
+        $ \tid ->
+            forAll genTxIn $ \ref1 ->
+                forAll genTxIn $ \ref2 ->
+                    forAll genTokenState $ \ts1 ->
+                        forAll genTokenState $ \ts2 ->
+                            ioProperty
+                                $ withTestState
+                                $ \st -> do
+                                    putToken
+                                        (tokens st)
+                                        tid
+                                        (LocatedTokenState ref1 ts1)
+                                    putToken
+                                        (tokens st)
+                                        tid
+                                        (LocatedTokenState ref2 ts2)
+                                    r <-
+                                        getToken
+                                            (tokens st)
+                                            tid
+                                    pure
+                                        ( r
+                                            === Just
+                                                (LocatedTokenState ref2 ts2)
+                                        )
 
     prop "remove on empty doesn't crash"
         $ forAll genTokenId
@@ -249,13 +276,16 @@ requestsSpec = do
                         $ \st -> do
                             putRequest
                                 (requests st)
-                                txin
-                                req
+                                (LocatedRequest txin req)
                             r <-
                                 getRequest
                                     (requests st)
                                     txin
-                            pure (r === Just req)
+                            pure
+                                ( r
+                                    === Just
+                                        (LocatedRequest txin req)
+                                )
 
     prop "put/remove/get returns Nothing"
         $ forAll genTxIn
@@ -267,8 +297,7 @@ requestsSpec = do
                         $ \st -> do
                             putRequest
                                 (requests st)
-                                txin
-                                req
+                                (LocatedRequest txin req)
                             removeRequest
                                 (requests st)
                                 txin
@@ -302,19 +331,20 @@ requestsSpec = do
                                                         $ \st -> do
                                                             putRequest
                                                                 (requests st)
-                                                                txin1
-                                                                req1
+                                                                (LocatedRequest txin1 req1)
                                                             putRequest
                                                                 (requests st)
-                                                                txin2
-                                                                req2
+                                                                (LocatedRequest txin2 req2)
                                                             r <-
                                                                 requestsByToken
                                                                     (requests st)
                                                                     tid1
                                                             pure
                                                                 ( r
-                                                                    === [req1]
+                                                                    === [ LocatedRequest
+                                                                            txin1
+                                                                            req1
+                                                                        ]
                                                                 )
 
     prop "requestsByToken on empty returns []"
@@ -395,12 +425,14 @@ tokensSurviveReopen =
                 putToken
                     (tokens st)
                     fixTokenId
-                    fixTokenState
+                    (LocatedTokenState fixTxIn fixTokenState)
             -- Phase 2: reopen and verify
             withTestStateAt dir $ \st -> do
                 r <-
                     getToken (tokens st) fixTokenId
-                r `shouldBe` Just fixTokenState
+                r
+                    `shouldBe` Just
+                        (LocatedTokenState fixTxIn fixTokenState)
 
 -- | Put a request, close DB, reopen, verify it's
 -- there.
@@ -412,13 +444,14 @@ requestsSurviveReopen =
             withTestStateAt dir $ \st ->
                 putRequest
                     (requests st)
-                    fixTxIn
-                    fixRequest
+                    (LocatedRequest fixTxIn fixRequest)
             -- Phase 2: reopen and verify
             withTestStateAt dir $ \st -> do
                 r <-
                     getRequest (requests st) fixTxIn
-                r `shouldBe` Just fixRequest
+                r
+                    `shouldBe` Just
+                        (LocatedRequest fixTxIn fixRequest)
 
 -- | Put a checkpoint, close DB, reopen, verify.
 checkpointSurvivesReopen :: IO ()
@@ -450,7 +483,7 @@ removePersistsAcrossReopen =
                 putToken
                     (tokens st)
                     fixTokenId
-                    fixTokenState
+                    (LocatedTokenState fixTxIn fixTokenState)
                 removeToken (tokens st) fixTokenId
             -- Phase 2: reopen and verify gone
             withTestStateAt dir $ \st -> do

@@ -3299,10 +3299,6 @@
       "inputs": {
         "CHaP": "CHaP",
         "asciinema": "asciinema",
-        "cardano-mpfs-cage": [
-          "cardano-mpfs-onchain",
-          "cardano-mpfs-cage"
-        ],
         "cardano-mpfs-onchain": "cardano-mpfs-onchain",
         "cardano-node": [
           "cardano-node-clients",

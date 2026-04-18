@@ -115,6 +115,8 @@ import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Operation (..)
     , PParams
     , Request (..)
@@ -1705,7 +1707,8 @@ runRetractRequestWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     -- Generate TxIns
     reqIn <- generate genTxIn
     stateIn <- generate genTxIn
@@ -1720,7 +1723,7 @@ runRetractRequestWith = do
                 , requestFee = Coin 1_000_000
                 , requestSubmittedAt = 0
                 }
-    putRequest (requests st) reqIn req
+    putRequest (requests st) (LocatedRequest reqIn req)
     -- Build cage UTxOs
     let scriptAddr = cageAddr Testnet
         feeAddr = testAddr testKh
@@ -1770,7 +1773,8 @@ runUpdateTokenWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     -- Generate TxIns
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
@@ -1828,7 +1832,8 @@ runEndTokenWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     stateIn <- generate genTxIn
     feeIn <- generate genTxIn
     let scriptAddr = cageAddr Testnet
@@ -1901,7 +1906,8 @@ mkTestFixture = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     txIn <- generate genTxIn
     let feeAddr = testAddr testKh
         utxo =
@@ -1939,7 +1945,8 @@ mkRealisticFixture = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     txIn <- generate genTxIn
     let feeAddr = testAddr testKh
         utxo =
@@ -1999,7 +2006,8 @@ runRealisticUpdateWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
@@ -2052,7 +2060,8 @@ runTightUpdate = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
@@ -2105,7 +2114,8 @@ runRealisticRetractWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     reqIn <- generate genTxIn
     stateIn <- generate genTxIn
     feeIn <- generate genTxIn
@@ -2118,7 +2128,7 @@ runRealisticRetractWith = do
                 , requestFee = Coin 1_000_000
                 , requestSubmittedAt = 0
                 }
-    putRequest (requests st) reqIn req
+    putRequest (requests st) (LocatedRequest reqIn req)
     let scriptAddr = cageAddr Testnet
         feeAddr = testAddr testKh
         cageUtxos =
@@ -2166,7 +2176,8 @@ runRealisticEndWith = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     stateIn <- generate genTxIn
     feeIn <- generate genTxIn
     let scriptAddr = cageAddr Testnet
@@ -2236,7 +2247,8 @@ runRejectRequests = do
                 , processTime = 300_000
                 , retractTime = 600_000
                 }
-    putToken (tokens st) testTid ts
+    stRef <- generate genTxIn
+    putToken (tokens st) testTid (LocatedTokenState stRef ts)
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn

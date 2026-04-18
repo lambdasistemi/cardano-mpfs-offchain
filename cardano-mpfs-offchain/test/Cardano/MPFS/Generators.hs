@@ -180,12 +180,16 @@ genCageEvent :: Gen CageEvent
 genCageEvent = do
     tid <- genTokenId
     oneof
-        [ CageBoot tid <$> genTokenState
+        [ CageBoot tid <$> genTxIn <*> genTokenState
         , CageRequest
             <$> genTxIn
             <*> genRequest tid
         , CageUpdate tid
-            <$> genRoot
+            <$> genTxIn
+            <*> genRoot
+            <*> listOf1 genTxIn
+        , CageReject tid
+            <$> genTxIn
             <*> listOf1 genTxIn
         , CageRetract <$> genTxIn
         , pure (CageBurn tid)
@@ -219,13 +223,15 @@ genCageInverseOp :: Gen CageInverseOp
 genCageInverseOp = do
     tid <- genTokenId
     oneof
-        [ InvRestoreToken tid <$> genTokenState
+        [ InvRestoreToken tid
+            <$> genTxIn
+            <*> genTokenState
         , pure (InvRemoveToken tid)
         , InvRestoreRequest
             <$> genTxIn
             <*> genRequest tid
         , InvRemoveRequest <$> genTxIn
-        , InvRestoreRoot tid <$> genRoot
+        , InvRestoreRoot tid <$> genTxIn <*> genRoot
         , InvTrieInsert tid <$> genBS <*> genBS
         , InvTrieDelete tid <$> genBS
         ]
@@ -251,6 +257,7 @@ genValidEventSequence = do
     concat <$> traverse genTokenEvents (zip tids tss)
   where
     genTokenEvents (tid, ts) = do
+        bootTxIn <- genTxIn
         -- Generate 0-3 requests
         numReqs <- choose (0 :: Int, 3)
         reqTxIns <- vectorOf numReqs genTxIn
@@ -271,9 +278,11 @@ genValidEventSequence = do
             if doUpdate
                 then do
                     newRoot <- genRoot
+                    newStateTxIn <- genTxIn
                     pure
                         [ CageUpdate
                             tid
+                            newStateTxIn
                             newRoot
                             available
                         ]
@@ -288,7 +297,7 @@ genValidEventSequence = do
         middle <-
             shuffle (retractEvts ++ updateEvts)
         pure
-            $ [CageBoot tid ts]
+            $ [CageBoot tid bootTxIn ts]
                 ++ requestEvts
                 ++ middle
                 ++ burnEvts

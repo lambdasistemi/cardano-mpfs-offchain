@@ -34,11 +34,12 @@ import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( Coin (..)
+    , LocatedTokenState (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
     )
-import Cardano.MPFS.Generators (genKeyHash)
+import Cardano.MPFS.Generators (genKeyHash, genTxIn)
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.State qualified as St
@@ -81,13 +82,14 @@ spec = describe "GET /tokens" $ do
     it "returns token after insertion" $ do
         ctx <- mkTestContext
         ts <- mkDummyTokenState
+        txIn <- generate genTxIn
         let tid =
                 TokenId
                     (AssetName (SBS.toShort "deadbeef"))
         St.putToken
             (St.tokens (state ctx))
             tid
-            ts
+            (LocatedTokenState txIn ts)
         resp <- getTokens ctx
         simpleStatus resp `shouldBe` status200
         case decode (simpleBody resp) of

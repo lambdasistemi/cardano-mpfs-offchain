@@ -29,9 +29,10 @@ import Cardano.Ledger.TxIn (TxIn)
 
 import Cardano.MPFS.Core.Types
     ( BlockId
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Request (..)
     , TokenId
-    , TokenState
     )
 import Cardano.MPFS.State
     ( Checkpoints (..)
@@ -44,13 +45,16 @@ import Cardano.MPFS.State
 mkMockTokens :: IO (Tokens IO)
 mkMockTokens = do
     ref <-
-        newIORef (Map.empty :: Map TokenId TokenState)
+        newIORef
+            ( Map.empty
+                :: Map TokenId LocatedTokenState
+            )
     pure
         Tokens
             { getToken = \tid ->
                 Map.lookup tid <$> readIORef ref
-            , putToken = \tid ts ->
-                modifyIORef' ref (Map.insert tid ts)
+            , putToken = \tid lts ->
+                modifyIORef' ref (Map.insert tid lts)
             , removeToken =
                 modifyIORef' ref . Map.delete
             , listTokens =
@@ -64,17 +68,37 @@ mkMockRequests = do
         newIORef (Map.empty :: Map TxIn Request)
     pure
         Requests
-            { getRequest = \txin ->
-                Map.lookup txin <$> readIORef ref
-            , putRequest = \txin req ->
-                modifyIORef' ref (Map.insert txin req)
+            { getRequest = \txin -> do
+                m <- Map.lookup txin <$> readIORef ref
+                pure
+                    $ fmap
+                        ( \r ->
+                            LocatedRequest
+                                { requestRef = txin
+                                , request = r
+                                }
+                        )
+                        m
+            , putRequest =
+                \LocatedRequest{..} ->
+                    modifyIORef'
+                        ref
+                        ( Map.insert
+                            requestRef
+                            request
+                        )
             , removeRequest =
                 modifyIORef' ref . Map.delete
-            , requestsByToken = \tid ->
-                filter
-                    (\r -> requestToken r == tid)
-                    . Map.elems
-                    <$> readIORef ref
+            , requestsByToken = \tid -> do
+                m <- readIORef ref
+                pure
+                    [ LocatedRequest
+                        { requestRef = k
+                        , request = v
+                        }
+                    | (k, v) <- Map.toList m
+                    , requestToken v == tid
+                    ]
             }
 
 -- | Create a mock 'Checkpoints IO' backed by an

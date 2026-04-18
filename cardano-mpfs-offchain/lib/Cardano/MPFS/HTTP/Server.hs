@@ -64,6 +64,8 @@ import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
     , ConwayEra
+    , LocatedRequest (..)
+    , LocatedTokenState (..)
     , Root (..)
     , SlotNo (..)
     )
@@ -204,7 +206,8 @@ tokenHandler ctx (TokenIdJSON tid) = do
             $ St.getToken (St.tokens (state ctx)) tid
     case mts of
         Nothing -> throwError err404
-        Just ts -> pure (tokenStateToJSON ts)
+        Just LocatedTokenState{tokenState} ->
+            pure (tokenStateToJSON tokenState)
 
 tokenRootHandler
     :: Context IO
@@ -255,7 +258,7 @@ tokenRequestsHandler ctx (TokenIdJSON tid) = do
             $ St.requestsByToken
                 (St.requests (state ctx))
                 tid
-    pure (map requestToJSON reqs)
+    pure (map (requestToJSON . request) reqs)
 
 -- ---------------------------------------------------------
 -- UTxO CSMT handlers
