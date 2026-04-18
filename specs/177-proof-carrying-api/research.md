@@ -52,7 +52,7 @@ The affected query endpoints currently return scalar or flat payloads:
 
 That shape cannot carry:
 
-- the verification snapshot (`utxo_root`, checkpoint metadata)
+- the verification snapshot (`utxo_root`, indexed `chainpoint`)
 - the resolved `TxOut` bytes for the relevant UTxO
 - the UTxO-CSMT inclusion proof
 - the MPF inclusion proof alongside the business payload
@@ -90,7 +90,7 @@ Likely shape:
 
 - unsigned transaction
 - witnessed consumed inputs (`TxIn`, resolved `TxOut`, UTxO proof)
-- snapshot metadata (`utxo_root`, checkpoint identifiers)
+- snapshot metadata (`utxo_root`, indexed `chainpoint`)
 - optional MPF proof section for trie-dependent operations
 
 Alternative rejected: parse the finished transaction in `HTTP.Server`
@@ -100,22 +100,25 @@ data.
 
 ## Snapshot Consistency Must Be Explicit
 
-The issue requires clients to verify responses against an independently
-obtained UTxO-CSMT root. The service already exposes `/utxo/root`, but
-inline proof-bearing responses need their own snapshot metadata so a
-client can reject mixed-root bundles.
+The design originally relied too much on discovering the root via
+`GET /status` and then applying that out-of-band to proof-bearing
+responses. That is wrong for client verification and external-provider
+matching.
 
-Decision: every proof-bearing response should carry the root (and, where
-already available, checkpoint metadata) for the indexed snapshot that
-the bundled proofs target.
+Decision: every proof-bearing response must carry the exact `utxo_root`
+and indexed `chainpoint` for the snapshot the bundled proofs target.
+The response JSON itself becomes the primary verification artifact.
 
 Consequence:
 
-- `GET /status` becomes the primary discovery endpoint for the current
-  root.
-- Inline query and transaction responses should either carry the same
-  root directly or include equivalent snapshot metadata that unambiguously
-  identifies it.
+- Clients do not need a separate discovery call before verifying a
+  proof-bearing response.
+- External trusted providers can match on `chainpoint` and compare the
+  baked-in `utxo_root` directly.
+- `GET /status` and `GET /utxo/root` remain useful comparison/debugging
+  endpoints, but verification does not depend on fetching metadata from
+  them first.
+- Tests must reject mixed-root and mixed-chainpoint bundles.
 
 ## No Indexer Write-Path Changes Required
 
@@ -134,6 +137,6 @@ That keeps the constitutional risk low:
 `POST /tx/boot` still needs proof-bearing input witnesses for consumed
 wallet UTxOs, but it has no pre-existing trie state to prove.
 
-Decision: boot responses include UTxO witnesses and snapshot metadata,
-but omit MPF proof sections entirely instead of inventing empty
-placeholders.
+Decision: boot responses include UTxO witnesses, `utxo_root`, and the
+indexed `chainpoint`, but omit MPF proof sections entirely instead of
+inventing empty placeholders.

@@ -11,36 +11,41 @@
 
 A wallet, oracle, or downstream indexer reads token state, facts, and
 pending requests from an untrusted offchain service. Each response must
-carry the UTxO witness and MPF proof material needed to verify the
-returned data against an independently obtained UTxO-CSMT root.
+carry the UTxO witness, the UTxO root, the indexed chain point, and MPF
+proof material needed to verify the returned data against an
+independently checked UTxO-CSMT root.
 
 **Why this priority**: Trust-minimized reads are the foundation for the
 rest of the API. If the server can lie about state or facts, every
 downstream decision built on that data is unsafe.
 
-**Independent Test**: Call `GET /status` to obtain the current indexed
-root, then call `GET /tokens/:id`, `GET /tokens/:id/facts/:key`,
-`GET /tokens/:id/proofs/:key`, and `GET /tokens/:id/requests`. Verify
-offline that every returned UTxO exists in the indexed set and every
-fact proof matches the reported token root.
+**Independent Test**: Call `GET /tokens/:id`,
+`GET /tokens/:id/facts/:key`, `GET /tokens/:id/proofs/:key`, and
+`GET /tokens/:id/requests`. Verify offline that each response carries
+its own `utxo_root` and `chainpoint`, every returned UTxO exists in the
+indexed set, and every fact proof matches the reported token root.
 
 **Acceptance Scenarios**:
 
 1. **Given** an existing token, **When** the client calls
    `GET /tokens/:id`, **Then** the response includes the returned token
-   state plus the state UTxO witness and its UTxO-CSMT inclusion proof.
+   state plus the state UTxO witness, its UTxO-CSMT inclusion proof, the
+   `utxo_root`, and the indexed `chainpoint`.
 2. **Given** an existing key/value in the trie, **When** the client
    calls `GET /tokens/:id/facts/:key`, **Then** the response includes
-   the fact value, the state UTxO witness/proof, and an MPF inclusion
-   proof tying that key/value to the reported root.
+   the fact value, the state UTxO witness/proof, the `utxo_root`, the
+   indexed `chainpoint`, and an MPF inclusion proof tying that key/value
+   to the reported root.
 3. **Given** an existing key/value in the trie, **When** the client
    calls `GET /tokens/:id/proofs/:key`, **Then** the response includes
-   the MPF proof and the state UTxO witness/proof needed to trust the
-   root the proof is checked against.
+   the MPF proof, the state UTxO witness/proof, the `utxo_root`, and
+   the indexed `chainpoint` needed to trust the root the proof is
+   checked against.
 4. **Given** pending requests for a token, **When** the client calls
    `GET /tokens/:id/requests`, **Then** each returned request includes
-   the request UTxO reference, resolved TxOut, and UTxO-CSMT inclusion
-   proof, with no ambiguity about which proof belongs to which request.
+   the request UTxO reference, resolved TxOut, UTxO-CSMT inclusion
+   proof, `utxo_root`, and indexed `chainpoint`, with no ambiguity about
+   which proof belongs to which request.
 
 ---
 
@@ -49,7 +54,9 @@ fact proof matches the reported token root.
 An external signer asks the service to build an unsigned transaction.
 Because signing happens client-side and the offchain service is
 untrusted, the response must explain every input the transaction spends
-and every trie fact the transaction logic depends on.
+and every trie fact the transaction logic depends on, and it must carry
+the `utxo_root` plus indexed `chainpoint` for the exact snapshot the
+proofs target.
 
 **Why this priority**: External signing is a project constitution
 principle. Returning bare CBOR is not enough if the client cannot verify
@@ -57,27 +64,27 @@ what it is being asked to sign.
 
 **Independent Test**: Call each affected transaction-building endpoint
 and confirm the response contains the unsigned transaction plus a
-verification bundle for every spent input and every trie-dependent datum
-used by the builder.
+verification bundle with `utxo_root`, indexed `chainpoint`, every spent
+input, and every trie-dependent datum used by the builder.
 
 **Acceptance Scenarios**:
 
 1. **Given** `POST /tx/update`, **When** the client builds an update
    transaction, **Then** the response includes the unsigned transaction,
    every spent input resolved as a TxOut with a UTxO-CSMT inclusion
-   proof, and MPF proofs for the state root and request keys used to
-   justify the update.
+   proof, the `utxo_root`, the indexed `chainpoint`, and MPF proofs for
+   the state root and request keys used to justify the update.
 2. **Given** `POST /tx/request/insert`, `POST /tx/request/delete`,
    `POST /tx/request/update`, `POST /tx/retract`, `POST /tx/reject`, or
    `POST /tx/end`, **When** the client builds a transaction, **Then**
    the response includes the unsigned transaction plus proof-bearing
-   input witnesses sufficient to verify every consumed UTxO before
-   signing.
+   input witnesses, `utxo_root`, and indexed `chainpoint` sufficient to
+   verify every consumed UTxO before signing.
 3. **Given** `POST /tx/boot`, **When** the client builds the initial
    boot transaction, **Then** the response includes the unsigned
    transaction and proof-bearing witnesses for all consumed wallet
-   inputs, and no MPF proof section is required because no pre-existing
-   trie data is read.
+   inputs, the `utxo_root`, the indexed `chainpoint`, and no MPF proof
+   section because no pre-existing trie data is read.
 4. **Given** a transaction builder consumes multiple requests in one
    batch, **When** the response is returned, **Then** proofs remain
    associated with the exact inputs and logical request keys they
@@ -85,32 +92,40 @@ used by the builder.
 
 ---
 
-### User Story 3 - Client discovers the verification root and contracts (Priority: P3)
+### User Story 3 - Client discovers verification contracts and compares roots (Priority: P3)
 
-An integrator needs a single place to discover the current UTxO-CSMT
-root and the JSON contracts for all proof-bearing responses.
+An integrator needs clear JSON contracts for all proof-bearing responses
+and a way to compare each response's baked-in root and chain point
+against trusted external providers.
 
-**Why this priority**: Clients cannot validate proofs reliably if they
-cannot identify the root they should check against or the exact meaning
-of each proof field.
+**Why this priority**: Clients cannot validate proofs reliably if the
+root and chain point are not embedded in the proof-bearing JSON itself,
+or if the contract leaves ambiguity about how to compare them with an
+external trusted source.
 
-**Independent Test**: Call `GET /status` and inspect the Swagger/OpenAPI
-docs. Confirm the root is present and every proof-bearing endpoint is
-documented with a structured response schema.
+**Independent Test**: Inspect the Swagger/OpenAPI docs and call one
+proof-bearing query endpoint plus one proof-bearing transaction
+endpoint. Confirm both responses embed `utxo_root` and `chainpoint`, and
+that those values can be compared with `GET /status` and `GET /utxo/root`.
 
 **Acceptance Scenarios**:
 
-1. **Given** a healthy service, **When** the client calls `GET /status`,
-   **Then** the response includes the current UTxO-CSMT root together
-   with chain/checkpoint metadata that identifies the indexed snapshot.
+1. **Given** a proof-bearing response, **When** the client reads its
+   JSON, **Then** the response itself includes `utxo_root` and
+   `chainpoint` for the exact snapshot the bundled proofs target.
 2. **Given** updated Swagger/OpenAPI docs, **When** an integrator
    inspects the API contract, **Then** every proof-bearing endpoint
-   documents the response object and the meaning of each proof field.
-3. **Given** the direct UTxO verification endpoints already exist,
+   documents the response object and the meaning of each proof field,
+   including `utxo_root` and `chainpoint`.
+3. **Given** a trusted external provider keyed by chain point, **When**
+   the client compares a proof-bearing response's `utxo_root` and
+   `chainpoint` against that provider, **Then** it can confirm the root
+   match without inferring snapshot metadata from a separate call.
+4. **Given** the direct UTxO verification endpoints already exist,
    **When** the client cross-checks inline proofs against `GET
    /utxo/root` and `GET /utxo/:txId/:txIx/proof`, **Then** the witness
-   bytes agree for the same indexed snapshot.
-4. **Given** a debugging or isolated deployment scenario, **When** the
+   bytes and baked-in root agree for the same indexed snapshot.
+5. **Given** a debugging or isolated deployment scenario, **When** the
    client uses `GET /utxo/root` instead of `GET /status`, **Then** it
    can obtain the same UTxO-CSMT root from the same indexed source of
    truth without depending on a separate CSMT service.
@@ -119,7 +134,7 @@ documented with a structured response schema.
 
 - The indexer may advance between reading state/request data and
   generating proofs. A response must be self-consistent for one indexed
-  snapshot; mixed-root bundles are invalid.
+  snapshot; mixed-root or mixed-chainpoint bundles are invalid.
 - `GET /tokens/:id/facts/:key` and `GET /tokens/:id/proofs/:key` keep
   their existing not-found behavior for absent keys. Non-membership
   proofs are out of scope.
@@ -145,8 +160,8 @@ documented with a structured response schema.
   request together with the request UTxO witness and its UTxO-CSMT
   inclusion proof.
 - **FR-005**: Every proof-bearing query response MUST identify the
-  UTxO-CSMT root, checkpoint, or equivalent snapshot metadata needed to
-  verify all bundled proofs against one indexed state.
+  exact `utxo_root` and indexed `chainpoint` needed to verify all
+  bundled proofs against one indexed state.
 - **FR-006**: `POST /tx/boot`, `POST /tx/request/insert`,
   `POST /tx/request/delete`, `POST /tx/request/update`,
   `POST /tx/update`, `POST /tx/retract`, `POST /tx/reject`, and
@@ -155,34 +170,41 @@ documented with a structured response schema.
 - **FR-007**: Every transaction response MUST include every consumed
   `TxIn` resolved to its `TxOut` plus a UTxO-CSMT inclusion proof for
   that input.
-- **FR-008**: Transaction responses MUST include MPF inclusion proofs
+- **FR-008**: Every transaction response MUST include the exact
+  `utxo_root` and indexed `chainpoint` for the snapshot used to build
+  its proof bundle.
+- **FR-009**: Transaction responses MUST include MPF inclusion proofs
   for every token state root or request key/value that the client must
   trust before signing.
-- **FR-009**: Endpoints that do not read trie data, such as boot, MUST
+- **FR-010**: Endpoints that do not read trie data, such as boot, MUST
   omit MPF proof material rather than invent placeholder proofs.
-- **FR-010**: `GET /status` MUST expose the current UTxO-CSMT root hash
-  alongside the existing tip and checkpoint fields.
-- **FR-011**: Swagger/OpenAPI MUST describe all new proof-bearing
+- **FR-011**: `GET /status` MUST expose the current UTxO-CSMT root hash
+  alongside chain/checkpoint fields that let clients compare it with the
+  baked-in values carried by proof-bearing responses.
+- **FR-012**: Swagger/OpenAPI MUST describe all new proof-bearing
   response objects and document which fields are verified against the
-  UTxO-CSMT root versus the MPF root.
-- **FR-012**: A client MUST be able to verify all proof-bearing query
-  and transaction responses offline against an independently obtained
-  UTxO-CSMT root without trusting the server's narrative.
-- **FR-013**: Responses that contain multiple requests, inputs, or
+  UTxO-CSMT root versus the MPF root, including the semantics of the
+  baked-in `chainpoint`.
+- **FR-013**: A client MUST be able to verify all proof-bearing query
+  and transaction responses offline using the `utxo_root` and
+  `chainpoint` carried inside the response, and compare them with an
+  independently trusted provider if desired.
+- **FR-014**: Responses that contain multiple requests, inputs, or
   proofs MUST preserve deterministic association between each business
   object and its proof bundle.
-- **FR-014**: Existing direct UTxO proof endpoints (`GET /utxo/:txId/:txIx`,
+- **FR-015**: Existing direct UTxO proof endpoints (`GET /utxo/:txId/:txIx`,
   `GET /utxo/:txId/:txIx/proof`, `GET /utxo/root`) MUST remain usable
   for cross-checking and debugging.
-- **FR-015**: `GET /utxo/root` MUST remain a first-class root-discovery
+- **FR-016**: `GET /utxo/root` MUST remain a first-class root-discovery
   endpoint that returns the same indexed UTxO-CSMT root as `GET /status`,
   so debugging and isolated deployments can use this service as the root
   source of truth even without a separate CSMT endpoint.
 
 ### Key Entities
 
-- **VerificationSnapshot**: The UTxO-CSMT root plus checkpoint metadata
-  that identifies the indexed state against which proofs are valid.
+- **VerificationSnapshot**: The exact `utxo_root` plus indexed
+  `chainpoint` that identifies the snapshot against which the bundled
+  proofs are valid.
 - **WitnessedUtxo**: A consumed or returned UTxO represented by its
   `TxIn`, resolved `TxOut`, and UTxO-CSMT inclusion proof.
 - **FactWitness**: A token state witness plus an MPF inclusion proof
@@ -198,14 +220,17 @@ documented with a structured response schema.
 
 - **SC-001**: A client can verify `GET /tokens/:id`,
   `GET /tokens/:id/facts/:key`, `GET /tokens/:id/proofs/:key`, and
-  `GET /tokens/:id/requests` entirely offline against an independently
-  sourced UTxO-CSMT root.
+  `GET /tokens/:id/requests` entirely offline using the `utxo_root` and
+  `chainpoint` embedded in each response.
 - **SC-002**: A client can verify every input and trie-dependent datum
   returned by the affected transaction-building endpoints before signing
   any CBOR.
-- **SC-003**: `GET /status` exposes the same UTxO-CSMT root that direct
+- **SC-003**: A client can compare any proof-bearing response's
+  `utxo_root` and `chainpoint` with an external trusted provider without
+  making a separate metadata-discovery call first.
+- **SC-004**: `GET /status` exposes the same UTxO-CSMT root that direct
   `GET /utxo/root` returns for the same indexed snapshot.
-- **SC-004**: Swagger/OpenAPI and HTTP tests cover the new response
+- **SC-005**: Swagger/OpenAPI and HTTP tests cover the new response
   contracts for every affected endpoint.
 
 ## Assumptions
