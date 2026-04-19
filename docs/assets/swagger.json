@@ -12,6 +12,25 @@
             ],
             "type": "object"
         },
+        "ChainPointJSON": {
+            "description": "Indexed chain point baked into proof-bearing responses",
+            "properties": {
+                "block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "slot",
+                "block_id"
+            ],
+            "type": "object"
+        },
         "DeleteRequest": {
             "description": "Delete a key (value is the current stored value)",
             "properties": {
@@ -49,6 +68,42 @@
             "required": [
                 "token",
                 "address"
+            ],
+            "type": "object"
+        },
+        "FactResponse": {
+            "description": "Proof-bearing fact value response",
+            "properties": {
+                "fact": {
+                    "$ref": "#/definitions/FactWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "snapshot",
+                "value",
+                "fact"
+            ],
+            "type": "object"
+        },
+        "FactWitness": {
+            "description": "State witness plus MPF inclusion proof",
+            "properties": {
+                "mpf_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "state",
+                "mpf_proof"
             ],
             "type": "object"
         },
@@ -223,6 +278,22 @@
             ],
             "type": "object"
         },
+        "ProofResponse": {
+            "description": "Proof-bearing MPF proof response",
+            "properties": {
+                "fact": {
+                    "$ref": "#/definitions/FactWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                }
+            },
+            "required": [
+                "snapshot",
+                "fact"
+            ],
+            "type": "object"
+        },
         "RejectRequest": {
             "description": "Reject Phase 3 expired requests for a token",
             "properties": {
@@ -271,6 +342,25 @@
                 "operation",
                 "fee",
                 "submitted_at"
+            ],
+            "type": "object"
+        },
+        "RequestsResponse": {
+            "description": "Proof-bearing pending requests response",
+            "properties": {
+                "requests": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedRequest"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                }
+            },
+            "required": [
+                "snapshot",
+                "requests"
             ],
             "type": "object"
         },
@@ -350,6 +440,22 @@
             "description": "Hex-encoded token identifier",
             "type": "string"
         },
+        "TokenResponse": {
+            "description": "Proof-bearing token state response",
+            "properties": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "snapshot",
+                "state"
+            ],
+            "type": "object"
+        },
         "TokenStateJSON": {
             "description": "On-chain token state",
             "properties": {
@@ -375,6 +481,25 @@
                 "tip",
                 "process_time",
                 "retract_time"
+            ],
+            "type": "object"
+        },
+        "TxInJSON": {
+            "description": "UTxO reference",
+            "properties": {
+                "tx_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_ix": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tx_id",
+                "tx_ix"
             ],
             "type": "object"
         },
@@ -419,6 +544,74 @@
                 "old_value",
                 "new_value",
                 "address"
+            ],
+            "type": "object"
+        },
+        "VerificationSnapshot": {
+            "description": "UTxO-CSMT root and indexed chain point against which bundled proofs are valid",
+            "properties": {
+                "chainpoint": {
+                    "$ref": "#/definitions/ChainPointJSON"
+                },
+                "utxo_root": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "utxo_root",
+                "chainpoint"
+            ],
+            "type": "object"
+        },
+        "WitnessedRequest": {
+            "description": "Pending request plus UTxO witness",
+            "properties": {
+                "request": {
+                    "$ref": "#/definitions/RequestJSON"
+                },
+                "utxo": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "utxo",
+                "request"
+            ],
+            "type": "object"
+        },
+        "WitnessedTokenState": {
+            "description": "Token state plus UTxO witness",
+            "properties": {
+                "state": {
+                    "$ref": "#/definitions/TokenStateJSON"
+                },
+                "utxo": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "utxo",
+                "state"
+            ],
+            "type": "object"
+        },
+        "WitnessedUtxo": {
+            "description": "UTxO reference, CBOR body, and UTxO-CSMT inclusion proof",
+            "properties": {
+                "tx_in": {
+                    "$ref": "#/definitions/TxInJSON"
+                },
+                "tx_out": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "utxo_proof": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx_in",
+                "tx_out",
+                "utxo_proof"
             ],
             "type": "object"
         }
@@ -512,7 +705,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/TokenStateJSON"
+                            "$ref": "#/definitions/TokenResponse"
                         }
                     },
                     "400": {
@@ -544,7 +737,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/FactResponse"
                         }
                     },
                     "400": {
@@ -576,7 +769,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/ProofResponse"
                         }
                     },
                     "400": {
@@ -602,10 +795,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "items": {
-                                "$ref": "#/definitions/RequestJSON"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/RequestsResponse"
                         }
                     },
                     "400": {
