@@ -31,6 +31,7 @@ import Servant
     , err400
     , err404
     , err502
+    , err503
     , errBody
     , serve
     , throwError
@@ -77,6 +78,7 @@ import Cardano.MPFS.HTTP.Swagger
     )
 import Cardano.MPFS.HTTP.Types
     ( BootRequest (..)
+    , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
     , InsertRequest (..)
@@ -86,12 +88,16 @@ import Cardano.MPFS.HTTP.Types
     , StatusResponse (..)
     , SubmitRequest (..)
     , TokenIdJSON (..)
-    , TokenStateJSON
+    , TokenResponse (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
+    , VerificationSnapshot (..)
+    , WitnessedTokenState (..)
+    , WitnessedUtxo (..)
     , parseAddr
     , requestToJSON
     , tokenStateToJSON
+    , txInToJSON
     )
 import Cardano.UTxOCSMT.Application.Metrics
     ( Metrics (..)
@@ -199,15 +205,78 @@ tokensHandler ctx = do
 tokenHandler
     :: Context IO
     -> TokenIdJSON
-    -> Handler TokenStateJSON
+    -> Handler TokenResponse
 tokenHandler ctx (TokenIdJSON tid) = do
     mts <-
         liftIO
             $ St.getToken (St.tokens (state ctx)) tid
     case mts of
         Nothing -> throwError err404
-        Just LocatedTokenState{tokenState} ->
-            pure (tokenStateToJSON tokenState)
+        Just
+            LocatedTokenState
+                { tokenStateRef
+                , tokenState = ts
+                } -> do
+                snapshot <- requireSnapshot ctx
+                witness <-
+                    requireUtxoWitness ctx tokenStateRef
+                pure
+                    TokenResponse
+                        { trSnapshot = snapshot
+                        , trState =
+                            WitnessedTokenState
+                                { wtsUtxo = witness
+                                , wtsState =
+                                    tokenStateToJSON ts
+                                }
+                        }
+
+-- | Read the current 'VerificationSnapshot' from
+-- context, or 503 if the indexer has not yet
+-- produced a UTxO-CSMT root or a checkpoint.
+requireSnapshot
+    :: Context IO -> Handler VerificationSnapshot
+requireSnapshot ctx = do
+    mRoot <- liftIO $ utxoRoot ctx
+    mCp <-
+        liftIO
+            $ St.getCheckpoint
+                (St.checkpoints (state ctx))
+    case (mRoot, mCp) of
+        (Just r, Just (SlotNo s, BlockId b)) ->
+            pure
+                VerificationSnapshot
+                    { vsUtxoRoot = Hex r
+                    , vsChainPoint =
+                        ChainPointJSON
+                            { cpSlot = s
+                            , cpBlockId = Hex b
+                            }
+                    }
+        _ ->
+            throwError
+                err503
+                    { errBody =
+                        "Verification snapshot \
+                        \not yet available"
+                    }
+
+-- | Resolve a 'TxIn' to a 'WitnessedUtxo', or
+-- @404@ if the UTxO or its CSMT proof is missing.
+requireUtxoWitness
+    :: Context IO -> TxIn -> Handler WitnessedUtxo
+requireUtxoWitness ctx txIn = do
+    mOut <- liftIO $ resolveUtxo ctx txIn
+    mProof <- liftIO $ utxoProof ctx txIn
+    case (mOut, mProof) of
+        (Just out, Just proof) ->
+            pure
+                WitnessedUtxo
+                    { wuTxIn = txInToJSON txIn
+                    , wuTxOut = Hex out
+                    , wuProof = Hex proof
+                    }
+        _ -> throwError err404
 
 tokenRootHandler
     :: Context IO
