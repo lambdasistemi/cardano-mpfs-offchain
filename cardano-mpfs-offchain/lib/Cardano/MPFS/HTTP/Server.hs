@@ -69,6 +69,7 @@ import Cardano.MPFS.Core.Types
     , LocatedTokenState (..)
     , Root (..)
     , SlotNo (..)
+    , TokenId
     )
 import Cardano.MPFS.HTTP.API (API)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
@@ -81,7 +82,10 @@ import Cardano.MPFS.HTTP.Types
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
+    , FactResponse (..)
+    , FactWitness (..)
     , InsertRequest (..)
+    , ProofResponse (..)
     , RejectRequest (..)
     , RequestJSON
     , RetractRequest (..)
@@ -231,6 +235,19 @@ tokenHandler ctx (TokenIdJSON tid) = do
                                 }
                         }
 
+-- | Look up an indexed token state by id, or @404@.
+requireToken
+    :: Context IO
+    -> TokenId
+    -> Handler LocatedTokenState
+requireToken ctx tid = do
+    mts <-
+        liftIO
+            $ St.getToken (St.tokens (state ctx)) tid
+    case mts of
+        Nothing -> throwError err404
+        Just lts -> pure lts
+
 -- | Read the current 'VerificationSnapshot' from
 -- context, or 503 if the indexer has not yet
 -- produced a UTxO-CSMT root or a checkpoint.
@@ -293,22 +310,76 @@ tokenFactHandler
     :: Context IO
     -> TokenIdJSON
     -> Hex
-    -> Handler Hex
+    -> Handler FactResponse
 tokenFactHandler ctx (TokenIdJSON tid) (Hex k) = do
+    LocatedTokenState
+        { tokenStateRef
+        , tokenState = ts
+        } <-
+        requireToken ctx tid
+    snapshot <- requireSnapshot ctx
+    witness <- requireUtxoWitness ctx tokenStateRef
     mv <-
         liftIO
             $ Trie.withTrie (trieManager ctx) tid
             $ \trie -> Trie.lookup trie k
-    case mv of
+    v <- case mv of
+        Just v -> pure v
         Nothing -> throwError err404
-        Just v -> pure (Hex v)
+    proof <- requireMpfProof ctx tid k
+    pure
+        FactResponse
+            { frSnapshot = snapshot
+            , frValue = Hex v
+            , frFact =
+                FactWitness
+                    { fwState =
+                        WitnessedTokenState
+                            { wtsUtxo = witness
+                            , wtsState =
+                                tokenStateToJSON ts
+                            }
+                    , fwMpfProof = proof
+                    }
+            }
 
 tokenProofHandler
     :: Context IO
     -> TokenIdJSON
     -> Hex
-    -> Handler Hex
+    -> Handler ProofResponse
 tokenProofHandler ctx (TokenIdJSON tid) (Hex k) = do
+    LocatedTokenState
+        { tokenStateRef
+        , tokenState = ts
+        } <-
+        requireToken ctx tid
+    snapshot <- requireSnapshot ctx
+    witness <- requireUtxoWitness ctx tokenStateRef
+    proof <- requireMpfProof ctx tid k
+    pure
+        ProofResponse
+            { prSnapshot = snapshot
+            , prFact =
+                FactWitness
+                    { fwState =
+                        WitnessedTokenState
+                            { wtsUtxo = witness
+                            , wtsState =
+                                tokenStateToJSON ts
+                            }
+                    , fwMpfProof = proof
+                    }
+            }
+
+-- | Compute an MPF inclusion proof for a key under
+-- a token's trie, or @404@ if absent.
+requireMpfProof
+    :: Context IO
+    -> TokenId
+    -> ByteString
+    -> Handler Hex
+requireMpfProof ctx tid k = do
     mp <-
         liftIO
             $ Trie.withTrie (trieManager ctx) tid
