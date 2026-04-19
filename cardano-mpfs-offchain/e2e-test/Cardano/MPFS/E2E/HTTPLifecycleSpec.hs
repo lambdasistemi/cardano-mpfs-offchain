@@ -17,6 +17,7 @@ module Cardano.MPFS.E2E.HTTPLifecycleSpec
 
 import Control.Concurrent (threadDelay)
 import Data.Aeson (decode)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -294,11 +295,13 @@ requestCount app tidHex = do
                 <> "/requests"
     simpleStatus resp `shouldBe` status200
     case decode (simpleBody resp) of
-        Just (Array arr) ->
-            pure (V.length arr)
+        Just (Object o)
+            | Just (Array arr) <-
+                KeyMap.lookup "requests" o ->
+                pure (V.length arr)
         _ -> do
             expectationFailure
-                "Expected JSON array"
+                "Expected { requests: [...] } envelope"
             pure 0
 
 -- | @GET \/tokens@ — count indexed tokens.
