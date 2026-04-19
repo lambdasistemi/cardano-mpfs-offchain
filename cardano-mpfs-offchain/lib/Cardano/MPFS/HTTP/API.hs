@@ -77,7 +77,7 @@ import Cardano.MPFS.HTTP.Types
     , StatusResponse
     , SubmitRequest
     , TokenIdJSON
-    , TokenStateJSON
+    , TokenResponse
     , UpdateRequest
     , UpdateValueRequest
     )
@@ -100,11 +100,13 @@ type StatusAPI = "status" :> Get '[JSON] StatusResponse
 -- | @GET \/tokens@ — list all known token IDs.
 type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
 
--- | @GET \/tokens\/:id@ — get a token's state.
+-- | @GET \/tokens\/:id@ — get a token's state
+-- together with its UTxO witness and the
+-- verification snapshot the bundled proof targets.
 type TokenAPI =
     "tokens"
         :> Capture "id" TokenIdJSON
-        :> Get '[JSON] TokenStateJSON
+        :> Get '[JSON] TokenResponse
 
 -- | @GET \/tokens\/:id\/root@ — get trie root hash.
 type TokenRootAPI =
