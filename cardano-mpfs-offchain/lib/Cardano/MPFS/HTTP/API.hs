@@ -74,7 +74,7 @@ import Cardano.MPFS.HTTP.Types
     , InsertRequest
     , ProofResponse
     , RejectRequest
-    , RequestJSON
+    , RequestsResponse
     , RetractRequest
     , StatusResponse
     , SubmitRequest
@@ -140,12 +140,14 @@ type TokenProofAPI =
         :> Get '[JSON] ProofResponse
 
 -- | @GET \/tokens\/:id\/requests@ — list pending
--- requests for a token.
+-- requests for a token together with their UTxO
+-- witnesses and the verification snapshot the
+-- bundled proofs target.
 type TokenRequestsAPI =
     "tokens"
         :> Capture "id" TokenIdJSON
         :> "requests"
-        :> Get '[JSON] [RequestJSON]
+        :> Get '[JSON] RequestsResponse
 
 -- | @GET \/utxo\/:txId\/:txIx@ — resolve a TxIn to
 -- its CBOR-encoded TxOut (hex).

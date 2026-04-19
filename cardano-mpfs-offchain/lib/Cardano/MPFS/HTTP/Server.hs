@@ -87,7 +87,7 @@ import Cardano.MPFS.HTTP.Types
     , InsertRequest (..)
     , ProofResponse (..)
     , RejectRequest (..)
-    , RequestJSON
+    , RequestsResponse (..)
     , RetractRequest (..)
     , StatusResponse (..)
     , SubmitRequest (..)
@@ -96,6 +96,7 @@ import Cardano.MPFS.HTTP.Types
     , UpdateRequest (..)
     , UpdateValueRequest (..)
     , VerificationSnapshot (..)
+    , WitnessedRequest (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
     , parseAddr
@@ -391,14 +392,38 @@ requireMpfProof ctx tid k = do
 tokenRequestsHandler
     :: Context IO
     -> TokenIdJSON
-    -> Handler [RequestJSON]
+    -> Handler RequestsResponse
 tokenRequestsHandler ctx (TokenIdJSON tid) = do
+    _ <- requireToken ctx tid
+    snapshot <- requireSnapshot ctx
     reqs <-
         liftIO
             $ St.requestsByToken
                 (St.requests (state ctx))
                 tid
-    pure (map (requestToJSON . request) reqs)
+    witnessed <- traverse (witnessRequest ctx) reqs
+    pure
+        RequestsResponse
+            { rrSnapshot = snapshot
+            , rrRequests = witnessed
+            }
+
+-- | Build a 'WitnessedRequest' from a 'LocatedRequest'
+-- by resolving its UTxO witness against the snapshot's
+-- @utxo_root@. @404@ if the witness cannot be assembled.
+witnessRequest
+    :: Context IO
+    -> LocatedRequest
+    -> Handler WitnessedRequest
+witnessRequest
+    ctx
+    LocatedRequest{requestRef, request = req} = do
+        witness <- requireUtxoWitness ctx requestRef
+        pure
+            WitnessedRequest
+                { wrUtxo = witness
+                , wrRequest = requestToJSON req
+                }
 
 -- ---------------------------------------------------------
 -- UTxO CSMT handlers
