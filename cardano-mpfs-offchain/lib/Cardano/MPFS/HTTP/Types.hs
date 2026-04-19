@@ -27,6 +27,20 @@ module Cardano.MPFS.HTTP.Types
     , RequestJSON (..)
     , requestToJSON
 
+      -- * UTxO witnesses
+    , TxInJSON (..)
+    , txInToJSON
+    , WitnessedUtxo (..)
+
+      -- * Proof-bearing read responses
+    , WitnessedTokenState (..)
+    , WitnessedRequest (..)
+    , FactWitness (..)
+    , TokenResponse (..)
+    , FactResponse (..)
+    , ProofResponse (..)
+    , RequestsResponse (..)
+
       -- * Transaction requests
     , BootRequest (..)
     , InsertRequest (..)
@@ -72,8 +86,11 @@ import GHC.IsList (IsList (..))
 import Servant.API (FromHttpApiData (..))
 
 import Cardano.Ledger.Address (decodeAddrEither)
+import Cardano.Ledger.BaseTypes (TxIx (..))
+import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
+import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 
@@ -230,6 +247,15 @@ instance ToJSON TokenStateJSON where
             , "retract_time" .= retractTime
             ]
 
+instance FromJSON TokenStateJSON where
+    parseJSON = withObject "TokenStateJSON" $ \o ->
+        TokenStateJSON
+            <$> o .: "owner"
+            <*> o .: "root"
+            <*> o .: "tip"
+            <*> o .: "process_time"
+            <*> o .: "retract_time"
+
 -- | Convert internal 'TokenState' to JSON type.
 tokenStateToJSON :: TokenState -> TokenStateJSON
 tokenStateToJSON
@@ -284,6 +310,17 @@ instance ToJSON RequestJSON where
             , "submitted_at" .= rjSubmittedAt
             ]
 
+instance FromJSON RequestJSON where
+    parseJSON = withObject "RequestJSON" $ \o ->
+        RequestJSON
+            <$> o .: "token"
+            <*> o .: "owner"
+            <*> o .: "key"
+            <*> o .: "operation"
+            <*> o .: "value"
+            <*> o .: "fee"
+            <*> o .: "submitted_at"
+
 -- | Convert internal 'Request' to JSON type.
 requestToJSON :: Request -> RequestJSON
 requestToJSON
@@ -309,6 +346,242 @@ requestToJSON
                 , rjFee = unCoin fee
                 , rjSubmittedAt = sat
                 }
+
+-- ---------------------------------------------------------
+-- UTxO witnesses
+-- ---------------------------------------------------------
+
+-- | JSON representation of a 'TxIn' as a
+-- @{ tx_id, tx_ix }@ object.
+data TxInJSON = TxInJSON
+    { tjTxId :: Hex
+    -- ^ Transaction id (32-byte blake2b, hex)
+    , tjTxIx :: Word64
+    -- ^ Output index within the transaction
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TxInJSON where
+    toJSON TxInJSON{..} =
+        object
+            [ "tx_id" .= tjTxId
+            , "tx_ix" .= tjTxIx
+            ]
+
+instance FromJSON TxInJSON where
+    parseJSON = withObject "TxInJSON" $ \o ->
+        TxInJSON
+            <$> o .: "tx_id"
+            <*> o .: "tx_ix"
+
+-- | Convert a ledger 'TxIn' to its JSON form.
+txInToJSON :: TxIn -> TxInJSON
+txInToJSON (TxIn (TxId sh) (TxIx ix)) =
+    TxInJSON
+        { tjTxId =
+            Hex (Crypto.hashToBytes (extractHash sh))
+        , tjTxIx = fromIntegral ix
+        }
+
+-- | A witnessed UTxO: reference, resolved @TxOut@,
+-- and the UTxO-CSMT inclusion proof that ties the
+-- pair into the snapshot's @utxo_root@.
+data WitnessedUtxo = WitnessedUtxo
+    { wuTxIn :: TxInJSON
+    -- ^ UTxO reference
+    , wuTxOut :: Hex
+    -- ^ CBOR-encoded @TxOut@ body (hex)
+    , wuProof :: Hex
+    -- ^ UTxO-CSMT inclusion proof (hex)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON WitnessedUtxo where
+    toJSON WitnessedUtxo{..} =
+        object
+            [ "tx_in" .= wuTxIn
+            , "tx_out" .= wuTxOut
+            , "utxo_proof" .= wuProof
+            ]
+
+instance FromJSON WitnessedUtxo where
+    parseJSON = withObject "WitnessedUtxo" $ \o ->
+        WitnessedUtxo
+            <$> o .: "tx_in"
+            <*> o .: "tx_out"
+            <*> o .: "utxo_proof"
+
+-- ---------------------------------------------------------
+-- Proof-bearing read responses
+-- ---------------------------------------------------------
+
+-- | Decoded token state together with the UTxO
+-- witness that proves it resides at the indexed
+-- snapshot's @utxo_root@.
+data WitnessedTokenState = WitnessedTokenState
+    { wtsUtxo :: WitnessedUtxo
+    -- ^ UTxO witness for the state output
+    , wtsState :: TokenStateJSON
+    -- ^ Decoded on-chain state payload
+    }
+    deriving (Eq, Show)
+
+instance ToJSON WitnessedTokenState where
+    toJSON WitnessedTokenState{..} =
+        object
+            [ "utxo" .= wtsUtxo
+            , "state" .= wtsState
+            ]
+
+instance FromJSON WitnessedTokenState where
+    parseJSON =
+        withObject "WitnessedTokenState" $ \o ->
+            WitnessedTokenState
+                <$> o .: "utxo"
+                <*> o .: "state"
+
+-- | A pending request together with the UTxO
+-- witness proving it existed in the indexed
+-- snapshot.
+data WitnessedRequest = WitnessedRequest
+    { wrUtxo :: WitnessedUtxo
+    -- ^ UTxO witness for the request output
+    , wrRequest :: RequestJSON
+    -- ^ Decoded request payload
+    }
+    deriving (Eq, Show)
+
+instance ToJSON WitnessedRequest where
+    toJSON WitnessedRequest{..} =
+        object
+            [ "utxo" .= wrUtxo
+            , "request" .= wrRequest
+            ]
+
+instance FromJSON WitnessedRequest where
+    parseJSON =
+        withObject "WitnessedRequest" $ \o ->
+            WitnessedRequest
+                <$> o .: "utxo"
+                <*> o .: "request"
+
+-- | A fact witness: the state witness that carries
+-- the trie root plus an MPF inclusion proof binding a
+-- key (and optional value) to that root.
+data FactWitness = FactWitness
+    { fwState :: WitnessedTokenState
+    -- ^ State witness carrying the MPF root
+    , fwMpfProof :: Hex
+    -- ^ MPF inclusion proof (hex)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactWitness where
+    toJSON FactWitness{..} =
+        object
+            [ "state" .= fwState
+            , "mpf_proof" .= fwMpfProof
+            ]
+
+instance FromJSON FactWitness where
+    parseJSON = withObject "FactWitness" $ \o ->
+        FactWitness
+            <$> o .: "state"
+            <*> o .: "mpf_proof"
+
+-- | Response envelope for @GET \/tokens\/:id@.
+data TokenResponse = TokenResponse
+    { trSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , trState :: WitnessedTokenState
+    -- ^ State + UTxO witness
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokenResponse where
+    toJSON TokenResponse{..} =
+        object
+            [ "snapshot" .= trSnapshot
+            , "state" .= trState
+            ]
+
+instance FromJSON TokenResponse where
+    parseJSON = withObject "TokenResponse" $ \o ->
+        TokenResponse
+            <$> o .: "snapshot"
+            <*> o .: "state"
+
+-- | Response envelope for
+-- @GET \/tokens\/:id\/facts\/:key@.
+data FactResponse = FactResponse
+    { frSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , frValue :: Hex
+    -- ^ The fact value (hex)
+    , frFact :: FactWitness
+    -- ^ State witness + MPF proof
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactResponse where
+    toJSON FactResponse{..} =
+        object
+            [ "snapshot" .= frSnapshot
+            , "value" .= frValue
+            , "fact" .= frFact
+            ]
+
+instance FromJSON FactResponse where
+    parseJSON = withObject "FactResponse" $ \o ->
+        FactResponse
+            <$> o .: "snapshot"
+            <*> o .: "value"
+            <*> o .: "fact"
+
+-- | Response envelope for
+-- @GET \/tokens\/:id\/proofs\/:key@.
+data ProofResponse = ProofResponse
+    { prSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , prFact :: FactWitness
+    -- ^ State witness + MPF proof
+    }
+    deriving (Eq, Show)
+
+instance ToJSON ProofResponse where
+    toJSON ProofResponse{..} =
+        object
+            [ "snapshot" .= prSnapshot
+            , "fact" .= prFact
+            ]
+
+instance FromJSON ProofResponse where
+    parseJSON = withObject "ProofResponse" $ \o ->
+        ProofResponse
+            <$> o .: "snapshot"
+            <*> o .: "fact"
+
+-- | Response envelope for @GET \/tokens\/:id\/requests@.
+data RequestsResponse = RequestsResponse
+    { rrSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , rrRequests :: [WitnessedRequest]
+    -- ^ Witnessed pending requests
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestsResponse where
+    toJSON RequestsResponse{..} =
+        object
+            [ "snapshot" .= rrSnapshot
+            , "requests" .= rrRequests
+            ]
+
+instance FromJSON RequestsResponse where
+    parseJSON = withObject "RequestsResponse" $ \o ->
+        RequestsResponse
+            <$> o .: "snapshot"
+            <*> o .: "requests"
 
 -- | Parse a hex-encoded serialized address.
 parseAddr :: Hex -> Either String Addr
@@ -818,3 +1091,209 @@ instance ToSchema SubmitRequest where
             & required .~ ["tx"]
             & description
                 ?~ "Submit a signed transaction"
+
+instance ToSchema TxInJSON where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        pure
+            $ Swagger.NamedSchema (Just "TxInJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("tx_id", hexSchema)
+                    , ("tx_ix", word64Schema)
+                    ]
+            & required .~ ["tx_id", "tx_ix"]
+            & description ?~ "UTxO reference"
+
+instance ToSchema WitnessedUtxo where
+    declareNamedSchema _ = do
+        txInSchema <-
+            declareSchemaRef (Proxy @TxInJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "WitnessedUtxo")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("tx_in", txInSchema)
+                    , ("tx_out", hexSchema)
+                    , ("utxo_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "tx_in"
+                   , "tx_out"
+                   , "utxo_proof"
+                   ]
+            & description
+                ?~ "UTxO reference, CBOR body, and \
+                   \UTxO-CSMT inclusion proof"
+
+instance ToSchema WitnessedTokenState where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        stateSchema <-
+            declareSchemaRef (Proxy @TokenStateJSON)
+        pure
+            $ Swagger.NamedSchema
+                (Just "WitnessedTokenState")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("utxo", utxoSchema)
+                    , ("state", stateSchema)
+                    ]
+            & required .~ ["utxo", "state"]
+            & description
+                ?~ "Token state plus UTxO witness"
+
+instance ToSchema WitnessedRequest where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        requestSchema <-
+            declareSchemaRef (Proxy @RequestJSON)
+        pure
+            $ Swagger.NamedSchema
+                (Just "WitnessedRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("utxo", utxoSchema)
+                    , ("request", requestSchema)
+                    ]
+            & required .~ ["utxo", "request"]
+            & description
+                ?~ "Pending request plus UTxO witness"
+
+instance ToSchema FactWitness where
+    declareNamedSchema _ = do
+        stateSchema <-
+            declareSchemaRef
+                (Proxy @WitnessedTokenState)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema (Just "FactWitness")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("state", stateSchema)
+                    , ("mpf_proof", hexSchema)
+                    ]
+            & required .~ ["state", "mpf_proof"]
+            & description
+                ?~ "State witness plus MPF inclusion \
+                   \proof"
+
+instance ToSchema TokenResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        stateSchema <-
+            declareSchemaRef
+                (Proxy @WitnessedTokenState)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokenResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("state", stateSchema)
+                    ]
+            & required .~ ["snapshot", "state"]
+            & description
+                ?~ "Proof-bearing token state response"
+
+instance ToSchema FactResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        factSchema <-
+            declareSchemaRef (Proxy @FactWitness)
+        pure
+            $ Swagger.NamedSchema
+                (Just "FactResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("value", hexSchema)
+                    , ("fact", factSchema)
+                    ]
+            & required
+                .~ ["snapshot", "value", "fact"]
+            & description
+                ?~ "Proof-bearing fact value response"
+
+instance ToSchema ProofResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        factSchema <-
+            declareSchemaRef (Proxy @FactWitness)
+        pure
+            $ Swagger.NamedSchema
+                (Just "ProofResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("fact", factSchema)
+                    ]
+            & required .~ ["snapshot", "fact"]
+            & description
+                ?~ "Proof-bearing MPF proof response"
+
+instance ToSchema RequestsResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        reqListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedRequest])
+        pure
+            $ Swagger.NamedSchema
+                (Just "RequestsResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("requests", reqListSchema)
+                    ]
+            & required
+                .~ ["snapshot", "requests"]
+            & description
+                ?~ "Proof-bearing pending requests \
+                   \response"
