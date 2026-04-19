@@ -332,6 +332,7 @@ test-suite e2e-tests
     , cardano-ledger-byron
     , cardano-ledger-core
     , cardano-ledger-mary
+    , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-node-clients:devnet
@@ -346,6 +347,7 @@ test-suite e2e-tests
     , process
     , stm
     , temporary
+    , text
     , vector
     , wai
     , wai-extra
@@ -357,5 +359,6 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.CrashRecoverySpec
     Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
+    Cardano.MPFS.E2E.ProofsSpec
     Cardano.MPFS.E2E.ProviderSpec
     Cardano.MPFS.E2E.SubmitterSpec
