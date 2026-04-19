@@ -70,7 +70,9 @@ import Cardano.MPFS.HTTP.Types
     ( BootRequest
     , DeleteRequest
     , EndRequest
+    , FactResponse
     , InsertRequest
+    , ProofResponse
     , RejectRequest
     , RequestJSON
     , RetractRequest
@@ -116,22 +118,26 @@ type TokenRootAPI =
         :> Get '[JSON] Hex
 
 -- | @GET \/tokens\/:id\/facts\/:key@ — look up a
--- value by key.
+-- value by key, returning the value, the state
+-- witness it belongs to, and an MPF inclusion proof
+-- against that state's trie root.
 type TokenFactAPI =
     "tokens"
         :> Capture "id" TokenIdJSON
         :> "facts"
         :> Capture "key" Hex
-        :> Get '[JSON] Hex
+        :> Get '[JSON] FactResponse
 
--- | @GET \/tokens\/:id\/proofs\/:key@ — generate a
--- Merkle proof for a key.
+-- | @GET \/tokens\/:id\/proofs\/:key@ — produce an
+-- MPF inclusion proof for a key together with the
+-- state witness it targets and the verification
+-- snapshot.
 type TokenProofAPI =
     "tokens"
         :> Capture "id" TokenIdJSON
         :> "proofs"
         :> Capture "key" Hex
-        :> Get '[JSON] Hex
+        :> Get '[JSON] ProofResponse
 
 -- | @GET \/tokens\/:id\/requests@ — list pending
 -- requests for a token.
