@@ -28,7 +28,9 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( TokenId
+    ( BlockId (..)
+    , SlotNo (..)
+    , TokenId
     )
 import Cardano.MPFS.State
     ( State (..)
@@ -39,7 +41,11 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.Trace (AppTrace (..))
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -74,6 +80,7 @@ import Control.Tracer
     ( Tracer (..)
     , traceWith
     )
+import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (for_)
 import System.Environment (lookupEnv)
@@ -321,9 +328,10 @@ mkAppConfig socketPath cfg tracer dbPath = do
 -- index it.
 bootAndAwait :: Context IO -> IO TokenId
 bootAndAwait ctx = do
-    unsignedBoot <-
-        bootToken (txBuilder ctx) genesisAddr
-    let signed =
+    bundle <-
+        bootToken (txBuilder ctx) emptySnap genesisAddr
+    let unsignedBoot = bundleTx bundle
+        signed =
             addKeyWitness genesisSignKey unsignedBoot
     result <- submitTx (submitter ctx) signed
     case result of
@@ -342,6 +350,17 @@ bootAndAwait ctx = do
             error
                 $ "boot rejected: "
                     ++ show reason
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- * Config
 

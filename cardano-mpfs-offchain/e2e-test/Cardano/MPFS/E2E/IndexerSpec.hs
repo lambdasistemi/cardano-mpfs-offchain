@@ -52,6 +52,7 @@ import Cardano.MPFS.Core.Blueprint
     )
 import Cardano.MPFS.Core.Types
     ( Addr
+    , BlockId (..)
     , Coin (..)
     , ConwayEra
     , LocatedRequest (..)
@@ -71,7 +72,10 @@ import Cardano.MPFS.Indexer.Follower
     , computeInverse
     , detectFromTx
     )
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo (..)
+    )
 import Cardano.MPFS.State
     ( Requests (..)
     , State (..)
@@ -85,7 +89,11 @@ import Cardano.MPFS.Trie
     ( Trie (..)
     , TrieManager (..)
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -162,7 +170,7 @@ indexerSpecs scriptBytes = do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken (txBuilder ctx) genesisAddr
+                    $ bootToken (txBuilder ctx) emptySnap genesisAddr
             let resolver =
                     mkResolver preUtxos []
 
@@ -229,6 +237,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         "hello"
                         "world"
@@ -288,6 +297,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         "hello"
                         "world"
@@ -329,6 +339,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ updateToken
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         genesisAddr
             let resolver =
@@ -434,6 +445,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         "bye"
                         "moon"
@@ -477,6 +489,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ retractRequest
                         (txBuilder ctx)
+                        emptySnap
                         reqTxIn
                         genesisAddr
             let resolver =
@@ -546,6 +559,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ endToken
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         genesisAddr
             let resolver =
@@ -616,6 +630,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ endToken
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         genesisAddr
             let resolver =
@@ -685,6 +700,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let resolver =
                     mkResolver preUtxos []
@@ -755,6 +771,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         "key1"
                         "val1"
@@ -785,6 +802,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         "key2"
                         "val2"
@@ -826,6 +844,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ updateToken
                         (txBuilder ctx)
+                        emptySnap
                         tid
                         genesisAddr
             let resolver =
@@ -862,6 +881,7 @@ indexerSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let resolver =
                     mkResolver preUtxos []
@@ -953,11 +973,12 @@ withE2E scriptBytes action = do
 -- | Build, sign, submit, and wait for a tx.
 buildAndSubmit
     :: Context IO
+    -> IO UnsignedTxBundle
     -> IO (Tx ConwayEra)
-    -> IO (Tx ConwayEra)
-buildAndSubmit ctx buildTx = do
-    unsigned <- buildTx
-    let signed =
+buildAndSubmit ctx buildBundle = do
+    bundle <- buildBundle
+    let unsigned = bundleTx bundle
+        signed =
             addKeyWitness
                 genesisSignKey
                 unsigned
@@ -965,6 +986,17 @@ buildAndSubmit ctx buildTx = do
     assertSubmitted result
     awaitTx
     pure signed
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | Assert that a submit result is 'Submitted'.
 assertSubmitted :: SubmitResult -> IO ()
@@ -1016,7 +1048,7 @@ bootAndRegister cfg ctx = do
     -- Build + submit boot tx
     signedBoot <-
         buildAndSubmit ctx
-            $ bootToken (txBuilder ctx) genesisAddr
+            $ bootToken (txBuilder ctx) emptySnap genesisAddr
 
     -- Detect and apply
     let resolver =

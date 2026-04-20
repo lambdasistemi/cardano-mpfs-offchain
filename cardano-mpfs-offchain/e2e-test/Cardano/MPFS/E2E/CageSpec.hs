@@ -76,7 +76,8 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , LocatedRequest (..)
     , LocatedTokenState (..)
@@ -86,7 +87,10 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo (..)
+    )
 import Cardano.MPFS.State
     ( Requests (..)
     , State (..)
@@ -97,7 +101,11 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.Trie (TrieManager (..))
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -171,11 +179,13 @@ cageFlowSpec bpPath scriptBytes =
                     cageAddrFromCfg cfg Testnet
 
             -- Step 1: Boot token
-            unsignedBoot <-
+            bundleBoot <-
                 bootToken
                     (txBuilder ctx)
+                    emptySnap
                     genesisAddr
-            let signedBoot =
+            let unsignedBoot = bundleTx bundleBoot
+                signedBoot =
                     addKeyWitness
                         genesisSignKey
                         unsignedBoot
@@ -231,14 +241,16 @@ cageFlowSpec bpPath scriptBytes =
                 `shouldSatisfy` (not . null)
 
             -- Step 2: Request insert
-            unsignedReq <-
+            bundleReq <-
                 requestInsert
                     (txBuilder ctx)
+                    emptySnap
                     tokenId
                     "hello"
                     "world"
                     genesisAddr
-            let signedReq =
+            let unsignedReq = bundleTx bundleReq
+                signedReq =
                     addKeyWitness
                         genesisSignKey
                         unsignedReq
@@ -258,12 +270,14 @@ cageFlowSpec bpPath scriptBytes =
                 `shouldSatisfy` (> length cageUtxos)
 
             -- Step 3: Update token
-            unsignedUpdate <-
+            bundleUpdate <-
                 updateToken
                     (txBuilder ctx)
+                    emptySnap
                     tokenId
                     genesisAddr
-            let signedUpdate =
+            let unsignedUpdate = bundleTx bundleUpdate
+                signedUpdate =
                     addKeyWitness
                         genesisSignKey
                         unsignedUpdate
@@ -319,14 +333,16 @@ cageFlowSpec bpPath scriptBytes =
 
             -- Step 4: Request + retract
             -- Submit a second request
-            unsignedReq2 <-
+            bundleReq2 <-
                 requestInsert
                     (txBuilder ctx)
+                    emptySnap
                     tokenId
                     "bye"
                     "moon"
                     genesisAddr
-            let signedReq2 =
+            let unsignedReq2 = bundleTx bundleReq2
+                signedReq2 =
                     addKeyWitness
                         genesisSignKey
                         unsignedReq2
@@ -374,12 +390,14 @@ cageFlowSpec bpPath scriptBytes =
             threadDelay 32_000_000
 
             -- Retract the second request
-            unsignedRetract <-
+            bundleRetract <-
                 retractRequest
                     (txBuilder ctx)
+                    emptySnap
                     req2TxIn
                     genesisAddr
-            let signedRetract =
+            let unsignedRetract = bundleTx bundleRetract
+                signedRetract =
                     addKeyWitness
                         genesisSignKey
                         unsignedRetract
@@ -454,6 +472,17 @@ withE2E scriptBytes action = do
 -- ---------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | Assert that a submit result is 'Submitted'.
 assertSubmitted :: SubmitResult -> IO ()

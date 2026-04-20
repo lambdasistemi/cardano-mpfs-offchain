@@ -22,35 +22,35 @@ import Cardano.MPFS.TxBuilder (TxBuilder (..))
 mkMockTxBuilder :: TxBuilder IO
 mkMockTxBuilder =
     TxBuilder
-        { bootToken = \_ ->
+        { bootToken = \_ _ ->
             error
                 "mkMockTxBuilder: bootToken \
                 \not implemented"
-        , requestInsert = \_ _ _ _ ->
+        , requestInsert = \_ _ _ _ _ ->
             error
                 "mkMockTxBuilder: requestInsert \
                 \not implemented"
-        , requestDelete = \_ _ _ _ ->
+        , requestDelete = \_ _ _ _ _ ->
             error
                 "mkMockTxBuilder: requestDelete \
                 \not implemented"
-        , requestUpdate = \_ _ _ _ _ ->
+        , requestUpdate = \_ _ _ _ _ _ ->
             error
                 "mkMockTxBuilder: requestUpdate \
                 \not implemented"
-        , updateToken = \_ _ ->
+        , updateToken = \_ _ _ ->
             error
                 "mkMockTxBuilder: updateToken \
                 \not implemented"
-        , retractRequest = \_ _ ->
+        , retractRequest = \_ _ _ ->
             error
                 "mkMockTxBuilder: retractRequest \
                 \not implemented"
-        , rejectRequests = \_ _ ->
+        , rejectRequests = \_ _ _ ->
             error
                 "mkMockTxBuilder: rejectRequests \
                 \not implemented"
-        , endToken = \_ _ ->
+        , endToken = \_ _ _ ->
             error
                 "mkMockTxBuilder: endToken \
                 \not implemented"

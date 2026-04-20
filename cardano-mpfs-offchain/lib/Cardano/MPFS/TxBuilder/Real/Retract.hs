@@ -29,8 +29,7 @@ import Cardano.Ledger.Alonzo.TxBody
     , scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , mkBasicTx
+    ( mkBasicTx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -65,14 +64,18 @@ import Cardano.MPFS.Core.OnChain
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
-    ( ConwayEra
-    , LocatedRequest (..)
+    ( LocatedRequest (..)
     , Request (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State
     ( Requests (..)
     , State (..)
+    )
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -94,12 +97,14 @@ retractRequestImpl
     -- ^ Blockchain query interface
     -> State IO
     -- ^ Request state (to look up the request)
+    -> BundleSnapshot
+    -- ^ Snapshot this bundle will be anchored to
     -> TxIn
     -- ^ UTxO reference of the request to retract
     -> Addr
     -- ^ Requester's address (receives refund)
-    -> IO (Tx ConwayEra)
-retractRequestImpl cfg prov st reqTxIn addr = do
+    -> IO UnsignedTxBundle
+retractRequestImpl cfg prov st snap reqTxIn addr = do
     -- 1. Look up the request to find its token
     mReq <- getRequest (requests st) reqTxIn
     req <- case mReq of
@@ -223,9 +228,11 @@ retractRequestImpl cfg prov st reqTxIn addr = do
                         script
                 & witsTxL . rdmrsTxWitsL
                     .~ redeemers
-    evaluateAndBalance
-        prov
-        pp
-        [feeUtxo, reqUtxoPair]
-        addr
-        tx
+    balanced <-
+        evaluateAndBalance
+            prov
+            pp
+            [feeUtxo, reqUtxoPair]
+            addr
+            tx
+    pure (bareTxBundle snap balanced)

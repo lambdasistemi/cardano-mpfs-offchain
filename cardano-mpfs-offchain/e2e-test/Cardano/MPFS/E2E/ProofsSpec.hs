@@ -92,17 +92,25 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , TokenId (..)
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo (..)
+    )
 import Cardano.MPFS.Submitter
     ( SubmitResult (..)
     , Submitter (..)
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
@@ -179,7 +187,7 @@ proofsSpec scriptBytes =
 
             -- Boot → insert → update to land the fact
             bootTx <-
-                submit $ bootToken tb genesisAddr
+                submit $ bootToken tb emptySnap genesisAddr
             let tid = extractTokenId cfg bootTx
                 tidHex = tokenIdHex tid
                 keyHex = B16.encode factKey
@@ -188,6 +196,7 @@ proofsSpec scriptBytes =
                 submit
                     $ requestInsert
                         tb
+                        emptySnap
                         tid
                         factKey
                         factValue
@@ -196,6 +205,7 @@ proofsSpec scriptBytes =
                 submit
                     $ updateToken
                         tb
+                        emptySnap
                         tid
                         genesisAddr
 
@@ -206,6 +216,7 @@ proofsSpec scriptBytes =
                 submit
                     $ requestInsert
                         tb
+                        emptySnap
                         tid
                         "bye"
                         "moon"
@@ -372,16 +383,28 @@ signSubmitAwait
     :: Int
     -> Application
     -> Context IO
+    -> IO UnsignedTxBundle
     -> IO (Tx ConwayEra)
-    -> IO (Tx ConwayEra)
-signSubmitAwait timeout app ctx buildTx = do
-    unsigned <- buildTx
-    let signed =
+signSubmitAwait timeout app ctx buildBundle = do
+    bundle <- buildBundle
+    let unsigned = bundleTx bundle
+        signed =
             addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted result
     awaitTx timeout app (txIdTx signed)
     pure signed
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 awaitTx :: Int -> Application -> TxId -> IO ()
 awaitTx timeout app tid = do
