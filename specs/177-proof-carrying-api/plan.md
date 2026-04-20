@@ -224,6 +224,167 @@ contains the root and chain point needed for external matching.
 `HTTP/Types.hs`, `HTTP/Swagger.hs`,
 `e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs`
 
+## Architectural Principles
+
+These principles are normative for the whole umbrella (#208) and
+codified in the project [constitution](../../.specify/memory/constitution.md)
+v1.1.0 (Principles VIII, IX, X). They are repeated here because they
+shape every slice from #211 forward and explain *why* the response
+shapes were chosen the way they were.
+
+### Pure offline verification (Constitution VIII)
+
+The whole point of proof-bearing responses is that the server is
+*untrusted infrastructure*. Trust collapses to a single `utxo_root`
+that the client obtains from a trusted external source — for example,
+the same root attested by the on-chain UTxO-CSMT — and from there every
+further check MUST be a pure fold over the proof data. No network, no
+disk, no `IO`, no timeouts, no clocks.
+
+Concretely, every verifier shipped in `cardano-mpfs-client` MUST have a
+shape compatible with:
+
+```haskell
+verify :: TrustedRoot -> Bundle -> Either VerifyError a
+```
+
+and verifiers MUST compose as `Kleisli (Either VerifyError)` arrows.
+Any verifier that needs `IO` is the wrong shape and MUST be redesigned;
+any dependency that forces `IO` into the verifier MUST be swapped or
+vendored.
+
+### ProofGraph recursion: two levels of Merkle-ness
+
+The data model has two stacked Merkle structures:
+
+1. **UTxO-CSMT** — the global UTxO set as a Compact Sparse Merkle Tree.
+   Its root is the `utxo_root` baked into every snapshot.
+2. **Per-token MPF** — each MPFS token's datum carries a Merkle
+   Patricia Forestry root over the facts it owns.
+
+Verifying a proof-bearing response is therefore not a flat check but a
+*recursion over a directed acyclic proof graph*. For a fact lookup the
+chain is:
+
+```
+utxo_root  ─CSMT proof→  TxOut (datum)
+                          │
+                          └── mpfRoot  ─MPF proof→  fact value
+```
+
+For an unsigned-tx response the same shape extends to consumed inputs
+and to MPF proofs for every key the builder relied on. When a datum
+itself contains a sub-trie root (e.g. nested namespaces), the verifier
+recurses again: the sub-trie root becomes the next `TrustedRoot` and
+the next layer of the bundle is checked against it.
+
+Implementation shape:
+
+```haskell
+data ProofGraph
+    = CsmtLeaf  CsmtInclusionProof TxOut
+    | MpfLeaf   MpfInclusionProof  Value
+    | MpfUpdate MpfInclusionProof  ProofGraph
+    -- … extended as new datum shapes appear
+
+verifyNode
+    :: TrustedRoot
+    -> ProofGraph
+    -> Either VerifyError TrustedRoot
+```
+
+`verifyNode` returns the *next* trusted root (the datum's `mpfRoot`,
+or a nested sub-trie root) so the caller can keep folding. The
+top-level verifier is a fold of `verifyNode` calls anchored at the
+snapshot's `utxo_root`.
+
+This is why the response types in slice 2 carry full `WitnessedUtxo` +
+`MpfInclusionProof` values rather than scalars: the JSON shape mirrors
+the recursion structure of `ProofGraph`, and adding a new on-chain
+nesting level is a change to one verifier instead of every client.
+
+### Unsigned-tx bundles as proof graphs (slices 3–5)
+
+For tx-building endpoints the same `ProofGraph` machinery covers both
+*input* witnesses (consumed UTxOs proven against `utxo_root`) and any
+MPF facts the builder consulted. The unsigned tx itself is *not* what
+the client trusts; the client trusts the proof graph that justifies
+each input and each fact, and then re-derives that the tx body is the
+unique transaction implied by those witnesses.
+
+The slice-3 `UnsignedTxBundle` type therefore carries:
+
+- the unsigned tx CBOR
+- a `ProofGraph` rooted at the snapshot covering every consumed input
+- per-request sub-graphs for batched flows (`update`, `reject`)
+
+with explicit, deterministic association between request items and
+their proof sub-graphs so a client can verify each one independently
+before signing.
+
+### One verifier, many targets (Constitution IX)
+
+The verifier MUST exist exactly once, in Haskell, in the
+`cardano-mpfs-client` package, and MUST be cross-compiled to every
+runtime a client might live in:
+
+- GHC native — server, CLI, Haskell tests
+- GHC-WASM — browsers, Node, embedded wallets, hardware signers
+- GHC-JS backend — environments that cannot load WASM
+
+Re-implementing the verifier in TypeScript, JavaScript, Rust, or any
+other language is forbidden. The whole trust model collapses if every
+wallet vendor ships a different implementation; security fixes lag,
+encodings drift silently, and "we have a proof-bearing API" stops
+meaning anything.
+
+Consequences for `cardano-mpfs-client`:
+
+- No `IO`, no `unix`, no `process`, no native C FFI beyond pure
+  hashing primitives.
+- Every new dependency MUST clear the GHC-WASM and GHC-JS cross-compile
+  matrix before landing.
+- CI MUST build WASM and JS artifacts and run a cross-target QuickCheck
+  suite asserting byte-identical `Either VerifyError a` outputs across
+  GHC-native / GHC-WASM / GHC-JS for the same input.
+- Releases MUST publish the npm package alongside Hackage; a release
+  that ships Haskell but not WASM/JS is incomplete.
+
+### Lean as source of truth (Constitution X)
+
+The verifier's state machine MUST be formalized in Lean before it is
+implemented in Haskell. The Lean predicates and preservation theorems
+are the authoritative specification; the Haskell implementation exists
+to match them. A QuickCheck property `prop_matchesLeanReference`
+generates random inputs and asserts the Haskell implementation agrees
+with the Lean-extracted reference, and the cross-target suite (above)
+extends that property to the compiled WASM/JS artifacts.
+
+For this umbrella the Lean artifacts to land before slice 4 are:
+
+1. `ProofGraph` data type and `verifyNode` reference function.
+2. Preservation theorems: a verified node returns a root that closes
+   over the same fact / UTxO the Haskell verifier closes over.
+3. The fold theorem: `verify = foldM verifyNode utxoRoot bundle`
+   accepts iff every nested check accepts.
+
+### Follow-up: cross-compile spike for `cardano-mpfs-client`
+
+Principle IX is currently aspirational for this repo — slice 2 ships a
+GHC-native verifier, but no WASM/JS build has been proven. Before
+slice 4 lands we MUST run a half-day spike that:
+
+- attempts a GHC-WASM build of `cardano-mpfs-client` end-to-end,
+- attempts the GHC-JS backend build of the same package,
+- pins or swaps any transitive dependency that fails to cross-compile,
+- adds the `nix build` outputs and a minimal cross-target QuickCheck
+  invocation to CI.
+
+This spike is a hard prerequisite for slices 4–6: if the verifier
+cannot be compiled to a wallet runtime, the proof-bearing tx
+endpoints have no client. Tracking issue to be filed under the #208
+umbrella.
+
 ## Risks
 
 - **Snapshot drift during response assembly**: If the indexer advances
