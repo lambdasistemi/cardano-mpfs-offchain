@@ -101,6 +101,11 @@ import Cardano.MPFS.Trie
     ( Trie (..)
     , TrieManager (..)
     )
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -121,10 +126,11 @@ updateTokenImpl
     -> Provider IO
     -> State IO
     -> TrieManager IO
+    -> BundleSnapshot
     -> TokenId
     -> Addr
-    -> IO (Tx ConwayEra)
-updateTokenImpl cfg prov _st tm tid addr = do
+    -> IO UnsignedTxBundle
+updateTokenImpl cfg prov _st tm snap tid addr = do
     -- 1. Query on-chain context
     (stateUtxo, reqUtxos, feeUtxo, pp) <-
         queryContext cfg prov tid addr
@@ -210,7 +216,7 @@ updateTokenImpl cfg prov _st tm tid addr = do
                     <> " getMinFee(0)="
                     <> show getMin
                     <> "\n"
-            pure tx
+            pure (bareTxBundle snap tx)
         Left err ->
             error
                 $ "updateToken: build failed: "

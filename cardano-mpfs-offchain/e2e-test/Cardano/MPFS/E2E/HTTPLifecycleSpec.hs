@@ -83,17 +83,25 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , TokenId (..)
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo (..)
+    )
 import Cardano.MPFS.Submitter
     ( SubmitResult (..)
     , Submitter (..)
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -169,7 +177,7 @@ lifecycleSpec scriptBytes =
             -- Boot
             bootTx <-
                 submit
-                    $ bootToken tb genesisAddr
+                    $ bootToken tb emptySnap genesisAddr
             let tid =
                     extractTokenId cfg bootTx
 
@@ -181,6 +189,7 @@ lifecycleSpec scriptBytes =
                 submit
                     $ requestInsert
                         tb
+                        emptySnap
                         tid
                         "hello"
                         "world"
@@ -194,6 +203,7 @@ lifecycleSpec scriptBytes =
                 submit
                     $ updateToken
                         tb
+                        emptySnap
                         tid
                         genesisAddr
 
@@ -205,6 +215,7 @@ lifecycleSpec scriptBytes =
                 submit
                     $ requestInsert
                         tb
+                        emptySnap
                         tid
                         "bye"
                         "moon"
@@ -223,6 +234,7 @@ lifecycleSpec scriptBytes =
                 submit
                     $ retractRequest
                         tb
+                        emptySnap
                         reqTxIn
                         genesisAddr
 
@@ -234,6 +246,7 @@ lifecycleSpec scriptBytes =
                 submit
                     $ endToken
                         tb
+                        emptySnap
                         tid
                         genesisAddr
 
@@ -251,11 +264,12 @@ signSubmitAwait
     -- ^ Timeout in seconds
     -> Application
     -> Context IO
+    -> IO UnsignedTxBundle
     -> IO (Tx ConwayEra)
-    -> IO (Tx ConwayEra)
-signSubmitAwait timeout app ctx buildTx = do
-    unsigned <- buildTx
-    let signed =
+signSubmitAwait timeout app ctx buildBundle = do
+    bundle <- buildBundle
+    let unsigned = bundleTx bundle
+        signed =
             addKeyWitness
                 genesisSignKey
                 unsigned
@@ -264,6 +278,17 @@ signSubmitAwait timeout app ctx buildTx = do
     assertSubmitted result
     awaitTx timeout app (txIdTx signed)
     pure signed
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | @GET \/tx\/:txId?timeout=N@ — block until
 -- the indexer has seen this transaction.

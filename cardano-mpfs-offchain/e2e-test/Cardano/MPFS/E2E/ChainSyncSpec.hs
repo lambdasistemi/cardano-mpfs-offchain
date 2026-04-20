@@ -53,7 +53,8 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , LocatedRequest (..)
     , LocatedTokenState (..)
@@ -75,7 +76,11 @@ import Cardano.MPFS.Submitter
     ( SubmitResult (..)
     , Submitter (..)
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -145,6 +150,7 @@ chainsyncSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -176,6 +182,7 @@ chainsyncSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -197,6 +204,7 @@ chainsyncSpecs scriptBytes = do
                         buildAndSubmit ctx
                             $ requestInsert
                                 (txBuilder ctx)
+                                emptySnap
                                 tokenId
                                 "hello"
                                 "world"
@@ -242,6 +250,7 @@ chainsyncSpecs scriptBytes = do
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -330,11 +339,12 @@ withE2E scriptBytes action = do
 -- | Build, sign, submit, and wait for a tx.
 buildAndSubmit
     :: Context IO
+    -> IO UnsignedTxBundle
     -> IO (Tx ConwayEra)
-    -> IO (Tx ConwayEra)
-buildAndSubmit ctx buildTx = do
-    unsigned <- buildTx
-    let signed =
+buildAndSubmit ctx buildBundle = do
+    bundle <- buildBundle
+    let unsigned = bundleTx bundle
+        signed =
             addKeyWitness
                 genesisSignKey
                 unsigned
@@ -342,6 +352,17 @@ buildAndSubmit ctx buildTx = do
     assertSubmitted result
     awaitTx
     pure signed
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | Assert that a submit result is 'Submitted'.
 assertSubmitted :: SubmitResult -> IO ()

@@ -82,6 +82,11 @@ import Cardano.MPFS.Provider
     ( Provider (..)
     )
 import Cardano.MPFS.State (State (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -104,10 +109,11 @@ rejectRequestsImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> BundleSnapshot
     -> TokenId
     -> Addr
-    -> IO (Tx ConwayEra)
-rejectRequestsImpl cfg prov _st tid addr = do
+    -> IO UnsignedTxBundle
+rejectRequestsImpl cfg prov _st snap tid addr = do
     -- 1. Query on-chain context
     (stateUtxo, reqUtxos, feeUtxo, pp) <-
         queryRejectContext cfg prov tid addr
@@ -141,7 +147,7 @@ rejectRequestsImpl cfg prov _st tid addr = do
             addr
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
-        Right tx -> pure tx
+        Right tx -> pure (bareTxBundle snap tx)
         Left err ->
             error
                 $ "rejectRequests: build failed: "

@@ -26,8 +26,7 @@ import Cardano.Ledger.Alonzo.TxBody
     ( scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , mkBasicTx
+    ( mkBasicTx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -69,9 +68,13 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
-    , ConwayEra
     )
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -87,10 +90,12 @@ bootTokenImpl
     -- ^ Cage script config
     -> Provider IO
     -- ^ Blockchain query interface
+    -> BundleSnapshot
+    -- ^ Snapshot this bundle will be anchored to
     -> Addr
     -- ^ Owner address (receives change, owns the token)
-    -> IO (Tx ConwayEra)
-bootTokenImpl cfg prov addr = do
+    -> IO UnsignedTxBundle
+bootTokenImpl cfg prov snap addr = do
     pp <- queryProtocolParams prov
     utxos <- queryUTxOs prov addr
     case utxos of
@@ -196,9 +201,11 @@ bootTokenImpl cfg prov addr = do
                         & witsTxL . rdmrsTxWitsL
                             .~ redeemers
             -- 7. Evaluate and balance
-            evaluateAndBalance
-                prov
-                pp
-                allInputUtxos
-                addr
-                tx
+            balanced <-
+                evaluateAndBalance
+                    prov
+                    pp
+                    allInputUtxos
+                    addr
+                    tx
+            pure (bareTxBundle snap balanced)

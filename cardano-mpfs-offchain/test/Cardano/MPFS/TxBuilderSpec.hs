@@ -113,6 +113,7 @@ import Cardano.MPFS.Core.OnChain
     )
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
+    , BlockId (..)
     , Coin (..)
     , ConwayEra
     , LocatedRequest (..)
@@ -146,7 +147,12 @@ import Cardano.MPFS.Trie
 import Cardano.MPFS.Trie.PureManager
     ( mkPureTrieManager
     )
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real
     ( computeRefund
@@ -180,6 +186,17 @@ testKh =
         $ hashFromStringAsHex @Blake2b_224
             "00000000000000000000000000\
             \00000000000000000000000000000a"
+
+-- | A fixed 'BundleSnapshot' used by every test
+-- runner. Tests do not yet assert on the snapshot
+-- so any stable value works.
+testSnap :: BundleSnapshot
+testSnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | Zero-fee PParams for deterministic balancing.
 zeroPP :: PParams ConwayEra
@@ -411,6 +428,7 @@ mkRequestTxOut =
 spec :: Spec
 spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     cageIdentitySpec
+    bundleShapeSpec
     requestInsertSpec
     requestDeleteSpec
     retractRequestSpec
@@ -461,6 +479,65 @@ cageIdentitySpec =
                 _ ->
                     error
                         "expected Addr, got Bootstrap"
+
+-- ---------------------------------------------------------
+-- UnsignedTxBundle shape
+-- ---------------------------------------------------------
+
+-- | Shape tests for the proof-bearing bundle plumbing.
+-- Builders currently return 'bareTxBundle'-wrapped
+-- transactions; the dedicated input\/fact witnesses
+-- will be populated in later slices.
+bundleShapeSpec :: Spec
+bundleShapeSpec =
+    describe "UnsignedTxBundle" $ do
+        it "bareTxBundle preserves the wrapped tx" $ do
+            (_, _, builder, _) <- mkTestFixture
+            let feeAddr = testAddr testKh
+            bundle <-
+                requestInsert
+                    builder
+                    testSnap
+                    testTid
+                    "mykey"
+                    "myvalue"
+                    feeAddr
+            let bare =
+                    bareTxBundle
+                        (bundleSnapshot bundle)
+                        (bundleTx bundle)
+            bundleTx bare
+                `shouldBe` bundleTx bundle
+
+        it "builder bundle carries the snapshot" $ do
+            (_, _, builder, _) <- mkTestFixture
+            let feeAddr = testAddr testKh
+            bundle <-
+                requestInsert
+                    builder
+                    testSnap
+                    testTid
+                    "mykey"
+                    "myvalue"
+                    feeAddr
+            snapshotUtxoRoot (bundleSnapshot bundle)
+                `shouldBe` snapshotUtxoRoot testSnap
+            snapshotSlot (bundleSnapshot bundle)
+                `shouldBe` snapshotSlot testSnap
+
+        it "builder bundle has no witnesses yet" $ do
+            (_, _, builder, _) <- mkTestFixture
+            let feeAddr = testAddr testKh
+            bundle <-
+                requestInsert
+                    builder
+                    testSnap
+                    testTid
+                    "mykey"
+                    "myvalue"
+                    feeAddr
+            bundleInputs bundle `shouldSatisfy` null
+            bundleFacts bundle `shouldSatisfy` null
 
 -- ---------------------------------------------------------
 -- requestInsert
@@ -1672,21 +1749,29 @@ runRequestInsertWith
 runRequestInsertWith = do
     (_st, _prov, builder, txIn) <- mkTestFixture
     let feeAddr = testAddr testKh
-    tx <-
+    bundle <-
         requestInsert
             builder
+            testSnap
             testTid
             "mykey"
             "myvalue"
             feeAddr
-    pure (tx, txIn)
+    pure (bundleTx bundle, txIn)
 
 -- | Set up state + provider, run requestDelete.
 runRequestDelete :: IO (Tx ConwayEra)
 runRequestDelete = do
     (_st, _prov, builder, _txIn) <- mkTestFixture
     let feeAddr = testAddr testKh
-    requestDelete builder testTid "mykey" "myval" feeAddr
+    bundleTx
+        <$> requestDelete
+            builder
+            testSnap
+            testTid
+            "mykey"
+            "myval"
+            feeAddr
 
 -- | Run retractRequest.
 runRetractRequest :: IO (Tx ConwayEra)
@@ -1750,9 +1835,9 @@ runRetractRequestWith = do
                 prov
                 st
                 dummyTrieManager
-    tx <-
-        retractRequest builder reqIn feeAddr
-    pure (tx, reqIn, stateIn)
+    bundle <-
+        retractRequest builder testSnap reqIn feeAddr
+    pure (bundleTx bundle, reqIn, stateIn)
 
 -- | Run updateToken.
 runUpdateToken :: IO (Tx ConwayEra)
@@ -1812,9 +1897,9 @@ runUpdateTokenWith = do
                 prov
                 st
                 trieManager
-    tx <-
-        updateToken builder testTid feeAddr
-    pure (tx, stateIn, reqIn)
+    bundle <-
+        updateToken builder testSnap testTid feeAddr
+    pure (bundleTx bundle, stateIn, reqIn)
 
 -- | Run endToken.
 runEndToken :: IO (Tx ConwayEra)
@@ -1859,8 +1944,8 @@ runEndTokenWith = do
                 prov
                 st
                 dummyTrieManager
-    tx <- endToken builder testTid feeAddr
-    pure (tx, stateIn)
+    bundle <- endToken builder testSnap testTid feeAddr
+    pure (bundleTx bundle, stateIn)
 
 -- | Run bootToken with a given CageConfig.
 runBootToken :: CageConfig -> IO (Tx ConwayEra)
@@ -1886,7 +1971,7 @@ runBootToken cfg = do
                 prov
                 st
                 dummyTrieManager
-    bootToken builder feeAddr
+    bundleTx <$> bootToken builder testSnap feeAddr
 
 -- | Token ID used across tests.
 testTid :: TokenId
@@ -1977,14 +2062,15 @@ runRealisticRequestInsertWith = do
     (_st, _prov, builder, txIn) <-
         mkRealisticFixture
     let feeAddr = testAddr testKh
-    tx <-
+    bundle <-
         requestInsert
             builder
+            testSnap
             testTid
             "mykey"
             "myvalue"
             feeAddr
-    pure (tx, txIn)
+    pure (bundleTx bundle, txIn)
 
 -- | Run updateToken with realistic PParams.
 runRealisticUpdate :: IO (Tx ConwayEra)
@@ -2041,9 +2127,9 @@ runRealisticUpdateWith = do
                 prov
                 st
                 trieManager
-    tx <-
-        updateToken builder testTid feeAddr
-    pure (tx, stateIn, reqIn)
+    bundle <-
+        updateToken builder testSnap testTid feeAddr
+    pure (bundleTx bundle, stateIn, reqIn)
 
 -- | Run updateToken with tight request locked ADA.
 -- The request UTxO has the minimum locked ADA
@@ -2098,7 +2184,8 @@ runTightUpdate = do
                 prov
                 st
                 trieManager
-    updateToken builder testTid feeAddr
+    bundleTx
+        <$> updateToken builder testSnap testTid feeAddr
 
 -- | Run retractRequest with realistic PParams
 -- and return details.
@@ -2154,9 +2241,9 @@ runRealisticRetractWith = do
                 prov
                 st
                 dummyTrieManager
-    tx <-
-        retractRequest builder reqIn feeAddr
-    pure (tx, reqIn, stateIn)
+    bundle <-
+        retractRequest builder testSnap reqIn feeAddr
+    pure (bundleTx bundle, reqIn, stateIn)
 
 -- | Run endToken with realistic PParams.
 runRealisticEnd :: IO (Tx ConwayEra)
@@ -2203,8 +2290,8 @@ runRealisticEndWith = do
                 prov
                 st
                 dummyTrieManager
-    tx <- endToken builder testTid feeAddr
-    pure (tx, stateIn)
+    bundle <- endToken builder testSnap testTid feeAddr
+    pure (bundleTx bundle, stateIn)
 
 -- | Run bootToken with realistic PParams.
 runRealisticBootToken
@@ -2231,7 +2318,7 @@ runRealisticBootToken cfg = do
                 prov
                 st
                 dummyTrieManager
-    bootToken builder feeAddr
+    bundleTx <$> bootToken builder testSnap feeAddr
 
 -- | Run rejectRequests with mock expired request.
 -- The request has submittedAt=0, processTime=300s,
@@ -2277,4 +2364,5 @@ runRejectRequests = do
                 prov
                 st
                 trieManager
-    rejectRequests builder testTid feeAddr
+    bundleTx
+        <$> rejectRequests builder testSnap testTid feeAddr

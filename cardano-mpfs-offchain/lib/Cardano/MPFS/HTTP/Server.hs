@@ -112,6 +112,10 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , UnsignedTxBundle (..)
+    )
 import Cardano.MPFS.TxBuilder qualified as Tx
 
 -- | Combined API with Swagger UI.
@@ -270,6 +274,33 @@ requireSnapshot ctx = do
                             { cpSlot = s
                             , cpBlockId = Hex b
                             }
+                    }
+        _ ->
+            throwError
+                err503
+                    { errBody =
+                        "Verification snapshot \
+                        \not yet available"
+                    }
+
+-- | Read the current ledger-native 'BundleSnapshot'
+-- from context, or 503 if the indexer has not yet
+-- produced a UTxO-CSMT root or a checkpoint.
+requireBundleSnapshot
+    :: Context IO -> Handler BundleSnapshot
+requireBundleSnapshot ctx = do
+    mRoot <- liftIO $ utxoRoot ctx
+    mCp <-
+        liftIO
+            $ St.getCheckpoint
+                (St.checkpoints (state ctx))
+    case (mRoot, mCp) of
+        (Just r, Just (slot, blk)) ->
+            pure
+                BundleSnapshot
+                    { snapshotUtxoRoot = r
+                    , snapshotSlot = slot
+                    , snapshotBlockId = blk
                     }
         _ ->
             throwError
@@ -549,9 +580,11 @@ txBootHandler
     :: Context IO -> BootRequest -> Handler Hex
 txBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
-    tx <-
-        liftIO $ Tx.bootToken (txBuilder ctx) addr
-    pure (serializeTx tx)
+    snap <- requireBundleSnapshot ctx
+    bundle <-
+        liftIO
+            $ Tx.bootToken (txBuilder ctx) snap addr
+    pure (serializeTx (bundleTx bundle))
 
 txInsertHandler
     :: Context IO -> InsertRequest -> Handler Hex
@@ -564,15 +597,17 @@ txInsertHandler
         , irAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.requestInsert
                     (txBuilder ctx)
+                    snap
                     tid
                     k
                     v
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txDeleteHandler
     :: Context IO -> DeleteRequest -> Handler Hex
@@ -585,15 +620,17 @@ txDeleteHandler
         , drAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.requestDelete
                     (txBuilder ctx)
+                    snap
                     tid
                     k
                     v
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txUpdateValueHandler
     :: Context IO
@@ -609,16 +646,18 @@ txUpdateValueHandler
         , uvrAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.requestUpdate
                     (txBuilder ctx)
+                    snap
                     tid
                     k
                     oldV
                     newV
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txRejectHandler
     :: Context IO
@@ -631,13 +670,15 @@ txRejectHandler
         , rejAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.rejectRequests
                     (txBuilder ctx)
+                    snap
                     tid
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txUpdateHandler
     :: Context IO -> UpdateRequest -> Handler Hex
@@ -648,13 +689,15 @@ txUpdateHandler
         , urAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.updateToken
                     (txBuilder ctx)
+                    snap
                     tid
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txRetractHandler
     :: Context IO -> RetractRequest -> Handler Hex
@@ -666,13 +709,15 @@ txRetractHandler
         } = do
         addr <- requireAddr addrHex
         txIn <- parseUtxoRef utxoRef
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.retractRequest
                     (txBuilder ctx)
+                    snap
                     txIn
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txEndHandler
     :: Context IO -> EndRequest -> Handler Hex
@@ -683,13 +728,15 @@ txEndHandler
         , erAddr = addrHex
         } = do
         addr <- requireAddr addrHex
-        tx <-
+        snap <- requireBundleSnapshot ctx
+        bundle <-
             liftIO
                 $ Tx.endToken
                     (txBuilder ctx)
+                    snap
                     tid
                     addr
-        pure (serializeTx tx)
+        pure (serializeTx (bundleTx bundle))
 
 txSubmitHandler
     :: Context IO -> SubmitRequest -> Handler Hex

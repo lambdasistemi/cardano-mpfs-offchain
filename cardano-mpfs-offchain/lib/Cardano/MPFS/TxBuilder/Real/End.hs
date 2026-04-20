@@ -22,8 +22,7 @@ import Cardano.Ledger.Alonzo.TxBody
     , scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , mkBasicTx
+    ( mkBasicTx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -55,10 +54,14 @@ import Cardano.MPFS.Core.OnChain
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
-    ( ConwayEra
-    , TokenId (..)
+    ( TokenId (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -81,12 +84,14 @@ endTokenImpl
     -- ^ Cage script config
     -> Provider IO
     -- ^ Blockchain query interface
+    -> BundleSnapshot
+    -- ^ Snapshot this bundle will be anchored to
     -> TokenId
     -- ^ Token to retire
     -> Addr
     -- ^ Fee-paying address (receives remaining ADA)
-    -> IO (Tx ConwayEra)
-endTokenImpl cfg prov tid addr = do
+    -> IO UnsignedTxBundle
+endTokenImpl cfg prov snap tid addr = do
     -- 1. Query cage UTxOs
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
@@ -175,9 +180,11 @@ endTokenImpl cfg prov tid addr = do
                         script
                 & witsTxL . rdmrsTxWitsL
                     .~ redeemers
-    evaluateAndBalance
-        prov
-        pp
-        [feeUtxo, stateUtxo]
-        addr
-        tx
+    balanced <-
+        evaluateAndBalance
+            prov
+            pp
+            [feeUtxo, stateUtxo]
+            addr
+            tx
+    pure (bareTxBundle snap balanced)

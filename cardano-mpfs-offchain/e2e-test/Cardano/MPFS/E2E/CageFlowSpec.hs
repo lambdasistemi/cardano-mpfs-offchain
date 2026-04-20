@@ -64,14 +64,18 @@ import Cardano.MPFS.Core.Blueprint
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , LocatedTokenState (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
     )
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Provider
+    ( Provider (..)
+    , SlotNo (..)
+    )
 import Cardano.MPFS.State
     ( Requests (..)
     , State (..)
@@ -82,7 +86,9 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.TxBuilder
-    ( TxBuilder (..)
+    ( BundleSnapshot (..)
+    , TxBuilder (..)
+    , UnsignedTxBundle (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -158,6 +164,7 @@ cageFlowSpec scriptBytes =
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
+                        emptySnap
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -180,6 +187,7 @@ cageFlowSpec scriptBytes =
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tokenId
                         "hello"
                         "world"
@@ -205,6 +213,7 @@ cageFlowSpec scriptBytes =
                 buildAndSubmit ctx
                     $ updateToken
                         (txBuilder ctx)
+                        emptySnap
                         tokenId
                         genesisAddr
 
@@ -228,6 +237,7 @@ cageFlowSpec scriptBytes =
                 buildAndSubmit ctx
                     $ requestInsert
                         (txBuilder ctx)
+                        emptySnap
                         tokenId
                         "bye"
                         "moon"
@@ -258,6 +268,7 @@ cageFlowSpec scriptBytes =
                 buildAndSubmit ctx
                     $ retractRequest
                         (txBuilder ctx)
+                        emptySnap
                         req2TxIn
                         genesisAddr
 
@@ -283,6 +294,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ bootToken
                             (txBuilder ctx)
+                            emptySnap
                             genesisAddr
                 let tokenId =
                         extractTokenId cfg signedBoot
@@ -297,6 +309,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestInsert
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "aaa"
                             "val1"
@@ -318,6 +331,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ updateToken
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             genesisAddr
                 -- Wait for trie root to update
@@ -345,6 +359,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestDelete
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "aaa"
                             "val1"
@@ -372,6 +387,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ updateToken
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             genesisAddr
                 _ <-
@@ -394,6 +410,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestInsert
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "bbb"
                             "val2"
@@ -413,6 +430,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestInsert
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "ccc"
                             "val3"
@@ -440,6 +458,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ updateToken
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             genesisAddr
                 _ <-
@@ -461,6 +480,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestDelete
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "bbb"
                             "val2"
@@ -480,6 +500,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestInsert
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "ddd"
                             "val4"
@@ -508,6 +529,7 @@ deleteFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ updateToken
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             genesisAddr
                 pollOrFail 60 "update-mixed" $ do
@@ -535,6 +557,7 @@ rejectFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ bootToken
                             (txBuilder ctx)
+                            emptySnap
                             genesisAddr
                 let tokenId =
                         extractTokenId cfg signedBoot
@@ -549,6 +572,7 @@ rejectFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ requestInsert
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             "reject-me"
                             "val"
@@ -582,6 +606,7 @@ rejectFlowSpec scriptBytes =
                     buildAndSubmit ctx
                         $ rejectRequests
                             (txBuilder ctx)
+                            emptySnap
                             tokenId
                             genesisAddr
 
@@ -700,11 +725,12 @@ pollUntilJust timeoutSec action = go attempts
 -- | Build, sign, submit, and wait for a tx.
 buildAndSubmit
     :: Context IO
+    -> IO UnsignedTxBundle
     -> IO (Tx ConwayEra)
-    -> IO (Tx ConwayEra)
-buildAndSubmit ctx buildTx = do
-    unsigned <- buildTx
-    let signed =
+buildAndSubmit ctx buildBundle = do
+    bundle <- buildBundle
+    let unsigned = bundleTx bundle
+        signed =
             addKeyWitness
                 genesisSignKey
                 unsigned
@@ -712,6 +738,17 @@ buildAndSubmit ctx buildTx = do
     assertSubmitted result
     awaitTx
     pure signed
+
+-- | Placeholder snapshot used by e2e tests. The
+-- builder embeds it verbatim but does not yet use
+-- it to drive tx construction.
+emptySnap :: BundleSnapshot
+emptySnap =
+    BundleSnapshot
+        { snapshotUtxoRoot = BS.replicate 32 0
+        , snapshotSlot = SlotNo 0
+        , snapshotBlockId = BlockId (BS.replicate 32 0)
+        }
 
 -- | Assert that a submit result is 'Submitted'.
 assertSubmitted :: SubmitResult -> IO ()

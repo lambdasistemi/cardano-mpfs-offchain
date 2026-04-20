@@ -24,8 +24,7 @@ import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , mkBasicTx
+    ( mkBasicTx
     )
 import Cardano.Ledger.Api.Tx.Body
     ( mkBasicTxBody
@@ -54,6 +53,11 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State (State (..), Tokens (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , UnsignedTxBundle
+    , bareTxBundle
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -68,18 +72,20 @@ requestInsertImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> BundleSnapshot
     -> TokenId
     -> ByteString
     -- ^ Key to insert
     -> ByteString
     -- ^ Value to insert
     -> Addr
-    -> IO (Tx ConwayEra)
-requestInsertImpl cfg prov st tid key value =
+    -> IO UnsignedTxBundle
+requestInsertImpl cfg prov st snap tid key value =
     requestImpl
         cfg
         prov
         st
+        snap
         tid
         key
         (OpInsert value)
@@ -89,18 +95,20 @@ requestDeleteImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> BundleSnapshot
     -> TokenId
     -> ByteString
     -- ^ Key to delete
     -> ByteString
     -- ^ Old value (for on-chain proof)
     -> Addr
-    -> IO (Tx ConwayEra)
-requestDeleteImpl cfg prov st tid key val =
+    -> IO UnsignedTxBundle
+requestDeleteImpl cfg prov st snap tid key val =
     requestImpl
         cfg
         prov
         st
+        snap
         tid
         key
         (OpDelete val)
@@ -110,6 +118,7 @@ requestUpdateImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> BundleSnapshot
     -> TokenId
     -> ByteString
     -- ^ Key to update
@@ -118,15 +127,24 @@ requestUpdateImpl
     -> ByteString
     -- ^ New value
     -> Addr
-    -> IO (Tx ConwayEra)
-requestUpdateImpl cfg prov st tid key oldVal newVal =
-    requestImpl
-        cfg
-        prov
-        st
-        tid
-        key
-        (OpUpdate oldVal newVal)
+    -> IO UnsignedTxBundle
+requestUpdateImpl
+    cfg
+    prov
+    st
+    snap
+    tid
+    key
+    oldVal
+    newVal =
+        requestImpl
+            cfg
+            prov
+            st
+            snap
+            tid
+            key
+            (OpUpdate oldVal newVal)
 
 -- | Generic request transaction builder.
 --
@@ -141,6 +159,7 @@ requestImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> BundleSnapshot
     -> TokenId
     -> ByteString
     -- ^ Trie key
@@ -148,8 +167,8 @@ requestImpl
     -- ^ Insert, Delete, or Update
     -> Addr
     -- ^ Requester's address
-    -> IO (Tx ConwayEra)
-requestImpl cfg prov st tid key op addr = do
+    -> IO UnsignedTxBundle
+requestImpl cfg prov st snap tid key op addr = do
     mTs <- getToken (tokens st) tid
     LocatedTokenState
         { tokenState = TokenState{tip = Coin mf}
@@ -199,7 +218,8 @@ requestImpl cfg prov st tid key op addr = do
         Left err ->
             error
                 $ "requestImpl: " <> show err
-        Right br -> pure (balancedTx br)
+        Right br ->
+            pure (bareTxBundle snap (balancedTx br))
 
 -- | Compute the ADA to lock in a request output.
 --
