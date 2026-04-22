@@ -31,8 +31,11 @@ import Data.Aeson
     ( FromJSON (..)
     , Value
     , decode
+    , encode
+    , object
     , withObject
     , (.:)
+    , (.=)
     )
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
@@ -44,15 +47,25 @@ import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Lens.Micro ((^.))
-import Network.HTTP.Types (status200)
-import Network.Wai (Application)
+import Network.HTTP.Types
+    ( hContentType
+    , methodPost
+    , status200
+    )
+import Network.Wai
+    ( Application
+    , Request (..)
+    )
 import Network.Wai.Test
-    ( SResponse (..)
+    ( SRequest (..)
+    , SResponse (..)
     , defaultRequest
     , request
     , runSession
     , setPath
+    , srequest
     )
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -68,15 +81,16 @@ import Test.Hspec
     )
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
+import Cardano.Ledger.Address (Addr, serialiseAddr)
 import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
-import Cardano.Ledger.BaseTypes (Network (..))
+import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
     , MultiAsset (..)
     )
-import Cardano.Ledger.TxIn (TxId (..))
+import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -125,8 +139,19 @@ import Cardano.Node.Client.E2E.Setup
     )
 
 import Cardano.MPFS.Client
-    ( Hex (..)
+    ( BootTxResponse
+    , EndTxResponse
+    , Hex (..)
+    , RequestTxResponse
+    , RetractTxResponse
+    , UpdateTxResponse
     , VerificationSnapshot
+    , VerifyError
+    , verifyBootTxResponse
+    , verifyEndTxResponse
+    , verifyRequestTxResponse
+    , verifyRetractTxResponse
+    , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     )
 
@@ -212,7 +237,7 @@ proofsSpec scriptBytes =
             -- Add a second pending request so the
             -- /requests endpoint returns a non-empty
             -- witnessed list.
-            _ <-
+            reqTx <-
                 submit
                     $ requestInsert
                         tb
@@ -221,6 +246,8 @@ proofsSpec scriptBytes =
                         "bye"
                         "moon"
                         genesisAddr
+            let reqTxIn =
+                    TxIn (txIdTx reqTx) (TxIx 0)
 
             -- Pull every proof-bearing read.
             tokenObj <- getJSON app ("/tokens/" <> tidHex)
@@ -263,6 +290,79 @@ proofsSpec scriptBytes =
             assertProofEnvelope proofObj
 
             assertRequestsEnvelope requestsObj
+
+            -- Drive every write endpoint over HTTP and
+            -- verify its response with the offline
+            -- Client.Verify DSL. We do not submit the
+            -- returned unsigned txs — the goal is to
+            -- confirm the server emits well-formed
+            -- proof envelopes at the current state.
+            let addrHex = hexAddr genesisAddr
+                retractUtxoRef =
+                    txInUrlRef reqTxIn
+
+            bootResp <-
+                postJSON app "/tx/boot"
+                    $ object ["address" .= addrHex]
+            assertVerify
+                "boot"
+                verifyBootTxResponse
+                (bootResp :: BootTxResponse)
+
+            insertResp <-
+                postJSON
+                    app
+                    "/tx/request/insert"
+                    $ object
+                        [ "token" .= Hex (TE.decodeUtf8 tidHex)
+                        , "key" .= Hex (TE.decodeUtf8 (B16.encode "baz"))
+                        , "value"
+                            .= Hex (TE.decodeUtf8 (B16.encode "qux"))
+                        , "address" .= addrHex
+                        ]
+            assertVerify
+                "request/insert"
+                verifyRequestTxResponse
+                (insertResp :: RequestTxResponse)
+
+            updateResp <-
+                postJSON app "/tx/update"
+                    $ object
+                        [ "token" .= Hex (TE.decodeUtf8 tidHex)
+                        , "address" .= addrHex
+                        ]
+            assertVerify
+                "update"
+                verifyUpdateTxResponse
+                (updateResp :: UpdateTxResponse)
+
+            retractResp <-
+                postJSON app "/tx/retract"
+                    $ object
+                        [ "utxo" .= retractUtxoRef
+                        , "address" .= addrHex
+                        ]
+            assertVerify
+                "retract"
+                verifyRetractTxResponse
+                (retractResp :: RetractTxResponse)
+
+            -- /tx/reject requires a request whose
+            -- processing deadline has already elapsed;
+            -- the fresh insert above does not qualify.
+            -- Reject coverage lives in the client
+            -- structural unit tests — skip it here.
+
+            endResp <-
+                postJSON app "/tx/end"
+                    $ object
+                        [ "token" .= Hex (TE.decodeUtf8 tidHex)
+                        , "address" .= addrHex
+                        ]
+            assertVerify
+                "end"
+                verifyEndTxResponse
+                (endResp :: EndTxResponse)
 
 -- -------------------------------------------------
 -- Assertions on response shape
@@ -433,6 +533,67 @@ getJSON app path = do
                     $ "non-JSON response: "
                         <> show (simpleBody resp)
                 error "unreachable"
+
+-- | POST a JSON body and decode the response.
+postJSON
+    :: FromJSON a
+    => Application
+    -> ByteString
+    -> Value
+    -> IO a
+postJSON app path body = do
+    let req =
+            (setPath defaultRequest path)
+                { requestMethod = methodPost
+                , requestHeaders =
+                    [ (hContentType, "application/json")
+                    ]
+                }
+    resp <-
+        runSession
+            (srequest (SRequest req (encode body)))
+            app
+    simpleStatus resp `shouldBe` status200
+    case decode (simpleBody resp) of
+        Just v -> pure v
+        Nothing ->
+            do
+                expectationFailure
+                    $ "POST "
+                        <> show path
+                        <> " returned non-JSON: "
+                        <> show (simpleBody resp)
+                error "unreachable"
+
+-- | Invoke a 'Client.Verify' function on a decoded
+-- response and fail the test with a labeled error if
+-- structural verification rejects the bundle.
+assertVerify
+    :: String
+    -> (a -> Either VerifyError ())
+    -> a
+    -> IO ()
+assertVerify label f x = case f x of
+    Right () -> pure ()
+    Left err ->
+        expectationFailure
+            $ label
+                <> ": verifier rejected bundle: "
+                <> show err
+
+-- | Hex-encode a bech32-serialisable address for
+-- JSON transport.
+hexAddr :: Addr -> Hex
+hexAddr =
+    Hex . TE.decodeUtf8 . B16.encode . serialiseAddr
+
+-- | Render a TxIn as the @txhash#ix@ string expected
+-- by the /tx/retract request body.
+txInUrlRef :: TxIn -> Text
+txInUrlRef (TxIn txI (TxIx ix)) =
+    TE.decodeUtf8 (txIdHex txI)
+        <> "#"
+        <> T.pack (show ix)
 
 getRaw :: Application -> ByteString -> IO SResponse
 getRaw app path =
