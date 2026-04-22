@@ -42,6 +42,7 @@ library
 
   exposed-modules:
     Cardano.MPFS.Client
+    Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Snapshot
     Cardano.MPFS.Client.Verify
 
@@ -73,5 +74,8 @@ test-suite unit-tests
     , hspec                >=2.11 && <2.12
     , text
 
-  other-modules:    Cardano.MPFS.Client.SnapshotSpec
+  other-modules:
+    Cardano.MPFS.Client.BundleSpec
+    Cardano.MPFS.Client.SnapshotSpec
+
   ghc-options:      -threaded -with-rtsopts=-N
