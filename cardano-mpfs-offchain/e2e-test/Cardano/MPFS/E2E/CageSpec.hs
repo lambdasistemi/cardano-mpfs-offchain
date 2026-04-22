@@ -103,8 +103,8 @@ import Cardano.MPFS.Submitter
 import Cardano.MPFS.Trie (TrieManager (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
+    , ProofEnvelope (..)
     , TxBuilder (..)
-    , UnsignedTxBundle (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -184,7 +184,7 @@ cageFlowSpec bpPath scriptBytes =
                     (txBuilder ctx)
                     emptySnap
                     genesisAddr
-            let unsignedBoot = bundleTx bundleBoot
+            let unsignedBoot = envTx bundleBoot
                 signedBoot =
                     addKeyWitness
                         genesisSignKey
@@ -249,7 +249,7 @@ cageFlowSpec bpPath scriptBytes =
                     "hello"
                     "world"
                     genesisAddr
-            let unsignedReq = bundleTx bundleReq
+            let unsignedReq = envTx bundleReq
                 signedReq =
                     addKeyWitness
                         genesisSignKey
@@ -276,7 +276,7 @@ cageFlowSpec bpPath scriptBytes =
                     emptySnap
                     tokenId
                     genesisAddr
-            let unsignedUpdate = bundleTx bundleUpdate
+            let unsignedUpdate = envTx bundleUpdate
                 signedUpdate =
                     addKeyWitness
                         genesisSignKey
@@ -341,7 +341,7 @@ cageFlowSpec bpPath scriptBytes =
                     "bye"
                     "moon"
                     genesisAddr
-            let unsignedReq2 = bundleTx bundleReq2
+            let unsignedReq2 = envTx bundleReq2
                 signedReq2 =
                     addKeyWitness
                         genesisSignKey
@@ -396,7 +396,7 @@ cageFlowSpec bpPath scriptBytes =
                     emptySnap
                     req2TxIn
                     genesisAddr
-            let unsignedRetract = bundleTx bundleRetract
+            let unsignedRetract = envTx bundleRetract
                 signedRetract =
                     addKeyWitness
                         genesisSignKey

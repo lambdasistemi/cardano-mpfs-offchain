@@ -38,7 +38,10 @@ module Cardano.MPFS.TxBuilder.Real
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.Trie (TrieManager (..))
-import Cardano.MPFS.TxBuilder (TxBuilder (..))
+import Cardano.MPFS.TxBuilder
+    ( TxBuilder (..)
+    , UtxoProofFn
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig
     )
@@ -86,21 +89,23 @@ mkRealTxBuilder
     -- ^ Token and request state
     -> TrieManager IO
     -- ^ Per-token trie manager
+    -> UtxoProofFn
+    -- ^ CSMT inclusion proof lookup
     -> TxBuilder IO
-mkRealTxBuilder cfg prov st tm =
+mkRealTxBuilder cfg prov st tm proofFn =
     TxBuilder
-        { bootToken = bootTokenImpl cfg prov
+        { bootToken = bootTokenImpl cfg prov proofFn
         , requestInsert =
-            requestInsertImpl cfg prov st
+            requestInsertImpl cfg prov st proofFn
         , requestDelete =
-            requestDeleteImpl cfg prov st
+            requestDeleteImpl cfg prov st proofFn
         , requestUpdate =
-            requestUpdateImpl cfg prov st
+            requestUpdateImpl cfg prov st proofFn
         , updateToken =
-            updateTokenImpl cfg prov st tm
+            updateTokenImpl cfg prov st tm proofFn
         , retractRequest =
-            retractRequestImpl cfg prov st
+            retractRequestImpl cfg prov st proofFn
         , rejectRequests =
-            rejectRequestsImpl cfg prov st
-        , endToken = endTokenImpl cfg prov
+            rejectRequestsImpl cfg prov st proofFn
+        , endToken = endTokenImpl cfg prov proofFn
         }

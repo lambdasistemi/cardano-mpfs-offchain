@@ -84,8 +84,9 @@ import Cardano.MPFS.Provider
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    , ProofEnvelope (..)
+    , RejectProof (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -109,11 +110,12 @@ rejectRequestsImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> Addr
-    -> IO UnsignedTxBundle
-rejectRequestsImpl cfg prov _st snap tid addr = do
+    -> IO (ProofEnvelope RejectProof)
+rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
     -- 1. Query on-chain context
     (stateUtxo, reqUtxos, feeUtxo, pp) <-
         queryRejectContext cfg prov tid addr
@@ -147,7 +149,24 @@ rejectRequestsImpl cfg prov _st snap tid addr = do
             addr
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
-        Right tx -> pure (bareTxBundle snap tx)
+        Right tx -> do
+            stateWitness <- witness proofFn stateUtxo
+            reqWitnesses <- witnesses proofFn reqUtxos
+            fundingWitnesses <-
+                witnesses proofFn [feeUtxo]
+            pure
+                ProofEnvelope
+                    { envTx = tx
+                    , envSnapshot = snap
+                    , envProof =
+                        RejectProof
+                            { rejectState = stateWitness
+                            , rejectRequestIns =
+                                reqWitnesses
+                            , rejectFunding =
+                                fundingWitnesses
+                            }
+                    }
         Left err ->
             error
                 $ "rejectRequests: build failed: "

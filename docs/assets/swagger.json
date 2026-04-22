@@ -1,5 +1,20 @@
 {
     "definitions": {
+        "BootProofJSON": {
+            "description": "Proof payload for POST /tx/boot",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "funding"
+            ],
+            "type": "object"
+        },
         "BootRequest": {
             "description": "Boot a new token",
             "properties": {
@@ -9,6 +24,26 @@
             },
             "required": [
                 "address"
+            ],
+            "type": "object"
+        },
+        "BootTxResponse": {
+            "description": "Proof-bearing response for POST /tx/boot",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/BootProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
             ],
             "type": "object"
         },
@@ -55,6 +90,25 @@
             ],
             "type": "object"
         },
+        "EndProofJSON": {
+            "description": "Proof payload for POST /tx/end",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "state",
+                "funding"
+            ],
+            "type": "object"
+        },
         "EndRequest": {
             "description": "End a token",
             "properties": {
@@ -68,6 +122,26 @@
             "required": [
                 "token",
                 "address"
+            ],
+            "type": "object"
+        },
+        "EndTxResponse": {
+            "description": "Proof-bearing response for POST /tx/end",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/EndProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
             ],
             "type": "object"
         },
@@ -294,6 +368,32 @@
             ],
             "type": "object"
         },
+        "RejectProofJSON": {
+            "description": "Proof payload for POST /tx/reject",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "request_ins": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "state",
+                "request_ins",
+                "funding"
+            ],
+            "type": "object"
+        },
         "RejectRequest": {
             "description": "Reject Phase 3 expired requests for a token",
             "properties": {
@@ -307,6 +407,26 @@
             "required": [
                 "token",
                 "address"
+            ],
+            "type": "object"
+        },
+        "RejectTxResponse": {
+            "description": "Proof-bearing response for POST /tx/reject",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/RejectProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
             ],
             "type": "object"
         },
@@ -345,6 +465,41 @@
             ],
             "type": "object"
         },
+        "RequestProofJSON": {
+            "description": "Proof payload for POST /tx/request/{insert,delete,update}",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "funding"
+            ],
+            "type": "object"
+        },
+        "RequestTxResponse": {
+            "description": "Proof-bearing response for POST /tx/request/{insert,delete,update}",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/RequestProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
+            ],
+            "type": "object"
+        },
         "RequestsResponse": {
             "description": "Proof-bearing pending requests response",
             "properties": {
@@ -364,6 +519,29 @@
             ],
             "type": "object"
         },
+        "RetractProofJSON": {
+            "description": "Proof payload for POST /tx/retract",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "request_in": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                },
+                "state_ref": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "request_in",
+                "state_ref",
+                "funding"
+            ],
+            "type": "object"
+        },
         "RetractRequest": {
             "description": "Retract a pending request. UTxO format: txhash#ix",
             "properties": {
@@ -377,6 +555,26 @@
             "required": [
                 "utxo",
                 "address"
+            ],
+            "type": "object"
+        },
+        "RetractTxResponse": {
+            "description": "Proof-bearing response for POST /tx/retract",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/RetractProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
             ],
             "type": "object"
         },
@@ -484,6 +682,26 @@
             ],
             "type": "object"
         },
+        "TrieFactJSON": {
+            "description": "Trie read: key, optional value, and MPF proof against a trie root",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "mpf_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "key",
+                "value",
+                "mpf_proof"
+            ],
+            "type": "object"
+        },
         "TxInJSON": {
             "description": "UTxO reference",
             "properties": {
@@ -503,6 +721,43 @@
             ],
             "type": "object"
         },
+        "UpdateProofJSON": {
+            "description": "Proof payload for POST /tx/update",
+            "properties": {
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "requests": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedUtxo"
+                    },
+                    "type": "array"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                },
+                "trie_read": {
+                    "items": {
+                        "$ref": "#/definitions/TrieFactJSON"
+                    },
+                    "type": "array"
+                },
+                "trie_root": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "state",
+                "requests",
+                "funding",
+                "trie_root",
+                "trie_read"
+            ],
+            "type": "object"
+        },
         "UpdateRequest": {
             "description": "Process pending requests",
             "properties": {
@@ -516,6 +771,26 @@
             "required": [
                 "token",
                 "address"
+            ],
+            "type": "object"
+        },
+        "UpdateTxResponse": {
+            "description": "Proof-bearing response for POST /tx/update",
+            "properties": {
+                "proof": {
+                    "$ref": "#/definitions/UpdateProofJSON"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx",
+                "snapshot",
+                "proof"
             ],
             "type": "object"
         },
@@ -852,7 +1127,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/BootTxResponse"
                         }
                     },
                     "400": {
@@ -883,7 +1158,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/EndTxResponse"
                         }
                     },
                     "400": {
@@ -914,7 +1189,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/RejectTxResponse"
                         }
                     },
                     "400": {
@@ -945,7 +1220,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/RequestTxResponse"
                         }
                     },
                     "400": {
@@ -976,7 +1251,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/RequestTxResponse"
                         }
                     },
                     "400": {
@@ -1007,7 +1282,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/RequestTxResponse"
                         }
                     },
                     "400": {
@@ -1038,7 +1313,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/RetractTxResponse"
                         }
                     },
                     "400": {
@@ -1100,7 +1375,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/Hex"
+                            "$ref": "#/definitions/UpdateTxResponse"
                         }
                     },
                     "400": {

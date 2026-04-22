@@ -71,9 +71,10 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    ( BootProof (..)
+    , BundleSnapshot
+    , ProofEnvelope (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -90,12 +91,14 @@ bootTokenImpl
     -- ^ Cage script config
     -> Provider IO
     -- ^ Blockchain query interface
+    -> UtxoProofFn
+    -- ^ CSMT inclusion proof lookup
     -> BundleSnapshot
     -- ^ Snapshot this bundle will be anchored to
     -> Addr
     -- ^ Owner address (receives change, owns the token)
-    -> IO UnsignedTxBundle
-bootTokenImpl cfg prov snap addr = do
+    -> IO (ProofEnvelope BootProof)
+bootTokenImpl cfg prov proofFn snap addr = do
     pp <- queryProtocolParams prov
     utxos <- queryUTxOs prov addr
     case utxos of
@@ -208,4 +211,15 @@ bootTokenImpl cfg prov snap addr = do
                     allInputUtxos
                     addr
                     tx
-            pure (bareTxBundle snap balanced)
+            fundingWitnesses <-
+                witnesses proofFn allInputUtxos
+            pure
+                ProofEnvelope
+                    { envTx = balanced
+                    , envSnapshot = snap
+                    , envProof =
+                        BootProof
+                            { bootFunding =
+                                fundingWitnesses
+                            }
+                    }

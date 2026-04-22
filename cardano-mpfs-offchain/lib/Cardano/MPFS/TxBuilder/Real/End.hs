@@ -59,8 +59,9 @@ import Cardano.MPFS.Core.Types
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    , EndProof (..)
+    , ProofEnvelope (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -84,14 +85,16 @@ endTokenImpl
     -- ^ Cage script config
     -> Provider IO
     -- ^ Blockchain query interface
+    -> UtxoProofFn
+    -- ^ CSMT inclusion proof lookup
     -> BundleSnapshot
     -- ^ Snapshot this bundle will be anchored to
     -> TokenId
     -- ^ Token to retire
     -> Addr
     -- ^ Fee-paying address (receives remaining ADA)
-    -> IO UnsignedTxBundle
-endTokenImpl cfg prov snap tid addr = do
+    -> IO (ProofEnvelope EndProof)
+endTokenImpl cfg prov proofFn snap tid addr = do
     -- 1. Query cage UTxOs
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
@@ -187,4 +190,15 @@ endTokenImpl cfg prov snap tid addr = do
             [feeUtxo, stateUtxo]
             addr
             tx
-    pure (bareTxBundle snap balanced)
+    stateWitness <- witness proofFn stateUtxo
+    fundingWitnesses <- witnesses proofFn [feeUtxo]
+    pure
+        ProofEnvelope
+            { envTx = balanced
+            , envSnapshot = snap
+            , envProof =
+                EndProof
+                    { endState = stateWitness
+                    , endFunding = fundingWitnesses
+                    }
+            }

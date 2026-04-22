@@ -103,8 +103,9 @@ import Cardano.MPFS.Trie
     )
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    , ProofEnvelope (..)
+    , UpdateProof (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -126,15 +127,24 @@ updateTokenImpl
     -> Provider IO
     -> State IO
     -> TrieManager IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> Addr
-    -> IO UnsignedTxBundle
-updateTokenImpl cfg prov _st tm snap tid addr = do
+    -> IO (ProofEnvelope UpdateProof)
+updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
     -- 1. Query on-chain context
     (stateUtxo, reqUtxos, feeUtxo, pp) <-
         queryContext cfg prov tid addr
     let (stateIn, stateOut) = stateUtxo
+        oldRootBytes =
+            case extractCageDatum stateOut of
+                Just (StateDatum s) ->
+                    unOnChainRoot (stateRoot s)
+                _ ->
+                    error
+                        "updateToken: invalid \
+                        \state datum (root)"
     -- 2. Compute proofs via speculative trie
     (proofs, newRoot) <-
         computeProofs tm tid reqUtxos
@@ -173,6 +183,10 @@ updateTokenImpl cfg prov _st tm snap tid addr = do
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
         Right tx -> do
+            stateWitness <- witness proofFn stateUtxo
+            reqWitnesses <- witnesses proofFn reqUtxos
+            fundingWitnesses <-
+                witnesses proofFn [feeUtxo]
             let Coin fee =
                     tx ^. bodyTxL . feeTxBodyL
                 unsignedSize =
@@ -216,7 +230,20 @@ updateTokenImpl cfg prov _st tm snap tid addr = do
                     <> " getMinFee(0)="
                     <> show getMin
                     <> "\n"
-            pure (bareTxBundle snap tx)
+            pure
+                ProofEnvelope
+                    { envTx = tx
+                    , envSnapshot = snap
+                    , envProof =
+                        UpdateProof
+                            { updateState = stateWitness
+                            , updateRequests = reqWitnesses
+                            , updateFunding = fundingWitnesses
+                            , updateTrieRoot =
+                                oldRootBytes
+                            , updateTrieRead = []
+                            }
+                    }
         Left err ->
             error
                 $ "updateToken: build failed: "

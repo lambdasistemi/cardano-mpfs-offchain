@@ -52,6 +52,30 @@ module Cardano.MPFS.HTTP.Types
     , EndRequest (..)
     , SubmitRequest (..)
 
+      -- * Proof-bearing tx responses
+    , TrieFactJSON (..)
+    , trieFactToJSON
+    , witnessedInputToJSON
+    , bundleSnapshotToJSON
+    , BootProofJSON (..)
+    , RequestProofJSON (..)
+    , RetractProofJSON (..)
+    , RejectProofJSON (..)
+    , EndProofJSON (..)
+    , UpdateProofJSON (..)
+    , BootTxResponse (..)
+    , RequestTxResponse (..)
+    , RetractTxResponse (..)
+    , RejectTxResponse (..)
+    , EndTxResponse (..)
+    , UpdateTxResponse (..)
+    , mkBootTxResponse
+    , mkRequestTxResponse
+    , mkRetractTxResponse
+    , mkRejectTxResponse
+    , mkEndTxResponse
+    , mkUpdateTxResponse
+
       -- * Address parsing
     , parseAddr
     ) where
@@ -78,6 +102,7 @@ import Data.Swagger
     , required
     )
 import Data.Swagger qualified as Swagger
+import Data.Swagger.Declare (Declare)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -86,7 +111,9 @@ import GHC.IsList (IsList (..))
 import Servant.API (FromHttpApiData (..))
 
 import Cardano.Ledger.Address (decodeAddrEither)
+import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.BaseTypes (TxIx (..))
+import Cardano.Ledger.Binary (natVersion, serialize')
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
@@ -96,14 +123,29 @@ import Cardano.Crypto.Hash.Class qualified as Crypto
 
 import Cardano.MPFS.Core.Types
     ( Addr
+    , BlockId (..)
     , Coin (..)
+    , ConwayEra
     , Operation (..)
     , Request (..)
     , Root (..)
+    , SlotNo (..)
     , TokenId (..)
     , TokenState (..)
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
+import Cardano.MPFS.TxBuilder
+    ( BootProof (..)
+    , BundleSnapshot (..)
+    , EndProof (..)
+    , ProofEnvelope (..)
+    , RejectProof (..)
+    , RequestProof (..)
+    , RetractProof (..)
+    , TrieFact (..)
+    , UpdateProof (..)
+    , WitnessedInput (..)
+    )
 
 -- | Response for @GET \/status@.
 data StatusResponse = StatusResponse
@@ -711,6 +753,549 @@ instance FromJSON SubmitRequest where
         SubmitRequest <$> o .: "tx"
 
 -- ---------------------------------------------------------
+-- Proof-bearing tx envelope responses
+-- ---------------------------------------------------------
+
+-- | Convert a 'WitnessedInput' to its JSON wire form.
+-- Reuses 'WitnessedUtxo' because an input witness and a
+-- reference-UTxO witness carry the same triple: a 'TxIn',
+-- the CBOR-encoded 'TxOut', and a UTxO-CSMT inclusion
+-- proof. Verifiers treat the two cases identically.
+witnessedInputToJSON :: WitnessedInput -> WitnessedUtxo
+witnessedInputToJSON
+    WitnessedInput
+        { witnessedRef = tin
+        , witnessedTxOut = out
+        , witnessedCsmtProof = prf
+        } =
+        WitnessedUtxo
+            { wuTxIn = txInToJSON tin
+            , wuTxOut = Hex out
+            , wuProof = Hex prf
+            }
+
+-- | JSON representation of a 'TrieFact'.
+data TrieFactJSON = TrieFactJSON
+    { tfKey :: Hex
+    -- ^ Trie key the builder looked up
+    , tfValue :: Maybe Hex
+    -- ^ Value bound to 'tfKey', or 'Nothing' for an
+    -- absence fact
+    , tfMpfProof :: Hex
+    -- ^ MPF inclusion\/exclusion proof (hex)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TrieFactJSON where
+    toJSON TrieFactJSON{..} =
+        object
+            [ "key" .= tfKey
+            , "value" .= tfValue
+            , "mpf_proof" .= tfMpfProof
+            ]
+
+instance FromJSON TrieFactJSON where
+    parseJSON = withObject "TrieFactJSON" $ \o ->
+        TrieFactJSON
+            <$> o .: "key"
+            <*> o .: "value"
+            <*> o .: "mpf_proof"
+
+-- | Convert an internal 'TrieFact' to JSON.
+trieFactToJSON :: TrieFact -> TrieFactJSON
+trieFactToJSON
+    TrieFact
+        { factKey = k
+        , factValue = mv
+        , factMpfProof = p
+        } =
+        TrieFactJSON
+            { tfKey = Hex k
+            , tfValue = fmap Hex mv
+            , tfMpfProof = Hex p
+            }
+
+-- | Convert a 'BundleSnapshot' to the HTTP-level
+-- 'VerificationSnapshot'. They carry the same
+-- information — only the encoding differs (raw bytes
+-- vs. hex-wrapped JSON).
+bundleSnapshotToJSON
+    :: BundleSnapshot -> VerificationSnapshot
+bundleSnapshotToJSON
+    BundleSnapshot
+        { snapshotUtxoRoot = r
+        , snapshotSlot = SlotNo s
+        , snapshotBlockId = BlockId b
+        } =
+        VerificationSnapshot
+            { vsUtxoRoot = Hex r
+            , vsChainPoint =
+                ChainPointJSON
+                    { cpSlot = s
+                    , cpBlockId = Hex b
+                    }
+            }
+
+-- | Serialize a Conway-era 'Tx' to hex CBOR.
+serializeTxHex :: Tx ConwayEra -> Hex
+serializeTxHex = Hex . serialize' (natVersion @11)
+
+-- | Proof payload for @POST \/tx\/boot@ responses.
+newtype BootProofJSON = BootProofJSON
+    { bpFunding :: [WitnessedUtxo]
+    -- ^ Witnessed wallet inputs funding the boot tx
+    }
+    deriving (Eq, Show)
+
+instance ToJSON BootProofJSON where
+    toJSON BootProofJSON{..} =
+        object ["funding" .= bpFunding]
+
+instance FromJSON BootProofJSON where
+    parseJSON = withObject "BootProofJSON" $ \o ->
+        BootProofJSON <$> o .: "funding"
+
+-- | Proof payload for
+-- @POST \/tx\/request\/{insert,delete,update}@
+-- responses. All three request endpoints share the
+-- same shape: they only spend wallet inputs and create
+-- a fresh pending-request output.
+newtype RequestProofJSON = RequestProofJSON
+    { rqpFunding :: [WitnessedUtxo]
+    -- ^ Witnessed wallet inputs funding the request tx
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestProofJSON where
+    toJSON RequestProofJSON{..} =
+        object ["funding" .= rqpFunding]
+
+instance FromJSON RequestProofJSON where
+    parseJSON =
+        withObject "RequestProofJSON" $ \o ->
+            RequestProofJSON <$> o .: "funding"
+
+-- | Proof payload for @POST \/tx\/retract@ responses.
+data RetractProofJSON = RetractProofJSON
+    { rtpRequestIn :: WitnessedUtxo
+    -- ^ The pending-request UTxO being retracted
+    , rtpStateRef :: WitnessedUtxo
+    -- ^ The state UTxO referenced for its timing
+    -- parameters
+    , rtpFunding :: [WitnessedUtxo]
+    -- ^ Wallet inputs covering fees
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RetractProofJSON where
+    toJSON RetractProofJSON{..} =
+        object
+            [ "request_in" .= rtpRequestIn
+            , "state_ref" .= rtpStateRef
+            , "funding" .= rtpFunding
+            ]
+
+instance FromJSON RetractProofJSON where
+    parseJSON =
+        withObject "RetractProofJSON" $ \o ->
+            RetractProofJSON
+                <$> o .: "request_in"
+                <*> o .: "state_ref"
+                <*> o .: "funding"
+
+-- | Proof payload for @POST \/tx\/reject@ responses.
+data RejectProofJSON = RejectProofJSON
+    { rjpState :: WitnessedUtxo
+    -- ^ The consumed state UTxO
+    , rjpRequestIns :: [WitnessedUtxo]
+    -- ^ The pending-request UTxOs being rejected
+    , rjpFunding :: [WitnessedUtxo]
+    -- ^ Wallet inputs covering fees
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RejectProofJSON where
+    toJSON RejectProofJSON{..} =
+        object
+            [ "state" .= rjpState
+            , "request_ins" .= rjpRequestIns
+            , "funding" .= rjpFunding
+            ]
+
+instance FromJSON RejectProofJSON where
+    parseJSON = withObject "RejectProofJSON" $ \o ->
+        RejectProofJSON
+            <$> o .: "state"
+            <*> o .: "request_ins"
+            <*> o .: "funding"
+
+-- | Proof payload for @POST \/tx\/end@ responses.
+data EndProofJSON = EndProofJSON
+    { epState :: WitnessedUtxo
+    -- ^ The consumed state UTxO
+    , epFunding :: [WitnessedUtxo]
+    -- ^ Wallet inputs covering fees
+    }
+    deriving (Eq, Show)
+
+instance ToJSON EndProofJSON where
+    toJSON EndProofJSON{..} =
+        object
+            [ "state" .= epState
+            , "funding" .= epFunding
+            ]
+
+instance FromJSON EndProofJSON where
+    parseJSON = withObject "EndProofJSON" $ \o ->
+        EndProofJSON
+            <$> o .: "state"
+            <*> o .: "funding"
+
+-- | Proof payload for @POST \/tx\/update@ responses.
+-- Includes the trie-level MPF reads performed during
+-- batch application, rooted at the trie root encoded in
+-- the consumed state datum.
+data UpdateProofJSON = UpdateProofJSON
+    { upState :: WitnessedUtxo
+    -- ^ The consumed state UTxO
+    , upRequests :: [WitnessedUtxo]
+    -- ^ Pending-request UTxOs batched into this update
+    , upFunding :: [WitnessedUtxo]
+    -- ^ Wallet inputs covering fees
+    , upTrieRoot :: Hex
+    -- ^ Trie root from the consumed state datum
+    , upTrieRead :: [TrieFactJSON]
+    -- ^ MPF reads against 'upTrieRoot'
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UpdateProofJSON where
+    toJSON UpdateProofJSON{..} =
+        object
+            [ "state" .= upState
+            , "requests" .= upRequests
+            , "funding" .= upFunding
+            , "trie_root" .= upTrieRoot
+            , "trie_read" .= upTrieRead
+            ]
+
+instance FromJSON UpdateProofJSON where
+    parseJSON = withObject "UpdateProofJSON" $ \o ->
+        UpdateProofJSON
+            <$> o .: "state"
+            <*> o .: "requests"
+            <*> o .: "funding"
+            <*> o .: "trie_root"
+            <*> o .: "trie_read"
+
+-- | Response envelope for @POST \/tx\/boot@.
+data BootTxResponse = BootTxResponse
+    { btrTx :: Hex
+    -- ^ Unsigned transaction CBOR (hex)
+    , btrSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , btrProof :: BootProofJSON
+    -- ^ Per-endpoint proof payload
+    }
+    deriving (Eq, Show)
+
+instance ToJSON BootTxResponse where
+    toJSON BootTxResponse{..} =
+        object
+            [ "tx" .= btrTx
+            , "snapshot" .= btrSnapshot
+            , "proof" .= btrProof
+            ]
+
+instance FromJSON BootTxResponse where
+    parseJSON = withObject "BootTxResponse" $ \o ->
+        BootTxResponse
+            <$> o .: "tx"
+            <*> o .: "snapshot"
+            <*> o .: "proof"
+
+-- | Response envelope for
+-- @POST \/tx\/request\/{insert,delete,update}@.
+data RequestTxResponse = RequestTxResponse
+    { rqtTx :: Hex
+    , rqtSnapshot :: VerificationSnapshot
+    , rqtProof :: RequestProofJSON
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestTxResponse where
+    toJSON RequestTxResponse{..} =
+        object
+            [ "tx" .= rqtTx
+            , "snapshot" .= rqtSnapshot
+            , "proof" .= rqtProof
+            ]
+
+instance FromJSON RequestTxResponse where
+    parseJSON =
+        withObject "RequestTxResponse" $ \o ->
+            RequestTxResponse
+                <$> o .: "tx"
+                <*> o .: "snapshot"
+                <*> o .: "proof"
+
+-- | Response envelope for @POST \/tx\/retract@.
+data RetractTxResponse = RetractTxResponse
+    { rttTx :: Hex
+    , rttSnapshot :: VerificationSnapshot
+    , rttProof :: RetractProofJSON
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RetractTxResponse where
+    toJSON RetractTxResponse{..} =
+        object
+            [ "tx" .= rttTx
+            , "snapshot" .= rttSnapshot
+            , "proof" .= rttProof
+            ]
+
+instance FromJSON RetractTxResponse where
+    parseJSON =
+        withObject "RetractTxResponse" $ \o ->
+            RetractTxResponse
+                <$> o .: "tx"
+                <*> o .: "snapshot"
+                <*> o .: "proof"
+
+-- | Response envelope for @POST \/tx\/reject@.
+data RejectTxResponse = RejectTxResponse
+    { rjtTx :: Hex
+    , rjtSnapshot :: VerificationSnapshot
+    , rjtProof :: RejectProofJSON
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RejectTxResponse where
+    toJSON RejectTxResponse{..} =
+        object
+            [ "tx" .= rjtTx
+            , "snapshot" .= rjtSnapshot
+            , "proof" .= rjtProof
+            ]
+
+instance FromJSON RejectTxResponse where
+    parseJSON =
+        withObject "RejectTxResponse" $ \o ->
+            RejectTxResponse
+                <$> o .: "tx"
+                <*> o .: "snapshot"
+                <*> o .: "proof"
+
+-- | Response envelope for @POST \/tx\/end@.
+data EndTxResponse = EndTxResponse
+    { etTx :: Hex
+    , etSnapshot :: VerificationSnapshot
+    , etProof :: EndProofJSON
+    }
+    deriving (Eq, Show)
+
+instance ToJSON EndTxResponse where
+    toJSON EndTxResponse{..} =
+        object
+            [ "tx" .= etTx
+            , "snapshot" .= etSnapshot
+            , "proof" .= etProof
+            ]
+
+instance FromJSON EndTxResponse where
+    parseJSON = withObject "EndTxResponse" $ \o ->
+        EndTxResponse
+            <$> o .: "tx"
+            <*> o .: "snapshot"
+            <*> o .: "proof"
+
+-- | Response envelope for @POST \/tx\/update@.
+data UpdateTxResponse = UpdateTxResponse
+    { uptTx :: Hex
+    , uptSnapshot :: VerificationSnapshot
+    , uptProof :: UpdateProofJSON
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UpdateTxResponse where
+    toJSON UpdateTxResponse{..} =
+        object
+            [ "tx" .= uptTx
+            , "snapshot" .= uptSnapshot
+            , "proof" .= uptProof
+            ]
+
+instance FromJSON UpdateTxResponse where
+    parseJSON =
+        withObject "UpdateTxResponse" $ \o ->
+            UpdateTxResponse
+                <$> o .: "tx"
+                <*> o .: "snapshot"
+                <*> o .: "proof"
+
+-- | Package a 'ProofEnvelope BootProof' as the JSON
+-- response for @POST \/tx\/boot@.
+mkBootTxResponse
+    :: ProofEnvelope BootProof -> BootTxResponse
+mkBootTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof = BootProof{bootFunding = funding}
+        } =
+        BootTxResponse
+            { btrTx = serializeTxHex tx
+            , btrSnapshot = bundleSnapshotToJSON snap
+            , btrProof =
+                BootProofJSON
+                    { bpFunding =
+                        map witnessedInputToJSON funding
+                    }
+            }
+
+-- | Package a 'ProofEnvelope RequestProof' as the JSON
+-- response shared by the three request endpoints.
+mkRequestTxResponse
+    :: ProofEnvelope RequestProof
+    -> RequestTxResponse
+mkRequestTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof =
+            RequestProof{requestFunding = funding}
+        } =
+        RequestTxResponse
+            { rqtTx = serializeTxHex tx
+            , rqtSnapshot = bundleSnapshotToJSON snap
+            , rqtProof =
+                RequestProofJSON
+                    { rqpFunding =
+                        map witnessedInputToJSON funding
+                    }
+            }
+
+-- | Package a 'ProofEnvelope RetractProof' as the JSON
+-- response for @POST \/tx\/retract@.
+mkRetractTxResponse
+    :: ProofEnvelope RetractProof
+    -> RetractTxResponse
+mkRetractTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof =
+            RetractProof
+                { retractRequestIn = reqIn
+                , retractStateRef = stRef
+                , retractFunding = funding
+                }
+        } =
+        RetractTxResponse
+            { rttTx = serializeTxHex tx
+            , rttSnapshot = bundleSnapshotToJSON snap
+            , rttProof =
+                RetractProofJSON
+                    { rtpRequestIn =
+                        witnessedInputToJSON reqIn
+                    , rtpStateRef =
+                        witnessedInputToJSON stRef
+                    , rtpFunding =
+                        map witnessedInputToJSON funding
+                    }
+            }
+
+-- | Package a 'ProofEnvelope RejectProof' as the JSON
+-- response for @POST \/tx\/reject@.
+mkRejectTxResponse
+    :: ProofEnvelope RejectProof -> RejectTxResponse
+mkRejectTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof =
+            RejectProof
+                { rejectState = st
+                , rejectRequestIns = reqs
+                , rejectFunding = funding
+                }
+        } =
+        RejectTxResponse
+            { rjtTx = serializeTxHex tx
+            , rjtSnapshot = bundleSnapshotToJSON snap
+            , rjtProof =
+                RejectProofJSON
+                    { rjpState =
+                        witnessedInputToJSON st
+                    , rjpRequestIns =
+                        map witnessedInputToJSON reqs
+                    , rjpFunding =
+                        map witnessedInputToJSON funding
+                    }
+            }
+
+-- | Package a 'ProofEnvelope EndProof' as the JSON
+-- response for @POST \/tx\/end@.
+mkEndTxResponse
+    :: ProofEnvelope EndProof -> EndTxResponse
+mkEndTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof =
+            EndProof
+                { endState = st
+                , endFunding = funding
+                }
+        } =
+        EndTxResponse
+            { etTx = serializeTxHex tx
+            , etSnapshot = bundleSnapshotToJSON snap
+            , etProof =
+                EndProofJSON
+                    { epState =
+                        witnessedInputToJSON st
+                    , epFunding =
+                        map witnessedInputToJSON funding
+                    }
+            }
+
+-- | Package a 'ProofEnvelope UpdateProof' as the JSON
+-- response for @POST \/tx\/update@.
+mkUpdateTxResponse
+    :: ProofEnvelope UpdateProof -> UpdateTxResponse
+mkUpdateTxResponse
+    ProofEnvelope
+        { envTx = tx
+        , envSnapshot = snap
+        , envProof =
+            UpdateProof
+                { updateState = st
+                , updateRequests = reqs
+                , updateFunding = funding
+                , updateTrieRoot = trieRoot
+                , updateTrieRead = facts
+                }
+        } =
+        UpdateTxResponse
+            { uptTx = serializeTxHex tx
+            , uptSnapshot = bundleSnapshotToJSON snap
+            , uptProof =
+                UpdateProofJSON
+                    { upState =
+                        witnessedInputToJSON st
+                    , upRequests =
+                        map witnessedInputToJSON reqs
+                    , upFunding =
+                        map witnessedInputToJSON funding
+                    , upTrieRoot = Hex trieRoot
+                    , upTrieRead =
+                        map trieFactToJSON facts
+                    }
+            }
+
+-- ---------------------------------------------------------
 -- Swagger ToSchema instances
 -- ---------------------------------------------------------
 
@@ -1297,3 +1882,251 @@ instance ToSchema RequestsResponse where
             & description
                 ?~ "Proof-bearing pending requests \
                    \response"
+
+instance ToSchema TrieFactJSON where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        maybeHex <-
+            declareSchemaRef (Proxy @(Maybe Hex))
+        pure
+            $ Swagger.NamedSchema
+                (Just "TrieFactJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("key", hexSchema)
+                    , ("value", maybeHex)
+                    , ("mpf_proof", hexSchema)
+                    ]
+            & required
+                .~ ["key", "value", "mpf_proof"]
+            & description
+                ?~ "Trie read: key, optional value, and \
+                   \MPF proof against a trie root"
+
+instance ToSchema BootProofJSON where
+    declareNamedSchema _ = do
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        pure
+            $ Swagger.NamedSchema
+                (Just "BootProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [("funding", utxoListSchema)]
+            & required .~ ["funding"]
+            & description
+                ?~ "Proof payload for POST /tx/boot"
+
+instance ToSchema RequestProofJSON where
+    declareNamedSchema _ = do
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        pure
+            $ Swagger.NamedSchema
+                (Just "RequestProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [("funding", utxoListSchema)]
+            & required .~ ["funding"]
+            & description
+                ?~ "Proof payload for POST \
+                   \/tx/request/{insert,delete,update}"
+
+instance ToSchema RetractProofJSON where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        pure
+            $ Swagger.NamedSchema
+                (Just "RetractProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("request_in", utxoSchema)
+                    , ("state_ref", utxoSchema)
+                    , ("funding", utxoListSchema)
+                    ]
+            & required
+                .~ [ "request_in"
+                   , "state_ref"
+                   , "funding"
+                   ]
+            & description
+                ?~ "Proof payload for POST /tx/retract"
+
+instance ToSchema RejectProofJSON where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        pure
+            $ Swagger.NamedSchema
+                (Just "RejectProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("state", utxoSchema)
+                    , ("request_ins", utxoListSchema)
+                    , ("funding", utxoListSchema)
+                    ]
+            & required
+                .~ [ "state"
+                   , "request_ins"
+                   , "funding"
+                   ]
+            & description
+                ?~ "Proof payload for POST /tx/reject"
+
+instance ToSchema EndProofJSON where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        pure
+            $ Swagger.NamedSchema
+                (Just "EndProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("state", utxoSchema)
+                    , ("funding", utxoListSchema)
+                    ]
+            & required
+                .~ ["state", "funding"]
+            & description
+                ?~ "Proof payload for POST /tx/end"
+
+instance ToSchema UpdateProofJSON where
+    declareNamedSchema _ = do
+        utxoSchema <-
+            declareSchemaRef (Proxy @WitnessedUtxo)
+        utxoListSchema <-
+            declareSchemaRef
+                (Proxy @[WitnessedUtxo])
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        factListSchema <-
+            declareSchemaRef
+                (Proxy @[TrieFactJSON])
+        pure
+            $ Swagger.NamedSchema
+                (Just "UpdateProofJSON")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("state", utxoSchema)
+                    , ("requests", utxoListSchema)
+                    , ("funding", utxoListSchema)
+                    , ("trie_root", hexSchema)
+                    , ("trie_read", factListSchema)
+                    ]
+            & required
+                .~ [ "state"
+                   , "requests"
+                   , "funding"
+                   , "trie_root"
+                   , "trie_read"
+                   ]
+            & description
+                ?~ "Proof payload for POST /tx/update"
+
+instance ToSchema BootTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "BootTxResponse"
+            (Proxy @BootProofJSON)
+            "Proof-bearing response for POST /tx/boot"
+
+instance ToSchema RequestTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "RequestTxResponse"
+            (Proxy @RequestProofJSON)
+            "Proof-bearing response for POST \
+            \/tx/request/{insert,delete,update}"
+
+instance ToSchema RetractTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "RetractTxResponse"
+            (Proxy @RetractProofJSON)
+            "Proof-bearing response for POST \
+            \/tx/retract"
+
+instance ToSchema RejectTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "RejectTxResponse"
+            (Proxy @RejectProofJSON)
+            "Proof-bearing response for POST /tx/reject"
+
+instance ToSchema EndTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "EndTxResponse"
+            (Proxy @EndProofJSON)
+            "Proof-bearing response for POST /tx/end"
+
+instance ToSchema UpdateTxResponse where
+    declareNamedSchema _ =
+        txEnvelopeSchema
+            "UpdateTxResponse"
+            (Proxy @UpdateProofJSON)
+            "Proof-bearing response for POST /tx/update"
+
+-- | Shared schema body for @POST \/tx\/…@ response
+-- envelopes: all carry a hex-encoded tx, a verification
+-- snapshot, and a per-endpoint proof payload.
+txEnvelopeSchema
+    :: (ToSchema proofJson)
+    => Text
+    -> Proxy proofJson
+    -> Text
+    -> Declare
+        (Swagger.Definitions Swagger.Schema)
+        Swagger.NamedSchema
+txEnvelopeSchema name proofProxy desc = do
+    hexSchema <- declareSchemaRef (Proxy @Hex)
+    snapSchema <-
+        declareSchemaRef
+            (Proxy @VerificationSnapshot)
+    proofSchema <- declareSchemaRef proofProxy
+    pure
+        $ Swagger.NamedSchema (Just name)
+        $ mempty
+        & Swagger.type_ ?~ Swagger.SwaggerObject
+        & properties
+            .~ fromList
+                [ ("tx", hexSchema)
+                , ("snapshot", snapSchema)
+                , ("proof", proofSchema)
+                ]
+        & required .~ ["tx", "snapshot", "proof"]
+        & description ?~ desc

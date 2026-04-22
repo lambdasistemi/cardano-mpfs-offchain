@@ -50,47 +50,59 @@ verification metadata.
 
 ---
 
-## Slice 4: Simple proof-bearing tx endpoints (US2, #213)
+## Slice 4: Per-endpoint proof shapes + WASM verifier + simple tx endpoints (US2, #213)
 
-- [ ] T022 Implement witnessed-input bundle generation for `POST /tx/boot` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs`
-- [ ] T023 Implement witnessed-input bundle generation for `POST /tx/request/insert`, `POST /tx/request/delete`, and `POST /tx/request/update` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Request.hs`
-- [ ] T024 Implement witnessed-input bundle generation for `POST /tx/retract` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Retract.hs`
-- [ ] T025 Implement witnessed-input bundle generation for `POST /tx/reject` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Reject.hs`
-- [ ] T026 Implement witnessed-input bundle generation for `POST /tx/end` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/End.hs`
-- [ ] T027 Change transaction endpoint response schemas in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs` and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` for boot, request, retract, reject, and end
-- [ ] T028 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs` to serialize bundle responses instead of bare hex CBOR for those endpoints
-- [ ] T029 Extend `cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs` with coverage for proof-bearing bundles on the simple tx endpoints
-- [ ] T030 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` to verify inline bundle data and cross-check against `/utxo/*`
-- [ ] T031 Verify unit and E2E coverage for the simple tx endpoints
+- [ ] T022 Replace `UnsignedTxBundle` in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder.hs` with `ProofEnvelope p` plus per-endpoint proof records `BootProof`, `RequestProof`, `RetractProof`, `RejectProof`, `EndProof`, and `UpdateProof`; update the `TxBuilder` record so every method returns `m (ProofEnvelope <EndpointProof>)`
+- [ ] T023 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/TxBuilder.hs` to match the new per-endpoint return types (polymorphic `error` is enough)
+- [ ] T024 Add pure-Haskell shallow `TxOut` decoder in `cardano-mpfs-client/lib/Cardano/MPFS/Client/TxOut.hs` (extracts `(address bytes, ada lovelace)` via `cborg` / `binary` only — no `cardano-ledger-*`, no C FFI)
+- [ ] T025 Add cross-check test suite in `cardano-mpfs-offchain/test/Cardano/MPFS/Client/TxOutShallowSpec.hs` with positive property (matches ledger decoder across Shelley address × value × datum × ref-script generator), negative property (truncated prefixes and random bytes return `Left`), and regression corpus under `cardano-mpfs-offchain/test/vectors/txout-regression-corpus/`
+- [ ] T026 Add per-endpoint proof envelopes and JSON contracts in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Bundle.hs` (Haskell mirror of the server-side response types: `BootTxResponse`, `RequestTxResponse`, `RetractTxResponse`, `RejectTxResponse`, `EndTxResponse`)
+- [ ] T027 Add per-endpoint verifiers in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` following the shape `verify :: TrustedRoot -> ProofEnvelope p -> Either VerifyError ()`; the documented check list per endpoint (snapshot well-formedness, inputs-match-witnesses, per-witness ownership via shallow decode + CSMT path, output/datum/mint checks) lives beside the verifier source
+- [ ] T028 Change transaction endpoint response schemas for boot, request, retract, reject, and end in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs` and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` to per-endpoint response types; the endpoint URL is the discriminator, no tagged-union wrapper
+- [ ] T029 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs` to serialize per-endpoint proof responses instead of bare hex CBOR for those endpoints
+- [ ] T030 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs` to emit `ProofEnvelope BootProof` with real `TxIn`/`TxOut` on every `WitnessedInput` (CSMT proof bytes may start empty if not yet wired through the CSMT view)
+- [ ] T031 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Request.hs` to emit `ProofEnvelope RequestProof` for `insert`, `delete`, and `update`
+- [ ] T032 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Retract.hs` to emit `ProofEnvelope RetractProof` with named state-reference + request + funding witnesses
+- [ ] T033 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Reject.hs` to emit `ProofEnvelope RejectProof` with named state + rejected-requests + funding witnesses
+- [ ] T034 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/End.hs` to emit `ProofEnvelope EndProof` with named state + funding witnesses
+- [ ] T035 Wire the UTxO-CSMT view access through the builder so `witnessedCsmtProof` carries real proof bytes against `envSnapshot.snapshotUtxoRoot` for every witness in the five migrated endpoints
+- [ ] T036 Extend `cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs` with coverage for proof-bearing envelopes on the simple tx endpoints, including named-field presence, inputs-match-witnesses set equality, and deterministic ordering for list-valued fields
+- [ ] T037 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` with a stub traversal test that calls each migrated endpoint, parses the per-endpoint response, walks every named `WitnessedInput` via the client verifier, and confirms inline proof data cross-checks against `/utxo/*`
+- [ ] T038 Verify unit and E2E coverage for the simple tx endpoints
+- [ ] T039 Run the `cardano-mpfs-client` cross-compile spike (GHC-WASM and GHC-JS) and record the outcome; slice 4 MUST NOT merge until the shallow decoder and verifiers build successfully on both targets
 
 **Checkpoint**: All tx-building endpoints except `POST /tx/update`
-return proof-bearing bundles.
+return typed per-endpoint proof envelopes; a WASM-safe client verifier
+walks every proof shape; the shallow `TxOut` decoder is cross-checked
+against the ledger decoder.
 
 ---
 
 ## Slice 5: `POST /tx/update` proof bundle (US2, #214)
 
-- [ ] T032 Implement proof-bearing update bundles in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Update.hs`, including witnessed state input, witnessed request inputs, baked-in `utxo_root`, baked-in indexed `chainpoint`, and MPF proofs for contributing request keys
-- [ ] T033 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs`, and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs` for the `POST /tx/update` response object
-- [ ] T034 Extend `cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs` to verify proof-to-request association in batched update bundles
-- [ ] T035 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/CageFlowSpec.hs` to verify update bundles before signing
-- [ ] T036 Verify update bundle tests pass
+- [ ] T040 Implement proof-bearing update envelopes in `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Update.hs`, emitting `ProofEnvelope UpdateProof` with witnessed state input, witnessed request inputs, funding inputs, the trie root from the consumed state datum, and MPF proofs for every contributing request key
+- [ ] T041 Update `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs`, and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs` for the `POST /tx/update` response object
+- [ ] T042 Extend `cardano-mpfs-client/lib/Cardano/MPFS/Client/Bundle.hs` and `Verify.hs` with the `UpdateProof` JSON contract and the per-endpoint verifier (walks state input, batched requests, funding, and every `TrieFact` against the datum-encoded trie root)
+- [ ] T043 Extend `cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs` to verify proof-to-request association in batched update envelopes
+- [ ] T044 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/CageFlowSpec.hs` to verify update envelopes end-to-end via the client verifier before signing
+- [ ] T045 Verify update envelope tests pass
 
 **Checkpoint**: The hardest batch update flow is fully verifiable before
-signing.
+signing by the same WASM-safe client that covers the simple endpoints.
 
 ---
 
 ## Slice 6: Swagger + contract checks (US3, #215)
 
-- [ ] T037 Update Swagger `ToSchema` coverage in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` and tighten docs in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Swagger.hs` if needed
-- [ ] T038 Regenerate `docs/assets/swagger.json` with `just update-swagger`
-- [ ] T039 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` with cross-endpoint contract checks for snapshot/root consistency, including `/status` versus `/utxo/root` and baked-in `chainpoint` matching
-- [ ] T040 Run `just ci`
-- [ ] T041 Update the PR description, push, and wait for CI before merge
+- [ ] T046 Update Swagger `ToSchema` coverage in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs` and tighten docs in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Swagger.hs` if needed
+- [ ] T047 Regenerate `docs/assets/swagger.json` with `just update-swagger`
+- [ ] T048 Extend `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs` with cross-endpoint contract checks for snapshot/root consistency, including `/status` versus `/utxo/root` and baked-in `chainpoint` matching
+- [ ] T049 Wire the `cardano-mpfs-client` cross-target QuickCheck suite (GHC-native / GHC-WASM / GHC-JS byte-identity of `Either VerifyError a`) into CI per Constitution IX
+- [ ] T050 Run `just ci`
+- [ ] T051 Update the PR description, push, and wait for CI before merge
 
 **Checkpoint**: The proof-bearing API contract is documented, tested,
-and ready for review.
+and ready for review on every runtime the verifier ships to.
 
 ---
 
@@ -100,10 +112,10 @@ and ready for review.
 T001-T004 -> T005
 T005 -> T006-T014
 T014 -> T015-T021
-T015-T021 -> T022-T031
-T015-T021 -> T032-T036
-T022-T031 -> T037-T041
-T032-T036 -> T037-T041
+T015-T021 -> T022-T039
+T015-T021 -> T040-T045
+T022-T039 -> T046-T051
+T040-T045 -> T046-T051
 ```
 
 ## Notes
