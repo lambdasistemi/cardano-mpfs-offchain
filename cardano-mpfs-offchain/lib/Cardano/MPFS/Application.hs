@@ -619,6 +619,7 @@ withApplication cfg action = do
                                         prov
                                         st
                                         tm
+                                        proof
                                 , utxoExists = exists
                                 , resolveUtxo = resolve
                                 , awaitUtxo =

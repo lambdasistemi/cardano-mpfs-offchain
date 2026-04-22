@@ -108,8 +108,8 @@ import Cardano.MPFS.Submitter
     )
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
+    , ProofEnvelope (..)
     , TxBuilder (..)
-    , UnsignedTxBundle (..)
     )
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
@@ -383,11 +383,11 @@ signSubmitAwait
     :: Int
     -> Application
     -> Context IO
-    -> IO UnsignedTxBundle
+    -> IO (ProofEnvelope p)
     -> IO (Tx ConwayEra)
 signSubmitAwait timeout app ctx buildBundle = do
     bundle <- buildBundle
-    let unsigned = bundleTx bundle
+    let unsigned = envTx bundle
         signed =
             addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed

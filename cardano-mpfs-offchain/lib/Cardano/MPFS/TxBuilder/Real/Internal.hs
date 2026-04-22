@@ -61,12 +61,17 @@ module Cardano.MPFS.TxBuilder.Real.Internal
 
       -- * Refund computation
     , computeRefund
+
+      -- * CSMT-backed witness construction
+    , witness
+    , witnesses
     ) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Word (Word32)
 import Lens.Micro ((&), (.~), (^.))
@@ -123,6 +128,10 @@ import Cardano.Ledger.BaseTypes
     , StrictMaybe
     , TxIx (..)
     )
+import Cardano.Ledger.Binary
+    ( natVersion
+    , serialize'
+    )
 import Cardano.Ledger.Core
     ( Script
     , extractHash
@@ -178,6 +187,10 @@ import Control.Exception (SomeException, try)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.TxBuilder
+    ( UtxoProofFn
+    , WitnessedInput (..)
+    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
@@ -633,3 +646,30 @@ computeRefund pp net tipAmount perReqFee reqOut =
     in  mkBasicTxOut
             refundAddr
             (inject (max rawRefund minCoin))
+
+-- | Wrap a @(TxIn, TxOut)@ pair as a 'WitnessedInput',
+-- pulling the CSMT inclusion proof from the indexer
+-- via the injected 'UtxoProofFn'. A missing proof
+-- becomes @BS.empty@; the downstream verifier rejects
+-- that case.
+witness
+    :: UtxoProofFn
+    -> (TxIn, TxOut ConwayEra)
+    -> IO WitnessedInput
+witness proofFn (tin, tout) = do
+    mProof <- proofFn tin
+    pure
+        WitnessedInput
+            { witnessedRef = tin
+            , witnessedTxOut =
+                serialize' (natVersion @11) tout
+            , witnessedCsmtProof =
+                fromMaybe BS.empty mProof
+            }
+
+-- | List version of 'witness'.
+witnesses
+    :: UtxoProofFn
+    -> [(TxIn, TxOut ConwayEra)]
+    -> IO [WitnessedInput]
+witnesses proofFn = traverse (witness proofFn)

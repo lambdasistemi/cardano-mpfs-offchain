@@ -151,14 +151,18 @@ response, extract `utxo_root` and `chainpoint`, and verify.
 ### Slice 3: Rich transaction builder boundary
 
 Replace the current `TxBuilder` return type of bare `Tx ConwayEra` with
-a proof-bearing bundle type that can carry:
+a first-cut proof-bearing bundle type that carries:
 
 - the unsigned transaction
 - the set of consumed inputs as witnessed UTxOs
 - baked-in `utxo_root` and indexed `chainpoint`
 - optional trie proof payloads for trie-dependent operations
 
-Update mocks and the top-level wiring in `TxBuilder/Real.hs`.
+Update mocks and the top-level wiring in `TxBuilder/Real.hs`. This
+slice landed as a flat `UnsignedTxBundle` with a single
+`bundleInputs :: [WitnessedInput]` field; slice 4 narrows that shape
+into per-endpoint proof records once the endpoint-specific roles
+(state, pending request, state reference, funding) are clear.
 
 **Files**: `TxBuilder.hs`, `TxBuilder/Real.hs`,
 `Mock/TxBuilder.hs`, `test/Cardano/MPFS/TxBuilderSpec.hs`
@@ -168,31 +172,65 @@ enough to reconstruct MPF proof intent or stable proof-to-request
 association for batched flows. It starts only after the read-side
 HTTP-client scenario is accepted.
 
-### Slice 4: Simple tx endpoints on the new bundle type
+### Slice 4: Per-endpoint proof shapes + WASM verifier + simple tx endpoints
 
-Migrate the tx endpoints that only need witnessed consumed inputs and,
-at most, minimal state context:
+This slice is structured as a typed vertical, not a flat migration.
+It lands three coupled changes behind one merge:
 
-- `POST /tx/boot`
-- `POST /tx/request/insert`
-- `POST /tx/request/delete`
-- `POST /tx/request/update`
-- `POST /tx/retract`
-- `POST /tx/reject`
-- `POST /tx/end`
+1. **Typed per-endpoint proof shapes** replace the flat bundle from
+   slice 3. `TxBuilder` methods return `ProofEnvelope p` where `p` is
+   one of `BootProof`, `RequestProof`, `RetractProof`, `RejectProof`,
+   or `EndProof`. Every `WitnessedInput` inside `p` has a named field
+   (state / requests / state reference / funding) that documents its
+   role, and the verifier walks those fields directly.
 
-Boot omits MPF sections entirely; the others include them only when the
-builder actually relies on trie/state facts that the client must trust.
-All of them still carry `utxo_root` and indexed `chainpoint`.
+2. **WASM-compatible client verifier**. `cardano-mpfs-client` gains a
+   pure-Haskell shallow `TxOut` decoder that extracts
+   `(address bytes, ada lovelace)` from Conway `TxOut` CBOR without
+   depending on `cardano-ledger-*` or any C FFI. A cross-check test
+   suite in `cardano-mpfs-offchain` proves the shallow decoder agrees
+   byte-for-byte with the authoritative ledger decoder across a dense
+   generator and a pinned regression corpus. This is the prerequisite
+   the #208 plan marks as a hard gate for slice 4 (see "Follow-up:
+   cross-compile spike for `cardano-mpfs-client`"): the verifier has
+   no right to exist until it can be cross-compiled to wallet runtimes
+   that cannot pull ledger.
 
-**Files**: `TxBuilder/Real/Boot.hs`,
-`TxBuilder/Real/Request.hs`,
-`TxBuilder/Real/Retract.hs`,
-`TxBuilder/Real/Reject.hs`,
-`TxBuilder/Real/End.hs`,
+3. **Simple tx endpoints on the new shapes**. The five endpoints below
+   migrate to the typed shapes, the new response schemas, and the
+   matching per-endpoint verifiers in `cardano-mpfs-client`:
+
+   - `POST /tx/boot`
+   - `POST /tx/request/insert`
+   - `POST /tx/request/delete`
+   - `POST /tx/request/update`
+   - `POST /tx/retract`
+   - `POST /tx/reject`
+   - `POST /tx/end`
+
+   Boot omits MPF sections entirely; the others include them only when
+   the builder actually relies on trie/state facts that the client must
+   trust. All of them carry `utxo_root` and indexed `chainpoint`.
+
+The slice opens with the shallow decoder and cross-check suite landing
+first (as the narrowest bisect-safe commit). The Real-impl updates then
+produce structurally valid proof payloads that thread through to the
+HTTP response schema and the client verifier. A stub E2E test walks
+each proof shape via the client verifier as soon as the shapes exist,
+so the "traverse the proof" scenario is demonstrated before any of the
+real CSMT proof bytes are wired through.
+
+**Files**: `TxBuilder.hs`, `TxBuilder/Real/Boot.hs`,
+`TxBuilder/Real/Request.hs`, `TxBuilder/Real/Retract.hs`,
+`TxBuilder/Real/Reject.hs`, `TxBuilder/Real/End.hs`,
 `HTTP/API.hs`, `HTTP/Types.hs`, `HTTP/Server.hs`,
+`cardano-mpfs-client/lib/Cardano/MPFS/Client/TxOut.hs`,
+`cardano-mpfs-client/lib/Cardano/MPFS/Client/Bundle.hs`,
+`cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs`,
+`test/Cardano/MPFS/Client/TxOutShallowSpec.hs`,
 `test/Cardano/MPFS/TxBuilderSpec.hs`,
-`e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs`
+`e2e-test/Cardano/MPFS/E2E/HTTPLifecycleSpec.hs`,
+`test/vectors/txout-regression-corpus/*.hex`
 
 ### Slice 5: `POST /tx/update` proof bundle
 
@@ -368,11 +406,54 @@ For this umbrella the Lean artifacts to land before slice 4 are:
 3. The fold theorem: `verify = foldM verifyNode utxoRoot bundle`
    accepts iff every nested check accepts.
 
+### Shallow `TxOut` decoder and cross-check test suite
+
+Full ledger-native decoding on the client is ruled out: the `TxOut`
+decoder inside `cardano-ledger-conway` transitively pulls
+`cardano-crypto-class`, which binds to `libsodium`, `blst`, and
+`secp256k1` via C FFI. None of those cross-compile to GHC-WASM or
+GHC-JS, and swapping or vendoring them for the verifier adds more
+attack surface than verifying the narrow slice of a `TxOut` we
+actually look at.
+
+The slice 4 answer is a shallow pure-Haskell decoder in
+`cardano-mpfs-client` that extracts only `(address bytes, ada)` from a
+Conway `TxOut` CBOR blob, plus a cross-check test suite in
+`cardano-mpfs-offchain` that proves the shallow decoder agrees
+byte-for-byte with the ledger decoder across the full Conway-era
+generator. This earns the decoder its keep: the server-side test has
+access to both decoders and asserts equality; the client ships only
+the shallow one.
+
+Test coverage:
+
+- **Generator**: every Shelley address shape (payment × stake =
+  KeyHash / ScriptHash / Pointer / absent), every value shape
+  (ada-only, ada + 1 asset, ada + N assets across M policies), every
+  datum variant (none, hash, short inline, long inline), and both
+  presence and absence of a reference script.
+- **Positive property**: for every generated `txOut`, the shallow
+  decoder on `serialize' (natVersion @11) txOut` returns the same
+  `(addr, ada)` pair as `(txOut ^. addrTxOutL, txOut ^. coinTxOutL)`.
+- **Negative property**: every truncated prefix of a valid CBOR blob
+  is rejected with `Left _` and never produces a `Right` or an
+  exception.
+- **Regression corpus**: pinned real hex blobs from preprod / mainnet
+  are re-decoded on every ledger dependency bump, so silent CBOR
+  layout drift fails CI rather than silently diverging verifier
+  behaviour.
+- **Run volume**: ≥ 1000 shrinks per property in CI.
+
+Acceptance: any mismatch blocks the client. We either fix the shallow
+decoder (widen its coverage) or discover an upstream ledger change
+that requires a release bump of the decoder spec. Silent divergence is
+not an option.
+
 ### Follow-up: cross-compile spike for `cardano-mpfs-client`
 
 Principle IX is currently aspirational for this repo — slice 2 ships a
 GHC-native verifier, but no WASM/JS build has been proven. Before
-slice 4 lands we MUST run a half-day spike that:
+slice 4 merges we MUST run a short spike that:
 
 - attempts a GHC-WASM build of `cardano-mpfs-client` end-to-end,
 - attempts the GHC-JS backend build of the same package,
@@ -382,8 +463,10 @@ slice 4 lands we MUST run a half-day spike that:
 
 This spike is a hard prerequisite for slices 4–6: if the verifier
 cannot be compiled to a wallet runtime, the proof-bearing tx
-endpoints have no client. Tracking issue to be filed under the #208
-umbrella.
+endpoints have no client. Because slice 4 introduces the shallow
+`TxOut` decoder inside `cardano-mpfs-client`, the spike also verifies
+that the decoder (and only pure-Haskell transitive deps) survives the
+cross-target matrix.
 
 ## Risks
 

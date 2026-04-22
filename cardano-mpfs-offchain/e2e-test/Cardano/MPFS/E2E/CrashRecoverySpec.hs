@@ -43,8 +43,8 @@ import Cardano.MPFS.Submitter
 import Cardano.MPFS.Trace (AppTrace (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
+    , ProofEnvelope (..)
     , TxBuilder (..)
-    , UnsignedTxBundle (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -330,7 +330,7 @@ bootAndAwait :: Context IO -> IO TokenId
 bootAndAwait ctx = do
     bundle <-
         bootToken (txBuilder ctx) emptySnap genesisAddr
-    let unsignedBoot = bundleTx bundle
+    let unsignedBoot = envTx bundle
         signed =
             addKeyWitness genesisSignKey unsignedBoot
     result <- submitTx (submitter ctx) signed

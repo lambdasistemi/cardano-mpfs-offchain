@@ -48,7 +48,6 @@ import Cardano.Ledger.Binary
     ( DecoderError
     , decodeFull'
     , natVersion
-    , serialize'
     )
 import Cardano.Ledger.Hashes
     ( extractHash
@@ -79,26 +78,38 @@ import Cardano.MPFS.HTTP.Swagger
     )
 import Cardano.MPFS.HTTP.Types
     ( BootRequest (..)
+    , BootTxResponse
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
+    , EndTxResponse
     , FactResponse (..)
     , FactWitness (..)
     , InsertRequest (..)
     , ProofResponse (..)
     , RejectRequest (..)
+    , RejectTxResponse
+    , RequestTxResponse
     , RequestsResponse (..)
     , RetractRequest (..)
+    , RetractTxResponse
     , StatusResponse (..)
     , SubmitRequest (..)
     , TokenIdJSON (..)
     , TokenResponse (..)
     , UpdateRequest (..)
+    , UpdateTxResponse
     , UpdateValueRequest (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
+    , mkBootTxResponse
+    , mkEndTxResponse
+    , mkRejectTxResponse
+    , mkRequestTxResponse
+    , mkRetractTxResponse
+    , mkUpdateTxResponse
     , parseAddr
     , requestToJSON
     , tokenStateToJSON
@@ -112,10 +123,7 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
-import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot (..)
-    , UnsignedTxBundle (..)
-    )
+import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Cardano.MPFS.TxBuilder qualified as Tx
 
 -- | Combined API with Swagger UI.
@@ -560,10 +568,6 @@ parseTxIdRaw bs =
 -- Transaction handlers
 -- ---------------------------------------------------------
 
--- | Serialize a 'Tx ConwayEra' to hex CBOR.
-serializeTx :: Tx ConwayEra -> Hex
-serializeTx = Hex . serialize' (natVersion @11)
-
 -- | Parse an address from hex or throw 400.
 requireAddr :: Hex -> Handler Addr
 requireAddr h =
@@ -577,17 +581,21 @@ requireAddr h =
                     }
 
 txBootHandler
-    :: Context IO -> BootRequest -> Handler Hex
+    :: Context IO
+    -> BootRequest
+    -> Handler BootTxResponse
 txBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
     snap <- requireBundleSnapshot ctx
     bundle <-
         liftIO
             $ Tx.bootToken (txBuilder ctx) snap addr
-    pure (serializeTx (bundleTx bundle))
+    pure (mkBootTxResponse bundle)
 
 txInsertHandler
-    :: Context IO -> InsertRequest -> Handler Hex
+    :: Context IO
+    -> InsertRequest
+    -> Handler RequestTxResponse
 txInsertHandler
     ctx
     InsertRequest
@@ -607,10 +615,12 @@ txInsertHandler
                     k
                     v
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkRequestTxResponse bundle)
 
 txDeleteHandler
-    :: Context IO -> DeleteRequest -> Handler Hex
+    :: Context IO
+    -> DeleteRequest
+    -> Handler RequestTxResponse
 txDeleteHandler
     ctx
     DeleteRequest
@@ -630,12 +640,12 @@ txDeleteHandler
                     k
                     v
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkRequestTxResponse bundle)
 
 txUpdateValueHandler
     :: Context IO
     -> UpdateValueRequest
-    -> Handler Hex
+    -> Handler RequestTxResponse
 txUpdateValueHandler
     ctx
     UpdateValueRequest
@@ -657,12 +667,12 @@ txUpdateValueHandler
                     oldV
                     newV
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkRequestTxResponse bundle)
 
 txRejectHandler
     :: Context IO
     -> RejectRequest
-    -> Handler Hex
+    -> Handler RejectTxResponse
 txRejectHandler
     ctx
     RejectRequest
@@ -678,10 +688,12 @@ txRejectHandler
                     snap
                     tid
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkRejectTxResponse bundle)
 
 txUpdateHandler
-    :: Context IO -> UpdateRequest -> Handler Hex
+    :: Context IO
+    -> UpdateRequest
+    -> Handler UpdateTxResponse
 txUpdateHandler
     ctx
     UpdateRequest
@@ -697,10 +709,12 @@ txUpdateHandler
                     snap
                     tid
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkUpdateTxResponse bundle)
 
 txRetractHandler
-    :: Context IO -> RetractRequest -> Handler Hex
+    :: Context IO
+    -> RetractRequest
+    -> Handler RetractTxResponse
 txRetractHandler
     ctx
     RetractRequest
@@ -717,10 +731,12 @@ txRetractHandler
                     snap
                     txIn
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkRetractTxResponse bundle)
 
 txEndHandler
-    :: Context IO -> EndRequest -> Handler Hex
+    :: Context IO
+    -> EndRequest
+    -> Handler EndTxResponse
 txEndHandler
     ctx
     EndRequest
@@ -736,7 +752,7 @@ txEndHandler
                     snap
                     tid
                     addr
-        pure (serializeTx (bundleTx bundle))
+        pure (mkEndTxResponse bundle)
 
 txSubmitHandler
     :: Context IO -> SubmitRequest -> Handler Hex

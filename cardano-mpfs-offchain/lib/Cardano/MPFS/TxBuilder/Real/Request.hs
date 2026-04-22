@@ -55,8 +55,9 @@ import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State (State (..), Tokens (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    , ProofEnvelope (..)
+    , RequestProof (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -72,6 +73,7 @@ requestInsertImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> ByteString
@@ -79,12 +81,13 @@ requestInsertImpl
     -> ByteString
     -- ^ Value to insert
     -> Addr
-    -> IO UnsignedTxBundle
-requestInsertImpl cfg prov st snap tid key value =
+    -> IO (ProofEnvelope RequestProof)
+requestInsertImpl cfg prov st proofFn snap tid key value =
     requestImpl
         cfg
         prov
         st
+        proofFn
         snap
         tid
         key
@@ -95,6 +98,7 @@ requestDeleteImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> ByteString
@@ -102,12 +106,13 @@ requestDeleteImpl
     -> ByteString
     -- ^ Old value (for on-chain proof)
     -> Addr
-    -> IO UnsignedTxBundle
-requestDeleteImpl cfg prov st snap tid key val =
+    -> IO (ProofEnvelope RequestProof)
+requestDeleteImpl cfg prov st proofFn snap tid key val =
     requestImpl
         cfg
         prov
         st
+        proofFn
         snap
         tid
         key
@@ -118,6 +123,7 @@ requestUpdateImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> ByteString
@@ -127,11 +133,12 @@ requestUpdateImpl
     -> ByteString
     -- ^ New value
     -> Addr
-    -> IO UnsignedTxBundle
+    -> IO (ProofEnvelope RequestProof)
 requestUpdateImpl
     cfg
     prov
     st
+    proofFn
     snap
     tid
     key
@@ -141,6 +148,7 @@ requestUpdateImpl
             cfg
             prov
             st
+            proofFn
             snap
             tid
             key
@@ -159,6 +167,7 @@ requestImpl
     :: CageConfig
     -> Provider IO
     -> State IO
+    -> UtxoProofFn
     -> BundleSnapshot
     -> TokenId
     -> ByteString
@@ -167,8 +176,8 @@ requestImpl
     -- ^ Insert, Delete, or Update
     -> Addr
     -- ^ Requester's address
-    -> IO UnsignedTxBundle
-requestImpl cfg prov st snap tid key op addr = do
+    -> IO (ProofEnvelope RequestProof)
+requestImpl cfg prov st proofFn snap tid key op addr = do
     mTs <- getToken (tokens st) tid
     LocatedTokenState
         { tokenState = TokenState{tip = Coin mf}
@@ -218,8 +227,19 @@ requestImpl cfg prov st snap tid key op addr = do
         Left err ->
             error
                 $ "requestImpl: " <> show err
-        Right br ->
-            pure (bareTxBundle snap (balancedTx br))
+        Right br -> do
+            fundingWitnesses <-
+                witnesses proofFn [feeUtxo]
+            pure
+                ProofEnvelope
+                    { envTx = balancedTx br
+                    , envSnapshot = snap
+                    , envProof =
+                        RequestProof
+                            { requestFunding =
+                                fundingWitnesses
+                            }
+                    }
 
 -- | Compute the ADA to lock in a request output.
 --

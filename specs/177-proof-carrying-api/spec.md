@@ -77,9 +77,11 @@ input, and every trie-dependent datum used by the builder.
 2. **Given** `POST /tx/request/insert`, `POST /tx/request/delete`,
    `POST /tx/request/update`, `POST /tx/retract`, `POST /tx/reject`, or
    `POST /tx/end`, **When** the client builds a transaction, **Then**
-   the response includes the unsigned transaction plus proof-bearing
-   input witnesses, `utxo_root`, and indexed `chainpoint` sufficient to
-   verify every consumed UTxO before signing.
+   the response includes the unsigned transaction plus a per-endpoint
+   proof shape that names each witnessed input's role (state, pending
+   request, state reference, or funding), the `utxo_root`, and the
+   indexed `chainpoint` sufficient to verify every consumed UTxO
+   before signing.
 3. **Given** `POST /tx/boot`, **When** the client builds the initial
    boot transaction, **Then** the response includes the unsigned
    transaction and proof-bearing witnesses for all consumed wallet
@@ -89,6 +91,18 @@ input, and every trie-dependent datum used by the builder.
    batch, **When** the response is returned, **Then** proofs remain
    associated with the exact inputs and logical request keys they
    justify.
+5. **Given** any proof-bearing transaction response, **When** the
+   client verifies the proof, **Then** the verification runs entirely in
+   pure Haskell inside `cardano-mpfs-client`, without any dependency on
+   `cardano-ledger-*` libraries, so the same verifier compiles to
+   GHC-WASM and GHC-JS per Constitution IX.
+6. **Given** the shallow `TxOut` decoder shipped inside
+   `cardano-mpfs-client`, **When** the cross-check test suite in the
+   server repo runs, **Then** the shallow decoder produces byte-
+   identical `(address, ada)` output to the authoritative
+   `cardano-ledger-conway` decoder across every generated TxOut and the
+   pinned regression corpus, and rejects every truncated prefix of a
+   valid CBOR blob.
 
 ---
 
@@ -199,6 +213,39 @@ that those values can be compared with `GET /status` and `GET /utxo/root`.
   endpoint that returns the same indexed UTxO-CSMT root as `GET /status`,
   so debugging and isolated deployments can use this service as the root
   source of truth even without a separate CSMT endpoint.
+- **FR-017**: Transaction-building endpoints MUST return per-endpoint
+  proof shapes whose named fields encode the role of every witnessed
+  input (state, pending request, state reference, funding). Flat
+  undifferentiated input lists are not acceptable. The endpoint URL is
+  the discriminator; no tagged-union wrapper is added to the JSON.
+- **FR-018**: `cardano-mpfs-client` MUST ship a pure-Haskell shallow
+  `TxOut` decoder that extracts at minimum the address bytes and the
+  ada (lovelace) amount from Conway-era `TxOut` CBOR. The decoder MUST
+  NOT depend on `cardano-ledger-*` or any C FFI, so the verifier stays
+  buildable with the GHC-WASM and GHC-JS backends per Constitution IX.
+- **FR-019**: A cross-check test suite in `cardano-mpfs-offchain` MUST
+  prove the shallow decoder agrees byte-for-byte with the authoritative
+  `cardano-ledger-conway` decoder. Generator coverage MUST include all
+  Shelley address shapes (payment × stake: KeyHash / ScriptHash / Pointer
+  / absent), all value shapes (ada-only, ada + single asset, ada + many
+  assets across many policies), all datum variants (no datum, datum
+  hash, short inline datum, long inline datum), and both presence and
+  absence of a reference script. The suite MUST also prove the shallow
+  decoder returns `Left` (never diverges or returns `Right`) for every
+  truncated prefix of a valid CBOR blob and for random bytes.
+- **FR-020**: A regression corpus of pinned real `TxOut` hex blobs
+  (preprod / mainnet observations) MUST live beside the cross-check
+  suite and be re-checked on every ledger dependency bump, so accidental
+  CBOR-layout drift across ledger versions fails CI rather than silently
+  diverging verifier behaviour.
+- **FR-021**: For every transaction-building endpoint in scope,
+  `cardano-mpfs-client` MUST expose a pure verifier whose shape is
+  `verify :: TrustedRoot -> ProofEnvelope p -> Either VerifyError ()`,
+  and the verifier MUST execute the documented per-endpoint check list
+  (snapshot well-formedness, snapshot freshness hook, inputs-match-
+  witnesses set equality, per-witness ownership + CSMT-path check, and
+  endpoint-specific output / mint / datum checks). The check list for
+  each endpoint MUST be recorded alongside the verifier source.
 
 ### Key Entities
 
@@ -206,13 +253,44 @@ that those values can be compared with `GET /status` and `GET /utxo/root`.
   `chainpoint` that identifies the snapshot against which the bundled
   proofs are valid.
 - **WitnessedUtxo**: A consumed or returned UTxO represented by its
-  `TxIn`, resolved `TxOut`, and UTxO-CSMT inclusion proof.
+  `TxIn`, resolved `TxOut`, and UTxO-CSMT inclusion proof. Used on
+  read-side responses.
+- **WitnessedInput**: The tx-side analogue of `WitnessedUtxo`: the
+  consumed `TxIn`, the resolved `TxOut` CBOR, and the UTxO-CSMT
+  inclusion proof that binds the pair to the snapshot's `utxo_root`.
 - **FactWitness**: A token state witness plus an MPF inclusion proof
   tying a key/value to the token's reported root.
-- **UnsignedTxWitnessBundle**: An unsigned transaction plus the full set
-  of witnessed inputs and any MPF proofs required before signing.
+- **ProofEnvelope p**: A wrapper around the unsigned transaction, the
+  `VerificationSnapshot`, and an endpoint-specific proof payload `p`.
+  The shape of `p` mirrors the dataflow of the endpoint's tx, so
+  verification is a type-directed walk over named `WitnessedInput`
+  fields rather than a flat list check.
+- **BootProof**: Proof payload for `POST /tx/boot`. Carries only the
+  funding inputs because boot mints a fresh state UTxO and reads no
+  trie data.
+- **RequestProof**: Proof payload for the three `POST /tx/request/*`
+  endpoints. Carries only the funding inputs because the request tx
+  does not consume or reference the state UTxO.
+- **RetractProof**: Proof payload for `POST /tx/retract`. Carries the
+  retracted pending-request witness, the state UTxO reference witness
+  (read-only), and the funding inputs.
+- **RejectProof**: Proof payload for `POST /tx/reject`. Carries the
+  state input witness, the witnesses for every rejected pending-request
+  input, and the funding inputs.
+- **EndProof**: Proof payload for `POST /tx/end`. Carries the state
+  input witness and the funding inputs.
+- **UpdateProof**: Proof payload for `POST /tx/update`. Carries the
+  state input witness, the witnesses for every batched pending-request
+  input, the funding inputs, the trie root from the consumed state
+  datum, and an MPF inclusion proof for every trie key the batch
+  touched.
 - **WitnessedRequest**: A pending request together with the request UTxO
   witness that proves the request existed in the indexed UTxO set.
+- **ShallowTxOut**: The pair `(address bytes, ada lovelace)` extracted
+  from a Conway `TxOut` CBOR blob by the WASM-safe decoder inside
+  `cardano-mpfs-client`. Every tx-proof verifier cross-checks that the
+  extracted address equals the caller's address and that the ada is
+  consistent with the expected fees and locked amounts.
 
 ## Success Criteria
 
@@ -232,6 +310,13 @@ that those values can be compared with `GET /status` and `GET /utxo/root`.
   `GET /utxo/root` returns for the same indexed snapshot.
 - **SC-005**: Swagger/OpenAPI and HTTP tests cover the new response
   contracts for every affected endpoint.
+- **SC-006**: `cardano-mpfs-client` builds and runs the verifier
+  successfully under GHC-native, GHC-WASM, and GHC-JS, with
+  byte-identical `Either VerifyError a` output across the three
+  targets for the same inputs.
+- **SC-007**: The shallow `TxOut` decoder cross-check suite passes
+  with ≥ 1000 shrinks per property in CI, and the pinned regression
+  corpus decodes identically to the ledger reference.
 
 ## Assumptions
 

@@ -68,19 +68,25 @@ import Servant.API
 import Cardano.MPFS.HTTP.Encoding (Hex)
 import Cardano.MPFS.HTTP.Types
     ( BootRequest
+    , BootTxResponse
     , DeleteRequest
     , EndRequest
+    , EndTxResponse
     , FactResponse
     , InsertRequest
     , ProofResponse
     , RejectRequest
+    , RejectTxResponse
+    , RequestTxResponse
     , RequestsResponse
     , RetractRequest
+    , RetractTxResponse
     , StatusResponse
     , SubmitRequest
     , TokenIdJSON
     , TokenResponse
     , UpdateRequest
+    , UpdateTxResponse
     , UpdateValueRequest
     )
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
@@ -182,12 +188,14 @@ type TxAwaitAPI =
         :> QueryParam "timeout" Word64
         :> Get '[JSON] NoContent
 
--- | @POST \/tx\/boot@ — build a boot transaction.
+-- | @POST \/tx\/boot@ — build a boot transaction,
+-- returning the unsigned CBOR together with the
+-- verification snapshot and boot proof payload.
 type TxBootAPI =
     "tx"
         :> "boot"
         :> ReqBody '[JSON] BootRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] BootTxResponse
 
 -- | @POST \/tx\/request\/insert@ — build an insert
 -- request transaction.
@@ -196,7 +204,7 @@ type TxInsertAPI =
         :> "request"
         :> "insert"
         :> ReqBody '[JSON] InsertRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/request\/delete@ — build a delete
 -- request transaction.
@@ -205,7 +213,7 @@ type TxDeleteAPI =
         :> "request"
         :> "delete"
         :> ReqBody '[JSON] DeleteRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/request\/update@ — build an
 -- update-value request transaction.
@@ -214,7 +222,7 @@ type TxRequestUpdateAPI =
         :> "request"
         :> "update"
         :> ReqBody '[JSON] UpdateValueRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/reject@ — build a reject
 -- transaction for Phase 3 requests.
@@ -222,7 +230,7 @@ type TxRejectAPI =
     "tx"
         :> "reject"
         :> ReqBody '[JSON] RejectRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] RejectTxResponse
 
 -- | @POST \/tx\/update@ — build an update
 -- transaction.
@@ -230,7 +238,7 @@ type TxUpdateAPI =
     "tx"
         :> "update"
         :> ReqBody '[JSON] UpdateRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] UpdateTxResponse
 
 -- | @POST \/tx\/retract@ — build a retract
 -- transaction.
@@ -238,14 +246,14 @@ type TxRetractAPI =
     "tx"
         :> "retract"
         :> ReqBody '[JSON] RetractRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] RetractTxResponse
 
 -- | @POST \/tx\/end@ — build an end transaction.
 type TxEndAPI =
     "tx"
         :> "end"
         :> ReqBody '[JSON] EndRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] EndTxResponse
 
 -- | @POST \/tx\/submit@ — submit a signed
 -- transaction.

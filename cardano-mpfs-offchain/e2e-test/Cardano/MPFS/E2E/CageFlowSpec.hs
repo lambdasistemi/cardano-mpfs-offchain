@@ -87,8 +87,8 @@ import Cardano.MPFS.Submitter
     )
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
+    , ProofEnvelope (..)
     , TxBuilder (..)
-    , UnsignedTxBundle (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -725,11 +725,11 @@ pollUntilJust timeoutSec action = go attempts
 -- | Build, sign, submit, and wait for a tx.
 buildAndSubmit
     :: Context IO
-    -> IO UnsignedTxBundle
+    -> IO (ProofEnvelope p)
     -> IO (Tx ConwayEra)
 buildAndSubmit ctx buildBundle = do
     bundle <- buildBundle
-    let unsigned = bundleTx bundle
+    let unsigned = envTx bundle
         signed =
             addKeyWitness
                 genesisSignKey

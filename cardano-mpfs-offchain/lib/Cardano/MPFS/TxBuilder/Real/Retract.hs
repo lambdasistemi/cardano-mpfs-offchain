@@ -74,8 +74,9 @@ import Cardano.MPFS.State
     )
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
-    , UnsignedTxBundle
-    , bareTxBundle
+    , ProofEnvelope (..)
+    , RetractProof (..)
+    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -97,14 +98,16 @@ retractRequestImpl
     -- ^ Blockchain query interface
     -> State IO
     -- ^ Request state (to look up the request)
+    -> UtxoProofFn
+    -- ^ CSMT inclusion proof lookup
     -> BundleSnapshot
     -- ^ Snapshot this bundle will be anchored to
     -> TxIn
     -- ^ UTxO reference of the request to retract
     -> Addr
     -- ^ Requester's address (receives refund)
-    -> IO UnsignedTxBundle
-retractRequestImpl cfg prov st snap reqTxIn addr = do
+    -> IO (ProofEnvelope RetractProof)
+retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
     -- 1. Look up the request to find its token
     mReq <- getRequest (requests st) reqTxIn
     req <- case mReq of
@@ -235,4 +238,17 @@ retractRequestImpl cfg prov st snap reqTxIn addr = do
             [feeUtxo, reqUtxoPair]
             addr
             tx
-    pure (bareTxBundle snap balanced)
+    reqWitness <- witness proofFn reqUtxoPair
+    stateWitness <- witness proofFn stateUtxo
+    fundingWitnesses <- witnesses proofFn [feeUtxo]
+    pure
+        ProofEnvelope
+            { envTx = balanced
+            , envSnapshot = snap
+            , envProof =
+                RetractProof
+                    { retractRequestIn = reqWitness
+                    , retractStateRef = stateWitness
+                    , retractFunding = fundingWitnesses
+                    }
+            }
