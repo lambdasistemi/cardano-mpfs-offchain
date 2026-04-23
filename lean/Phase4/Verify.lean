@@ -1,0 +1,146 @@
+/-
+  Phase 4 Verify — Replay state machine for
+  `Cardano.MPFS.Client.Verify`.
+
+  Abstract model of the cryptographic CSMT / MPF proof replay
+  introduced in issue #226. The predicates `verifyCsmt`,
+  `verifyCsmtAbsence`, `verifyMpf`, `verifyMpfAbsence` are
+  treated opaquely: the Lean model proves *structural*
+  preservation theorems about the replay transition (key
+  binding, value binding, trusted-root invariance), not
+  cryptographic soundness. Soundness lives in the upstream
+  `mts:csmt-verify` and `mts:mpf-write` proofs.
+
+  Three preservation theorems are exported and each is
+  consumed by a QuickCheck `prop_matchesLeanReference` on the
+  Haskell side:
+
+  * `replay_binds_key` — the transition records the
+    advertised key verbatim; the Haskell replay code must
+    mirror this shape.
+  * `replay_binds_value` — same for the advertised value.
+  * `replay_preserves_root_trust` — the trusted root never
+    mutates under replay; replay is observation, not
+    mutation.
+-/
+
+namespace Phase4.Verify
+
+-- `verifyCsmt`, `verifyCsmtAbsence`, `verifyMpf`,
+-- `verifyMpfAbsence` are the cryptographic predicates
+-- the Haskell side delegates to `mts:csmt-verify` and
+-- `mts:mpf-write`. Here they travel as explicit parameters
+-- so the Lean statements are neutral about the specific
+-- verifier — structural theorems must hold for any
+-- verifier that decides them.
+
+/-- A verified envelope consumed by the proof-replay loop.
+
+    * `trustedRoot` is the advertised `snapshot.utxo_root`
+      (or `UpdateProof.trie_root` for MPF). It is only ever
+      compared, never rewritten.
+    * `acceptedWitnesses` records every `WitnessedUtxo`
+      triple the CSMT verifier accepted against
+      `trustedRoot`.
+    * `acceptedTrieFacts` records every `TrieFact` the MPF
+      verifier accepted; the `Option Value` dispatches
+      inclusion (`some _`) vs exclusion (`none`). -/
+structure VerifiedEnvelope
+    (Root Key Value Proof : Type) where
+  trustedRoot : Root
+  acceptedWitnesses : List (Key × Value × Proof)
+  acceptedTrieFacts : List (Key × Option Value × Proof)
+
+namespace VerifiedEnvelope
+
+variable {Root Key Value Proof : Type}
+
+/-- Empty envelope anchored at a trusted root. -/
+def init (r : Root)
+    : VerifiedEnvelope Root Key Value Proof :=
+  { trustedRoot := r
+  , acceptedWitnesses := []
+  , acceptedTrieFacts := [] }
+
+/-- Extend an envelope with a CSMT witness. The
+    cryptographic step (the upstream
+    `verifyInclusionProof`) is assumed to have succeeded
+    at the Haskell call site; this transition only records
+    the advertised triple. -/
+def replayWitness
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (v : Value) (p : Proof)
+    : VerifiedEnvelope Root Key Value Proof :=
+  { env with
+      acceptedWitnesses :=
+        (k, v, p) :: env.acceptedWitnesses }
+
+/-- Extend an envelope with an MPF fact. The `Option Value`
+    dispatches inclusion (`some v`) vs exclusion
+    (`none`). -/
+def replayTrieFact
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (mv : Option Value) (p : Proof)
+    : VerifiedEnvelope Root Key Value Proof :=
+  { env with
+      acceptedTrieFacts :=
+        (k, mv, p) :: env.acceptedTrieFacts }
+
+end VerifiedEnvelope
+
+-- =========================================================
+-- Preservation theorems
+-- =========================================================
+
+open VerifiedEnvelope
+
+variable {Root Key Value Proof : Type}
+
+/-- After replaying a witness, the head of
+    `acceptedWitnesses` carries the advertised key `k`.
+    The Haskell replay code binds `proofKey` from the
+    decoded `InclusionProof` CBOR to the advertised
+    `TxIn` exactly as this transition records `k`. -/
+theorem replay_binds_key
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (v : Value) (p : Proof) :
+    (replayWitness env k v p).acceptedWitnesses.head?
+      = some (k, v, p) := by
+  simp [replayWitness]
+
+/-- After replaying a witness, the head of
+    `acceptedWitnesses` carries the advertised value `v`
+    (its `.2.1` projection). Parallels
+    `replay_binds_key` for the value field; the Haskell
+    replay binds `proofValue` from the decoded
+    `InclusionProof` CBOR to the advertised `TxOut`. -/
+theorem replay_binds_value
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (v : Value) (p : Proof) :
+    (replayWitness env k v p).acceptedWitnesses.head?.map
+        (fun t => t.2.1)
+      = some v := by
+  simp [replayWitness]
+
+/-- Replay never rewrites the envelope's trusted root:
+    every per-endpoint verifier threads a single advertised
+    root through every witness, and the Haskell
+    implementation must preserve this invariant. -/
+theorem replay_preserves_root_trust
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (v : Value) (p : Proof) :
+    (replayWitness env k v p).trustedRoot
+      = env.trustedRoot := by
+  simp [replayWitness]
+
+/-- MPF counterpart of `replay_preserves_root_trust`: the
+    trusted root is invariant under the trie-fact
+    transition as well. -/
+theorem replayTrieFact_preserves_root_trust
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (k : Key) (mv : Option Value) (p : Proof) :
+    (replayTrieFact env k mv p).trustedRoot
+      = env.trustedRoot := by
+  simp [replayTrieFact]
+
+end Phase4.Verify

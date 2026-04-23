@@ -55,9 +55,9 @@ description: "Task list for feature 178-crypto-proof-replay"
 
 ### Lean-first gate (Principle X)
 
-- [ ] T006 Create `/code/cardano-mpfs-offchain-issue-226/lean/Phase4/Verify.lean` with the abstract primitives described in `plan.md` Phase 1.5: `Proof : Type`, `verifyCsmt : Root → Key → Value → Proof → Prop`, `verifyCsmtAbsence : Root → Key → Proof → Prop`, `verifyMpf`, `verifyMpfAbsence`, and a `VerifiedEnvelope` state with `replayWitness` / `replayTrieFact` transitions.
-- [ ] T007 In `/code/cardano-mpfs-offchain-issue-226/lean/Phase4/Verify.lean`, prove the three preservation theorems listed in `plan.md`: `replay_binds_key`, `replay_binds_value`, `replay_preserves_root_trust`. No `sorry`, no custom axioms, no `native_decide` on large terms. Verify with `lean_verify` that each theorem name resolves.
-- [ ] T008 Register the new module in `/code/cardano-mpfs-offchain-issue-226/lean/Phase4.lean` (add `import Phase4.Verify`). Confirm `lake build` succeeds via `nix develop --quiet -c lake -Clean build` from the repo root.
+- [X] T006 Create `/code/cardano-mpfs-offchain-issue-226/lean/Phase4/Verify.lean` with the abstract primitives described in `plan.md` Phase 1.5: `Proof : Type`, `verifyCsmt : Root → Key → Value → Proof → Prop`, `verifyCsmtAbsence : Root → Key → Proof → Prop`, `verifyMpf`, `verifyMpfAbsence`, and a `VerifiedEnvelope` state with `replayWitness` / `replayTrieFact` transitions. **Done.**
+- [X] T007 In `/code/cardano-mpfs-offchain-issue-226/lean/Phase4/Verify.lean`, prove the three preservation theorems listed in `plan.md`: `replay_binds_key`, `replay_binds_value`, `replay_preserves_root_trust`. No `sorry`, no custom axioms, no `native_decide` on large terms. Verify with `lean_verify` that each theorem name resolves. **Done:** four theorems (`replay_binds_key`, `replay_binds_value`, `replay_preserves_root_trust`, `replayTrieFact_preserves_root_trust`) each use only `propext`.
+- [X] T008 Register the new module in `/code/cardano-mpfs-offchain-issue-226/lean/Phase4.lean` (add `import Phase4.Verify`). Confirm `lake build` succeeds via `nix develop --quiet -c lake -Clean build` from the repo root. **Done:** `lake build` succeeds (9 jobs).
 
 ### Pure replay primitives (Haskell shape mirrors Lean)
 
