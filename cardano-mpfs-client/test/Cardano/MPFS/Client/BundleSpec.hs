@@ -39,13 +39,15 @@ spec = do
             let r = bootResponse [okUtxo]
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy funding witness at the CSMT replay"
             $ verifyBootTxResponse (bootResponse [okUtxo])
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "boot.funding[0].utxo_proof"
 
         it "rejects a funding witness with malformed tx_id"
             $ verifyBootTxResponse (bootResponse [badTxIdUtxo])
-            `shouldSatisfy` isMalformed "boot.funding[0].tx_in.tx_id"
+            `shouldSatisfy` isMalformed
+                "boot.funding[0].tx_in.tx_id"
 
         it "rejects a malformed tx CBOR"
             $ verifyBootTxResponse
@@ -57,18 +59,20 @@ spec = do
             let r = requestResponse
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy funding witness at the CSMT replay"
             $ verifyRequestTxResponse requestResponse
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "request.funding[0].utxo_proof"
 
     describe "RetractTxResponse" $ do
         it "round-trips via aeson" $ do
             let r = retractResponse
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy request_in witness at the CSMT replay"
             $ verifyRetractTxResponse retractResponse
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "retract.request_in.utxo_proof"
 
         it "rejects an empty tx_out on state_ref"
             $ verifyRetractTxResponse
@@ -84,27 +88,30 @@ spec = do
             let r = rejectResponse
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy state witness at the CSMT replay"
             $ verifyRejectTxResponse rejectResponse
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "reject.state.utxo_proof"
 
     describe "EndTxResponse" $ do
         it "round-trips via aeson" $ do
             let r = endResponse
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy state witness at the CSMT replay"
             $ verifyEndTxResponse endResponse
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "end.state.utxo_proof"
 
     describe "UpdateTxResponse" $ do
         it "round-trips via aeson" $ do
             let r = updateResponse
             Aeson.eitherDecode (Aeson.encode r) `shouldBe` Right r
 
-        it "verifies a well-formed payload"
+        it "rejects a dummy state witness at the CSMT replay"
             $ verifyUpdateTxResponse updateResponse
-            `shouldBe` Right ()
+            `shouldSatisfy` isCsmtReplayFailure
+                "update.state.utxo_proof"
 
         it "rejects a non-32-byte trie_root"
             $ verifyUpdateTxResponse (mkUpdate (Hex shortHex) [okTrie])
@@ -217,3 +224,7 @@ isMalformed _ _ = False
 isWrongLength :: T.Text -> Either VerifyError () -> Bool
 isWrongLength fld (Left (WrongHexLength f _ _)) = f == fld
 isWrongLength _ _ = False
+
+isCsmtReplayFailure :: T.Text -> Either VerifyError () -> Bool
+isCsmtReplayFailure fld (Left (CsmtReplayFailed f _)) = f == fld
+isCsmtReplayFailure _ _ = False
