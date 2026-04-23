@@ -38,6 +38,10 @@ library
     , base               >=4.18 && <5
     , base16-bytestring  >=1.0  && <1.1
     , bytestring         >=0.11 && <0.13
+    , cborg              >=0.2  && <0.3
+    , mts:csmt-core
+    , mts:csmt-verify
+    , mts:mpf-write
     , text               >=2.0  && <2.2
 
   exposed-modules:
@@ -45,6 +49,7 @@ library
     Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Snapshot
     Cardano.MPFS.Client.Verify
+    Cardano.MPFS.Client.Verify.Replay
 
 executable mpfs-verify
   import:           warnings
