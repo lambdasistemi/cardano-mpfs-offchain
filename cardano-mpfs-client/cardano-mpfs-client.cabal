@@ -39,6 +39,7 @@ library
     , base16-bytestring  >=1.0  && <1.1
     , bytestring         >=0.11 && <0.13
     , cborg              >=0.2  && <0.3
+    , hspec              >=2.11 && <2.12
     , mts:csmt-core
     , mts:csmt-verify
     , mts:mpf-write
@@ -49,6 +50,7 @@ library
     Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Snapshot
     Cardano.MPFS.Client.Verify
+    Cardano.MPFS.Client.Verify.DSL
     Cardano.MPFS.Client.Verify.Replay
 
 executable mpfs-verify

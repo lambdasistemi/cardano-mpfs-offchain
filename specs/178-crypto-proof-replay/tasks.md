@@ -82,8 +82,8 @@ description: "Task list for feature 178-crypto-proof-replay"
 
 ### DSL (tutorial entry points)
 
-- [ ] T017 [P] [US1] Create `/code/cardano-mpfs-offchain-issue-226/cardano-mpfs-offchain/cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/DSL.hs` exporting `shouldAccept :: (HasCallStack, Show a) => a -> (a -> Either VerifyError ()) -> Expectation` and the matcher-less `shouldRejectWith` stub (implementation in T026). Haddock each combinator with a link to the spec scenario that introduces it (FR-012).
-- [ ] T018 [P] [US1] Re-export `shouldAccept`, `shouldRejectWith`, and every verifier (`verifyBootTxResponse`, …, `verifyUpdateTxResponse`) from `/code/cardano-mpfs-offchain-issue-226/cardano-mpfs-offchain/cardano-mpfs-client/lib/Cardano/MPFS/Client.hs` so a downstream user needs a single import.
+- [X] T017 [P] [US1] Created `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/DSL.hs` with `shouldAccept`, `shouldRejectWith`, `ErrorMatcher`, `csmtReplayFailedAt`, `mpfReplayFailedAt`, `malformedHexAt`, `wrongHexLengthAt`, and `withReason`. Haddock references `contracts/dsl.md` scenario examples. **Done.**
+- [X] T018 [P] [US1] Re-exported the DSL surface plus every existing verifier from `Cardano.MPFS.Client` so a downstream consumer needs only one import. **Done.**
 
 ### Unit tests (positive corpus)
 
@@ -93,7 +93,7 @@ description: "Task list for feature 178-crypto-proof-replay"
 
 ### E2E positive path
 
-- [ ] T022 [US1] Extend `/code/cardano-mpfs-offchain-issue-226/cardano-mpfs-offchain/cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs` so every existing `assertVerify "<endpoint>" verify*TxResponse response` call becomes `response \`shouldAccept\` verify*TxResponse` and reads as tutorial prose. The five live endpoints (boot, request/insert, update, retract, end) are covered; retain the `/tx/reject` deferral comment pointing at issue #224.
+- [X] T022 [US1] `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs` now drives each of the five live write endpoints (boot, request/insert, update, retract, end) through `response \`shouldAccept\` verify*TxResponse`. The previous local `assertVerify` helper was removed. `/tx/reject` still deferred, comment references issue #224. **Done.**
 - [ ] T023 [US1] Add an E2E `it "accepts an update batch with mixed inclusion/exclusion trie reads" $ …` case in `ProofsSpec.hs` matching US2 scenario 1: boot → requestInsert → updateToken → requestInsert a second key → call `POST /tx/update` → `shouldAccept`.
 
 **Checkpoint**: the happy-path tutorial reads end-to-end. `cabal test cardano-mpfs-client` and `MPFS_BLUEPRINT=… cabal test cardano-mpfs-offchain:e2e-test --match ProofsSpec` both pass. SC-001 / SC-002 met for the positive subset; SC-006's "positive half" (6 scenarios) delivered.
