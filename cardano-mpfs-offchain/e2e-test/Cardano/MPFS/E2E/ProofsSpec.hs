@@ -369,7 +369,7 @@ proofsSpec scriptBytes =
                     "update.state.utxo_proof"
                     `withReason` "value binding mismatch"
             -- MPF forgery is covered in the unit suite
-            -- (`Cardano.MPFS.Client.VerifySpec`) against a
+            -- ("Cardano.MPFS.Client.VerifySpec") against a
             -- guaranteed-non-empty `trie_read` fixture. The
             -- devnet's `/tx/update` response may carry an
             -- empty `trie_read` if no pending request was

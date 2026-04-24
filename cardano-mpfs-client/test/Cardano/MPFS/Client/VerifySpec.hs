@@ -138,6 +138,9 @@ spec = do
                 (flipProof "state")
                 honestRejectResponse
                 `shouldRejectWith` verifyRejectTxResponse
+            -- proof-byte flip may produce "malformed proof CBOR"
+            -- or "root mismatch" depending on the byte changed;
+            -- mirror the boot test and leave the reason unconstrained.
             $ csmtReplayFailedAt
                 "reject.state.utxo_proof"
 
