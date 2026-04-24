@@ -171,68 +171,30 @@ replayTrieFact path trustedRoot TrieFact{..} = do
     case value of
         Just v -> do
             valueBs <- decodeHex (path <> ".value") v
-            let okInclusion =
-                    verifyAikenInclusionProof
-                        trustedRoot
-                        keyBs
-                        valueBs
-                        proofBs
-                okExclusion =
-                    verifyAikenExclusionProof
-                        trustedRoot
-                        keyBs
-                        proofBs
-            if okInclusion
+            if verifyAikenInclusionProof
+                trustedRoot
+                keyBs
+                valueBs
+                proofBs
                 then Right ()
                 else
-                    if okExclusion
-                        then
-                            Left
-                                ( MpfReplayFailed
-                                    proofPath
-                                    "exclusion proof for inclusion claim"
-                                )
-                        else
-                            Left
-                                ( MpfReplayFailed
-                                    proofPath
-                                    "root mismatch"
-                                )
-        Nothing -> do
-            let okExclusion =
-                    verifyAikenExclusionProof
-                        trustedRoot
-                        keyBs
-                        proofBs
-                -- Shape-mismatch probe: an inclusion proof
-                -- would not validate via
-                -- 'verifyAikenExclusionProof', so its failure
-                -- mode is unambiguous relative to a genuine
-                -- exclusion proof. Hash the key as the probe
-                -- value so we do not leak distinguishing
-                -- bytes.
-                okInclusion =
-                    verifyAikenInclusionProof
-                        trustedRoot
-                        keyBs
-                        keyBs
-                        proofBs
-            if okExclusion
+                    Left
+                        ( MpfReplayFailed
+                            proofPath
+                            "root mismatch"
+                        )
+        Nothing ->
+            if verifyAikenExclusionProof
+                trustedRoot
+                keyBs
+                proofBs
                 then Right ()
                 else
-                    if okInclusion
-                        then
-                            Left
-                                ( MpfReplayFailed
-                                    proofPath
-                                    "inclusion proof for absence claim"
-                                )
-                        else
-                            Left
-                                ( MpfReplayFailed
-                                    proofPath
-                                    "root mismatch"
-                                )
+                    Left
+                        ( MpfReplayFailed
+                            proofPath
+                            "root mismatch"
+                        )
   where
     proofPath = path <> ".mpf_proof"
 

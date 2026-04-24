@@ -42,13 +42,32 @@ module Cardano.MPFS.Client.Verify.DSL
     , malformedHexAt
     , wrongHexLengthAt
     , withReason
+
+      -- * Forgery helpers
+    , flipByteInHex
+    , swapHexTo
+    , forgeWitnessedUtxoProof
+    , forgeWitnessedUtxoTxOut
+    , forgeTrieFactValue
+    , dropTrieFactToExclusion
+    , promoteTrieFactToInclusion
     ) where
 
+import Data.Bits (xor)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as Base16
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import GHC.Stack (HasCallStack)
 import Test.Hspec (Expectation, expectationFailure)
 
+import Cardano.MPFS.Client.Bundle
+    ( TrieFact (..)
+    , WitnessedUtxo (..)
+    )
+import Cardano.MPFS.Client.Snapshot (Hex (..))
 import Cardano.MPFS.Client.Verify.Replay (VerifyError (..))
 
 -- | A predicate over 'VerifyError' plus a human-readable description
@@ -187,3 +206,70 @@ withReason base reason =
 
 quote :: Text -> Text
 quote t = "\"" <> t <> "\""
+
+-- ---------------------------------------------------------------
+-- Forgery helpers
+-- ---------------------------------------------------------------
+
+-- | Flip the last byte of a 'Hex' value, producing a different
+-- but still structurally-valid hex string. Deterministic: given
+-- the same input, always produces the same output.
+flipByteInHex :: Hex -> Hex
+flipByteInHex (Hex txt) =
+    case Base16.decode (T.encodeUtf8 txt) of
+        Right bs -> Hex (encodeHex (flipTail bs))
+        Left _ -> Hex txt
+  where
+    flipTail bs
+        | BS.null bs = BS.singleton 0xff
+        | otherwise =
+            let (front, back) = BS.splitAt (BS.length bs - 1) bs
+                lastByte = BS.head back
+                flipped = lastByte `xor` 0xff
+            in  front <> BS.singleton flipped
+
+    encodeHex :: ByteString -> Text
+    encodeHex = T.decodeUtf8 . Base16.encode
+
+-- | Replace a 'Hex' value with a caller-supplied byte string
+-- (re-encoded as hex). Useful for \"wrong root\" scenarios.
+swapHexTo :: ByteString -> Hex -> Hex
+swapHexTo newBytes _ =
+    Hex (T.decodeUtf8 (Base16.encode newBytes))
+
+-- | Flip the last byte of a 'WitnessedUtxo'\'s @utxo_proof@,
+-- leaving every other field intact. Models the
+-- \"forgingRandomUtxoProofAt\" scenario from
+-- @contracts\/dsl.md@.
+forgeWitnessedUtxoProof :: WitnessedUtxo -> WitnessedUtxo
+forgeWitnessedUtxoProof w =
+    w{utxoProof = flipByteInHex (utxoProof w)}
+
+-- | Flip the last byte of a 'WitnessedUtxo'\'s @tx_out@ — the
+-- \"tamperingTxOutAt\" scenario. The resulting hash will no
+-- longer match @proofValue@, so the replay surfaces
+-- 'CsmtReplayFailed' with @"value binding mismatch"@.
+forgeWitnessedUtxoTxOut :: WitnessedUtxo -> WitnessedUtxo
+forgeWitnessedUtxoTxOut w =
+    w{txOut = flipByteInHex (txOut w)}
+
+-- | Flip the last byte of a 'TrieFact'\'s @value@ (when
+-- present). No-op for exclusion facts.
+forgeTrieFactValue :: TrieFact -> TrieFact
+forgeTrieFactValue f = case value f of
+    Just v -> f{value = Just (flipByteInHex v)}
+    Nothing -> f
+
+-- | Set a 'TrieFact'\'s @value@ to 'Nothing' while leaving the
+-- inclusion proof bytes intact. Models
+-- \"dropToExclusionAt\": the envelope now claims absence but
+-- the proof witnesses presence.
+dropTrieFactToExclusion :: TrieFact -> TrieFact
+dropTrieFactToExclusion f = f{value = Nothing}
+
+-- | Replace a 'TrieFact'\'s @value@ with 'Just' the supplied
+-- bytes while leaving an exclusion-shaped proof intact.
+-- Models \"promoteToInclusionAt\": the envelope claims
+-- inclusion but the proof witnesses absence.
+promoteTrieFactToInclusion :: Hex -> TrieFact -> TrieFact
+promoteTrieFactToInclusion v f = f{value = Just v}

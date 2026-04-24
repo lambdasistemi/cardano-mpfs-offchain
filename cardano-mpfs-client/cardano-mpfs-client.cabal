@@ -76,13 +76,22 @@ test-suite unit-tests
   build-depends:
     , aeson
     , base
+    , base16-bytestring
     , bytestring
     , cardano-mpfs-client
+    , cborg                >=0.2  && <0.3
     , hspec                >=2.11 && <2.12
+    , mts:csmt-core
+    , mts:csmt-test-lib
+    , mts:csmt-write
+    , mts:mpf-test-lib
+    , mts:mpf-write
     , text
 
   other-modules:
     Cardano.MPFS.Client.BundleSpec
+    Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.SnapshotSpec
+    Cardano.MPFS.Client.VerifySpec
 
   ghc-options:      -threaded -with-rtsopts=-N
