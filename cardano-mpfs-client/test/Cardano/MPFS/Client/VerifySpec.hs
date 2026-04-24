@@ -25,6 +25,9 @@ import Cardano.MPFS.Client
     , flipTxOut
     , mpfReplayFailedAt
     , runForgeBoot
+    , runForgeEnd
+    , runForgeReject
+    , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
     , runForgeUpdateTrie
@@ -119,6 +122,32 @@ spec = do
                 `shouldRejectWith` verifyUpdateTxResponse
             $ csmtReplayFailedAt
                 "update.state.utxo_proof"
+                `withReason` "value binding mismatch"
+
+        it "rejects a request funding tx_out with a flipped byte"
+            $ runForgeRequest
+                (flipTxOut "funding[0]")
+                honestRequestResponse
+                `shouldRejectWith` verifyRequestTxResponse
+            $ csmtReplayFailedAt
+                "request.funding[0].utxo_proof"
+                `withReason` "value binding mismatch"
+
+        it "rejects a reject state utxo_proof with a flipped byte"
+            $ runForgeReject
+                (flipProof "state")
+                honestRejectResponse
+                `shouldRejectWith` verifyRejectTxResponse
+            $ csmtReplayFailedAt
+                "reject.state.utxo_proof"
+
+        it "rejects an end state tx_out with a flipped byte"
+            $ runForgeEnd
+                (flipTxOut "state")
+                honestEndResponse
+                `shouldRejectWith` verifyEndTxResponse
+            $ csmtReplayFailedAt
+                "end.state.utxo_proof"
                 `withReason` "value binding mismatch"
 
     describe "MPF forgery corpus (free-monad DSL)" $ do

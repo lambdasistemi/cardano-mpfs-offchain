@@ -477,7 +477,7 @@ readMaybeInt t = case reads (T.unpack t) of
 -- | Apply a forgery to the @i@-th element of a list. Errors
 -- out if @i@ is out of range — a test fixture that names a
 -- non-existent index is a test bug.
-tamperListAt :: Int -> (a -> a) -> [a] -> [a]
+tamperListAt :: (HasCallStack) => Int -> (a -> a) -> [a] -> [a]
 tamperListAt i f = go (0 :: Int)
   where
     go _ [] =
@@ -567,7 +567,8 @@ runForgeRetract prog r = case view prog of
         runForgeRetract (k ()) (tamperRetract path flipTxOutField r)
 
 tamperRetract
-    :: Text
+    :: (HasCallStack)
+    => Text
     -> (WitnessedUtxo -> WitnessedUtxo)
     -> RetractTxResponse
     -> RetractTxResponse
@@ -601,7 +602,8 @@ runForgeReject prog r = case view prog of
         runForgeReject (k ()) (tamperReject path flipTxOutField r)
 
 tamperReject
-    :: Text
+    :: (HasCallStack)
+    => Text
     -> (WitnessedUtxo -> WitnessedUtxo)
     -> RejectTxResponse
     -> RejectTxResponse
@@ -637,7 +639,8 @@ runForgeEnd prog r = case view prog of
         runForgeEnd (k ()) (tamperEnd path flipTxOutField r)
 
 tamperEnd
-    :: Text
+    :: (HasCallStack)
+    => Text
     -> (WitnessedUtxo -> WitnessedUtxo)
     -> EndTxResponse
     -> EndTxResponse
@@ -669,7 +672,8 @@ runForgeUpdate prog r = case view prog of
         runForgeUpdate (k ()) (tamperUpdate path flipTxOutField r)
 
 tamperUpdate
-    :: Text
+    :: (HasCallStack)
+    => Text
     -> (WitnessedUtxo -> WitnessedUtxo)
     -> UpdateTxResponse
     -> UpdateTxResponse
@@ -758,7 +762,8 @@ tamperTrie
 -- | Apply a 'WitnessedUtxo' tamper to the @i@-th entry of a
 -- funding list, where @path@ is @"funding[<i>]"@.
 tamperFundingList
-    :: Text
+    :: (HasCallStack)
+    => Text
     -> (WitnessedUtxo -> WitnessedUtxo)
     -> [WitnessedUtxo]
     -> [WitnessedUtxo]
