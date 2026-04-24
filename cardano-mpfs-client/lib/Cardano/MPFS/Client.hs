@@ -51,6 +51,15 @@ module Cardano.MPFS.Client
     , malformedHexAt
     , wrongHexLengthAt
     , withReason
+
+      -- * Forgery helpers
+    , flipByteInHex
+    , swapHexTo
+    , forgeWitnessedUtxoProof
+    , forgeWitnessedUtxoTxOut
+    , forgeTrieFactValue
+    , dropTrieFactToExclusion
+    , promoteTrieFactToInclusion
     ) where
 
 import Cardano.MPFS.Client.Bundle
@@ -89,10 +98,17 @@ import Cardano.MPFS.Client.Verify
 import Cardano.MPFS.Client.Verify.DSL
     ( ErrorMatcher
     , csmtReplayFailedAt
+    , dropTrieFactToExclusion
+    , flipByteInHex
+    , forgeTrieFactValue
+    , forgeWitnessedUtxoProof
+    , forgeWitnessedUtxoTxOut
     , malformedHexAt
     , mpfReplayFailedAt
+    , promoteTrieFactToInclusion
     , shouldAccept
     , shouldRejectWith
+    , swapHexTo
     , withReason
     , wrongHexLengthAt
     )
