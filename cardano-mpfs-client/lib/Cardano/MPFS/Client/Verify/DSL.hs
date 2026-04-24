@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 
 -- |
@@ -51,8 +52,33 @@ module Cardano.MPFS.Client.Verify.DSL
     , forgeTrieFactValue
     , dropTrieFactToExclusion
     , promoteTrieFactToInclusion
+
+      -- * Forgery DSL (operational free-monad)
+    , CsmtForge
+    , TrieForge
+    , flipProof
+    , flipTxOut
+    , flipSnapshotRoot
+    , flipTrieValue
+    , dropToExclusion
+    , flipTrieRoot
+
+      -- * DSL runners (per-endpoint)
+    , runForgeBoot
+    , runForgeRequest
+    , runForgeRetract
+    , runForgeReject
+    , runForgeEnd
+    , runForgeUpdate
+    , runForgeUpdateTrie
     ) where
 
+import Control.Monad.Operational
+    ( Program
+    , ProgramViewT (..)
+    , singleton
+    , view
+    )
 import Data.Bits (xor)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -64,10 +90,25 @@ import GHC.Stack (HasCallStack)
 import Test.Hspec (Expectation, expectationFailure)
 
 import Cardano.MPFS.Client.Bundle
-    ( TrieFact (..)
+    ( BootProof (..)
+    , BootTxResponse (..)
+    , EndProof (..)
+    , EndTxResponse (..)
+    , RejectProof (..)
+    , RejectTxResponse (..)
+    , RequestProof (..)
+    , RequestTxResponse (..)
+    , RetractProof (..)
+    , RetractTxResponse (..)
+    , TrieFact (..)
+    , UpdateProof (..)
+    , UpdateTxResponse (..)
     , WitnessedUtxo (..)
     )
-import Cardano.MPFS.Client.Snapshot (Hex (..))
+import Cardano.MPFS.Client.Snapshot
+    ( Hex (..)
+    , VerificationSnapshot (..)
+    )
 import Cardano.MPFS.Client.Verify.Replay (VerifyError (..))
 
 -- | A predicate over 'VerifyError' plus a human-readable description
@@ -273,3 +314,396 @@ dropTrieFactToExclusion f = f{value = Nothing}
 -- inclusion but the proof witnesses absence.
 promoteTrieFactToInclusion :: Hex -> TrieFact -> TrieFact
 promoteTrieFactToInclusion v f = f{value = Just v}
+
+-- ---------------------------------------------------------------
+-- Forgery DSL (operational free-monad)
+-- ---------------------------------------------------------------
+
+-- | CSMT-layer forgery instructions. Each constructor names
+-- one deterministic, one-field tampering. A 'CsmtForge' is
+-- a 'Program' over these instructions, which the per-endpoint
+-- runners ('runForgeBoot' etc.) interpret against a concrete
+-- response envelope.
+--
+-- The 'Text' path on 'FlipProof' \/ 'FlipTxOut' follows the
+-- dotted field grammar that 'VerifyError' already reports
+-- on:
+--
+-- > "funding[<i>]"    -- any list-of-funding endpoint
+-- > "state"           -- end, reject, update
+-- > "state_ref"       -- retract
+-- > "request_in"      -- retract
+-- > "request_ins[<i>]"-- reject
+-- > "requests[<i>]"   -- update
+--
+-- Invalid or out-of-range paths are a test-author bug: the
+-- runner fails immediately via 'error'.
+data CsmtForgeI a where
+    -- | Flip the last byte of @<path>.utxo_proof@.
+    FlipProof :: Text -> CsmtForgeI ()
+    -- | Flip the last byte of @<path>.tx_out@.
+    FlipTxOut :: Text -> CsmtForgeI ()
+    -- | Swap the advertised @snapshot.utxo_root@ with a
+    -- deterministic 32-byte \"wrong root\". Every witness
+    -- in the response now replays against the wrong root.
+    FlipSnapshotRoot :: CsmtForgeI ()
+
+-- | A program of CSMT-layer forgeries.
+type CsmtForge = Program CsmtForgeI
+
+-- | MPF-layer forgery instructions, valid only against an
+-- 'UpdateTxResponse'. A 'TrieForge' is a 'Program' over
+-- these instructions.
+data TrieForgeI a where
+    -- | Flip the last byte of @trie_read[i].value@.
+    FlipTrieValue :: Int -> TrieForgeI ()
+    -- | Drop @trie_read[i].value@ to 'Nothing' while
+    -- leaving the inclusion proof bytes intact.
+    DropToExclusion :: Int -> TrieForgeI ()
+    -- | Flip the last byte of the advertised @trie_root@.
+    FlipTrieRoot :: TrieForgeI ()
+
+type TrieForge = Program TrieForgeI
+
+-- | CSMT smart constructors — each lifts a single
+-- instruction into the 'CsmtForge' monad.
+flipProof :: Text -> CsmtForge ()
+flipProof = singleton . FlipProof
+
+flipTxOut :: Text -> CsmtForge ()
+flipTxOut = singleton . FlipTxOut
+
+flipSnapshotRoot :: CsmtForge ()
+flipSnapshotRoot = singleton FlipSnapshotRoot
+
+-- | Trie smart constructors.
+flipTrieValue :: Int -> TrieForge ()
+flipTrieValue = singleton . FlipTrieValue
+
+dropToExclusion :: Int -> TrieForge ()
+dropToExclusion = singleton . DropToExclusion
+
+flipTrieRoot :: TrieForge ()
+flipTrieRoot = singleton FlipTrieRoot
+
+-- ---------------------------------------------------------------
+-- Path parsing
+-- ---------------------------------------------------------------
+
+-- | Parse a role with an optional index: @"funding[3]"@ →
+-- @(\"funding\", Just 3)@, @"state_ref"@ →
+-- @(\"state_ref\", Nothing)@.
+parseIndexedRole :: Text -> (Text, Maybe Int)
+parseIndexedRole raw = case T.breakOn "[" raw of
+    (role, "") -> (role, Nothing)
+    (role, idxBits) ->
+        let body = T.drop 1 (T.dropEnd 1 idxBits)
+        in  (role, readMaybeInt body)
+
+readMaybeInt :: Text -> Maybe Int
+readMaybeInt t = case reads (T.unpack t) of
+    [(n, "")] -> Just n
+    _ -> Nothing
+
+-- | Apply a forgery to the @i@-th element of a list. Errors
+-- out if @i@ is out of range — a test fixture that names a
+-- non-existent index is a test bug.
+tamperListAt :: Int -> (a -> a) -> [a] -> [a]
+tamperListAt i f = go (0 :: Int)
+  where
+    go _ [] =
+        error
+            $ "tamperListAt: index "
+                <> show i
+                <> " out of range"
+    go k (x : xs)
+        | k == i = f x : xs
+        | otherwise = x : go (k + 1) xs
+
+-- | Wrong-root bytes injected by 'FlipSnapshotRoot'.
+wrongRootBytes :: ByteString
+wrongRootBytes = BS.replicate 32 0xff
+
+-- | Replace a snapshot's @utxo_root@ with 'wrongRootBytes'.
+swapSnapRoot :: VerificationSnapshot -> VerificationSnapshot
+swapSnapRoot s = s{utxoRoot = swapHexTo wrongRootBytes (utxoRoot s)}
+
+-- ---------------------------------------------------------------
+-- Per-endpoint CSMT runners
+-- ---------------------------------------------------------------
+
+-- | Interpret a 'CsmtForge' program against a 'BootTxResponse'.
+runForgeBoot :: CsmtForge () -> BootTxResponse -> BootTxResponse
+runForgeBoot prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let BootTxResponse tx sn p = r
+        in  runForgeBoot (k ()) (BootTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeBoot (k ()) (applyToBootFunding path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeBoot (k ()) (applyToBootFunding path flipTxOutField r)
+
+applyToBootFunding
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> BootTxResponse
+    -> BootTxResponse
+applyToBootFunding path f (BootTxResponse tx sn (BootProof fs)) =
+    BootTxResponse tx sn (BootProof (tamperFundingList path f fs))
+
+-- | Interpret a 'CsmtForge' against a 'RequestTxResponse'.
+runForgeRequest
+    :: CsmtForge () -> RequestTxResponse -> RequestTxResponse
+runForgeRequest prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let RequestTxResponse tx sn p = r
+        in  runForgeRequest
+                (k ())
+                (RequestTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeRequest
+            (k ())
+            (applyToRequestFunding path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeRequest
+            (k ())
+            (applyToRequestFunding path flipTxOutField r)
+
+applyToRequestFunding
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> RequestTxResponse
+    -> RequestTxResponse
+applyToRequestFunding path f (RequestTxResponse tx sn (RequestProof fs)) =
+    RequestTxResponse
+        tx
+        sn
+        (RequestProof (tamperFundingList path f fs))
+
+-- | Interpret a 'CsmtForge' against a 'RetractTxResponse'.
+runForgeRetract
+    :: CsmtForge () -> RetractTxResponse -> RetractTxResponse
+runForgeRetract prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let RetractTxResponse tx sn p = r
+        in  runForgeRetract
+                (k ())
+                (RetractTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeRetract (k ()) (tamperRetract path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeRetract (k ()) (tamperRetract path flipTxOutField r)
+
+tamperRetract
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> RetractTxResponse
+    -> RetractTxResponse
+tamperRetract path f (RetractTxResponse tx sn (RetractProof ri sr fs)) =
+    case parseIndexedRole path of
+        ("request_in", Nothing) ->
+            RetractTxResponse tx sn (RetractProof (f ri) sr fs)
+        ("state_ref", Nothing) ->
+            RetractTxResponse tx sn (RetractProof ri (f sr) fs)
+        ("funding", Just i) ->
+            RetractTxResponse
+                tx
+                sn
+                (RetractProof ri sr (tamperListAt i f fs))
+        _ ->
+            error $ "runForgeRetract: bad path " <> show path
+
+-- | Interpret a 'CsmtForge' against a 'RejectTxResponse'.
+runForgeReject
+    :: CsmtForge () -> RejectTxResponse -> RejectTxResponse
+runForgeReject prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let RejectTxResponse tx sn p = r
+        in  runForgeReject
+                (k ())
+                (RejectTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeReject (k ()) (tamperReject path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeReject (k ()) (tamperReject path flipTxOutField r)
+
+tamperReject
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> RejectTxResponse
+    -> RejectTxResponse
+tamperReject path f (RejectTxResponse tx sn (RejectProof st ris fs)) =
+    case parseIndexedRole path of
+        ("state", Nothing) ->
+            RejectTxResponse tx sn (RejectProof (f st) ris fs)
+        ("request_ins", Just i) ->
+            RejectTxResponse
+                tx
+                sn
+                (RejectProof st (tamperListAt i f ris) fs)
+        ("funding", Just i) ->
+            RejectTxResponse
+                tx
+                sn
+                (RejectProof st ris (tamperListAt i f fs))
+        _ ->
+            error $ "runForgeReject: bad path " <> show path
+
+-- | Interpret a 'CsmtForge' against an 'EndTxResponse'.
+runForgeEnd :: CsmtForge () -> EndTxResponse -> EndTxResponse
+runForgeEnd prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let EndTxResponse tx sn p = r
+        in  runForgeEnd
+                (k ())
+                (EndTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeEnd (k ()) (tamperEnd path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeEnd (k ()) (tamperEnd path flipTxOutField r)
+
+tamperEnd
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> EndTxResponse
+    -> EndTxResponse
+tamperEnd path f (EndTxResponse tx sn (EndProof st fs)) =
+    case parseIndexedRole path of
+        ("state", Nothing) ->
+            EndTxResponse tx sn (EndProof (f st) fs)
+        ("funding", Just i) ->
+            EndTxResponse
+                tx
+                sn
+                (EndProof st (tamperListAt i f fs))
+        _ ->
+            error $ "runForgeEnd: bad path " <> show path
+
+-- | Interpret a 'CsmtForge' against an 'UpdateTxResponse'.
+runForgeUpdate
+    :: CsmtForge () -> UpdateTxResponse -> UpdateTxResponse
+runForgeUpdate prog r = case view prog of
+    Return () -> r
+    FlipSnapshotRoot :>>= k ->
+        let UpdateTxResponse tx sn p = r
+        in  runForgeUpdate
+                (k ())
+                (UpdateTxResponse tx (swapSnapRoot sn) p)
+    FlipProof path :>>= k ->
+        runForgeUpdate (k ()) (tamperUpdate path flipUtxoProof r)
+    FlipTxOut path :>>= k ->
+        runForgeUpdate (k ()) (tamperUpdate path flipTxOutField r)
+
+tamperUpdate
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> UpdateTxResponse
+    -> UpdateTxResponse
+tamperUpdate
+    path
+    f
+    (UpdateTxResponse tx sn (UpdateProof st rs fs tr tread)) =
+        case parseIndexedRole path of
+            ("state", Nothing) ->
+                UpdateTxResponse
+                    tx
+                    sn
+                    (UpdateProof (f st) rs fs tr tread)
+            ("requests", Just i) ->
+                UpdateTxResponse
+                    tx
+                    sn
+                    ( UpdateProof
+                        st
+                        (tamperListAt i f rs)
+                        fs
+                        tr
+                        tread
+                    )
+            ("funding", Just i) ->
+                UpdateTxResponse
+                    tx
+                    sn
+                    ( UpdateProof
+                        st
+                        rs
+                        (tamperListAt i f fs)
+                        tr
+                        tread
+                    )
+            _ ->
+                error $ "runForgeUpdate: bad path " <> show path
+
+-- | Interpret a 'TrieForge' against an 'UpdateTxResponse'.
+runForgeUpdateTrie
+    :: TrieForge () -> UpdateTxResponse -> UpdateTxResponse
+runForgeUpdateTrie prog r = case view prog of
+    Return () -> r
+    FlipTrieValue i :>>= k ->
+        runForgeUpdateTrie
+            (k ())
+            (tamperTrie i forgeTrieFactValue r)
+    DropToExclusion i :>>= k ->
+        runForgeUpdateTrie
+            (k ())
+            (tamperTrie i dropTrieFactToExclusion r)
+    FlipTrieRoot :>>= k ->
+        let UpdateTxResponse tx sn (UpdateProof st rs fs tr tread) = r
+        in  runForgeUpdateTrie
+                (k ())
+                ( UpdateTxResponse
+                    tx
+                    sn
+                    ( UpdateProof
+                        st
+                        rs
+                        fs
+                        (flipByteInHex tr)
+                        tread
+                    )
+                )
+
+tamperTrie
+    :: Int
+    -> (TrieFact -> TrieFact)
+    -> UpdateTxResponse
+    -> UpdateTxResponse
+tamperTrie
+    i
+    f
+    (UpdateTxResponse tx sn (UpdateProof st rs fs tr tread)) =
+        UpdateTxResponse
+            tx
+            sn
+            (UpdateProof st rs fs tr (tamperListAt i f tread))
+
+-- ---------------------------------------------------------------
+-- Shared CSMT field helpers
+-- ---------------------------------------------------------------
+
+-- | Apply a 'WitnessedUtxo' tamper to the @i@-th entry of a
+-- funding list, where @path@ is @"funding[<i>]"@.
+tamperFundingList
+    :: Text
+    -> (WitnessedUtxo -> WitnessedUtxo)
+    -> [WitnessedUtxo]
+    -> [WitnessedUtxo]
+tamperFundingList path f fs = case parseIndexedRole path of
+    ("funding", Just i) -> tamperListAt i f fs
+    _ ->
+        error
+            $ "tamperFundingList: bad path "
+                <> show path
+
+-- | Alias for 'forgeWitnessedUtxoProof' scoped to the DSL.
+flipUtxoProof :: WitnessedUtxo -> WitnessedUtxo
+flipUtxoProof = forgeWitnessedUtxoProof
+
+-- | Alias for 'forgeWitnessedUtxoTxOut' scoped to the DSL.
+flipTxOutField :: WitnessedUtxo -> WitnessedUtxo
+flipTxOutField = forgeWitnessedUtxoTxOut
