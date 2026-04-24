@@ -60,6 +60,23 @@ module Cardano.MPFS.Client
     , forgeTrieFactValue
     , dropTrieFactToExclusion
     , promoteTrieFactToInclusion
+
+      -- * Forgery DSL (operational free-monad)
+    , CsmtForge
+    , TrieForge
+    , flipProof
+    , flipTxOut
+    , flipSnapshotRoot
+    , flipTrieValue
+    , dropToExclusion
+    , flipTrieRoot
+    , runForgeBoot
+    , runForgeRequest
+    , runForgeRetract
+    , runForgeReject
+    , runForgeEnd
+    , runForgeUpdate
+    , runForgeUpdateTrie
     ) where
 
 import Cardano.MPFS.Client.Bundle
@@ -96,16 +113,31 @@ import Cardano.MPFS.Client.Verify
     , verifyVerificationSnapshot
     )
 import Cardano.MPFS.Client.Verify.DSL
-    ( ErrorMatcher
+    ( CsmtForge
+    , ErrorMatcher
+    , TrieForge
     , csmtReplayFailedAt
+    , dropToExclusion
     , dropTrieFactToExclusion
     , flipByteInHex
+    , flipProof
+    , flipSnapshotRoot
+    , flipTrieRoot
+    , flipTrieValue
+    , flipTxOut
     , forgeTrieFactValue
     , forgeWitnessedUtxoProof
     , forgeWitnessedUtxoTxOut
     , malformedHexAt
     , mpfReplayFailedAt
     , promoteTrieFactToInclusion
+    , runForgeBoot
+    , runForgeEnd
+    , runForgeReject
+    , runForgeRequest
+    , runForgeRetract
+    , runForgeUpdate
+    , runForgeUpdateTrie
     , shouldAccept
     , shouldRejectWith
     , swapHexTo

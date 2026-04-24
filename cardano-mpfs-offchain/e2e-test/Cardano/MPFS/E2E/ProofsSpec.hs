@@ -146,13 +146,27 @@ import Cardano.MPFS.Client
     , RetractTxResponse
     , UpdateTxResponse
     , VerificationSnapshot
+    , csmtReplayFailedAt
+    , flipProof
+    , flipSnapshotRoot
+    , flipTrieRoot
+    , flipTxOut
+    , mpfReplayFailedAt
+    , runForgeBoot
+    , runForgeEnd
+    , runForgeRequest
+    , runForgeRetract
+    , runForgeUpdate
+    , runForgeUpdateTrie
     , shouldAccept
+    , shouldRejectWith
     , verifyBootTxResponse
     , verifyEndTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
+    , withReason
     )
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -301,17 +315,26 @@ proofsSpec scriptBytes =
                 retractUtxoRef =
                     txInUrlRef reqTxIn
 
-            -- Happy path: each unsigned-tx response is
-            -- fed through the offline `Client.Verify`
-            -- DSL. `shouldAccept` asserts the response
-            -- passes every cryptographic CSMT + MPF
-            -- replay its proofs carry, not just the
-            -- structural hex decode.
+            -- Every endpoint pairs a positive `shouldAccept`
+            -- against the honest server response with a
+            -- negative `shouldRejectWith` driven by a
+            -- `CsmtForge` or `TrieForge` program. The DSL is
+            -- an operational free monad: forgeries are just
+            -- sequenced instructions, and each endpoint has
+            -- its own runner
+            -- (`runForgeBoot`, `runForgeUpdate`, ...).
+            -- One tampered field per program, explicit
+            -- dotted field path + reason on every rejection.
+
             bootResp <-
                 postJSON app "/tx/boot"
                     $ object ["address" .= addrHex]
             (bootResp :: BootTxResponse)
                 `shouldAccept` verifyBootTxResponse
+            runForgeBoot (flipProof "funding[0]") bootResp
+                `shouldRejectWith` verifyBootTxResponse
+                $ csmtReplayFailedAt
+                    "boot.funding[0].utxo_proof"
 
             insertResp <-
                 postJSON
@@ -326,6 +349,13 @@ proofsSpec scriptBytes =
                         ]
             (insertResp :: RequestTxResponse)
                 `shouldAccept` verifyRequestTxResponse
+            runForgeRequest
+                (flipTxOut "funding[0]")
+                insertResp
+                `shouldRejectWith` verifyRequestTxResponse
+                $ csmtReplayFailedAt
+                    "request.funding[0].utxo_proof"
+                    `withReason` "value binding mismatch"
 
             updateResp <-
                 postJSON app "/tx/update"
@@ -335,6 +365,18 @@ proofsSpec scriptBytes =
                         ]
             (updateResp :: UpdateTxResponse)
                 `shouldAccept` verifyUpdateTxResponse
+            -- CSMT forgery on the same update response:
+            runForgeUpdate (flipTxOut "state") updateResp
+                `shouldRejectWith` verifyUpdateTxResponse
+                $ csmtReplayFailedAt
+                    "update.state.utxo_proof"
+                    `withReason` "value binding mismatch"
+            -- MPF forgery on the same update response:
+            runForgeUpdateTrie flipTrieRoot updateResp
+                `shouldRejectWith` verifyUpdateTxResponse
+                $ mpfReplayFailedAt
+                    "update.trie_read[0].mpf_proof"
+                    `withReason` "root mismatch"
 
             retractResp <-
                 postJSON app "/tx/retract"
@@ -344,6 +386,11 @@ proofsSpec scriptBytes =
                         ]
             (retractResp :: RetractTxResponse)
                 `shouldAccept` verifyRetractTxResponse
+            runForgeRetract flipSnapshotRoot retractResp
+                `shouldRejectWith` verifyRetractTxResponse
+                $ csmtReplayFailedAt
+                    "retract.request_in.utxo_proof"
+                    `withReason` "root mismatch"
 
             -- /tx/reject requires a request whose
             -- processing deadline has already elapsed;
@@ -361,6 +408,10 @@ proofsSpec scriptBytes =
                         ]
             (endResp :: EndTxResponse)
                 `shouldAccept` verifyEndTxResponse
+            runForgeEnd (flipProof "state") endResp
+                `shouldRejectWith` verifyEndTxResponse
+                $ csmtReplayFailedAt
+                    "end.state.utxo_proof"
 
 -- -------------------------------------------------
 -- Assertions on response shape
