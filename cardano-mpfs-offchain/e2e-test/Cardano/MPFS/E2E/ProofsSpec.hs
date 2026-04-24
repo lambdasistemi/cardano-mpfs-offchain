@@ -149,15 +149,12 @@ import Cardano.MPFS.Client
     , csmtReplayFailedAt
     , flipProof
     , flipSnapshotRoot
-    , flipTrieRoot
     , flipTxOut
-    , mpfReplayFailedAt
     , runForgeBoot
     , runForgeEnd
     , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
-    , runForgeUpdateTrie
     , shouldAccept
     , shouldRejectWith
     , verifyBootTxResponse
@@ -371,12 +368,13 @@ proofsSpec scriptBytes =
                 $ csmtReplayFailedAt
                     "update.state.utxo_proof"
                     `withReason` "value binding mismatch"
-            -- MPF forgery on the same update response:
-            runForgeUpdateTrie flipTrieRoot updateResp
-                `shouldRejectWith` verifyUpdateTxResponse
-                $ mpfReplayFailedAt
-                    "update.trie_read[0].mpf_proof"
-                    `withReason` "root mismatch"
+            -- MPF forgery is covered in the unit suite
+            -- (`Cardano.MPFS.Client.VerifySpec`) against a
+            -- guaranteed-non-empty `trie_read` fixture. The
+            -- devnet's `/tx/update` response may carry an
+            -- empty `trie_read` if no pending request was
+            -- observed in time, so `flipTrieRoot` is not a
+            -- reliable forgery at this stage.
 
             retractResp <-
                 postJSON app "/tx/retract"
