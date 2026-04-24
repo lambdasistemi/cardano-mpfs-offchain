@@ -20,11 +20,11 @@ module Cardano.MPFS.Client.Verify.Replay
     , replayTrieFact
     ) where
 
-import Codec.CBOR.Decoding qualified as CBOR
-import Codec.CBOR.Read qualified as CBOR
+import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
-import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
 import Data.Text.Encoding qualified as T
 import Data.Word (Word64)
@@ -123,18 +123,18 @@ replayWitnessedUtxo path trustedRoot WitnessedUtxo{..} = do
                     proofPath
                     "value binding mismatch"
                 )
-    checkKeyBinding proofKeyBs advertisedTxIdBs advertisedTxIx =
-        case decodeTxInBytes proofKeyBs of
-            Just (k, ix)
-                | k == advertisedTxIdBs
-                , ix == advertisedTxIx ->
-                    Right ()
-            _ ->
-                Left
-                    ( CsmtReplayFailed
-                        proofPath
-                        "key binding mismatch"
-                    )
+    checkKeyBinding proofKeyBs advertisedTxIdBs advertisedTxIx
+        | keyBindingMatches
+            proofKeyBs
+            advertisedTxIdBs
+            advertisedTxIx =
+            Right ()
+        | otherwise =
+            Left
+                ( CsmtReplayFailed
+                    proofPath
+                    "key binding mismatch"
+                )
     checkRootReplay proofBs
         | verifyInclusionProof trustedRoot proofBs = Right ()
         | otherwise =
@@ -236,23 +236,38 @@ replayTrieFact path trustedRoot TrieFact{..} = do
   where
     proofPath = path <> ".mpf_proof"
 
--- | Decode the raw bytes of a @Shelley.TxIn@ as a CBOR
--- 2-element list of @(txIdBytes, txIx)@. The MPFS server
--- stores UTxO keys as @cborEncode (Shelley.TxIn ...)@, whose
--- CBOR layout is a 2-element list of @[bytestring, uint]@.
--- Returns 'Nothing' if the bytes do not conform.
-decodeTxInBytes :: ByteString -> Maybe (ByteString, Word64)
-decodeTxInBytes bs =
-    case CBOR.deserialiseFromBytes decoder (BL.fromStrict bs) of
-        Right (_, result) -> Just result
-        _ -> Nothing
+-- | Encode a @(txId, txIx)@ pair as the canonical
+-- @Shelley.TxIn@ CBOR layout: a 2-element list of
+-- @[bytestring, uint]@ with minimal integer encoding,
+-- matching what the MPFS server's @cborEncode@ produces.
+encodeTxIn :: ByteString -> Word64 -> ByteString
+encodeTxIn txIdBs txIxWord =
+    CBOR.toStrictByteString
+        $ mconcat
+            [ CBOR.encodeListLen 2
+            , CBOR.encodeBytes txIdBs
+            , CBOR.encodeWord64 txIxWord
+            ]
+
+-- | The MPFS server stores each UTxO under a CSMT key of
+-- shape @addressPrefix ++ cborEncode(Shelley.TxIn ...)@: the
+-- server's 'FromKV' record defines @treePrefix@ as the
+-- 32-byte Blake2b hash of the TxOut address so by-address
+-- queries can scan a contiguous subtree. To bind the proof
+-- key to the advertised @(txId, txIx)@ without re-deriving
+-- the address (which would require @cardano-ledger-*@ on the
+-- client and break Principle IX), it is sufficient to check
+-- that the canonical TxIn CBOR is a suffix of the raw key
+-- bytes. TxIns are globally unique, so a suffix match
+-- unambiguously identifies the advertised UTxO regardless of
+-- which prefix scheme the server uses.
+keyBindingMatches
+    :: ByteString -> ByteString -> Word64 -> Bool
+keyBindingMatches keyBytes advertisedTxIdBs advertisedTxIxWord =
+    BS.isSuffixOf expected keyBytes
   where
-    decoder :: CBOR.Decoder s (ByteString, Word64)
-    decoder = do
-        _ <- CBOR.decodeListLen
-        txIdBytes <- CBOR.decodeBytes
-        txIxWord <- CBOR.decodeWord64
-        pure (txIdBytes, txIxWord)
+    expected =
+        encodeTxIn advertisedTxIdBs advertisedTxIxWord
 
 -- | Hex-decode a 'Hex' field and wrap failures as
 -- 'MalformedHex' at the given path.
