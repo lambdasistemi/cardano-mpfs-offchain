@@ -3,34 +3,103 @@
 
 -- |
 -- Module      : Cardano.MPFS.Client.Verify.DSL
--- Description : Tutorial-shaped DSL for verifier-level assertions.
+-- Description : Tutorial-shaped DSL for verifier-level assertions
+--               and forgery scenarios.
 --
--- Re-exported from "Cardano.MPFS.Client" so a single import exposes
--- both the verifier and the test DSL. The DSL pairs positive
--- ('shouldAccept') and negative ('shouldRejectWith') scenarios with
--- structured 'ErrorMatcher's so the E2E spec reads as tutorial prose
--- — every scenario names the endpoint, the expected outcome, and
--- (on the negative side) the exact 'VerifyError' constructor and
--- dotted field path that must fire.
+-- The DSL has three layers, each re-exported from
+-- "Cardano.MPFS.Client" so a downstream wallet test suite needs
+-- a single import:
 --
--- The DSL is deliberately small: the two assertions plus an
--- 'ErrorMatcher' builder per 'VerifyError' constructor plus a
--- 'withReason' combinator for matching on the reason text.
+-- 1. __Assertions.__  'shouldAccept' and 'shouldRejectWith'
+--    wrap the offline verifier in hspec 'Expectation's.  On
+--    rejection 'shouldRejectWith' takes an 'ErrorMatcher' so
+--    the failure message carries the expected dotted field
+--    path and reason.
 --
--- __Scenario template__ (see @specs\/178-crypto-proof-replay\/contracts\/dsl.md@):
+-- 2. __Error matchers.__  One smart constructor per
+--    'VerifyError' case ('csmtReplayFailedAt',
+--    'mpfReplayFailedAt', 'malformedHexAt',
+--    'wrongHexLengthAt') plus 'withReason' to narrow the
+--    match to a specific reason from the fixed vocabulary in
+--    @contracts\/verify-error.md@.
 --
--- > spec :: Spec
+-- 3. __Forgery DSL.__  An @operational@ free monad with two
+--    program types — 'CsmtForge' for CSMT-layer tampering and
+--    'TrieForge' for MPF-layer tampering on
+--    'UpdateTxResponse'.  Each program is a sequence of
+--    deterministic one-field tamperings; one runner per
+--    response type interprets the program against a concrete
+--    envelope.
+--
+-- = Why a free monad
+--
+-- A forgery is a /value/, not an ad-hoc IO mutation.  Programs
+-- can be built, named, shared, and sequenced before meeting a
+-- response.  The split into two instruction GADTs
+-- ('CsmtForgeI', 'TrieForgeI') means the type checker rejects
+-- category mistakes — you cannot accidentally run a trie
+-- tampering against a 'BootTxResponse'.  Deterministic
+-- byte-level effects mean every scenario is bisect-safe; no
+-- @StdGen@ threading.
+--
+-- = Worked example — CSMT
+--
 -- > spec = describe "cryptographic CSMT replay at /tx/boot" $ do
--- >     it "accepts an honest response" $ do
--- >         response <- server `postsBoot` ownerAddress
--- >         response `shouldAccept` verifyBootTxResponse
+-- >     it "accepts an honest response" $
+-- >         honestBoot `shouldAccept` verifyBootTxResponse
 -- >
--- >     it "rejects a funding proof tampered to random bytes" $ do
--- >         response <- server `postsBoot` ownerAddress
--- >         forged   <- response
--- >                       `forgingRandomUtxoProofAt` "boot.funding[0]"
--- >         forged `shouldRejectWith` verifyBootTxResponse
--- >             $ csmtReplayFailedAt "boot.funding[0].utxo_proof"
+-- >     it "rejects a funding proof tampered to random bytes" $
+-- >         runForgeBoot (flipProof "funding[0]") honestBoot
+-- >             `shouldRejectWith` verifyBootTxResponse
+-- >             $ csmtReplayFailedAt
+-- >                 "boot.funding[0].utxo_proof"
+--
+-- The @"funding[0]"@ path is a substring of the dotted field
+-- path the verifier reports on — so the forgery site and the
+-- expected rejection site line up by eye.  Multi-step programs
+-- compose with do-notation:
+--
+-- > twoSpots :: CsmtForge ()
+-- > twoSpots = do
+-- >     flipTxOut "state"
+-- >     flipProof "requests[0]"
+--
+-- = Worked example — MPF on an update response
+--
+-- > it "rejects a trie_read value tampered by one byte" $
+-- >     runForgeUpdateTrie (flipTrieValue 0) honestUpdate
+-- >         `shouldRejectWith` verifyUpdateTxResponse
+-- >         $ mpfReplayFailedAt
+-- >             "update.trie_read[0].mpf_proof"
+--
+-- An 'UpdateTxResponse' is the only envelope that carries an
+-- MPF trie; 'runForgeUpdate' handles CSMT tampering, and
+-- 'runForgeUpdateTrie' handles MPF tampering — the two layers
+-- are distinct program types and do not commute through the
+-- same runner.
+--
+-- = Path grammar
+--
+-- 'FlipProof' and 'FlipTxOut' take a role path.  The supported
+-- shapes differ by endpoint:
+--
+-- [@BootTxResponse@, @RequestTxResponse@]
+--   @"funding[<i>]"@
+-- [@RetractTxResponse@]
+--   @"request_in"@, @"state_ref"@, @"funding[<i>]"@
+-- [@RejectTxResponse@]
+--   @"state"@, @"request_ins[<i>]"@, @"funding[<i>]"@
+-- [@EndTxResponse@]
+--   @"state"@, @"funding[<i>]"@
+-- [@UpdateTxResponse@]
+--   @"state"@, @"requests[<i>]"@, @"funding[<i>]"@
+--
+-- 'FlipTrieValue' and 'DropToExclusion' take an index into
+-- @UpdateProof.trie_read@; 'FlipTrieRoot' takes no argument.
+--
+-- Invalid or out-of-range paths are a test-author bug: the
+-- runner fails immediately via 'error' rather than silently
+-- passing through.
 module Cardano.MPFS.Client.Verify.DSL
     ( -- * Assertions
       shouldAccept

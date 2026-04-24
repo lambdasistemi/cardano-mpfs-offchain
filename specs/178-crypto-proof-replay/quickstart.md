@@ -123,16 +123,32 @@ fixed vocabulary: `"root mismatch"`, `"key binding mismatch"`,
 ## 5. Writing tests that read as prose
 
 Downstream test code gets the same DSL the MPFS E2E suite uses.
-Pair every positive scenario with at least one negative scenario:
+Pair every positive scenario with at least one negative scenario.
+
+The forgery side is an `operational` free-monad DSL with two
+program types: `CsmtForge` for CSMT-layer tampering and
+`TrieForge` for MPF-layer tampering on `UpdateTxResponse`. One
+runner per response envelope interprets a program against a
+concrete response:
 
 ```haskell
 import Cardano.MPFS.Client
-    ( shouldAccept
+    ( -- Assertions
+      shouldAccept
     , shouldRejectWith
     , csmtReplayFailedAt
     , mpfReplayFailedAt
-    , forgingRandomUtxoProofAt
-    , tamperingTrieValueAt
+      -- Forgery instructions
+    , flipProof
+    , flipTxOut
+    , flipSnapshotRoot
+    , flipTrieValue
+    , flipTrieRoot
+      -- Per-endpoint runners
+    , runForgeBoot
+    , runForgeUpdate
+    , runForgeUpdateTrie
+      -- Verifiers
     , verifyBootTxResponse
     , verifyUpdateTxResponse
     )
@@ -145,19 +161,39 @@ spec = describe "my wallet's MPFS client" $ do
 
     it "rejects a forged boot funding proof" $ do
         response <- server `postsBoot` ownerAddress
-        forged   <- response
-                      `forgingRandomUtxoProofAt` "boot.funding[0]"
-        forged
+        runForgeBoot (flipProof "funding[0]") response
             `shouldRejectWith` verifyBootTxResponse
-            $ csmtReplayFailedAt "boot.funding[0].utxo_proof"
+            $ csmtReplayFailedAt
+                "boot.funding[0].utxo_proof"
 
     it "rejects a tampered trie value in an update batch" $ do
         response <- server `postsUpdate` (tokenId, ownerAddress)
-        forged   <- response `tamperingTrieValueAt` 0
-        forged
+        runForgeUpdateTrie (flipTrieValue 0) response
             `shouldRejectWith` verifyUpdateTxResponse
-            $ mpfReplayFailedAt "update.trie_read[0].mpf_proof"
+            $ mpfReplayFailedAt
+                "update.trie_read[0].mpf_proof"
 ```
+
+Programs compose with `do`-notation for multi-field tampering:
+
+```haskell
+it "rejects a double-tampered update response" $ do
+    response <- server `postsUpdate` (tokenId, ownerAddress)
+    let twoSpots = do
+            flipTxOut "state"
+            flipProof "requests[0]"
+    runForgeUpdate twoSpots response
+        `shouldRejectWith` verifyUpdateTxResponse
+        $ csmtReplayFailedAt
+            "update.state.utxo_proof"
+```
+
+The forgery instructions are deterministic byte-level
+tamperings (no `StdGen`, no `IO`), so every scenario is
+bisect-safe and CI-reproducible. The supported role paths for
+each endpoint and the expected rejection reason for each
+instruction are tabulated in
+[`contracts/dsl.md`](contracts/dsl.md).
 
 A new reader who opens only this test file can list what the
 verifier accepts, what it rejects, and at what field granularity.
