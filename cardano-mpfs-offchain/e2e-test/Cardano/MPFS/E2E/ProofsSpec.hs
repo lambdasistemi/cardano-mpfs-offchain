@@ -146,7 +146,7 @@ import Cardano.MPFS.Client
     , RetractTxResponse
     , UpdateTxResponse
     , VerificationSnapshot
-    , VerifyError
+    , shouldAccept
     , verifyBootTxResponse
     , verifyEndTxResponse
     , verifyRequestTxResponse
@@ -301,13 +301,17 @@ proofsSpec scriptBytes =
                 retractUtxoRef =
                     txInUrlRef reqTxIn
 
+            -- Happy path: each unsigned-tx response is
+            -- fed through the offline `Client.Verify`
+            -- DSL. `shouldAccept` asserts the response
+            -- passes every cryptographic CSMT + MPF
+            -- replay its proofs carry, not just the
+            -- structural hex decode.
             bootResp <-
                 postJSON app "/tx/boot"
                     $ object ["address" .= addrHex]
-            assertVerify
-                "boot"
-                verifyBootTxResponse
-                (bootResp :: BootTxResponse)
+            (bootResp :: BootTxResponse)
+                `shouldAccept` verifyBootTxResponse
 
             insertResp <-
                 postJSON
@@ -320,10 +324,8 @@ proofsSpec scriptBytes =
                             .= Hex (TE.decodeUtf8 (B16.encode "qux"))
                         , "address" .= addrHex
                         ]
-            assertVerify
-                "request/insert"
-                verifyRequestTxResponse
-                (insertResp :: RequestTxResponse)
+            (insertResp :: RequestTxResponse)
+                `shouldAccept` verifyRequestTxResponse
 
             updateResp <-
                 postJSON app "/tx/update"
@@ -331,10 +333,8 @@ proofsSpec scriptBytes =
                         [ "token" .= Hex (TE.decodeUtf8 tidHex)
                         , "address" .= addrHex
                         ]
-            assertVerify
-                "update"
-                verifyUpdateTxResponse
-                (updateResp :: UpdateTxResponse)
+            (updateResp :: UpdateTxResponse)
+                `shouldAccept` verifyUpdateTxResponse
 
             retractResp <-
                 postJSON app "/tx/retract"
@@ -342,16 +342,16 @@ proofsSpec scriptBytes =
                         [ "utxo" .= retractUtxoRef
                         , "address" .= addrHex
                         ]
-            assertVerify
-                "retract"
-                verifyRetractTxResponse
-                (retractResp :: RetractTxResponse)
+            (retractResp :: RetractTxResponse)
+                `shouldAccept` verifyRetractTxResponse
 
             -- /tx/reject requires a request whose
             -- processing deadline has already elapsed;
             -- the fresh insert above does not qualify.
             -- Reject coverage lives in the client
             -- structural unit tests — skip it here.
+            -- Tracked separately by issue
+            -- lambdasistemi/cardano-mpfs-offchain#224.
 
             endResp <-
                 postJSON app "/tx/end"
@@ -359,10 +359,8 @@ proofsSpec scriptBytes =
                         [ "token" .= Hex (TE.decodeUtf8 tidHex)
                         , "address" .= addrHex
                         ]
-            assertVerify
-                "end"
-                verifyEndTxResponse
-                (endResp :: EndTxResponse)
+            (endResp :: EndTxResponse)
+                `shouldAccept` verifyEndTxResponse
 
 -- -------------------------------------------------
 -- Assertions on response shape
@@ -564,22 +562,6 @@ postJSON app path body = do
                         <> " returned non-JSON: "
                         <> show (simpleBody resp)
                 error "unreachable"
-
--- | Invoke a 'Client.Verify' function on a decoded
--- response and fail the test with a labeled error if
--- structural verification rejects the bundle.
-assertVerify
-    :: String
-    -> (a -> Either VerifyError ())
-    -> a
-    -> IO ()
-assertVerify label f x = case f x of
-    Right () -> pure ()
-    Left err ->
-        expectationFailure
-            $ label
-                <> ": verifier rejected bundle: "
-                <> show err
 
 -- | Hex-encode a bech32-serialisable address for
 -- JSON transport.
