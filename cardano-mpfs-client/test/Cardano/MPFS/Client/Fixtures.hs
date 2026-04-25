@@ -258,7 +258,13 @@ inlineDatumOption :: CBOR.Term -> CBOR.Term
 inlineDatumOption datum =
     CBOR.TList
         [ CBOR.TInt 1
-        , datum
+        , CBOR.TTagged
+            24
+            ( CBOR.TBytes
+                ( CBOR.toStrictByteString
+                    (CBOR.encodeTerm datum)
+                )
+            )
         ]
 
 inlineDatumDataTerm :: CBOR.Term

@@ -573,14 +573,26 @@ parseDatumOption field = \case
     CBOR.TList [tagTerm, _]
         | termInteger tagTerm == Just 0 -> Right Nothing
     CBOR.TList [tagTerm, datumTerm]
-        | termInteger tagTerm == Just 1 ->
-            Right (Just (normalizeTerm datumTerm))
+        | termInteger tagTerm == Just 1 -> do
+            datum <- parseInlineDatum (field <> ".inline") datumTerm
+            Right (Just datum)
     CBOR.TListI [tagTerm, _]
         | termInteger tagTerm == Just 0 -> Right Nothing
     CBOR.TListI [tagTerm, datumTerm]
-        | termInteger tagTerm == Just 1 ->
-            Right (Just (normalizeTerm datumTerm))
+        | termInteger tagTerm == Just 1 -> do
+            datum <- parseInlineDatum (field <> ".inline") datumTerm
+            Right (Just datum)
     _ -> Left (TxBindingFailed field "unsupported datum option CBOR")
+
+parseInlineDatum :: Text -> CBOR.Term -> Either VerifyError CBOR.Term
+parseInlineDatum field = \case
+    CBOR.TTagged 24 (CBOR.TBytes encoded) -> do
+        term <- decodeTerm field encoded
+        Right (normalizeTerm term)
+    CBOR.TTagged 24 _ ->
+        Left (TxBindingFailed field "unsupported encoded datum CBOR")
+    datumTerm ->
+        Right (normalizeTerm datumTerm)
 
 parseValue :: Text -> CBOR.Term -> Either VerifyError [TxAsset]
 parseValue field = \case
