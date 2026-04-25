@@ -16,7 +16,10 @@ module Cardano.MPFS.Client.VerifySpec (spec) where
 import Test.Hspec (Spec, describe, it)
 
 import Cardano.MPFS.Client
-    ( BootTxResponse (..)
+    ( BootProof (..)
+    , BootTxResponse (..)
+    , EndProof (..)
+    , EndTxResponse (..)
     , Hex (..)
     , RetractProof (..)
     , RetractTxResponse (..)
@@ -59,7 +62,9 @@ import Cardano.MPFS.Client.Fixtures
     , honestUpdateResponse
     , honestUpdateResponseEmptyTrie
     , honestUpdateResponseMixedTrie
+    , sampleStateAsset
     , txCborFromTxIns
+    , txCborFromTxParts
     )
 
 spec :: Spec
@@ -115,6 +120,21 @@ spec = do
             $ updateWithoutRequestInput honestUpdateResponse
                 `shouldRejectWith` verifyUpdateTxResponse
             $ txBindingFailedAt "update.tx.inputs"
+
+        it "rejects a boot tx without a continuing state output"
+            $ bootWithoutStateOutput honestBootResponse
+                `shouldRejectWith` verifyBootTxResponse
+            $ txBindingFailedAt "boot.tx.state_outputs"
+
+        it "rejects an end tx that burns the wrong state token quantity"
+            $ endBurnsWrongQuantity honestEndResponse
+                `shouldRejectWith` verifyEndTxResponse
+            $ txBindingFailedAt "end.tx.mint"
+
+        it "rejects an update tx without a continuing state output"
+            $ updateWithoutStateOutput honestUpdateResponse
+                `shouldRejectWith` verifyUpdateTxResponse
+            $ txBindingFailedAt "update.tx.state_outputs"
 
     describe "CSMT forgery corpus (free-monad DSL)" $ do
         it "rejects a boot funding utxo_proof with a flipped byte"
@@ -221,6 +241,18 @@ replaceBootTx :: Hex -> BootTxResponse -> BootTxResponse
 replaceBootTx tx' (BootTxResponse _ s p) =
     BootTxResponse tx' s p
 
+bootWithoutStateOutput :: BootTxResponse -> BootTxResponse
+bootWithoutStateOutput (BootTxResponse _ s p@(BootProof funding)) =
+    BootTxResponse
+        ( txCborFromTxParts
+            (map txIn funding)
+            []
+            [sampleStateAsset 1]
+            []
+        )
+        s
+        p
+
 retractWithoutReference :: RetractTxResponse -> RetractTxResponse
 retractWithoutReference
     (RetractTxResponse _ s p@(RetractProof req _st funding)) =
@@ -234,5 +266,30 @@ updateWithoutRequestInput
     (UpdateTxResponse _ s p@(UpdateProof st _reqs funding _tr _tread)) =
         UpdateTxResponse
             (txCborFromTxIns (map txIn (st : funding)) [])
+            s
+            p
+
+endBurnsWrongQuantity :: EndTxResponse -> EndTxResponse
+endBurnsWrongQuantity (EndTxResponse _ s p@(EndProof st funding)) =
+    EndTxResponse
+        ( txCborFromTxParts
+            (map txIn (st : funding))
+            []
+            [sampleStateAsset (-2)]
+            []
+        )
+        s
+        p
+
+updateWithoutStateOutput :: UpdateTxResponse -> UpdateTxResponse
+updateWithoutStateOutput
+    (UpdateTxResponse _ s p@(UpdateProof st reqs funding _tr _tread)) =
+        UpdateTxResponse
+            ( txCborFromTxParts
+                (map txIn (st : reqs <> funding))
+                []
+                []
+                []
+            )
             s
             p

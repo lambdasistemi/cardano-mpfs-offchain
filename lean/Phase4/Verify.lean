@@ -163,9 +163,27 @@ structure ProofRoles (Key : Type) where
   consumed : List Key
   referenced : List Key
 
+/-- The asset fragment of an unsigned transaction body used
+    by the client verifier. `minted` contains signed mint
+    quantities from tx-body field `9`; `stateOutputs` contains
+    token assets carried by continuing state outputs. -/
+structure TxAssetView (Asset : Type) where
+  minted : List Asset
+  stateOutputs : List Asset
+
+/-- Asset roles implied by the endpoint proof payload. Burned
+    assets are represented as negative mint quantities in the
+    Haskell verifier; this abstract model keeps minted and
+    burned roles separate so the proof obligations are explicit. -/
+structure ProofAssetRoles (Asset : Type) where
+  minted : List Asset
+  burned : List Asset
+  continuingState : List Asset
+
 namespace TxBinding
 
 variable {Key : Type}
+variable {Asset : Type}
 
 /-- A response covers a decoded transaction view exactly when
     its consumed proof roles are exactly the tx inputs and its
@@ -233,6 +251,51 @@ theorem extra_reference_rejected
     (hInRoles : k ∈ roles.referenced)
     (hNotInTx : k ∉ tx.referenceInputs) :
     ¬ coversTxView roles tx := by
+  intro h
+  rw [← h.2] at hInRoles
+  exact hNotInTx hInRoles
+
+/-- Asset coverage is exact for mints, burns, and continuing
+    state outputs after the Haskell verifier has canonicalised
+    signed mint quantities into role-specific lists. -/
+def coversAssetView
+    (roles : ProofAssetRoles Asset)
+    (tx : TxAssetView Asset) : Prop :=
+  tx.minted = roles.minted ++ roles.burned ∧
+  tx.stateOutputs = roles.continuingState
+
+/-- Coverage exposes exact mint/burn equality. -/
+theorem covers_mint_exact
+    {roles : ProofAssetRoles Asset} {tx : TxAssetView Asset}
+    (h : coversAssetView roles tx) :
+    tx.minted = roles.minted ++ roles.burned := h.1
+
+/-- Coverage exposes exact continuing-state-output equality. -/
+theorem covers_state_outputs_exact
+    {roles : ProofAssetRoles Asset} {tx : TxAssetView Asset}
+    (h : coversAssetView roles tx) :
+    tx.stateOutputs = roles.continuingState := h.2
+
+/-- If a tx mints or burns an asset not present in the proof
+    roles, asset coverage is impossible. -/
+theorem missing_mint_role_rejected
+    {roles : ProofAssetRoles Asset} {tx : TxAssetView Asset}
+    (a : Asset)
+    (hInTx : a ∈ tx.minted)
+    (hNotInRoles : a ∉ roles.minted ++ roles.burned) :
+    ¬ coversAssetView roles tx := by
+  intro h
+  rw [h.1] at hInTx
+  exact hNotInRoles hInTx
+
+/-- If the proof roles expect a continuing state asset that
+    is absent from tx outputs, asset coverage is impossible. -/
+theorem missing_state_output_rejected
+    {roles : ProofAssetRoles Asset} {tx : TxAssetView Asset}
+    (a : Asset)
+    (hInRoles : a ∈ roles.continuingState)
+    (hNotInTx : a ∉ tx.stateOutputs) :
+    ¬ coversAssetView roles tx := by
   intro h
   rw [← h.2] at hInRoles
   exact hNotInTx hInRoles
