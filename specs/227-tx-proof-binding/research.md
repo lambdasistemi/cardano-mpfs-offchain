@@ -53,6 +53,32 @@ encodings for fields `0` and `18`.
 Collateral inputs are left for a later slice. They are not regular tx
 inputs or reference inputs in the issue's first acceptance surface.
 
+## Second slice: mint and state-output binding
+
+Extend the same targeted CBOR reader to decode:
+
+- tx-body field `9` (`mint = multiasset<nonZeroInt64>`)
+- tx-body field `1` transaction outputs
+- Shelley/Babbage output `value` assets
+- Babbage inline-datum markers
+- witnessed state `tx_out` values from proof payloads
+
+The verifier can then enforce:
+
+| Endpoint | Mint/burn rule | State-output rule |
+|----------|----------------|-------------------|
+| boot | exactly one `+1` asset | exactly one inline-datum output carries the minted asset |
+| request | empty mint | no state-output assertion |
+| retract | empty mint | no state-output assertion |
+| reject | empty mint | exactly one inline-datum output carries the witnessed state token |
+| end | exactly one burn matching the witnessed state token | no output carries the state token |
+| update | empty mint | exactly one inline-datum output carries the witnessed state token |
+
+This still deliberately avoids `cardano-ledger-*` in the client. It does
+not attempt to derive the boot asset name or decode full Aiken datum
+contents; those are covered by the on-chain script and will be tightened
+further when redeemer binding lands.
+
 ## Rejected alternative: server summary as authoritative
 
 Rejected for this slice. It leaves the client dependent on a
@@ -61,8 +87,6 @@ whose body omits or adds inputs relative to the summary.
 
 ## Deferred work
 
-- Decode mint field `9` and bind boot/end mint quantities to token roles.
-- Decode outputs and datum options to bind state-carrying outputs.
 - Decode redeemers from witness-set field `5` and bind update/retract/end
   redeemer content to proof roles.
 - Bind `UpdateProof.trie_read` facts to the exact MPF proof consumed by

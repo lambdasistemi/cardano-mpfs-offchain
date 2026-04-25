@@ -27,7 +27,9 @@ module Cardano.MPFS.Client.Fixtures
 
       -- * Hex utilities
     , toHex
+    , sampleStateAsset
     , txCborFromTxIns
+    , txCborFromTxParts
     ) where
 
 import Codec.CBOR.Encoding qualified as CBOR
@@ -36,6 +38,7 @@ import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
+import Data.List (nub)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as T
 import Data.Word (Word64)
@@ -89,6 +92,9 @@ import Cardano.MPFS.Client.Snapshot
     , Hex (..)
     , VerificationSnapshot (..)
     )
+import Cardano.MPFS.Client.Verify.TxView
+    ( TxAsset (..)
+    )
 
 -- ---------------------------------------------------------------
 -- Shared sample inputs
@@ -105,13 +111,30 @@ stateTxIn = (BS.replicate 32 0xA0, 0)
 requestTxIn = (BS.replicate 32 0xB1, 1)
 fundingTxIn = (BS.replicate 32 0xC2, 2)
 
+samplePolicyId, sampleAssetName :: ByteString
+samplePolicyId = BS.replicate 28 0xD3
+sampleAssetName = BS.replicate 32 0xE4
+
+sampleStateAsset :: Integer -> TxAsset
+sampleStateAsset quantity =
+    TxAsset
+        { assetPolicy = toHex samplePolicyId
+        , assetName = toHex sampleAssetName
+        , assetQuantity = quantity
+        }
+
 stateTxOut, requestTxOut, fundingTxOut :: ByteString
-stateTxOut = "state-tx-out-bytes"
-requestTxOut = "request-tx-out-bytes"
-fundingTxOut = "funding-tx-out-bytes"
+stateTxOut = txOutCbor True [sampleStateAsset 1]
+requestTxOut = txOutCbor True []
+fundingTxOut = txOutCbor False []
 
 txCborFromTxIns :: [TxIn] -> [TxIn] -> Hex
 txCborFromTxIns inputs refs =
+    txCborFromTxParts inputs refs [] []
+
+txCborFromTxParts
+    :: [TxIn] -> [TxIn] -> [TxAsset] -> [CBOR.Term] -> Hex
+txCborFromTxParts inputs refs mint outputs =
     toHex
         $ CBOR.toStrictByteString
         $ CBOR.encodeTerm
@@ -123,8 +146,57 @@ txCborFromTxIns inputs refs =
             ]
   where
     bodyFields =
-        [(CBOR.TInt 0, setTerm inputs)]
+        [ (CBOR.TInt 0, setTerm inputs)
+        , (CBOR.TInt 1, CBOR.TList outputs)
+        ]
             <> [(CBOR.TInt 18, setTerm refs) | not (null refs)]
+            <> [(CBOR.TInt 9, multiAssetTerm mint) | not (null mint)]
+
+txOutCbor :: Bool -> [TxAsset] -> ByteString
+txOutCbor hasInlineDatum assets =
+    CBOR.toStrictByteString
+        $ CBOR.encodeTerm
+        $ txOutTerm hasInlineDatum assets
+
+txOutTerm :: Bool -> [TxAsset] -> CBOR.Term
+txOutTerm hasInlineDatum assets =
+    CBOR.TMap
+        $ [ (CBOR.TInt 0, CBOR.TBytes "addr")
+          , (CBOR.TInt 1, valueTerm assets)
+          ]
+            <> [ (CBOR.TInt 2, inlineDatumTerm)
+               | hasInlineDatum
+               ]
+
+inlineDatumTerm :: CBOR.Term
+inlineDatumTerm =
+    CBOR.TList
+        [ CBOR.TInt 1
+        , CBOR.TTagged 121 (CBOR.TList [])
+        ]
+
+valueTerm :: [TxAsset] -> CBOR.Term
+valueTerm [] = CBOR.TInteger 2_000_000
+valueTerm assets =
+    CBOR.TList
+        [ CBOR.TInteger 2_000_000
+        , multiAssetTerm assets
+        ]
+
+multiAssetTerm :: [TxAsset] -> CBOR.Term
+multiAssetTerm assets =
+    CBOR.TMap
+        [ ( CBOR.TBytes (decodeFixtureHex (unHex policy))
+          , CBOR.TMap
+                [ ( CBOR.TBytes (decodeFixtureHex (unHex assetName))
+                  , CBOR.TInteger assetQuantity
+                  )
+                | TxAsset{..} <- assets
+                , assetPolicy == policy
+                ]
+          )
+        | policy <- nub (map assetPolicy assets)
+        ]
 
 setTerm :: [TxIn] -> CBOR.Term
 setTerm xs =
@@ -144,12 +216,6 @@ decodeFixtureHex txt =
     case Base16.decode (T.encodeUtf8 txt) of
         Right bs -> bs
         Left err -> error ("invalid fixture hex: " <> show err)
-
-txFor :: [WitnessedUtxo] -> [WitnessedUtxo] -> Hex
-txFor inputs refs =
-    txCborFromTxIns
-        (map txIn inputs)
-        (map txIn refs)
 
 -- ---------------------------------------------------------------
 -- CSMT primitives
@@ -314,25 +380,40 @@ honestTrieExclusion =
 honestBootResponse :: BootTxResponse
 honestBootResponse =
     BootTxResponse
-        (txFor [bundleFunding honestWitness] [])
+        ( txCborFromTxParts
+            [txIn (bundleFunding honestWitness)]
+            []
+            [sampleStateAsset 1]
+            [txOutTerm True [sampleStateAsset 1]]
+        )
         (sampleSnapshot (bundleRoot honestWitness))
         (BootProof [bundleFunding honestWitness])
 
 honestRequestResponse :: RequestTxResponse
 honestRequestResponse =
     RequestTxResponse
-        (txFor [bundleFunding honestWitness] [])
+        ( txCborFromTxParts
+            [txIn (bundleFunding honestWitness)]
+            []
+            []
+            [txOutTerm True []]
+        )
         (sampleSnapshot (bundleRoot honestWitness))
         (RequestProof [bundleFunding honestWitness])
 
 honestRetractResponse :: RetractTxResponse
 honestRetractResponse =
     RetractTxResponse
-        ( txFor
-            [ bundleRequest honestWitness
-            , bundleFunding honestWitness
-            ]
-            [bundleState honestWitness]
+        ( txCborFromTxParts
+            ( map
+                txIn
+                [ bundleRequest honestWitness
+                , bundleFunding honestWitness
+                ]
+            )
+            [txIn (bundleState honestWitness)]
+            []
+            [txOutTerm False []]
         )
         (sampleSnapshot (bundleRoot honestWitness))
         ( RetractProof
@@ -344,12 +425,17 @@ honestRetractResponse =
 honestRejectResponse :: RejectTxResponse
 honestRejectResponse =
     RejectTxResponse
-        ( txFor
-            [ bundleState honestWitness
-            , bundleRequest honestWitness
-            , bundleFunding honestWitness
-            ]
+        ( txCborFromTxParts
+            ( map
+                txIn
+                [ bundleState honestWitness
+                , bundleRequest honestWitness
+                , bundleFunding honestWitness
+                ]
+            )
             []
+            []
+            [txOutTerm True [sampleStateAsset 1]]
         )
         (sampleSnapshot (bundleRoot honestWitness))
         ( RejectProof
@@ -361,11 +447,16 @@ honestRejectResponse =
 honestEndResponse :: EndTxResponse
 honestEndResponse =
     EndTxResponse
-        ( txFor
-            [ bundleState honestWitness
-            , bundleFunding honestWitness
-            ]
+        ( txCborFromTxParts
+            ( map
+                txIn
+                [ bundleState honestWitness
+                , bundleFunding honestWitness
+                ]
+            )
             []
+            [sampleStateAsset (-1)]
+            [txOutTerm False []]
         )
         (sampleSnapshot (bundleRoot honestWitness))
         ( EndProof
@@ -377,12 +468,17 @@ honestUpdateResponse :: UpdateTxResponse
 honestUpdateResponse =
     let (trieRoot, trieFact) = honestTrieInclusion
     in  UpdateTxResponse
-            ( txFor
-                [ bundleState honestWitness
-                , bundleRequest honestWitness
-                , bundleFunding honestWitness
-                ]
+            ( txCborFromTxParts
+                ( map
+                    txIn
+                    [ bundleState honestWitness
+                    , bundleRequest honestWitness
+                    , bundleFunding honestWitness
+                    ]
+                )
                 []
+                []
+                [txOutTerm True [sampleStateAsset 1]]
             )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof
@@ -400,12 +496,17 @@ honestUpdateResponseMixedTrie =
     let (trieRoot, inclusionFact) = honestTrieInclusion
         (_, exclusionFact) = honestTrieExclusion
     in  UpdateTxResponse
-            ( txFor
-                [ bundleState honestWitness
-                , bundleRequest honestWitness
-                , bundleFunding honestWitness
-                ]
+            ( txCborFromTxParts
+                ( map
+                    txIn
+                    [ bundleState honestWitness
+                    , bundleRequest honestWitness
+                    , bundleFunding honestWitness
+                    ]
+                )
                 []
+                []
+                [txOutTerm True [sampleStateAsset 1]]
             )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof
@@ -422,12 +523,17 @@ honestUpdateResponseEmptyTrie :: UpdateTxResponse
 honestUpdateResponseEmptyTrie =
     let (trieRoot, _) = honestTrieInclusion
     in  UpdateTxResponse
-            ( txFor
-                [ bundleState honestWitness
-                , bundleRequest honestWitness
-                , bundleFunding honestWitness
-                ]
+            ( txCborFromTxParts
+                ( map
+                    txIn
+                    [ bundleState honestWitness
+                    , bundleRequest honestWitness
+                    , bundleFunding honestWitness
+                    ]
+                )
                 []
+                []
+                [txOutTerm True [sampleStateAsset 1]]
             )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof

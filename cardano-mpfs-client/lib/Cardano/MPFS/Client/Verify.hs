@@ -58,7 +58,11 @@ import Cardano.MPFS.Client.Verify.Replay
     , replayWitnessedUtxo
     )
 import Cardano.MPFS.Client.Verify.TxView
-    ( verifyTxBinding
+    ( verifyBootAssetBinding
+    , verifyContinuingStateOutput
+    , verifyEndAssetBinding
+    , verifyNoMint
+    , verifyTxInputBinding
     )
 
 -- | Structural check for the snapshot that every proof-bearing response
@@ -79,7 +83,8 @@ verifyBootTxResponse (BootTxResponse t s (BootProof fs)) = do
     checkWitnessedUtxosStructural "boot.funding" fs
     rootBs <- decodeHex "boot.snapshot.utxo_root" (utxoRoot s)
     replayWitnessedUtxos "boot.funding" rootBs fs
-    verifyTxBinding "boot" t (witnessInputs fs) []
+    txView <- verifyTxInputBinding "boot" t (witnessInputs fs) []
+    verifyBootAssetBinding "boot" txView
 
 -- | Verify a @POST \/tx\/request\/{insert,delete,update}@ response.
 verifyRequestTxResponse :: RequestTxResponse -> Either VerifyError ()
@@ -89,7 +94,8 @@ verifyRequestTxResponse (RequestTxResponse t s (RequestProof fs)) = do
     checkWitnessedUtxosStructural "request.funding" fs
     rootBs <- decodeHex "request.snapshot.utxo_root" (utxoRoot s)
     replayWitnessedUtxos "request.funding" rootBs fs
-    verifyTxBinding "request" t (witnessInputs fs) []
+    txView <- verifyTxInputBinding "request" t (witnessInputs fs) []
+    verifyNoMint "request" txView
 
 -- | Verify a @POST \/tx\/retract@ response.
 verifyRetractTxResponse :: RetractTxResponse -> Either VerifyError ()
@@ -105,11 +111,13 @@ verifyRetractTxResponse
         replayWitnessedUtxo "retract.request_in" rootBs ri
         replayWitnessedUtxo "retract.state_ref" rootBs sr
         replayWitnessedUtxos "retract.funding" rootBs fs
-        verifyTxBinding
-            "retract"
-            t
-            (txIn ri : witnessInputs fs)
-            [txIn sr]
+        txView <-
+            verifyTxInputBinding
+                "retract"
+                t
+                (txIn ri : witnessInputs fs)
+                [txIn sr]
+        verifyNoMint "retract" txView
 
 -- | Verify a @POST \/tx\/reject@ response.
 verifyRejectTxResponse :: RejectTxResponse -> Either VerifyError ()
@@ -125,11 +133,13 @@ verifyRejectTxResponse
         replayWitnessedUtxo "reject.state" rootBs st
         replayWitnessedUtxos "reject.request_ins" rootBs ris
         replayWitnessedUtxos "reject.funding" rootBs fs
-        verifyTxBinding
-            "reject"
-            t
-            (txIn st : witnessInputs ris <> witnessInputs fs)
-            []
+        txView <-
+            verifyTxInputBinding
+                "reject"
+                t
+                (txIn st : witnessInputs ris <> witnessInputs fs)
+                []
+        verifyContinuingStateOutput "reject" txView st
 
 -- | Verify a @POST \/tx\/end@ response.
 verifyEndTxResponse :: EndTxResponse -> Either VerifyError ()
@@ -141,7 +151,8 @@ verifyEndTxResponse (EndTxResponse t s (EndProof st fs)) = do
     rootBs <- decodeHex "end.snapshot.utxo_root" (utxoRoot s)
     replayWitnessedUtxo "end.state" rootBs st
     replayWitnessedUtxos "end.funding" rootBs fs
-    verifyTxBinding "end" t (txIn st : witnessInputs fs) []
+    txView <- verifyTxInputBinding "end" t (txIn st : witnessInputs fs) []
+    verifyEndAssetBinding "end" txView st
 
 -- | Verify a @POST \/tx\/update@ response.
 verifyUpdateTxResponse :: UpdateTxResponse -> Either VerifyError ()
@@ -160,11 +171,13 @@ verifyUpdateTxResponse
         replayWitnessedUtxos "update.funding" rootBs fs
         trieRootBs <- decodeHex "update.trie_root" tr
         replayTrieFacts "update.trie_read" trieRootBs tread
-        verifyTxBinding
-            "update"
-            t
-            (txIn st : witnessInputs rs <> witnessInputs fs)
-            []
+        txView <-
+            verifyTxInputBinding
+                "update"
+                t
+                (txIn st : witnessInputs rs <> witnessInputs fs)
+                []
+        verifyContinuingStateOutput "update" txView st
 
 -- ---------------------------------------------------------------
 -- Structural pass (hex decode, 32-byte hashes, non-empty hex)

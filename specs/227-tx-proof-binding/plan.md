@@ -6,26 +6,27 @@
 
 ## Status
 
-**Completed**: Issue #224 merged; issue #227 worktree created; design
-decision recorded in `research.md`; Lean binding model and theorems
-compile; Haskell client decodes tx inputs/reference inputs and compares
-them with endpoint proof roles; focused unit suite passes with the new
-binding forgery corpus.
+**Completed**: Issue #224 merged; issue #227 first PR #235 merged;
+design decision recorded in `research.md`; Lean binding model and
+theorems compile; Haskell client decodes tx inputs/reference inputs and
+compares them with endpoint proof roles; focused unit suite passes with
+the input/reference binding forgery corpus.
 
-**Current**: PR opened for the input/reference-input binding slice;
-watch CI and merge only after checks are green.
+**Current**: Second slice on `feat/227-bind-mint-output-redeemer`
+extends the pure CBOR reader to bind mint/burn assets and continuing
+state outputs; local client unit, format, lint, and diff checks pass.
 
-**Blockers**: Full mint/redeemer/output binding is outside this first
-slice and must be tracked explicitly after input/reference-input binding
-lands.
+**Blockers**: Full redeemer and MPF proof binding remains after this
+slice. `UpdateProof.trie_read` is still not bound to the exact on-chain
+redeemer proof payload.
 
 ## Summary
 
 Add a pure `cardano-mpfs-client` binding pass that decodes the unsigned
-transaction CBOR far enough to read tx inputs and reference inputs, then
-checks those sets against the endpoint proof roles. This rejects the
-class of forged response where the proof bundle is valid but belongs to
-a different transaction.
+transaction CBOR far enough to read tx inputs, reference inputs, mint
+assets, and continuing state outputs, then checks those sets against the
+endpoint proof roles. This rejects the class of forged response where
+the proof bundle is valid but belongs to a different transaction.
 
 ## Technical Context
 
@@ -43,8 +44,9 @@ repository.
 response. Linear in tx body size; not a hot path.
 **Constraints**: No `cardano-ledger-*`, no `crypton`, no RocksDB, no IO,
 no server-authored summary as an authority.
-**Scale/Scope**: One Lean file update, one new client module, small
-changes in `Verify.hs`, fixtures, tests, and cabal exposed modules.
+**Scale/Scope**: One Lean file update, the existing client tx-view
+module, small changes in `Verify.hs`, fixtures, tests, and cabal exposed
+modules.
 
 ## Constitution Check
 
@@ -115,6 +117,20 @@ model:
 
 These theorems are structural and do not model CBOR parsing. They define
 what the Haskell decoder result must satisfy after parsing.
+
+## Phase 2.5: Asset Binding Model
+
+Extend the same Lean section with an abstract asset binding model:
+
+- `TxAssetView` with signed `minted` assets and continuing
+  `stateOutputs`
+- `ProofAssetRoles` with `minted`, `burned`, and `continuingState`
+- predicate `coversAssetView roles tx`
+- theorems:
+  - `covers_mint_exact`
+  - `covers_state_outputs_exact`
+  - `missing_mint_role_rejected`
+  - `missing_state_output_rejected`
 
 ## Post-design Constitution Re-check
 

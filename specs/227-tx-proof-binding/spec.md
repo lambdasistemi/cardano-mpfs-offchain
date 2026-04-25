@@ -74,6 +74,24 @@ first slice must not pretend to prove properties it does not yet check.
 **Independent Test**: The plan and task list identify the residual work
 explicitly.
 
+### User Story 4 - Reject mint and continuing-state-output mismatches (Priority: P1)
+
+A wallet receives a proof-bearing response whose consumed inputs match
+the proof roles, but whose mint field or continuing state output does
+not match the endpoint role. The verifier must reject boot, reject, end,
+and update responses where the transaction mints/burns an unexpected
+asset or fails to carry the state token forward in exactly one inline
+datum output.
+
+**Why this priority**: Input binding alone proves which UTxOs the tx
+uses. Mint and state-output binding proves that token lifecycle
+endpoints act on the same state token represented by the proof bundle.
+
+**Independent Test**: Build honest fixtures with mint/output fields,
+then replace only the `tx` field so the tx omits the continuing state
+output or burns the wrong state token quantity. Verification must reject
+with `TxBindingFailed`.
+
 ## Edge Cases
 
 - Tx bodies may encode Cardano sets either as plain arrays or as tag
@@ -104,6 +122,13 @@ explicitly.
   `tx` field and prove the verifier rejects the mismatch.
 - **FR-007**: The implementation MUST document residual binding work for
   mint, redeemers, state-carrying outputs, and MPF fact binding.
+- **FR-008**: Boot responses MUST mint exactly one asset and include
+  exactly one inline-datum state output carrying that same asset.
+- **FR-009**: End responses MUST burn the asset carried by the witnessed
+  state input and MUST NOT leave a continuing state output carrying it.
+- **FR-010**: Reject and update responses MUST preserve the asset carried
+  by the witnessed state input into exactly one inline-datum state output
+  and MUST NOT mint or burn assets.
 
 ## Success Criteria
 
@@ -113,8 +138,8 @@ explicitly.
   for each endpoint family: funding-only, reference-input, and
   state/request-consuming endpoints.
 - **SC-003**: `cardano-mpfs-client:unit-tests` passes.
-- **SC-004**: The PR description states that this slice covers
-  input/reference-input binding and lists remaining deeper binding work.
+- **SC-004**: The PR description states which binding layers are covered
+  and lists remaining deeper binding work.
 
 ## Assumptions
 

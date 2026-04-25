@@ -38,7 +38,16 @@ description: "Task list for feature 227-tx-proof-binding"
 
 ## Deferred follow-up
 
-- Mint binding for boot/end.
-- State-output datum binding.
 - Redeemer payload binding.
 - Exact `UpdateProof.trie_read` to redeemer MPF proof binding.
+
+## Phase 5: Mint and continuing-state-output binding
+
+- [X] T017 Extend Lean with `TxAssetView`, `ProofAssetRoles`, and asset coverage theorems.
+- [X] T018 Extend `TxView` to decode mint field `9`, tx outputs, value multiassets, and inline datum markers.
+- [X] T019 Bind boot mint to exactly one continuing inline state output.
+- [X] T020 Bind reject/update continuing state output to the witnessed state token and reject mint/burns.
+- [X] T021 Bind end burn to the witnessed state token and reject continuing state outputs.
+- [X] T022 Refresh fixtures and forged-binding tests for mint/output mismatches.
+- [X] T023 Run Lean build, `git diff --check`, `just format-check`, `just hlint`, and focused client unit tests.
+- [ ] T024 Commit, push, open PR, and wait for merge.
