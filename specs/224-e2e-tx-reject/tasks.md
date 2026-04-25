@@ -49,9 +49,9 @@ set.
 
 **Purpose**: keep the PR body current.
 
-- [ ] T015 Commit the speckit artifacts and E2E change.
-- [ ] T016 Push the branch.
-- [ ] T017 Update PR #234 with the reject coverage narrative, runtime impact, and validation status.
+- [X] T015 Commit the speckit artifacts and E2E change.
+- [X] T016 Push the branch.
+- [X] T017 Update PR #234 with the reject coverage narrative, runtime impact, and validation status.
 
 ## Dependencies & Execution Order
 
