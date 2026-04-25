@@ -33,8 +33,8 @@ description: "Task list for feature 227-tx-proof-binding"
 
 - [X] T013 Run `git diff --check`.
 - [X] T014 Run `nix develop --quiet -c cabal test cardano-mpfs-client:unit-tests -O0 --test-show-details=direct`.
-- [ ] T015 Commit and push.
-- [ ] T016 Open/update PR with scope, residual binding work, and validation status.
+- [X] T015 Commit and push.
+- [X] T016 Open/update PR with scope, residual binding work, and validation status.
 
 ## Deferred follow-up
 

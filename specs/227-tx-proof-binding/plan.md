@@ -12,8 +12,8 @@ compile; Haskell client decodes tx inputs/reference inputs and compares
 them with endpoint proof roles; focused unit suite passes with the new
 binding forgery corpus.
 
-**Current**: Commit, push, and open the issue #227 PR for the
-input/reference-input binding slice.
+**Current**: PR opened for the input/reference-input binding slice;
+watch CI and merge only after checks are green.
 
 **Blockers**: Full mint/redeemer/output binding is outside this first
 slice and must be tracked explicitly after input/reference-input binding
