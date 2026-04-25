@@ -1,29 +1,82 @@
-# cardano-mpfs-offchain-issue-226 Development Guidelines
+# cardano-mpfs-offchain Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-23
+Auto-generated from active feature plans and maintained by hand where
+repo-wide guidance is stable. Last updated: 2026-04-25.
+
+## Source of Truth
+
+- Project constitution: `.specify/memory/constitution.md`
+- Architecture overview: `docs/architecture/overview.md`
+- Testing guide: `docs/architecture/testing.md`
+- Public API surface: `docs/assets/swagger.json`
+
+The constitution is authoritative for architectural decisions. Feature
+plans must include a Constitution Check before research and re-check it
+after design.
 
 ## Active Technologies
 
-- Haskell — GHC 9.10.1 (native) plus GHC-WASM and (178-crypto-proof-replay)
+- Haskell with GHC 9.10.1 for native builds.
+- `cardano-mpfs-client` verifiers must remain compatible with native
+  GHC, GHC-WASM, and GHC-JS targets.
+- Nix flakes provide the development shell and CI environment.
+- Cabal drives Haskell builds inside the nix shell.
+- Fourmolu and HLint enforce formatting and linting.
 
 ## Project Structure
 
 ```text
-src/
-tests/
+cardano-mpfs-offchain/   Main service, API, e2e tests, docs
+cardano-mpfs-client/     Offline proof-bearing response verifier
+merkle-patricia-forestry/
+                         MPF trie implementation and tests
+docs/                    Architecture, API docs, Swagger UI assets
+specs/                   Speckit feature specs, plans, and tasks
 ```
 
 ## Commands
 
-# Add commands for Haskell — GHC 9.10.1 (native) plus GHC-WASM and
+Use `just` recipes from `nix develop`:
 
-## Code Style
+```bash
+just build                 # Build all components
+just unit                  # MPF/client unit tests
+just unit-offchain         # Offchain interface/unit tests
+just e2e                   # E2E tests with cardano-node subprocess
+just format                # Apply Fourmolu formatting
+just format-check          # Check formatting
+just hlint                 # Run HLint
+just ci                    # Full local CI mirror
+just update-swagger        # Regenerate docs/assets/swagger.json
+```
 
-Haskell — GHC 9.10.1 (native) plus GHC-WASM and: Follow standard conventions
+## Core Constraints
+
+- Use ledger-native Cardano types; do not introduce shadow ledger
+  representations.
+- Service boundaries use records of functions, not typeclasses.
+- Block processing must be atomic across RocksDB column families.
+- The server builds unsigned transactions only; signing stays client-side.
+- Proof encoding, trie hashing, and datum/redeemer construction must stay
+  compatible with the Aiken validators in `cardano-mpfs-onchain`.
+- Client verifiers are pure offline functions. No `IO`, networking,
+  filesystem, time, or non-determinism in verifier paths.
+- Verifier dependencies must cross-compile to GHC-WASM and GHC-JS before
+  they are admitted.
+
+## Spec Kit Workflow
+
+Every issue starts with speckit artifacts before implementation:
+
+1. `spec.md` states the user-visible requirement and acceptance criteria.
+2. `plan.md` records the technical approach and Constitution Check.
+3. `tasks.md` decomposes the implementation into ordered, testable work.
+4. Implementation follows the task list, updating status as work lands.
 
 ## Recent Changes
 
-- 178-crypto-proof-replay: Added Haskell — GHC 9.10.1 (native) plus GHC-WASM and
+- `178-crypto-proof-replay`: added proof-bearing response verification,
+  cryptographic replay constraints, and verifier portability principles.
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
