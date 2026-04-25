@@ -101,10 +101,11 @@ The binding target is:
 | retract | spending redeemer tag must be `Retract` and refer to the same state reference role |
 | reject | spending redeemer tags must be `Rejected` for the request inputs being rejected |
 | end | spending redeemer tag must end the state and minting redeemer tag must burn the same state token |
-| update | spending redeemer tag must be `Update`; embedded trie root and MPF proof facts must match `UpdateProof.trie_root` and `UpdateProof.trie_read` exactly |
+| update | spending redeemer tag must be `Update`; the witnessed state datum root must match `UpdateProof.trie_root`; embedded MPF proof facts must match `UpdateProof.trie_read` exactly |
 
 This is the last client-side binding layer called out by issue #227.
-If implementation confirms that real update responses still publish an
-empty `trie_read` while the unsigned tx redeemer embeds MPF steps, the
-server-side response proof must be fixed before exact update redeemer
-binding can pass real fixtures.
+Implementation confirmed that real update responses needed to publish the
+same MPF read facts already used to build the on-chain redeemer. The
+server-side response builder now records those facts in
+`UpdateProof.trie_read`, so exact update redeemer binding can pass real
+fixtures.

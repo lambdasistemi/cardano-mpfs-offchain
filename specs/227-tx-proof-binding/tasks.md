@@ -54,12 +54,12 @@ description: "Task list for feature 227-tx-proof-binding"
 
 ## Phase 6: Redeemer and MPF proof binding
 
-- [ ] T025 Extend Lean with redeemer-role and update MPF-read coverage predicates.
-- [ ] T026 Prove exact redeemer coverage and update MPF-read mismatch rejection theorems with no `sorry`.
-- [ ] T027 Extend `TxView` to decode witness-set field `5` redeemers from supported Conway transaction CBOR.
-- [ ] T028 Bind boot/end minting redeemer tags and retract/reject/update spending redeemer tags to endpoint proof roles.
-- [ ] T029 Bind update redeemer trie root and MPF proof payload to `UpdateProof.trie_root` and `UpdateProof.trie_read`.
-- [ ] T030 Fix server-side update proof emission if real tx redeemers carry MPF reads not present in the response proof.
-- [ ] T031 Add forged-binding fixtures/tests for wrong redeemer tag, missing redeemer, and mismatched update MPF proof.
-- [ ] T032 Run Lean build, `git diff --check`, `just format-check`, `just hlint`, focused unit tests, and any needed E2E coverage.
+- [X] T025 Extend Lean with redeemer-role and update MPF-read coverage predicates.
+- [X] T026 Prove exact redeemer coverage and update MPF-read mismatch rejection theorems with no `sorry`.
+- [X] T027 Extend `TxView` to decode witness-set field `5` redeemers from supported Conway transaction CBOR.
+- [X] T028 Bind boot/end minting redeemer tags and retract/reject/update spending redeemer tags to endpoint proof roles.
+- [X] T029 Bind update state datum root and redeemer MPF proof payload to `UpdateProof.trie_root` and `UpdateProof.trie_read`.
+- [X] T030 Fix server-side update proof emission if real tx redeemers carry MPF reads not present in the response proof.
+- [X] T031 Add forged-binding fixtures/tests for wrong redeemer tag, missing redeemer, and mismatched update MPF proof.
+- [X] T032 Run Lean build, `git diff --check`, `just format-check`, `just hlint`, focused unit tests, and any needed E2E coverage.
 - [ ] T033 Commit, push, update PR, wait for green CI, and merge through merge-guard.

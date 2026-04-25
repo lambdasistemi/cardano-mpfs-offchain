@@ -23,6 +23,7 @@ import Cardano.MPFS.Client
     , Hex (..)
     , RetractProof (..)
     , RetractTxResponse (..)
+    , TrieFact (..)
     , TxIn (..)
     , UpdateProof (..)
     , UpdateTxResponse (..)
@@ -54,17 +55,26 @@ import Cardano.MPFS.Client
     , withReason
     )
 import Cardano.MPFS.Client.Fixtures
-    ( honestBootResponse
+    ( TxRedeemerFixture (..)
+    , honestBootResponse
     , honestEndResponse
     , honestRejectResponse
     , honestRequestResponse
     , honestRetractResponse
+    , honestTrieExclusion
     , honestUpdateResponse
     , honestUpdateResponseEmptyTrie
     , honestUpdateResponseMixedTrie
     , sampleStateAsset
+    , spendContributeRedeemerTerm
+    , spendEndRedeemerTerm
+    , spendModifyRedeemerTerm
+    , spendRedeemerFixture
     , txCborFromTxIns
     , txCborFromTxParts
+    , txCborFromTxPartsWithRedeemers
+    , txOutTerm
+    , updateActionTermFromProof
     )
 
 spec :: Spec
@@ -135,6 +145,21 @@ spec = do
             $ updateWithoutStateOutput honestUpdateResponse
                 `shouldRejectWith` verifyUpdateTxResponse
             $ txBindingFailedAt "update.tx.state_outputs"
+
+        it "rejects a boot tx without its minting redeemer"
+            $ bootWithoutRedeemer honestBootResponse
+                `shouldRejectWith` verifyBootTxResponse
+            $ txBindingFailedAt "boot.tx.redeemers"
+
+        it "rejects a retract tx with the wrong spending redeemer"
+            $ retractWithEndRedeemer honestRetractResponse
+                `shouldRejectWith` verifyRetractTxResponse
+            $ txBindingFailedAt "retract.tx.redeemers"
+
+        it "rejects an update tx with mismatched MPF proof payload"
+            $ updateWithMismatchedRedeemerProof honestUpdateResponse
+                `shouldRejectWith` verifyUpdateTxResponse
+            $ txBindingFailedAt "update.tx.redeemers"
 
     describe "CSMT forgery corpus (free-monad DSL)" $ do
         it "rejects a boot funding utxo_proof with a flipped byte"
@@ -293,3 +318,60 @@ updateWithoutStateOutput
             )
             s
             p
+
+bootWithoutRedeemer :: BootTxResponse -> BootTxResponse
+bootWithoutRedeemer (BootTxResponse _ s p@(BootProof funding)) =
+    BootTxResponse
+        ( txCborFromTxParts
+            (map txIn funding)
+            []
+            [sampleStateAsset 1]
+            [txOutTerm True [sampleStateAsset 1]]
+        )
+        s
+        p
+
+retractWithEndRedeemer :: RetractTxResponse -> RetractTxResponse
+retractWithEndRedeemer
+    (RetractTxResponse _ s p@(RetractProof req st funding)) =
+        RetractTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn (req : funding))
+                [txIn st]
+                []
+                [txOutTerm False []]
+                [spendRedeemerFixture 0 spendEndRedeemerTerm]
+            )
+            s
+            p
+
+updateWithMismatchedRedeemerProof
+    :: UpdateTxResponse -> UpdateTxResponse
+updateWithMismatchedRedeemerProof
+    (UpdateTxResponse _ s p@(UpdateProof st reqs funding _tr _tread)) =
+        let (_, exclusionFact) = honestTrieExclusion
+        in  UpdateTxResponse
+                ( txCborFromTxPartsWithRedeemers
+                    (map txIn (st : reqs <> funding))
+                    []
+                    []
+                    [txOutTerm True [sampleStateAsset 1]]
+                    ( updateRedeemers
+                        (txIn st)
+                        (length reqs)
+                        exclusionFact
+                    )
+                )
+                s
+                p
+
+updateRedeemers :: TxIn -> Int -> TrieFact -> [TxRedeemerFixture]
+updateRedeemers stateIn requestCount trieFact =
+    spendRedeemerFixture
+        0
+        (spendModifyRedeemerTerm [updateActionTermFromProof trieFact])
+        : [ spendRedeemerFixture
+                (fromIntegral ix)
+                (spendContributeRedeemerTerm stateIn)
+          | ix <- [1 .. requestCount]
+          ]
