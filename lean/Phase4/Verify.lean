@@ -180,10 +180,27 @@ structure ProofAssetRoles (Asset : Type) where
   burned : List Asset
   continuingState : List Asset
 
+/-- The redeemer fragment of an unsigned transaction witness set
+    used by the client verifier. `scriptRoles` records endpoint
+    script actions after resolving redeemer purposes to transaction
+    input/mint roles. `updateReads` records the MPF proof payloads
+    carried by update actions. -/
+structure TxRedeemerView (Role Proof : Type) where
+  scriptRoles : List Role
+  updateReads : List Proof
+
+/-- Redeemer roles implied by the endpoint proof payload. For update,
+    `expectedUpdateReads` is the exact list of MPF proof payloads from
+    `UpdateProof.trie_read`. -/
+structure ProofRedeemerRoles (Role Proof : Type) where
+  scriptRoles : List Role
+  expectedUpdateReads : List Proof
+
 namespace TxBinding
 
 variable {Key : Type}
 variable {Asset : Type}
+variable {Role Proof : Type}
 
 /-- A response covers a decoded transaction view exactly when
     its consumed proof roles are exactly the tx inputs and its
@@ -299,6 +316,67 @@ theorem missing_state_output_rejected
   intro h
   rw [← h.2] at hInRoles
   exact hNotInTx hInRoles
+
+/-- Redeemer coverage is exact for endpoint script roles and for the
+    update MPF read payloads carried in `Modify (Update ...)` actions. -/
+def coversRedeemerView
+    (roles : ProofRedeemerRoles Role Proof)
+    (tx : TxRedeemerView Role Proof) : Prop :=
+  tx.scriptRoles = roles.scriptRoles ∧
+  tx.updateReads = roles.expectedUpdateReads
+
+/-- Coverage exposes exact endpoint redeemer-role equality. -/
+theorem covers_redeemer_roles_exact
+    {roles : ProofRedeemerRoles Role Proof}
+    {tx : TxRedeemerView Role Proof}
+    (h : coversRedeemerView roles tx) :
+    tx.scriptRoles = roles.scriptRoles := h.1
+
+/-- Coverage exposes exact update MPF-read equality. -/
+theorem covers_update_reads_exact
+    {roles : ProofRedeemerRoles Role Proof}
+    {tx : TxRedeemerView Role Proof}
+    (h : coversRedeemerView roles tx) :
+    tx.updateReads = roles.expectedUpdateReads := h.2
+
+/-- If a transaction carries a redeemer role not implied by the proof
+    payload, redeemer coverage is impossible. -/
+theorem missing_redeemer_role_rejected
+    {roles : ProofRedeemerRoles Role Proof}
+    {tx : TxRedeemerView Role Proof}
+    (r : Role)
+    (hInTx : r ∈ tx.scriptRoles)
+    (hNotInRoles : r ∉ roles.scriptRoles) :
+    ¬ coversRedeemerView roles tx := by
+  intro h
+  rw [h.1] at hInTx
+  exact hNotInRoles hInTx
+
+/-- If the proof payload expects a redeemer role that is absent from
+    the transaction witness set, redeemer coverage is impossible. -/
+theorem extra_redeemer_role_rejected
+    {roles : ProofRedeemerRoles Role Proof}
+    {tx : TxRedeemerView Role Proof}
+    (r : Role)
+    (hInRoles : r ∈ roles.scriptRoles)
+    (hNotInTx : r ∉ tx.scriptRoles) :
+    ¬ coversRedeemerView roles tx := by
+  intro h
+  rw [← h.1] at hInRoles
+  exact hNotInTx hInRoles
+
+/-- If an update redeemer carries an MPF read payload not present in
+    `UpdateProof.trie_read`, redeemer coverage is impossible. -/
+theorem update_read_mismatch_rejected
+    {roles : ProofRedeemerRoles Role Proof}
+    {tx : TxRedeemerView Role Proof}
+    (p : Proof)
+    (hInTx : p ∈ tx.updateReads)
+    (hNotInRoles : p ∉ roles.expectedUpdateReads) :
+    ¬ coversRedeemerView roles tx := by
+  intro h
+  rw [h.2] at hInTx
+  exact hNotInRoles hInTx
 
 end TxBinding
 

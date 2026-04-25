@@ -11,15 +11,24 @@
 module Cardano.MPFS.Client.Verify.TxView
     ( TxAsset (..)
     , TxOutView (..)
+    , TxRedeemerPurpose (..)
+    , TxRedeemerRole (..)
     , TxView (..)
     , decodeTxView
     , decodeTxOutView
     , verifyBootAssetBinding
+    , verifyBootRedeemerBinding
     , verifyContinuingStateOutput
     , verifyEndAssetBinding
+    , verifyEndRedeemerBinding
     , verifyNoMint
+    , verifyNoRedeemers
+    , verifyRejectRedeemerBinding
+    , verifyRetractRedeemerBinding
+    , verifyStateRootBinding
     , verifyTxInputBinding
     , verifyTxBinding
+    , verifyUpdateRedeemerBinding
     ) where
 
 import Codec.CBOR.Read qualified as CBOR
@@ -33,10 +42,12 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
+import Data.Text.Lazy qualified as TL
 import Data.Word (Word64)
 
 import Cardano.MPFS.Client.Bundle
-    ( TxIn (..)
+    ( TrieFact (..)
+    , TxIn (..)
     , WitnessedUtxo (..)
     )
 import Cardano.MPFS.Client.Snapshot
@@ -58,6 +69,33 @@ data TxAsset = TxAsset
 data TxOutView = TxOutView
     { txOutAssets :: [TxAsset]
     , txOutHasInlineDatum :: Bool
+    , txOutInlineDatum :: Maybe CBOR.Term
+    }
+    deriving stock (Eq, Show)
+
+-- | Script purpose for a transaction redeemer.
+data TxRedeemerPurpose
+    = RedeemerSpend Word64
+    | RedeemerMint Word64
+    | RedeemerOther Integer Word64
+    deriving stock (Eq, Ord, Show)
+
+-- | Endpoint role decoded from a transaction redeemer after
+-- resolving spending indexes to concrete transaction inputs.
+data TxRedeemerRole
+    = RoleMinting
+    | RoleBurning
+    | RoleSpendEnd TxIn
+    | RoleSpendContribute TxIn TxIn
+    | RoleSpendModifyRejected TxIn Int
+    | RoleSpendModifyUpdate TxIn [CBOR.Term]
+    | RoleSpendRetract TxIn TxIn
+    | RoleUnsupported TxRedeemerPurpose Text
+    deriving stock (Eq, Ord, Show)
+
+data TxRedeemer = TxRedeemer
+    { txRedeemerPurpose :: TxRedeemerPurpose
+    , txRedeemerData :: CBOR.Term
     }
     deriving stock (Eq, Show)
 
@@ -67,6 +105,7 @@ data TxView = TxView
     , txReferenceInputs :: [TxIn]
     , txMint :: [TxAsset]
     , txOutputs :: [TxOutView]
+    , txRedeemers :: [TxRedeemer]
     }
     deriving stock (Eq, Show)
 
@@ -174,6 +213,97 @@ verifyEndAssetBinding endpoint view stateWitness = do
         (txMint view)
     forbidStateOutput endpoint stateAsset view
 
+-- | Request endpoints currently have no script redeemers.
+verifyNoRedeemers :: Text -> TxView -> Either VerifyError ()
+verifyNoRedeemers endpoint view =
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        []
+        =<< redeemerRoles endpoint view
+
+-- | Boot must carry exactly one minting redeemer.
+verifyBootRedeemerBinding :: Text -> TxView -> Either VerifyError ()
+verifyBootRedeemerBinding endpoint view =
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        [RoleMinting]
+        =<< redeemerRoles endpoint view
+
+-- | Retract must spend the request input with a `Retract` redeemer
+-- that points at the witnessed state reference input.
+verifyRetractRedeemerBinding
+    :: Text -> TxView -> TxIn -> TxIn -> Either VerifyError ()
+verifyRetractRedeemerBinding endpoint view requestIn stateRef =
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        [RoleSpendRetract requestIn stateRef]
+        =<< redeemerRoles endpoint view
+
+-- | Reject must spend the state input with rejected actions and each
+-- request input with a `Contribute` redeemer pointing at the state.
+verifyRejectRedeemerBinding
+    :: Text -> TxView -> TxIn -> [TxIn] -> Either VerifyError ()
+verifyRejectRedeemerBinding endpoint view stateIn requestIns =
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        expected
+        =<< redeemerRoles endpoint view
+  where
+    expected =
+        RoleSpendModifyRejected stateIn (length requestIns)
+            : [ RoleSpendContribute requestIn stateIn
+              | requestIn <- requestIns
+              ]
+
+-- | End must spend the state input with `End` and burn with the
+-- minting-policy `Burning` redeemer.
+verifyEndRedeemerBinding
+    :: Text -> TxView -> TxIn -> Either VerifyError ()
+verifyEndRedeemerBinding endpoint view stateIn =
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        [RoleSpendEnd stateIn, RoleBurning]
+        =<< redeemerRoles endpoint view
+
+-- | Update must spend the state input with `Modify (Update ...)`,
+-- spend every request with `Contribute stateRef`, and carry exactly
+-- the MPF proof payloads advertised in `UpdateProof.trie_read`.
+verifyUpdateRedeemerBinding
+    :: Text
+    -> TxView
+    -> TxIn
+    -> [TxIn]
+    -> [TrieFact]
+    -> Either VerifyError ()
+verifyUpdateRedeemerBinding endpoint view stateIn requestIns trieRead = do
+    proofTerms <- trieReadProofTerms endpoint trieRead
+    roles <- redeemerRoles endpoint view
+    compareRedeemerRoles
+        (endpoint <> ".tx.redeemers")
+        (expected proofTerms)
+        roles
+  where
+    expected proofTerms =
+        RoleSpendModifyUpdate stateIn proofTerms
+            : [ RoleSpendContribute requestIn stateIn
+              | requestIn <- requestIns
+              ]
+
+-- | Bind `UpdateProof.trie_root` to the root stored in the witnessed
+-- state datum consumed by the transaction.
+verifyStateRootBinding
+    :: Text -> WitnessedUtxo -> Hex -> Either VerifyError ()
+verifyStateRootBinding endpoint stateWitness expectedRoot = do
+    actualRoot <- stateRootFromWitness endpoint stateWitness
+    if actualRoot == expectedRoot
+        then Right ()
+        else
+            Left
+                ( TxBindingFailed
+                    (endpoint <> ".state.tx_out.datum.root")
+                    "state root mismatch"
+                )
+
 decodeTxBytes :: Text -> Hex -> Either VerifyError BS.ByteString
 decodeTxBytes field (Hex txt) =
     case Base16.decode (T.encodeUtf8 txt) of
@@ -194,12 +324,19 @@ decodeTerm field bs =
 
 parseTx :: Text -> CBOR.Term -> Either VerifyError TxView
 parseTx field = \case
-    CBOR.TList [body, _wits, _valid, _aux] ->
-        parseBody field body
-    CBOR.TListI [body, _wits, _valid, _aux] ->
-        parseBody field body
+    CBOR.TList [body, wits, _valid, _aux] ->
+        parseTxParts field body wits
+    CBOR.TListI [body, wits, _valid, _aux] ->
+        parseTxParts field body wits
     _ ->
         Left (TxBindingFailed field "unsupported tx CBOR")
+
+parseTxParts
+    :: Text -> CBOR.Term -> CBOR.Term -> Either VerifyError TxView
+parseTxParts field body wits = do
+    view <- parseBody field body
+    redeemers <- parseWitnessRedeemers (field <> ".redeemers") wits
+    pure view{txRedeemers = redeemers}
 
 parseBody :: Text -> CBOR.Term -> Either VerifyError TxView
 parseBody field body = do
@@ -239,6 +376,76 @@ parseBody field body = do
             , txReferenceInputs = refs
             , txMint = mint
             , txOutputs = outputs
+            , txRedeemers = []
+            }
+
+parseWitnessRedeemers
+    :: Text -> CBOR.Term -> Either VerifyError [TxRedeemer]
+parseWitnessRedeemers field wits = do
+    entries <- case wits of
+        CBOR.TMap xs -> Right xs
+        CBOR.TMapI xs -> Right xs
+        _ ->
+            Left
+                ( TxBindingFailed
+                    field
+                    "unsupported witness set CBOR"
+                )
+    case lookupIntKey 5 entries of
+        Nothing -> Right []
+        Just t -> parseRedeemers field t
+
+parseRedeemers :: Text -> CBOR.Term -> Either VerifyError [TxRedeemer]
+parseRedeemers field = \case
+    CBOR.TList xs ->
+        traverse (parseFlatRedeemer field) xs
+    CBOR.TListI xs ->
+        traverse (parseFlatRedeemer field) xs
+    CBOR.TMap xs ->
+        traverse (uncurry (parseMapRedeemer field)) xs
+    CBOR.TMapI xs ->
+        traverse (uncurry (parseMapRedeemer field)) xs
+    _ -> Left (TxBindingFailed field "unsupported redeemers CBOR")
+
+parseFlatRedeemer
+    :: Text -> CBOR.Term -> Either VerifyError TxRedeemer
+parseFlatRedeemer field = \case
+    CBOR.TList [tagTerm, ixTerm, datumTerm, _exUnits] ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    CBOR.TListI [tagTerm, ixTerm, datumTerm, _exUnits] ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    _ -> Left (TxBindingFailed field "unsupported flat redeemer CBOR")
+
+parseMapRedeemer
+    :: Text -> CBOR.Term -> CBOR.Term -> Either VerifyError TxRedeemer
+parseMapRedeemer field keyTerm valueTerm = case (keyTerm, valueTerm) of
+    (CBOR.TList [tagTerm, ixTerm], CBOR.TList [datumTerm, _exUnits]) ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    (CBOR.TListI [tagTerm, ixTerm], CBOR.TListI [datumTerm, _exUnits]) ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    (CBOR.TList [tagTerm, ixTerm], CBOR.TListI [datumTerm, _exUnits]) ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    (CBOR.TListI [tagTerm, ixTerm], CBOR.TList [datumTerm, _exUnits]) ->
+        mkRedeemer field tagTerm ixTerm datumTerm
+    _ -> Left (TxBindingFailed field "unsupported map redeemer CBOR")
+
+mkRedeemer
+    :: Text
+    -> CBOR.Term
+    -> CBOR.Term
+    -> CBOR.Term
+    -> Either VerifyError TxRedeemer
+mkRedeemer field tagTerm ixTerm datumTerm = do
+    tag <- parseNonNegativeInteger (field <> ".purpose") tagTerm
+    ix <- parseWord64Unbounded (field <> ".index") ixTerm
+    let purpose = case tag of
+            0 -> RedeemerSpend ix
+            1 -> RedeemerMint ix
+            _ -> RedeemerOther tag ix
+    pure
+        TxRedeemer
+            { txRedeemerPurpose = purpose
+            , txRedeemerData = normalizeTerm datumTerm
             }
 
 lookupIntKey :: Integer -> [(CBOR.Term, CBOR.Term)] -> Maybe CBOR.Term
@@ -291,6 +498,21 @@ parseWord64 field t =
                 Right (fromInteger n)
         _ -> Left (TxBindingFailed field "input index out of range")
 
+parseWord64Unbounded :: Text -> CBOR.Term -> Either VerifyError Word64
+parseWord64Unbounded field t =
+    case termInteger t of
+        Just n
+            | n >= 0 && n <= toInteger (maxBound :: Word64) ->
+                Right (fromInteger n)
+        _ -> Left (TxBindingFailed field "index out of range")
+
+parseNonNegativeInteger
+    :: Text -> CBOR.Term -> Either VerifyError Integer
+parseNonNegativeInteger field t =
+    case termInteger t of
+        Just n | n >= 0 -> Right n
+        _ -> Left (TxBindingFailed field "expected non-negative integer")
+
 maxTxInputIndex :: Integer
 maxTxInputIndex = 65535
 
@@ -324,26 +546,40 @@ parseBabbageTxOut field entries = do
             Left (TxBindingFailed (field <> ".value") "missing value")
         Just t -> Right t
     assets <- parseValue (field <> ".value") valueTerm
-    hasInlineDatum <- case lookupIntKey 2 entries of
-        Nothing -> Right False
+    inlineDatum <- case lookupIntKey 2 entries of
+        Nothing -> Right Nothing
         Just t -> parseDatumOption (field <> ".datum") t
     pure
-        TxOutView{txOutAssets = assets, txOutHasInlineDatum = hasInlineDatum}
+        TxOutView
+            { txOutAssets = assets
+            , txOutHasInlineDatum = isJust inlineDatum
+            , txOutInlineDatum = inlineDatum
+            }
 
 txOutWithoutInlineDatum
     :: Text -> CBOR.Term -> Either VerifyError TxOutView
 txOutWithoutInlineDatum field valueTerm = do
     assets <- parseValue (field <> ".value") valueTerm
-    pure TxOutView{txOutAssets = assets, txOutHasInlineDatum = False}
+    pure
+        TxOutView
+            { txOutAssets = assets
+            , txOutHasInlineDatum = False
+            , txOutInlineDatum = Nothing
+            }
 
-parseDatumOption :: Text -> CBOR.Term -> Either VerifyError Bool
+parseDatumOption
+    :: Text -> CBOR.Term -> Either VerifyError (Maybe CBOR.Term)
 parseDatumOption field = \case
     CBOR.TList [tagTerm, _]
-        | termInteger tagTerm == Just 0 -> Right False
-        | termInteger tagTerm == Just 1 -> Right True
+        | termInteger tagTerm == Just 0 -> Right Nothing
+    CBOR.TList [tagTerm, datumTerm]
+        | termInteger tagTerm == Just 1 ->
+            Right (Just (normalizeTerm datumTerm))
     CBOR.TListI [tagTerm, _]
-        | termInteger tagTerm == Just 0 -> Right False
-        | termInteger tagTerm == Just 1 -> Right True
+        | termInteger tagTerm == Just 0 -> Right Nothing
+    CBOR.TListI [tagTerm, datumTerm]
+        | termInteger tagTerm == Just 1 ->
+            Right (Just (normalizeTerm datumTerm))
     _ -> Left (TxBindingFailed field "unsupported datum option CBOR")
 
 parseValue :: Text -> CBOR.Term -> Either VerifyError [TxAsset]
@@ -421,6 +657,26 @@ quantityAllowed :: QuantityMode -> Integer -> Bool
 quantityAllowed SignedMint n = n /= 0
 quantityAllowed PositiveValue n = n > 0
 
+normalizeTerm :: CBOR.Term -> CBOR.Term
+normalizeTerm = \case
+    CBOR.TInt n -> CBOR.TInteger (fromIntegral n)
+    CBOR.TBytesI bs -> CBOR.TBytes (BSL.toStrict bs)
+    CBOR.TStringI txt -> CBOR.TString (TL.toStrict txt)
+    CBOR.TList xs -> CBOR.TList (map normalizeTerm xs)
+    CBOR.TListI xs -> CBOR.TList (map normalizeTerm xs)
+    CBOR.TMap xs ->
+        CBOR.TMap
+            [ (normalizeTerm k, normalizeTerm v)
+            | (k, v) <- xs
+            ]
+    CBOR.TMapI xs ->
+        CBOR.TMap
+            [ (normalizeTerm k, normalizeTerm v)
+            | (k, v) <- xs
+            ]
+    CBOR.TTagged tag t -> CBOR.TTagged tag (normalizeTerm t)
+    t -> t
+
 minInt64, maxInt64 :: Integer
 minInt64 = -9223372036854775808
 maxInt64 = 9223372036854775807
@@ -473,6 +729,223 @@ compareTxAssets field reason expected actual
     renderCount xs =
         T.pack (show (length xs)) <> " asset(s)"
 
+compareRedeemerRoles
+    :: Text -> [TxRedeemerRole] -> [TxRedeemerRole] -> Either VerifyError ()
+compareRedeemerRoles field expected actual
+    | canonical expected == canonical actual = Right ()
+    | otherwise =
+        Left
+            ( TxBindingFailed
+                field
+                ( "redeemer role mismatch: expected "
+                    <> renderCount expected
+                    <> ", got "
+                    <> renderCount actual
+                )
+            )
+  where
+    canonical = sort
+    renderCount xs =
+        T.pack (show (length xs)) <> " redeemer(s)"
+
+redeemerRoles :: Text -> TxView -> Either VerifyError [TxRedeemerRole]
+redeemerRoles endpoint view@TxView{txRedeemers} =
+    traverse (redeemerRole endpoint view) txRedeemers
+
+redeemerRole
+    :: Text -> TxView -> TxRedeemer -> Either VerifyError TxRedeemerRole
+redeemerRole endpoint view TxRedeemer{..} =
+    case txRedeemerPurpose of
+        RedeemerMint _ ->
+            parseMintRedeemerRole
+                (endpoint <> ".tx.redeemers.mint")
+                txRedeemerPurpose
+                txRedeemerData
+        RedeemerSpend ix -> do
+            input <- redeemerInput endpoint view ix
+            parseSpendRedeemerRole
+                (endpoint <> ".tx.redeemers.spend")
+                input
+                txRedeemerData
+        RedeemerOther{} ->
+            pure
+                ( RoleUnsupported
+                    txRedeemerPurpose
+                    "unsupported redeemer purpose"
+                )
+
+redeemerInput
+    :: Text -> TxView -> Word64 -> Either VerifyError TxIn
+redeemerInput endpoint TxView{txInputs} ix =
+    case drop (fromIntegral ix) txInputs of
+        input : _ -> Right input
+        [] ->
+            Left
+                ( TxBindingFailed
+                    (endpoint <> ".tx.redeemers.spend")
+                    "spending redeemer index out of range"
+                )
+
+parseMintRedeemerRole
+    :: Text
+    -> TxRedeemerPurpose
+    -> CBOR.Term
+    -> Either VerifyError TxRedeemerRole
+parseMintRedeemerRole field purpose term = do
+    (tag, _fields) <- parseConstr field term
+    case tag of
+        0 -> Right RoleMinting
+        2 -> Right RoleBurning
+        _ ->
+            Right
+                ( RoleUnsupported
+                    purpose
+                    "unsupported mint redeemer"
+                )
+
+parseSpendRedeemerRole
+    :: Text -> TxIn -> CBOR.Term -> Either VerifyError TxRedeemerRole
+parseSpendRedeemerRole field input term = do
+    (tag, fields) <- parseConstr field term
+    case (tag, fields) of
+        (0, []) -> Right (RoleSpendEnd input)
+        (1, [refTerm]) ->
+            RoleSpendContribute input
+                <$> parseTxOutRef (field <> ".contribute") refTerm
+        (2, [actionsTerm]) ->
+            parseModifyRole field input actionsTerm
+        (3, [refTerm]) ->
+            RoleSpendRetract input
+                <$> parseTxOutRef (field <> ".retract") refTerm
+        _ ->
+            Right
+                ( RoleUnsupported
+                    (RedeemerSpend 0)
+                    "unsupported spend redeemer"
+                )
+
+parseModifyRole
+    :: Text -> TxIn -> CBOR.Term -> Either VerifyError TxRedeemerRole
+parseModifyRole field input actionsTerm = do
+    actions <- parseList (field <> ".modify.actions") actionsTerm
+    parsed <- traverse (parseRequestAction field) actions
+    case parsed of
+        [] -> Right (RoleSpendModifyUpdate input [])
+        xs
+            | all isRejectedAction xs ->
+                Right (RoleSpendModifyRejected input (length xs))
+            | all isUpdateAction xs ->
+                Right
+                    ( RoleSpendModifyUpdate
+                        input
+                        [ proof
+                        | ParsedUpdateAction proof <- xs
+                        ]
+                    )
+            | otherwise ->
+                Right
+                    ( RoleUnsupported
+                        (RedeemerSpend 0)
+                        "mixed request action redeemer"
+                    )
+
+data ParsedRequestAction
+    = ParsedUpdateAction CBOR.Term
+    | ParsedRejectedAction
+    deriving stock (Eq, Show)
+
+isRejectedAction :: ParsedRequestAction -> Bool
+isRejectedAction ParsedRejectedAction = True
+isRejectedAction _ = False
+
+isUpdateAction :: ParsedRequestAction -> Bool
+isUpdateAction ParsedUpdateAction{} = True
+isUpdateAction _ = False
+
+parseRequestAction
+    :: Text -> CBOR.Term -> Either VerifyError ParsedRequestAction
+parseRequestAction field term = do
+    (tag, fields) <- parseConstr (field <> ".action") term
+    case (tag, fields) of
+        (0, [proofTerm]) ->
+            Right (ParsedUpdateAction (normalizeTerm proofTerm))
+        (1, []) -> Right ParsedRejectedAction
+        _ ->
+            Left
+                ( TxBindingFailed
+                    (field <> ".action")
+                    "unsupported request action redeemer"
+                )
+
+parseTxOutRef :: Text -> CBOR.Term -> Either VerifyError TxIn
+parseTxOutRef field term = do
+    (tag, fields) <- parseConstr field term
+    case (tag, fields) of
+        (0, [CBOR.TBytes txIdBs, ixTerm])
+            | BS.length txIdBs == 32 -> do
+                ix <- parseWord64Unbounded (field <> ".tx_ix") ixTerm
+                Right
+                    TxIn
+                        { txId = Hex (T.decodeUtf8 (Base16.encode txIdBs))
+                        , txIx = ix
+                        }
+        _ ->
+            Left
+                ( TxBindingFailed
+                    field
+                    "unsupported tx out ref CBOR"
+                )
+
+parseConstr
+    :: Text -> CBOR.Term -> Either VerifyError (Integer, [CBOR.Term])
+parseConstr field = \case
+    CBOR.TTagged tag fieldsTerm -> do
+        constr <- constructorIndex tag
+        fields <- parseList field fieldsTerm
+        Right (constr, fields)
+    _ -> Left (TxBindingFailed field "expected constructor data")
+  where
+    constructorIndex tag
+        | tag >= 121 && tag <= 127 =
+            Right (toInteger tag - 121)
+        | tag >= 1280 && tag <= 1400 =
+            Right (toInteger tag - 1280 + 7)
+        | tag == 102 =
+            Left
+                ( TxBindingFailed
+                    field
+                    "generic constructor data unsupported"
+                )
+        | otherwise =
+            Left (TxBindingFailed field "unsupported constructor tag")
+
+parseList :: Text -> CBOR.Term -> Either VerifyError [CBOR.Term]
+parseList field = \case
+    CBOR.TList xs -> Right (map normalizeTerm xs)
+    CBOR.TListI xs -> Right (map normalizeTerm xs)
+    _ -> Left (TxBindingFailed field "expected list data")
+
+trieReadProofTerms
+    :: Text -> [TrieFact] -> Either VerifyError [CBOR.Term]
+trieReadProofTerms endpoint = go (0 :: Int)
+  where
+    go _ [] = Right []
+    go i (TrieFact{mpfProof} : rest) = do
+        let field =
+                endpoint
+                    <> ".trie_read["
+                    <> T.pack (show i)
+                    <> "].mpf_proof"
+        proofBs <- decodeHexBinding field mpfProof
+        term <- decodeTerm field proofBs
+        (normalizeTerm term :) <$> go (i + 1) rest
+
+decodeHexBinding :: Text -> Hex -> Either VerifyError BS.ByteString
+decodeHexBinding field (Hex txt) =
+    case Base16.decode (T.encodeUtf8 txt) of
+        Right bs -> Right bs
+        Left _ -> Left (TxBindingFailed field "malformed hex")
+
 expectSingletonMint
     :: Text -> Integer -> TxView -> Either VerifyError TxAsset
 expectSingletonMint endpoint expectedQuantity TxView{txMint} =
@@ -504,6 +977,44 @@ stateAssetFromWitness endpoint WitnessedUtxo{txOut} = do
                 ( TxBindingFailed
                     (endpoint <> ".state.tx_out.value")
                     "state token ambiguous"
+                )
+
+stateRootFromWitness
+    :: Text -> WitnessedUtxo -> Either VerifyError Hex
+stateRootFromWitness endpoint WitnessedUtxo{txOut} = do
+    TxOutView{txOutInlineDatum} <-
+        decodeTxOutView (endpoint <> ".state.tx_out") txOut
+    case txOutInlineDatum of
+        Nothing ->
+            Left
+                ( TxBindingFailed
+                    (endpoint <> ".state.tx_out.datum")
+                    "state datum missing"
+                )
+        Just datum ->
+            parseStateDatumRoot
+                (endpoint <> ".state.tx_out.datum")
+                datum
+
+parseStateDatumRoot :: Text -> CBOR.Term -> Either VerifyError Hex
+parseStateDatumRoot field datum = do
+    (datumTag, datumFields) <- parseConstr field datum
+    case (datumTag, datumFields) of
+        (1, [stateTerm]) -> parseTokenStateRoot field stateTerm
+        _ -> Left (TxBindingFailed field "expected state datum")
+
+parseTokenStateRoot :: Text -> CBOR.Term -> Either VerifyError Hex
+parseTokenStateRoot field stateTerm = do
+    (stateTag, stateFields) <- parseConstr (field <> ".state") stateTerm
+    case (stateTag, stateFields) of
+        (0, [_owner, CBOR.TBytes rootBs, _fee, _process, _retract])
+            | BS.length rootBs == 32 ->
+                Right (Hex (T.decodeUtf8 (Base16.encode rootBs)))
+        _ ->
+            Left
+                ( TxBindingFailed
+                    (field <> ".state.root")
+                    "state root missing"
                 )
 
 requireStateOutput

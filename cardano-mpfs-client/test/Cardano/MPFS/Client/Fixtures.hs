@@ -25,6 +25,21 @@ module Cardano.MPFS.Client.Fixtures
     , honestTrieInclusion
     , honestTrieExclusion
 
+      -- * Transaction fixture builders
+    , TxRedeemerFixture (..)
+    , burningRedeemerTerm
+    , mintRedeemerFixture
+    , mintingRedeemerTerm
+    , rejectedActionTerm
+    , spendContributeRedeemerTerm
+    , spendEndRedeemerTerm
+    , spendModifyRedeemerTerm
+    , spendRedeemerFixture
+    , spendRetractRedeemerTerm
+    , txCborFromTxPartsWithRedeemers
+    , txOutTerm
+    , updateActionTermFromProof
+
       -- * Hex utilities
     , toHex
     , sampleStateAsset
@@ -33,11 +48,13 @@ module Cardano.MPFS.Client.Fixtures
     ) where
 
 import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Read qualified as CBOR
 import Codec.CBOR.Term qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
+import Data.ByteString.Lazy qualified as BSL
 import Data.List (nub)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as T
@@ -106,14 +123,22 @@ sampleSlot = 42
 sampleBlockId :: ByteString
 sampleBlockId = BS.replicate 32 0x11
 
-stateTxIn, requestTxIn, fundingTxIn :: (ByteString, Word64)
+stateTxIn
+    , requestTxIn
+    , requestTxIn2
+    , fundingTxIn
+        :: (ByteString, Word64)
 stateTxIn = (BS.replicate 32 0xA0, 0)
 requestTxIn = (BS.replicate 32 0xB1, 1)
+requestTxIn2 = (BS.replicate 32 0xB2, 3)
 fundingTxIn = (BS.replicate 32 0xC2, 2)
 
 samplePolicyId, sampleAssetName :: ByteString
 samplePolicyId = BS.replicate 28 0xD3
 sampleAssetName = BS.replicate 32 0xE4
+
+sampleStateRoot :: ByteString
+sampleStateRoot = BS.replicate 32 0x00
 
 sampleStateAsset :: Integer -> TxAsset
 sampleStateAsset quantity =
@@ -123,10 +148,15 @@ sampleStateAsset quantity =
         , assetQuantity = quantity
         }
 
-stateTxOut, requestTxOut, fundingTxOut :: ByteString
-stateTxOut = txOutCbor True [sampleStateAsset 1]
+requestTxOut, fundingTxOut :: ByteString
 requestTxOut = txOutCbor True []
 fundingTxOut = txOutCbor False []
+
+stateTxOutWithRoot :: ByteString -> ByteString
+stateTxOutWithRoot root =
+    txOutCborWithDatum
+        [sampleStateAsset 1]
+        (Just (stateDatumTerm root))
 
 txCborFromTxIns :: [TxIn] -> [TxIn] -> Hex
 txCborFromTxIns inputs refs =
@@ -135,12 +165,22 @@ txCborFromTxIns inputs refs =
 txCborFromTxParts
     :: [TxIn] -> [TxIn] -> [TxAsset] -> [CBOR.Term] -> Hex
 txCborFromTxParts inputs refs mint outputs =
+    txCborFromTxPartsWithRedeemers inputs refs mint outputs []
+
+txCborFromTxPartsWithRedeemers
+    :: [TxIn]
+    -> [TxIn]
+    -> [TxAsset]
+    -> [CBOR.Term]
+    -> [TxRedeemerFixture]
+    -> Hex
+txCborFromTxPartsWithRedeemers inputs refs mint outputs redeemers =
     toHex
         $ CBOR.toStrictByteString
         $ CBOR.encodeTerm
         $ CBOR.TList
             [ CBOR.TMap bodyFields
-            , CBOR.TMap []
+            , witnessSetTerm redeemers
             , CBOR.TBool True
             , CBOR.TNull
             ]
@@ -152,28 +192,148 @@ txCborFromTxParts inputs refs mint outputs =
             <> [(CBOR.TInt 18, setTerm refs) | not (null refs)]
             <> [(CBOR.TInt 9, multiAssetTerm mint) | not (null mint)]
 
+data TxRedeemerFixture = TxRedeemerFixture
+    { redeemerFixtureTag :: Integer
+    , redeemerFixtureIndex :: Word64
+    , redeemerFixtureData :: CBOR.Term
+    }
+    deriving stock (Eq, Show)
+
+spendRedeemerFixture :: Word64 -> CBOR.Term -> TxRedeemerFixture
+spendRedeemerFixture = TxRedeemerFixture 0
+
+mintRedeemerFixture :: Word64 -> CBOR.Term -> TxRedeemerFixture
+mintRedeemerFixture = TxRedeemerFixture 1
+
+witnessSetTerm :: [TxRedeemerFixture] -> CBOR.Term
+witnessSetTerm [] = CBOR.TMap []
+witnessSetTerm redeemers =
+    CBOR.TMap [(CBOR.TInt 5, redeemerMapTerm redeemers)]
+
+redeemerMapTerm :: [TxRedeemerFixture] -> CBOR.Term
+redeemerMapTerm redeemers =
+    CBOR.TMap
+        [ ( CBOR.TList
+                [ CBOR.TInteger redeemerFixtureTag
+                , CBOR.TInteger (fromIntegral redeemerFixtureIndex)
+                ]
+          , CBOR.TList
+                [ redeemerFixtureData
+                , CBOR.TList [CBOR.TInteger 0, CBOR.TInteger 0]
+                ]
+          )
+        | TxRedeemerFixture{..} <- redeemers
+        ]
+
 txOutCbor :: Bool -> [TxAsset] -> ByteString
 txOutCbor hasInlineDatum assets =
     CBOR.toStrictByteString
         $ CBOR.encodeTerm
         $ txOutTerm hasInlineDatum assets
 
+txOutCborWithDatum :: [TxAsset] -> Maybe CBOR.Term -> ByteString
+txOutCborWithDatum assets datum =
+    CBOR.toStrictByteString
+        $ CBOR.encodeTerm
+        $ txOutTermWithDatum assets datum
+
 txOutTerm :: Bool -> [TxAsset] -> CBOR.Term
 txOutTerm hasInlineDatum assets =
+    txOutTermWithDatum
+        assets
+        (if hasInlineDatum then Just inlineDatumDataTerm else Nothing)
+
+txOutTermWithDatum :: [TxAsset] -> Maybe CBOR.Term -> CBOR.Term
+txOutTermWithDatum assets datum =
     CBOR.TMap
         $ [ (CBOR.TInt 0, CBOR.TBytes "addr")
           , (CBOR.TInt 1, valueTerm assets)
           ]
-            <> [ (CBOR.TInt 2, inlineDatumTerm)
-               | hasInlineDatum
-               ]
+            <> maybe
+                []
+                (\d -> [(CBOR.TInt 2, inlineDatumOption d)])
+                datum
 
-inlineDatumTerm :: CBOR.Term
-inlineDatumTerm =
+inlineDatumOption :: CBOR.Term -> CBOR.Term
+inlineDatumOption datum =
     CBOR.TList
         [ CBOR.TInt 1
-        , CBOR.TTagged 121 (CBOR.TList [])
+        , datum
         ]
+
+inlineDatumDataTerm :: CBOR.Term
+inlineDatumDataTerm =
+    CBOR.TTagged 121 (CBOR.TList [])
+
+stateDatumTerm :: ByteString -> CBOR.Term
+stateDatumTerm root =
+    constr
+        1
+        [ constr
+            0
+            [ CBOR.TBytes (BS.replicate 28 0xAA)
+            , CBOR.TBytes root
+            , CBOR.TInteger 1_000_000
+            , CBOR.TInteger 60_000
+            , CBOR.TInteger 30_000
+            ]
+        ]
+
+mintingRedeemerTerm :: TxIn -> CBOR.Term
+mintingRedeemerTerm seedRef =
+    constr 0 [constr 0 [txOutRefTerm seedRef]]
+
+burningRedeemerTerm :: CBOR.Term
+burningRedeemerTerm = constr 2 []
+
+spendEndRedeemerTerm :: CBOR.Term
+spendEndRedeemerTerm = constr 0 []
+
+spendContributeRedeemerTerm :: TxIn -> CBOR.Term
+spendContributeRedeemerTerm stateRef =
+    constr 1 [txOutRefTerm stateRef]
+
+spendModifyRedeemerTerm :: [CBOR.Term] -> CBOR.Term
+spendModifyRedeemerTerm actions =
+    constr 2 [CBOR.TList actions]
+
+spendRetractRedeemerTerm :: TxIn -> CBOR.Term
+spendRetractRedeemerTerm stateRef =
+    constr 3 [txOutRefTerm stateRef]
+
+rejectedActionTerm :: CBOR.Term
+rejectedActionTerm = constr 1 []
+
+updateActionTermFromProof :: TrieFact -> CBOR.Term
+updateActionTermFromProof TrieFact{mpfProof} =
+    constr 0 [decodeProofTerm mpfProof]
+
+txOutRefTerm :: TxIn -> CBOR.Term
+txOutRefTerm TxIn{txId = Hex tid, txIx} =
+    constr
+        0
+        [ CBOR.TBytes (decodeFixtureHex tid)
+        , CBOR.TInteger (fromIntegral txIx)
+        ]
+
+constr :: Integer -> [CBOR.Term] -> CBOR.Term
+constr n fields
+    | n >= 0 && n <= 6 =
+        CBOR.TTagged (fromInteger (121 + n)) (CBOR.TList fields)
+    | n >= 7 && n <= 127 =
+        CBOR.TTagged (fromInteger (1280 + n - 7)) (CBOR.TList fields)
+    | otherwise =
+        error ("unsupported fixture constructor: " <> show n)
+
+decodeProofTerm :: Hex -> CBOR.Term
+decodeProofTerm proofHex =
+    let proofBytes = decodeFixtureHex (unHex proofHex)
+    in  case CBOR.deserialiseFromBytes
+            CBOR.decodeTerm
+            (BSL.fromStrict proofBytes) of
+            Right (remaining, term)
+                | BSL.null remaining -> term
+            _ -> error "invalid fixture proof CBOR"
 
 valueTerm :: [TxAsset] -> CBOR.Term
 valueTerm [] = CBOR.TInteger 2_000_000
@@ -242,16 +402,23 @@ data CsmtBundle = CsmtBundle
     { bundleRoot :: ByteString
     , bundleState :: WitnessedUtxo
     , bundleRequest :: WitnessedUtxo
+    , bundleRequest2 :: WitnessedUtxo
     , bundleFunding :: WitnessedUtxo
     }
 
 buildBundle :: CsmtBundle
-buildBundle = evalPureFromEmptyDB $ do
-    insertUtxo stateTxIn stateTxOut
+buildBundle = buildBundleWithStateRoot sampleStateRoot
+
+buildBundleWithStateRoot :: ByteString -> CsmtBundle
+buildBundleWithStateRoot stateRoot = evalPureFromEmptyDB $ do
+    let rootedStateTxOut = stateTxOutWithRoot stateRoot
+    insertUtxo stateTxIn rootedStateTxOut
     insertUtxo requestTxIn requestTxOut
+    insertUtxo requestTxIn2 requestTxOut
     insertUtxo fundingTxIn fundingTxOut
-    stateWitness <- mkWitness stateTxIn stateTxOut
+    stateWitness <- mkWitness stateTxIn rootedStateTxOut
     requestWitness <- mkWitness requestTxIn requestTxOut
+    requestWitness2 <- mkWitness requestTxIn2 requestTxOut
     fundingWitness <- mkWitness fundingTxIn fundingTxOut
     mRoot <- getRootHashM
     let rootBytes = maybe BS.empty renderHash mRoot
@@ -260,6 +427,7 @@ buildBundle = evalPureFromEmptyDB $ do
             { bundleRoot = rootBytes
             , bundleState = stateWitness
             , bundleRequest = requestWitness
+            , bundleRequest2 = requestWitness2
             , bundleFunding = fundingWitness
             }
   where
@@ -379,15 +547,20 @@ honestTrieExclusion =
 
 honestBootResponse :: BootTxResponse
 honestBootResponse =
-    BootTxResponse
-        ( txCborFromTxParts
-            [txIn (bundleFunding honestWitness)]
-            []
-            [sampleStateAsset 1]
-            [txOutTerm True [sampleStateAsset 1]]
-        )
-        (sampleSnapshot (bundleRoot honestWitness))
-        (BootProof [bundleFunding honestWitness])
+    let funding = bundleFunding honestWitness
+    in  BootTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                [txIn funding]
+                []
+                [sampleStateAsset 1]
+                [txOutTerm True [sampleStateAsset 1]]
+                [ mintRedeemerFixture
+                    0
+                    (mintingRedeemerTerm (txIn funding))
+                ]
+            )
+            (sampleSnapshot (bundleRoot honestWitness))
+            (BootProof [funding])
 
 honestRequestResponse :: RequestTxResponse
 honestRequestResponse =
@@ -403,88 +576,90 @@ honestRequestResponse =
 
 honestRetractResponse :: RetractTxResponse
 honestRetractResponse =
-    RetractTxResponse
-        ( txCborFromTxParts
-            ( map
-                txIn
-                [ bundleRequest honestWitness
-                , bundleFunding honestWitness
+    let state = bundleState honestWitness
+        request = bundleRequest honestWitness
+        funding = bundleFunding honestWitness
+    in  RetractTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [request, funding])
+                [txIn state]
+                []
+                [txOutTerm False []]
+                [ spendRedeemerFixture
+                    0
+                    (spendRetractRedeemerTerm (txIn state))
                 ]
             )
-            [txIn (bundleState honestWitness)]
-            []
-            [txOutTerm False []]
-        )
-        (sampleSnapshot (bundleRoot honestWitness))
-        ( RetractProof
-            (bundleRequest honestWitness)
-            (bundleState honestWitness)
-            [bundleFunding honestWitness]
-        )
+            (sampleSnapshot (bundleRoot honestWitness))
+            (RetractProof request state [funding])
 
 honestRejectResponse :: RejectTxResponse
 honestRejectResponse =
-    RejectTxResponse
-        ( txCborFromTxParts
-            ( map
-                txIn
-                [ bundleState honestWitness
-                , bundleRequest honestWitness
-                , bundleFunding honestWitness
+    let state = bundleState honestWitness
+        request = bundleRequest honestWitness
+        funding = bundleFunding honestWitness
+    in  RejectTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, request, funding])
+                []
+                []
+                [txOutTerm True [sampleStateAsset 1]]
+                [ spendRedeemerFixture
+                    0
+                    (spendModifyRedeemerTerm [rejectedActionTerm])
+                , spendRedeemerFixture
+                    1
+                    (spendContributeRedeemerTerm (txIn state))
                 ]
             )
-            []
-            []
-            [txOutTerm True [sampleStateAsset 1]]
-        )
-        (sampleSnapshot (bundleRoot honestWitness))
-        ( RejectProof
-            (bundleState honestWitness)
-            [bundleRequest honestWitness]
-            [bundleFunding honestWitness]
-        )
+            (sampleSnapshot (bundleRoot honestWitness))
+            (RejectProof state [request] [funding])
 
 honestEndResponse :: EndTxResponse
 honestEndResponse =
-    EndTxResponse
-        ( txCborFromTxParts
-            ( map
-                txIn
-                [ bundleState honestWitness
-                , bundleFunding honestWitness
+    let state = bundleState honestWitness
+        funding = bundleFunding honestWitness
+    in  EndTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, funding])
+                []
+                [sampleStateAsset (-1)]
+                [txOutTerm False []]
+                [ spendRedeemerFixture 0 spendEndRedeemerTerm
+                , mintRedeemerFixture 0 burningRedeemerTerm
                 ]
             )
-            []
-            [sampleStateAsset (-1)]
-            [txOutTerm False []]
-        )
-        (sampleSnapshot (bundleRoot honestWitness))
-        ( EndProof
-            (bundleState honestWitness)
-            [bundleFunding honestWitness]
-        )
+            (sampleSnapshot (bundleRoot honestWitness))
+            (EndProof state [funding])
 
 honestUpdateResponse :: UpdateTxResponse
 honestUpdateResponse =
     let (trieRoot, trieFact) = honestTrieInclusion
+        witness = buildBundleWithStateRoot trieRoot
+        state = bundleState witness
+        request = bundleRequest witness
+        funding = bundleFunding witness
     in  UpdateTxResponse
-            ( txCborFromTxParts
-                ( map
-                    txIn
-                    [ bundleState honestWitness
-                    , bundleRequest honestWitness
-                    , bundleFunding honestWitness
-                    ]
-                )
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, request, funding])
                 []
                 []
                 [txOutTerm True [sampleStateAsset 1]]
+                [ spendRedeemerFixture
+                    0
+                    ( spendModifyRedeemerTerm
+                        [updateActionTermFromProof trieFact]
+                    )
+                , spendRedeemerFixture
+                    1
+                    (spendContributeRedeemerTerm (txIn state))
+                ]
             )
-            (sampleSnapshot (bundleRoot honestWitness))
+            (sampleSnapshot (bundleRoot witness))
             ( UpdateProof
-                (bundleState honestWitness)
-                [bundleRequest honestWitness]
-                [bundleFunding honestWitness]
+                state
+                [request]
+                [funding]
                 (toHex trieRoot)
                 [trieFact]
             )
@@ -495,24 +670,37 @@ honestUpdateResponseMixedTrie :: UpdateTxResponse
 honestUpdateResponseMixedTrie =
     let (trieRoot, inclusionFact) = honestTrieInclusion
         (_, exclusionFact) = honestTrieExclusion
+        witness = buildBundleWithStateRoot trieRoot
+        state = bundleState witness
+        request = bundleRequest witness
+        request2 = bundleRequest2 witness
+        funding = bundleFunding witness
     in  UpdateTxResponse
-            ( txCborFromTxParts
-                ( map
-                    txIn
-                    [ bundleState honestWitness
-                    , bundleRequest honestWitness
-                    , bundleFunding honestWitness
-                    ]
-                )
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, request, request2, funding])
                 []
                 []
                 [txOutTerm True [sampleStateAsset 1]]
+                [ spendRedeemerFixture
+                    0
+                    ( spendModifyRedeemerTerm
+                        [ updateActionTermFromProof inclusionFact
+                        , updateActionTermFromProof exclusionFact
+                        ]
+                    )
+                , spendRedeemerFixture
+                    1
+                    (spendContributeRedeemerTerm (txIn state))
+                , spendRedeemerFixture
+                    2
+                    (spendContributeRedeemerTerm (txIn state))
+                ]
             )
-            (sampleSnapshot (bundleRoot honestWitness))
+            (sampleSnapshot (bundleRoot witness))
             ( UpdateProof
-                (bundleState honestWitness)
-                [bundleRequest honestWitness]
-                [bundleFunding honestWitness]
+                state
+                [request, request2]
+                [funding]
                 (toHex trieRoot)
                 [inclusionFact, exclusionFact]
             )
@@ -522,24 +710,29 @@ honestUpdateResponseMixedTrie =
 honestUpdateResponseEmptyTrie :: UpdateTxResponse
 honestUpdateResponseEmptyTrie =
     let (trieRoot, _) = honestTrieInclusion
+        witness = buildBundleWithStateRoot trieRoot
+        state = bundleState witness
+        request = bundleRequest witness
+        funding = bundleFunding witness
     in  UpdateTxResponse
-            ( txCborFromTxParts
-                ( map
-                    txIn
-                    [ bundleState honestWitness
-                    , bundleRequest honestWitness
-                    , bundleFunding honestWitness
-                    ]
-                )
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, request, funding])
                 []
                 []
                 [txOutTerm True [sampleStateAsset 1]]
+                [ spendRedeemerFixture
+                    0
+                    (spendModifyRedeemerTerm [])
+                , spendRedeemerFixture
+                    1
+                    (spendContributeRedeemerTerm (txIn state))
+                ]
             )
-            (sampleSnapshot (bundleRoot honestWitness))
+            (sampleSnapshot (bundleRoot witness))
             ( UpdateProof
-                (bundleState honestWitness)
-                [bundleRequest honestWitness]
-                [bundleFunding honestWitness]
+                state
+                [request]
+                [funding]
                 (toHex trieRoot)
                 []
             )

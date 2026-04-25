@@ -98,8 +98,9 @@ A wallet receives a proof-bearing response whose inputs, mint, and state
 outputs match the proof roles, but whose on-chain redeemers act on a
 different request action or MPF proof. The verifier must reject write
 responses where the transaction's redeemer set is missing, has an
-unexpected endpoint tag, or embeds update MPF facts that do not exactly
-match `UpdateProof.trie_root` and `UpdateProof.trie_read`.
+unexpected endpoint tag, consumes a state datum root different from
+`UpdateProof.trie_root`, or embeds update MPF facts that do not exactly
+match `UpdateProof.trie_read`.
 
 **Why this priority**: The transaction can still be substituted after
 input and asset binding if the redeemer payload describes a different
@@ -161,9 +162,9 @@ from `UpdateProof.trie_read`. Verification must reject with
   the expected token lifecycle action.
 - **FR-013**: Retract, reject, and update responses MUST bind spending
   redeemer tags to the expected request/state action roles.
-- **FR-014**: Update responses MUST bind the update redeemer's trie root
-  and MPF proof payload exactly to `UpdateProof.trie_root` and
-  `UpdateProof.trie_read`.
+- **FR-014**: Update responses MUST bind the consumed state datum root
+  exactly to `UpdateProof.trie_root` and the update redeemer MPF proof
+  payload exactly to `UpdateProof.trie_read`.
 
 ## Success Criteria
 

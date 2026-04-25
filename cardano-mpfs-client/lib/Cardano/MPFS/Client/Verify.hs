@@ -59,10 +59,17 @@ import Cardano.MPFS.Client.Verify.Replay
     )
 import Cardano.MPFS.Client.Verify.TxView
     ( verifyBootAssetBinding
+    , verifyBootRedeemerBinding
     , verifyContinuingStateOutput
     , verifyEndAssetBinding
+    , verifyEndRedeemerBinding
     , verifyNoMint
+    , verifyNoRedeemers
+    , verifyRejectRedeemerBinding
+    , verifyRetractRedeemerBinding
+    , verifyStateRootBinding
     , verifyTxInputBinding
+    , verifyUpdateRedeemerBinding
     )
 
 -- | Structural check for the snapshot that every proof-bearing response
@@ -85,6 +92,7 @@ verifyBootTxResponse (BootTxResponse t s (BootProof fs)) = do
     replayWitnessedUtxos "boot.funding" rootBs fs
     txView <- verifyTxInputBinding "boot" t (witnessInputs fs) []
     verifyBootAssetBinding "boot" txView
+    verifyBootRedeemerBinding "boot" txView
 
 -- | Verify a @POST \/tx\/request\/{insert,delete,update}@ response.
 verifyRequestTxResponse :: RequestTxResponse -> Either VerifyError ()
@@ -96,6 +104,7 @@ verifyRequestTxResponse (RequestTxResponse t s (RequestProof fs)) = do
     replayWitnessedUtxos "request.funding" rootBs fs
     txView <- verifyTxInputBinding "request" t (witnessInputs fs) []
     verifyNoMint "request" txView
+    verifyNoRedeemers "request" txView
 
 -- | Verify a @POST \/tx\/retract@ response.
 verifyRetractTxResponse :: RetractTxResponse -> Either VerifyError ()
@@ -118,6 +127,11 @@ verifyRetractTxResponse
                 (txIn ri : witnessInputs fs)
                 [txIn sr]
         verifyNoMint "retract" txView
+        verifyRetractRedeemerBinding
+            "retract"
+            txView
+            (txIn ri)
+            (txIn sr)
 
 -- | Verify a @POST \/tx\/reject@ response.
 verifyRejectTxResponse :: RejectTxResponse -> Either VerifyError ()
@@ -140,6 +154,11 @@ verifyRejectTxResponse
                 (txIn st : witnessInputs ris <> witnessInputs fs)
                 []
         verifyContinuingStateOutput "reject" txView st
+        verifyRejectRedeemerBinding
+            "reject"
+            txView
+            (txIn st)
+            (witnessInputs ris)
 
 -- | Verify a @POST \/tx\/end@ response.
 verifyEndTxResponse :: EndTxResponse -> Either VerifyError ()
@@ -153,6 +172,7 @@ verifyEndTxResponse (EndTxResponse t s (EndProof st fs)) = do
     replayWitnessedUtxos "end.funding" rootBs fs
     txView <- verifyTxInputBinding "end" t (txIn st : witnessInputs fs) []
     verifyEndAssetBinding "end" txView st
+    verifyEndRedeemerBinding "end" txView (txIn st)
 
 -- | Verify a @POST \/tx\/update@ response.
 verifyUpdateTxResponse :: UpdateTxResponse -> Either VerifyError ()
@@ -171,6 +191,7 @@ verifyUpdateTxResponse
         replayWitnessedUtxos "update.funding" rootBs fs
         trieRootBs <- decodeHex "update.trie_root" tr
         replayTrieFacts "update.trie_read" trieRootBs tread
+        verifyStateRootBinding "update" st tr
         txView <-
             verifyTxInputBinding
                 "update"
@@ -178,6 +199,12 @@ verifyUpdateTxResponse
                 (txIn st : witnessInputs rs <> witnessInputs fs)
                 []
         verifyContinuingStateOutput "update" txView st
+        verifyUpdateRedeemerBinding
+            "update"
+            txView
+            (txIn st)
+            (witnessInputs rs)
+            tread
 
 -- ---------------------------------------------------------------
 -- Structural pass (hex decode, 32-byte hashes, non-empty hex)

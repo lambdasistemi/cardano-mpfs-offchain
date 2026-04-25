@@ -19,6 +19,7 @@ module Cardano.MPFS.TxBuilder.Real.Update
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Data.Foldable (fold)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -67,6 +68,8 @@ import Cardano.Ledger.Keys
     , KeyRole (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (ExUnits)
+import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
@@ -77,11 +80,12 @@ import PlutusTx.Builtins.Internal
 
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
+    , Neighbor (..)
     , OnChainOperation (..)
     , OnChainRequest (..)
     , OnChainRoot (..)
     , OnChainTokenState (..)
-    , ProofStep
+    , ProofStep (..)
     , RequestAction (..)
     , UpdateRedeemer (..)
     )
@@ -104,6 +108,7 @@ import Cardano.MPFS.Trie
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
     , ProofEnvelope (..)
+    , TrieFact (..)
     , UpdateProof (..)
     , UtxoProofFn
     )
@@ -146,7 +151,7 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                         "updateToken: invalid \
                         \state datum (root)"
     -- 2. Compute proofs via speculative trie
-    (proofs, newRoot) <-
+    (trieReads, newRoot) <-
         computeProofs tm tid reqUtxos
     -- 3. Extract state and build new datum
     let (oldState, newStateOut, script, ownerKh) =
@@ -171,7 +176,7 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                 newStateOut
                 script
                 ownerKh
-                proofs
+                (map readProofSteps trieReads)
                 upperSlot
     result <-
         Tx.build
@@ -241,7 +246,8 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                             , updateFunding = fundingWitnesses
                             , updateTrieRoot =
                                 oldRootBytes
-                            , updateTrieRead = []
+                            , updateTrieRead =
+                                map readTrieFact trieReads
                             }
                     }
         Left err ->
@@ -296,12 +302,17 @@ computeProofs
     :: TrieManager IO
     -> TokenId
     -> [(TxIn, TxOut ConwayEra)]
-    -> IO ([[ProofStep]], Root)
+    -> IO ([RequestTrieRead], Root)
 computeProofs tm tid reqUtxos =
     withSpeculativeTrie tm tid $ \trie -> do
         ps <- mapM (processRequest trie) reqUtxos
         r <- getRoot trie
         pure (ps, r)
+
+data RequestTrieRead = RequestTrieRead
+    { readProofSteps :: [ProofStep]
+    , readTrieFact :: TrieFact
+    }
 
 -- | Extract old state, build new state output,
 -- cage script, and owner key hash.
@@ -543,7 +554,7 @@ processRequest
     :: Monad m
     => Trie m
     -> (TxIn, TxOut ConwayEra)
-    -> m [ProofStep]
+    -> m RequestTrieRead
 processRequest trie (_txIn, txOut) = do
     let OnChainRequest
             { requestKey = key
@@ -558,13 +569,101 @@ processRequest trie (_txIn, txOut) = do
         OpInsert v -> do
             _ <- insert trie key v
             mSteps <- getProofSteps trie key
-            pure (fromMaybe [] mSteps)
+            pure
+                ( mkRequestTrieRead
+                    key
+                    Nothing
+                    (fromMaybe [] mSteps)
+                )
         OpDelete _ -> do
             mSteps <- getProofSteps trie key
             _ <- Cardano.MPFS.Trie.delete trie key
-            pure (fromMaybe [] mSteps)
+            pure
+                ( mkRequestTrieRead
+                    key
+                    (Just (operationOldValue op))
+                    (fromMaybe [] mSteps)
+                )
         OpUpdate _ v -> do
             mSteps <- getProofSteps trie key
             _ <- Cardano.MPFS.Trie.delete trie key
             _ <- insert trie key v
-            pure (fromMaybe [] mSteps)
+            pure
+                ( mkRequestTrieRead
+                    key
+                    (Just (operationOldValue op))
+                    (fromMaybe [] mSteps)
+                )
+
+mkRequestTrieRead
+    :: BS.ByteString -> Maybe BS.ByteString -> [ProofStep] -> RequestTrieRead
+mkRequestTrieRead key value steps =
+    RequestTrieRead
+        { readProofSteps = steps
+        , readTrieFact =
+            TrieFact
+                { factKey = key
+                , factValue = value
+                , factMpfProof = renderProofSteps steps
+                }
+        }
+
+operationOldValue :: OnChainOperation -> BS.ByteString
+operationOldValue = \case
+    OpInsert v -> v
+    OpDelete v -> v
+    OpUpdate old _new -> old
+
+renderProofSteps :: [ProofStep] -> BS.ByteString
+renderProofSteps steps =
+    CBOR.toStrictByteString
+        $ CBOR.encodeListLenIndef
+            <> foldMap encodeProofStep steps
+            <> CBOR.encodeBreak
+
+encodeProofStep :: ProofStep -> CBOR.Encoding
+encodeProofStep = \case
+    Branch skip neighbors ->
+        encodeConstr
+            0
+            [ CBOR.encodeInteger skip
+            , encodeIndefBytes (split64 neighbors)
+            ]
+    Fork skip Neighbor{..} ->
+        encodeConstr
+            1
+            [ CBOR.encodeInteger skip
+            , encodeConstr
+                0
+                [ CBOR.encodeInteger neighborNibble
+                , CBOR.encodeBytes neighborPrefix
+                , CBOR.encodeBytes neighborRoot
+                ]
+            ]
+    Leaf skip key value ->
+        encodeConstr
+            2
+            [ CBOR.encodeInteger skip
+            , CBOR.encodeBytes key
+            , CBOR.encodeBytes value
+            ]
+
+encodeConstr :: Word -> [CBOR.Encoding] -> CBOR.Encoding
+encodeConstr tag fields =
+    CBOR.encodeTag (121 + tag)
+        <> CBOR.encodeListLenIndef
+        <> fold fields
+        <> CBOR.encodeBreak
+
+encodeIndefBytes :: [BS.ByteString] -> CBOR.Encoding
+encodeIndefBytes chunks =
+    CBOR.encodeBytesIndef
+        <> foldMap CBOR.encodeBytes chunks
+        <> CBOR.encodeBreak
+
+split64 :: BS.ByteString -> [BS.ByteString]
+split64 bs
+    | BS.null bs = []
+    | otherwise =
+        let (chunk, rest) = BS.splitAt 64 bs
+        in  chunk : split64 rest

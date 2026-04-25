@@ -8,29 +8,26 @@
 
 **Completed**: Issue #224 merged; issue #227 first PR #235 merged;
 issue #227 second PR #236 merged; design decision recorded in
-`research.md`; Lean input/reference and asset binding models compile;
-Haskell client decodes tx inputs, reference inputs, mint assets, and
-continuing state outputs; focused unit suite passes with forged-binding
-coverage for those layers.
+`research.md`; Lean input/reference, asset, and redeemer binding models
+compile; Haskell client decodes tx inputs, reference inputs, mint assets,
+continuing state outputs, inline state datums, and supported witness-set
+redeemers. The server update response builder now emits the trie read
+facts needed for exact update redeemer binding.
 
-**Current**: Implement the redeemer and MPF proof binding slice. Decode
-witness-set redeemers from the unsigned transaction, bind endpoint
-redeemer tags to proof roles, and bind the update redeemer's embedded
-MPF proof to `UpdateProof.trie_read`.
+**Current**: Final validation and PR #237 review/merge. Local validation
+covers Lean build, formatting, linting, client verifier tests, full build,
+and the offchain unit suite.
 
-**Blockers**: Real update tx construction currently records an empty
-`UpdateProof.trie_read` in at least one path while the on-chain redeemer
-may carry proof steps. If confirmed, the server response builder must be
-fixed in the same slice or the client cannot perform exact MPF binding
-for real update responses.
+**Blockers**: None known.
 
 ## Summary
 
 Add a pure `cardano-mpfs-client` binding pass that decodes the unsigned
 transaction CBOR far enough to read tx inputs, reference inputs, mint
-assets, and continuing state outputs, then checks those sets against the
-endpoint proof roles. This rejects the class of forged response where
-the proof bundle is valid but belongs to a different transaction.
+assets, continuing state outputs, inline state datum roots, and supported
+redeemers, then checks those sets and payloads against the endpoint proof
+roles. This rejects the class of forged response where the proof bundle
+is valid but belongs to a different transaction.
 
 ## Technical Context
 
