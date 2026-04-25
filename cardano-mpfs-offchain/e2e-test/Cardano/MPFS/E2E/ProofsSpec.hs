@@ -4,11 +4,11 @@
 
 -- |
 -- Module      : Cardano.MPFS.E2E.ProofsSpec
--- Description : Verify proof-bearing read endpoints end-to-end
+-- Description : Verify proof-bearing envelopes end-to-end
 -- License     : Apache-2.0
 --
 -- Boot a token, insert a fact, process it, then call the
--- four proof-bearing read endpoints against a real devnet.
+-- proof-bearing read and write endpoints against a real devnet.
 -- For each response we:
 --
 --   * parse the embedded verification snapshot;
@@ -142,6 +142,7 @@ import Cardano.MPFS.Client
     ( BootTxResponse
     , EndTxResponse
     , Hex (..)
+    , RejectTxResponse
     , RequestTxResponse
     , RetractTxResponse
     , UpdateTxResponse
@@ -152,6 +153,7 @@ import Cardano.MPFS.Client
     , flipTxOut
     , runForgeBoot
     , runForgeEnd
+    , runForgeReject
     , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
@@ -159,6 +161,7 @@ import Cardano.MPFS.Client
     , shouldRejectWith
     , verifyBootTxResponse
     , verifyEndTxResponse
+    , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
@@ -168,7 +171,7 @@ import Cardano.MPFS.Client
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
 spec :: Spec
-spec = describe "Proof-bearing reads E2E" $ do
+spec = describe "Proof-bearing envelopes E2E" $ do
     mPath <- runIO $ lookupEnv "MPFS_BLUEPRINT"
     case mPath of
         Nothing ->
@@ -201,6 +204,18 @@ spec = describe "Proof-bearing reads E2E" $ do
 awaitTimeout :: Int
 awaitTimeout = 60
 
+-- | Wait just past the devnet reject deadline. The
+-- local 'CageConfig' uses millisecond windows; add a
+-- small safety margin for wall-clock and indexing jitter.
+rejectDeadlineDelay :: CageConfig -> Int
+rejectDeadlineDelay cfg =
+    fromIntegral
+        ( defaultProcessTime cfg
+            + defaultRetractTime cfg
+            + 2_000
+        )
+        * 1_000
+
 -- | Fact key and value used throughout the scenario.
 factKey :: ByteString
 factKey = "hello"
@@ -210,7 +225,7 @@ factValue = "world"
 
 proofsSpec :: SBS.ShortByteString -> Spec
 proofsSpec scriptBytes =
-    it "all four reads carry a verifiable snapshot"
+    it "read and write envelopes carry verifiable proofs"
         $ withE2E scriptBytes
         $ \cfg ctx -> do
             let app = mkApp ctx
@@ -390,13 +405,20 @@ proofsSpec scriptBytes =
                     "retract.request_in.utxo_proof"
                     `withReason` "root mismatch"
 
-            -- /tx/reject requires a request whose
-            -- processing deadline has already elapsed;
-            -- the fresh insert above does not qualify.
-            -- Reject coverage lives in the client
-            -- structural unit tests — skip it here.
-            -- Tracked separately by issue
-            -- lambdasistemi/cardano-mpfs-offchain#224.
+            threadDelay (rejectDeadlineDelay cfg)
+
+            rejectResp <-
+                postJSON app "/tx/reject"
+                    $ object
+                        [ "token" .= Hex (TE.decodeUtf8 tidHex)
+                        , "address" .= addrHex
+                        ]
+            (rejectResp :: RejectTxResponse)
+                `shouldAccept` verifyRejectTxResponse
+            runForgeReject (flipProof "request_ins[0]") rejectResp
+                `shouldRejectWith` verifyRejectTxResponse
+                $ csmtReplayFailedAt
+                    "reject.request_ins[0].utxo_proof"
 
             endResp <-
                 postJSON app "/tx/end"
