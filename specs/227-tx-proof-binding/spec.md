@@ -92,6 +92,26 @@ then replace only the `tx` field so the tx omits the continuing state
 output or burns the wrong state token quantity. Verification must reject
 with `TxBindingFailed`.
 
+### User Story 5 - Reject redeemer and MPF proof mismatches (Priority: P1)
+
+A wallet receives a proof-bearing response whose inputs, mint, and state
+outputs match the proof roles, but whose on-chain redeemers act on a
+different request action or MPF proof. The verifier must reject write
+responses where the transaction's redeemer set is missing, has an
+unexpected endpoint tag, or embeds update MPF facts that do not exactly
+match `UpdateProof.trie_root` and `UpdateProof.trie_read`.
+
+**Why this priority**: The transaction can still be substituted after
+input and asset binding if the redeemer payload describes a different
+script action. Exact redeemer binding is the final issue #227 layer that
+makes the proof bundle useful for the transaction being signed.
+
+**Independent Test**: Build honest fixtures with supported redeemer
+CBOR, then replace only the `tx` field so the tx has a wrong redeemer
+tag, omits a required redeemer, or carries an update MPF proof different
+from `UpdateProof.trie_read`. Verification must reject with
+`TxBindingFailed`.
+
 ## Edge Cases
 
 - Tx bodies may encode Cardano sets either as plain arrays or as tag
@@ -103,6 +123,12 @@ with `TxBindingFailed`.
   not regular spending inputs or reference inputs.
 - Fixtures must use valid Conway-shaped transaction CBOR rather than
   placeholder bytes once binding is enabled.
+- Redeemer CBOR may use legacy map encoding or the Conway array form.
+  The decoder may initially support only the shapes produced by this
+  repository's transaction builder, but unsupported shapes must fail
+  closed with a structured binding error.
+- Update responses with an empty `trie_read` may be valid only when the
+  transaction's update redeemer also carries no MPF read facts.
 
 ## Requirements
 
@@ -129,6 +155,15 @@ with `TxBindingFailed`.
 - **FR-010**: Reject and update responses MUST preserve the asset carried
   by the witnessed state input into exactly one inline-datum state output
   and MUST NOT mint or burn assets.
+- **FR-011**: The client MUST decode enough transaction witness-set CBOR
+  to read redeemer purposes and redeemer data for the endpoint scripts.
+- **FR-012**: Boot and end responses MUST bind minting redeemer tags to
+  the expected token lifecycle action.
+- **FR-013**: Retract, reject, and update responses MUST bind spending
+  redeemer tags to the expected request/state action roles.
+- **FR-014**: Update responses MUST bind the update redeemer's trie root
+  and MPF proof payload exactly to `UpdateProof.trie_root` and
+  `UpdateProof.trie_read`.
 
 ## Success Criteria
 
@@ -140,6 +175,9 @@ with `TxBindingFailed`.
 - **SC-003**: `cardano-mpfs-client:unit-tests` passes.
 - **SC-004**: The PR description states which binding layers are covered
   and lists remaining deeper binding work.
+- **SC-005**: Forged redeemer-binding unit tests fail verification for
+  wrong endpoint action, missing redeemer, and mismatched update MPF
+  proof payload.
 
 ## Assumptions
 

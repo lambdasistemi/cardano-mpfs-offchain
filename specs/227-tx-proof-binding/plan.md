@@ -7,18 +7,22 @@
 ## Status
 
 **Completed**: Issue #224 merged; issue #227 first PR #235 merged;
-design decision recorded in `research.md`; Lean binding model and
-theorems compile; Haskell client decodes tx inputs/reference inputs and
-compares them with endpoint proof roles; focused unit suite passes with
-the input/reference binding forgery corpus.
+issue #227 second PR #236 merged; design decision recorded in
+`research.md`; Lean input/reference and asset binding models compile;
+Haskell client decodes tx inputs, reference inputs, mint assets, and
+continuing state outputs; focused unit suite passes with forged-binding
+coverage for those layers.
 
-**Current**: PR #236 is open for the mint/burn and continuing
-state-output binding slice; wait for CI and merge only after checks are
-green.
+**Current**: Implement the redeemer and MPF proof binding slice. Decode
+witness-set redeemers from the unsigned transaction, bind endpoint
+redeemer tags to proof roles, and bind the update redeemer's embedded
+MPF proof to `UpdateProof.trie_read`.
 
-**Blockers**: Full redeemer and MPF proof binding remains after this
-slice. `UpdateProof.trie_read` is still not bound to the exact on-chain
-redeemer proof payload.
+**Blockers**: Real update tx construction currently records an empty
+`UpdateProof.trie_read` in at least one path while the on-chain redeemer
+may carry proof steps. If confirmed, the server response builder must be
+fixed in the same slice or the client cannot perform exact MPF binding
+for real update responses.
 
 ## Summary
 
@@ -131,6 +135,19 @@ Extend the same Lean section with an abstract asset binding model:
   - `covers_state_outputs_exact`
   - `missing_mint_role_rejected`
   - `missing_state_output_rejected`
+
+## Phase 3.5: Redeemer and MPF Proof Binding Model
+
+Extend the Lean model with endpoint redeemer roles:
+
+- spending roles for state/request inputs
+- minting roles for boot/end token lifecycle actions
+- update action payloads with trie root and MPF read facts
+- predicate `coversRedeemerView roles tx`
+- theorems:
+  - endpoint redeemer role coverage is exact
+  - missing or extra redeemer roles are rejected
+  - update MPF reads must match the redeemer payload exactly
 
 ## Post-design Constitution Re-check
 

@@ -85,9 +85,26 @@ Rejected for this slice. It leaves the client dependent on a
 server-authored interpretation of the transaction and cannot detect a tx
 whose body omits or adds inputs relative to the summary.
 
-## Deferred work
+## Third slice: redeemer and MPF proof binding
 
-- Decode redeemers from witness-set field `5` and bind update/retract/end
-  redeemer content to proof roles.
-- Bind `UpdateProof.trie_read` facts to the exact MPF proof consumed by
-  the update redeemer.
+Extend the targeted reader to decode transaction witness-set field `5`
+for the redeemer shapes produced by this repository. The verifier should
+fail closed for unsupported redeemer encodings instead of accepting an
+unknown script payload.
+
+The binding target is:
+
+| Endpoint | Redeemer rule |
+|----------|---------------|
+| boot | exactly the expected minting redeemer tag for token creation |
+| request | no script redeemer binding required in this issue slice |
+| retract | spending redeemer tag must be `Retract` and refer to the same state reference role |
+| reject | spending redeemer tags must be `Rejected` for the request inputs being rejected |
+| end | spending redeemer tag must end the state and minting redeemer tag must burn the same state token |
+| update | spending redeemer tag must be `Update`; embedded trie root and MPF proof facts must match `UpdateProof.trie_root` and `UpdateProof.trie_read` exactly |
+
+This is the last client-side binding layer called out by issue #227.
+If implementation confirms that real update responses still publish an
+empty `trie_read` while the unsigned tx redeemer embeds MPF steps, the
+server-side response proof must be fixed before exact update redeemer
+binding can pass real fixtures.
