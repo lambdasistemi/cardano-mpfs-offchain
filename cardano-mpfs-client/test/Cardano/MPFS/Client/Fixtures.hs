@@ -124,9 +124,7 @@ txCborFromTxIns inputs refs =
   where
     bodyFields =
         [(CBOR.TInt 0, setTerm inputs)]
-            <> if null refs
-                then []
-                else [(CBOR.TInt 18, setTerm refs)]
+            <> [(CBOR.TInt 18, setTerm refs) | not (null refs)]
 
 setTerm :: [TxIn] -> CBOR.Term
 setTerm xs =

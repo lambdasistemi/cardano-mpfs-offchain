@@ -98,9 +98,9 @@ decodeTerm field bs =
 
 parseTx :: Text -> CBOR.Term -> Either VerifyError TxView
 parseTx field = \case
-    CBOR.TList (body : _wits : _valid : _aux : []) ->
+    CBOR.TList [body, _wits, _valid, _aux] ->
         parseBody field body
-    CBOR.TListI (body : _wits : _valid : _aux : []) ->
+    CBOR.TListI [body, _wits, _valid, _aux] ->
         parseBody field body
     _ ->
         Left (TxBindingFailed field "unsupported tx CBOR")
