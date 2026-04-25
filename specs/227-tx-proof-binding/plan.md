@@ -12,9 +12,9 @@ theorems compile; Haskell client decodes tx inputs/reference inputs and
 compares them with endpoint proof roles; focused unit suite passes with
 the input/reference binding forgery corpus.
 
-**Current**: Second slice on `feat/227-bind-mint-output-redeemer`
-extends the pure CBOR reader to bind mint/burn assets and continuing
-state outputs; local client unit, format, lint, and diff checks pass.
+**Current**: PR #236 is open for the mint/burn and continuing
+state-output binding slice; wait for CI and merge only after checks are
+green.
 
 **Blockers**: Full redeemer and MPF proof binding remains after this
 slice. `UpdateProof.trie_read` is still not bound to the exact on-chain

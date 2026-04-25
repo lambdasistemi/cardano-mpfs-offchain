@@ -50,4 +50,4 @@ description: "Task list for feature 227-tx-proof-binding"
 - [X] T021 Bind end burn to the witnessed state token and reject continuing state outputs.
 - [X] T022 Refresh fixtures and forged-binding tests for mint/output mismatches.
 - [X] T023 Run Lean build, `git diff --check`, `just format-check`, `just hlint`, and focused client unit tests.
-- [ ] T024 Commit, push, open PR, and wait for merge.
+- [X] T024 Commit, push, open PR, and wait for merge.
