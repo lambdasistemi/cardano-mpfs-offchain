@@ -53,6 +53,7 @@ library
     Cardano.MPFS.Client.Verify
     Cardano.MPFS.Client.Verify.DSL
     Cardano.MPFS.Client.Verify.Replay
+    Cardano.MPFS.Client.Verify.TxView
 
 executable mpfs-verify
   import:           warnings

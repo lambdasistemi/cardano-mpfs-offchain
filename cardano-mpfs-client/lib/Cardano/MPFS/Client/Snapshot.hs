@@ -31,7 +31,7 @@ import Data.Word (Word64)
 -- preserves the on-wire representation; verifiers are responsible for
 -- decoding when they need the raw bytes.
 newtype Hex = Hex {unHex :: Text}
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Ord, Show)
 
 instance FromJSON Hex where
     parseJSON = fmap Hex . parseJSON

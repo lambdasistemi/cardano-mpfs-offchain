@@ -143,4 +143,100 @@ theorem replayTrieFact_preserves_root_trust
       = env.trustedRoot := by
   simp [replayTrieFact]
 
+-- =========================================================
+-- Transaction binding model (issue #227)
+-- =========================================================
+
+/-- The fragment of an unsigned transaction body the client
+    verifier decodes for proof/transaction binding. The
+    Haskell decoder reads these lists from Conway tx-body
+    fields `0` (inputs) and `18` (reference inputs). -/
+structure TxView (Key : Type) where
+  inputs : List Key
+  referenceInputs : List Key
+
+/-- Proof roles advertised by a proof-bearing response after
+    endpoint-specific role collection. `consumed` contains
+    roles that must be regular tx inputs; `referenced`
+    contains roles that must be tx reference inputs. -/
+structure ProofRoles (Key : Type) where
+  consumed : List Key
+  referenced : List Key
+
+namespace TxBinding
+
+variable {Key : Type}
+
+/-- A response covers a decoded transaction view exactly when
+    its consumed proof roles are exactly the tx inputs and its
+    referenced proof roles are exactly the tx reference inputs.
+    The Haskell implementation compares sets to ignore CBOR
+    ordering, but this abstract model uses lists; the theorem
+    shape is the same after canonicalisation. -/
+def coversTxView (roles : ProofRoles Key) (tx : TxView Key) : Prop :=
+  tx.inputs = roles.consumed ∧
+  tx.referenceInputs = roles.referenced
+
+/-- Coverage exposes exact regular-input equality. -/
+theorem covers_inputs_exact
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (h : coversTxView roles tx) :
+    tx.inputs = roles.consumed := h.1
+
+/-- Coverage exposes exact reference-input equality. -/
+theorem covers_references_exact
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (h : coversTxView roles tx) :
+    tx.referenceInputs = roles.referenced := h.2
+
+/-- If a tx input is not advertised by any consumed proof
+    role, coverage is impossible. -/
+theorem missing_input_rejected
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (k : Key)
+    (hInTx : k ∈ tx.inputs)
+    (hNotInRoles : k ∉ roles.consumed) :
+    ¬ coversTxView roles tx := by
+  intro h
+  rw [h.1] at hInTx
+  exact hNotInRoles hInTx
+
+/-- If a consumed proof role does not appear in the tx inputs,
+    coverage is impossible. -/
+theorem extra_input_rejected
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (k : Key)
+    (hInRoles : k ∈ roles.consumed)
+    (hNotInTx : k ∉ tx.inputs) :
+    ¬ coversTxView roles tx := by
+  intro h
+  rw [← h.1] at hInRoles
+  exact hNotInTx hInRoles
+
+/-- If a tx reference input is not advertised by any referenced
+    proof role, coverage is impossible. -/
+theorem missing_reference_rejected
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (k : Key)
+    (hInTx : k ∈ tx.referenceInputs)
+    (hNotInRoles : k ∉ roles.referenced) :
+    ¬ coversTxView roles tx := by
+  intro h
+  rw [h.2] at hInTx
+  exact hNotInRoles hInTx
+
+/-- If a referenced proof role does not appear in tx reference
+    inputs, coverage is impossible. -/
+theorem extra_reference_rejected
+    {roles : ProofRoles Key} {tx : TxView Key}
+    (k : Key)
+    (hInRoles : k ∈ roles.referenced)
+    (hNotInTx : k ∉ tx.referenceInputs) :
+    ¬ coversTxView roles tx := by
+  intro h
+  rw [← h.2] at hInRoles
+  exact hNotInTx hInRoles
+
+end TxBinding
+
 end Phase4.Verify

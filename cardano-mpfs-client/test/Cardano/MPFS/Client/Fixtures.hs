@@ -27,13 +27,16 @@ module Cardano.MPFS.Client.Fixtures
 
       -- * Hex utilities
     , toHex
+    , txCborFromTxIns
     ) where
 
 import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Term qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
+import Data.Text (Text)
 import Data.Text.Encoding qualified as T
 import Data.Word (Word64)
 
@@ -107,8 +110,48 @@ stateTxOut = "state-tx-out-bytes"
 requestTxOut = "request-tx-out-bytes"
 fundingTxOut = "funding-tx-out-bytes"
 
-sampleTxCbor :: Hex
-sampleTxCbor = Hex "deadbeef"
+txCborFromTxIns :: [TxIn] -> [TxIn] -> Hex
+txCborFromTxIns inputs refs =
+    toHex
+        $ CBOR.toStrictByteString
+        $ CBOR.encodeTerm
+        $ CBOR.TList
+            [ CBOR.TMap bodyFields
+            , CBOR.TMap []
+            , CBOR.TBool True
+            , CBOR.TNull
+            ]
+  where
+    bodyFields =
+        [(CBOR.TInt 0, setTerm inputs)]
+            <> if null refs
+                then []
+                else [(CBOR.TInt 18, setTerm refs)]
+
+setTerm :: [TxIn] -> CBOR.Term
+setTerm xs =
+    CBOR.TTagged 258
+        $ CBOR.TList
+        $ map txInTerm xs
+
+txInTerm :: TxIn -> CBOR.Term
+txInTerm TxIn{txId = Hex tid, txIx} =
+    CBOR.TList
+        [ CBOR.TBytes (decodeFixtureHex tid)
+        , CBOR.TInteger (fromIntegral txIx)
+        ]
+
+decodeFixtureHex :: Text -> ByteString
+decodeFixtureHex txt =
+    case Base16.decode (T.encodeUtf8 txt) of
+        Right bs -> bs
+        Left err -> error ("invalid fixture hex: " <> show err)
+
+txFor :: [WitnessedUtxo] -> [WitnessedUtxo] -> Hex
+txFor inputs refs =
+    txCborFromTxIns
+        (map txIn inputs)
+        (map txIn refs)
 
 -- ---------------------------------------------------------------
 -- CSMT primitives
@@ -273,21 +316,26 @@ honestTrieExclusion =
 honestBootResponse :: BootTxResponse
 honestBootResponse =
     BootTxResponse
-        sampleTxCbor
+        (txFor [bundleFunding honestWitness] [])
         (sampleSnapshot (bundleRoot honestWitness))
         (BootProof [bundleFunding honestWitness])
 
 honestRequestResponse :: RequestTxResponse
 honestRequestResponse =
     RequestTxResponse
-        sampleTxCbor
+        (txFor [bundleFunding honestWitness] [])
         (sampleSnapshot (bundleRoot honestWitness))
         (RequestProof [bundleFunding honestWitness])
 
 honestRetractResponse :: RetractTxResponse
 honestRetractResponse =
     RetractTxResponse
-        sampleTxCbor
+        ( txFor
+            [ bundleRequest honestWitness
+            , bundleFunding honestWitness
+            ]
+            [bundleState honestWitness]
+        )
         (sampleSnapshot (bundleRoot honestWitness))
         ( RetractProof
             (bundleRequest honestWitness)
@@ -298,7 +346,13 @@ honestRetractResponse =
 honestRejectResponse :: RejectTxResponse
 honestRejectResponse =
     RejectTxResponse
-        sampleTxCbor
+        ( txFor
+            [ bundleState honestWitness
+            , bundleRequest honestWitness
+            , bundleFunding honestWitness
+            ]
+            []
+        )
         (sampleSnapshot (bundleRoot honestWitness))
         ( RejectProof
             (bundleState honestWitness)
@@ -309,7 +363,12 @@ honestRejectResponse =
 honestEndResponse :: EndTxResponse
 honestEndResponse =
     EndTxResponse
-        sampleTxCbor
+        ( txFor
+            [ bundleState honestWitness
+            , bundleFunding honestWitness
+            ]
+            []
+        )
         (sampleSnapshot (bundleRoot honestWitness))
         ( EndProof
             (bundleState honestWitness)
@@ -320,7 +379,13 @@ honestUpdateResponse :: UpdateTxResponse
 honestUpdateResponse =
     let (trieRoot, trieFact) = honestTrieInclusion
     in  UpdateTxResponse
-            sampleTxCbor
+            ( txFor
+                [ bundleState honestWitness
+                , bundleRequest honestWitness
+                , bundleFunding honestWitness
+                ]
+                []
+            )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof
                 (bundleState honestWitness)
@@ -337,7 +402,13 @@ honestUpdateResponseMixedTrie =
     let (trieRoot, inclusionFact) = honestTrieInclusion
         (_, exclusionFact) = honestTrieExclusion
     in  UpdateTxResponse
-            sampleTxCbor
+            ( txFor
+                [ bundleState honestWitness
+                , bundleRequest honestWitness
+                , bundleFunding honestWitness
+                ]
+                []
+            )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof
                 (bundleState honestWitness)
@@ -353,7 +424,13 @@ honestUpdateResponseEmptyTrie :: UpdateTxResponse
 honestUpdateResponseEmptyTrie =
     let (trieRoot, _) = honestTrieInclusion
     in  UpdateTxResponse
-            sampleTxCbor
+            ( txFor
+                [ bundleState honestWitness
+                , bundleRequest honestWitness
+                , bundleFunding honestWitness
+                ]
+                []
+            )
             (sampleSnapshot (bundleRoot honestWitness))
             ( UpdateProof
                 (bundleState honestWitness)
