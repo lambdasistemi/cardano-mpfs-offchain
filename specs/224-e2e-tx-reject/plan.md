@@ -11,7 +11,7 @@ PR #234; feature spec, research, plan, quickstart, and tasks drafted;
 `ProofsSpec` now covers `POST /tx/reject`; focused formatter and E2E
 validation passed.
 
-**Current**: Commit, push, and update PR #234.
+**Current**: Await CI on PR #234, then merge through merge-guard.
 
 **Blockers**: `just e2e` wrapper is blocked by a stale
 `mpfs-bootstrap-genesis` recipe target; direct Cabal E2E validation
