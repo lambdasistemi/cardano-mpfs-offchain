@@ -74,6 +74,9 @@ data VerifyError
     | -- | MPF replay failed at this dotted field path with a
       -- reason drawn from the fixed vocabulary.
       MpfReplayFailed Text Text
+    | -- | The transaction body does not match the endpoint
+      -- proof roles. Carries a dotted field path and reason.
+      TxBindingFailed Text Text
     deriving stock (Eq, Show)
 
 -- | Replay a 'WitnessedUtxo' against a trusted CSMT root.

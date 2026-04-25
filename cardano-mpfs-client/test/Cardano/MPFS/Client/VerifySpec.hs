@@ -16,7 +16,15 @@ module Cardano.MPFS.Client.VerifySpec (spec) where
 import Test.Hspec (Spec, describe, it)
 
 import Cardano.MPFS.Client
-    ( csmtReplayFailedAt
+    ( BootTxResponse (..)
+    , Hex (..)
+    , RetractProof (..)
+    , RetractTxResponse (..)
+    , TxIn (..)
+    , UpdateProof (..)
+    , UpdateTxResponse (..)
+    , WitnessedUtxo (..)
+    , csmtReplayFailedAt
     , dropToExclusion
     , flipProof
     , flipSnapshotRoot
@@ -33,6 +41,7 @@ import Cardano.MPFS.Client
     , runForgeUpdateTrie
     , shouldAccept
     , shouldRejectWith
+    , txBindingFailedAt
     , verifyBootTxResponse
     , verifyEndTxResponse
     , verifyRejectTxResponse
@@ -50,6 +59,7 @@ import Cardano.MPFS.Client.Fixtures
     , honestUpdateResponse
     , honestUpdateResponseEmptyTrie
     , honestUpdateResponseMixedTrie
+    , txCborFromTxIns
     )
 
 spec :: Spec
@@ -87,6 +97,24 @@ spec = do
         it "accepts an empty trie_read"
             $ honestUpdateResponseEmptyTrie
                 `shouldAccept` verifyUpdateTxResponse
+
+    describe "tx/proof binding corpus" $ do
+        it "rejects a boot tx whose inputs differ from funding proofs"
+            $ replaceBootTx
+                (txCborFromTxIns [foreignTxIn] [])
+                honestBootResponse
+                `shouldRejectWith` verifyBootTxResponse
+            $ txBindingFailedAt "boot.tx.inputs"
+
+        it "rejects a retract tx missing the state reference input"
+            $ retractWithoutReference honestRetractResponse
+                `shouldRejectWith` verifyRetractTxResponse
+            $ txBindingFailedAt "retract.tx.reference_inputs"
+
+        it "rejects an update tx missing a request input"
+            $ updateWithoutRequestInput honestUpdateResponse
+                `shouldRejectWith` verifyUpdateTxResponse
+            $ txBindingFailedAt "update.tx.inputs"
 
     describe "CSMT forgery corpus (free-monad DSL)" $ do
         it "rejects a boot funding utxo_proof with a flipped byte"
@@ -179,3 +207,32 @@ spec = do
             $ mpfReplayFailedAt
                 "update.trie_read[0].mpf_proof"
                 `withReason` "root mismatch"
+
+foreignTxIn :: TxIn
+foreignTxIn =
+    TxIn
+        { txId =
+            Hex
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        , txIx = 99
+        }
+
+replaceBootTx :: Hex -> BootTxResponse -> BootTxResponse
+replaceBootTx tx' (BootTxResponse _ s p) =
+    BootTxResponse tx' s p
+
+retractWithoutReference :: RetractTxResponse -> RetractTxResponse
+retractWithoutReference
+    (RetractTxResponse _ s p@(RetractProof req _st funding)) =
+        RetractTxResponse
+            (txCborFromTxIns (map txIn (req : funding)) [])
+            s
+            p
+
+updateWithoutRequestInput :: UpdateTxResponse -> UpdateTxResponse
+updateWithoutRequestInput
+    (UpdateTxResponse _ s p@(UpdateProof st _reqs funding _tr _tread)) =
+        UpdateTxResponse
+            (txCborFromTxIns (map txIn (st : funding)) [])
+            s
+            p

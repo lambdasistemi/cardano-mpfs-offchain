@@ -57,7 +57,7 @@ data TxIn = TxIn
     { txId :: Hex
     , txIx :: Word64
     }
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Ord, Show)
 
 instance FromJSON TxIn where
     parseJSON = withObject "TxIn" $ \o ->

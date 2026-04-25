@@ -1,0 +1,69 @@
+# Research: Bind proof bundles to unsigned transactions
+
+## Decision: targeted client-side CBOR reader
+
+Use a small pure CBOR reader in `cardano-mpfs-client` to extract the
+transaction body input set and reference-input set from the unsigned tx
+CBOR. Do not use a server-authored `tx_summary` as the authority for this
+slice.
+
+## Rationale
+
+Issue #227 proposed two options:
+
+- A: decode tx CBOR in the client
+- B: have the server emit a pre-decoded summary
+
+B is faster, but it cannot prove the summary describes the unsigned tx
+unless the client can independently check the tx body. A malicious server
+could include a summary that matches the proof and a tx that consumes
+something else. Cryptographic CSMT replay catches false witnesses, but it
+does not catch omitted tx inputs unless the verifier reads the tx inputs.
+
+Therefore this slice chooses A for the input/reference-input layer. The
+decoder is deliberately narrow and only reads fields needed for the first
+binding invariant.
+
+## Local CDDL facts
+
+From `cardano-ledger/eras/conway/impl/cddl-files/conway.cddl`:
+
+```text
+transaction = [transaction_body, transaction_witness_set, bool, auxiliary_data / nil]
+transaction_body = {0 : set<transaction_input>, ..., ? 18 : nonempty_set<transaction_input>, ...}
+transaction_input = [transaction_id : $hash32, index : uint .size 2]
+set<a0> = #6.258([* a0]) / [* a0]
+nonempty_set<a0> = #6.258([+ a0]) / [+ a0]
+```
+
+The client decoder must therefore accept both plain-list and tag-258 set
+encodings for fields `0` and `18`.
+
+## Binding matrix for this slice
+
+| Endpoint | Tx inputs must equal | Tx reference inputs must equal |
+|----------|----------------------|--------------------------------|
+| boot | `funding[*]` | empty |
+| request insert/delete/update | `funding[*]` | empty |
+| retract | `request_in + funding[*]` | `state_ref` |
+| reject | `state + request_ins[*] + funding[*]` | empty |
+| end | `state + funding[*]` | empty |
+| update | `state + requests[*] + funding[*]` | empty |
+
+Collateral inputs are left for a later slice. They are not regular tx
+inputs or reference inputs in the issue's first acceptance surface.
+
+## Rejected alternative: server summary as authoritative
+
+Rejected for this slice. It leaves the client dependent on a
+server-authored interpretation of the transaction and cannot detect a tx
+whose body omits or adds inputs relative to the summary.
+
+## Deferred work
+
+- Decode mint field `9` and bind boot/end mint quantities to token roles.
+- Decode outputs and datum options to bind state-carrying outputs.
+- Decode redeemers from witness-set field `5` and bind update/retract/end
+  redeemer content to proof roles.
+- Bind `UpdateProof.trie_read` facts to the exact MPF proof consumed by
+  the update redeemer.

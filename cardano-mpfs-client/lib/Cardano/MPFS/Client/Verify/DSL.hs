@@ -18,8 +18,8 @@
 --
 -- 2. __Error matchers.__  One smart constructor per
 --    'VerifyError' case ('csmtReplayFailedAt',
---    'mpfReplayFailedAt', 'malformedHexAt',
---    'wrongHexLengthAt') plus 'withReason' to narrow the
+--    'mpfReplayFailedAt', 'txBindingFailedAt',
+--    'malformedHexAt', 'wrongHexLengthAt') plus 'withReason' to narrow the
 --    match to a specific reason from the fixed vocabulary in
 --    @contracts\/verify-error.md@.
 --
@@ -109,6 +109,7 @@ module Cardano.MPFS.Client.Verify.DSL
     , ErrorMatcher
     , csmtReplayFailedAt
     , mpfReplayFailedAt
+    , txBindingFailedAt
     , malformedHexAt
     , wrongHexLengthAt
     , withReason
@@ -290,6 +291,17 @@ wrongHexLengthAt path =
             "WrongHexLength " <> quote path <> " <any length>"
         }
 
+-- | Match 'TxBindingFailed' at the given dotted field path.
+txBindingFailedAt :: Text -> ErrorMatcher
+txBindingFailedAt path =
+    ErrorMatcher
+        { matcherMatches = \case
+            TxBindingFailed p _ -> p == path
+            _ -> False
+        , matcherDescribes =
+            "TxBindingFailed " <> quote path <> " <any reason>"
+        }
+
 -- | Narrow an 'ErrorMatcher' to also require a specific reason
 -- string from the fixed vocabulary in @contracts\/verify-error.md@
 -- (@"root mismatch"@, @"key binding mismatch"@,
@@ -312,6 +324,7 @@ withReason base reason =
   where
     reasonOf (CsmtReplayFailed _ r) = Just r
     reasonOf (MpfReplayFailed _ r) = Just r
+    reasonOf (TxBindingFailed _ r) = Just r
     reasonOf _ = Nothing
 
 quote :: Text -> Text
