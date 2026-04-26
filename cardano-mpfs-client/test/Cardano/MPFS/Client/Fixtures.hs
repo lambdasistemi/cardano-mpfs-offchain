@@ -20,6 +20,17 @@ module Cardano.MPFS.Client.Fixtures
     , honestUpdateResponseMixedTrie
     , honestUpdateResponseEmptyTrie
 
+      -- * Per-endpoint honest read responses
+    , honestTokenResponse
+    , honestFactResponse
+    , honestProofResponseInclusion
+    , honestProofResponseExclusion
+    , honestRequestsResponse
+    , honestRequestsResponseEmpty
+    , honestFactKey
+    , honestFactValue
+    , honestExclusionKey
+
       -- * Underlying primitives
     , honestWitness
     , honestTrieInclusion
@@ -103,6 +114,17 @@ import Cardano.MPFS.Client.Bundle
     , UpdateProof (..)
     , UpdateTxResponse (..)
     , WitnessedUtxo (..)
+    )
+import Cardano.MPFS.Client.Read
+    ( FactResponse (..)
+    , FactWitness (..)
+    , ProofResponse (..)
+    , Request (..)
+    , RequestsResponse (..)
+    , TokenResponse (..)
+    , TokenState (..)
+    , WitnessedRequest (..)
+    , WitnessedTokenState (..)
     )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)
@@ -742,6 +764,170 @@ honestUpdateResponseEmptyTrie =
                 (toHex trieRoot)
                 []
             )
+
+-- ---------------------------------------------------------------
+-- Per-endpoint read fixtures
+-- ---------------------------------------------------------------
+
+-- | Disambiguates 'TrieFact'\'s @mpfProof@ field, which clashes
+-- with 'FactWitness'\'s @mpfProof@ in the read fixtures.
+trieFactProof :: TrieFact -> Hex
+trieFactProof TrieFact{mpfProof = pf} = pf
+
+-- | The MPF inclusion key shared by 'honestFactResponse' and
+-- 'honestProofResponseInclusion'.
+honestFactKey :: Hex
+honestFactKey = toHex primaryKey
+
+-- | The MPF inclusion value shared by 'honestFactResponse'
+-- and 'honestProofResponseInclusion'.
+honestFactValue :: Hex
+honestFactValue = toHex primaryValue
+
+-- | The absent MPF key that 'honestProofResponseExclusion'
+-- witnesses non-membership for.
+honestExclusionKey :: Hex
+honestExclusionKey = toHex "durian"
+
+-- | Build the decoded token state matching the on-chain
+-- inline datum encoded in 'stateDatumTerm'. Owner, tip,
+-- process and retract windows mirror the constants used by
+-- the write-side fixtures so there is a single source of
+-- truth for what the client thinks the state looks like.
+honestTokenStateAt :: ByteString -> TokenState
+honestTokenStateAt trieRoot =
+    TokenState
+        { owner = T.decodeUtf8 (Base16.encode (BS.replicate 28 0xAA))
+        , root = toHex trieRoot
+        , tip = 1_000_000
+        , processTime = 60_000
+        , retractTime = 30_000
+        }
+
+-- | @GET \/tokens\/:id@ honest fixture: the state UTxO
+-- witness replays against @snapshot.utxo_root@.
+honestTokenResponse :: TokenResponse
+honestTokenResponse =
+    let trieRoot = sampleStateRoot
+        bundle = buildBundleWithStateRoot trieRoot
+    in  TokenResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , state =
+                WitnessedTokenState
+                    { utxo = bundleState bundle
+                    , state = honestTokenStateAt trieRoot
+                    }
+            }
+
+-- | @GET \/tokens\/:id\/facts\/:key@ honest fixture: the
+-- state witness replays against @snapshot.utxo_root@ and
+-- the MPF inclusion proof replays against the trie root the
+-- state datum carries.
+honestFactResponse :: FactResponse
+honestFactResponse =
+    let (trieRoot, fact) = honestTrieInclusion
+        bundle = buildBundleWithStateRoot trieRoot
+    in  FactResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , value = honestFactValue
+            , fact =
+                FactWitness
+                    { state =
+                        WitnessedTokenState
+                            { utxo = bundleState bundle
+                            , state = honestTokenStateAt trieRoot
+                            }
+                    , mpfProof = trieFactProof fact
+                    }
+            }
+
+-- | @GET \/tokens\/:id\/proofs\/:key@ honest inclusion
+-- fixture: the state witness replays against
+-- @snapshot.utxo_root@ and the MPF inclusion proof replays
+-- against the trie root the state datum carries.
+honestProofResponseInclusion :: ProofResponse
+honestProofResponseInclusion =
+    let (trieRoot, fact) = honestTrieInclusion
+        bundle = buildBundleWithStateRoot trieRoot
+    in  ProofResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , fact =
+                FactWitness
+                    { state =
+                        WitnessedTokenState
+                            { utxo = bundleState bundle
+                            , state = honestTokenStateAt trieRoot
+                            }
+                    , mpfProof = trieFactProof fact
+                    }
+            }
+
+-- | @GET \/tokens\/:id\/proofs\/:key@ honest exclusion
+-- fixture: same shape as the inclusion fixture, but the MPF
+-- proof witnesses absence of 'honestExclusionKey'.
+honestProofResponseExclusion :: ProofResponse
+honestProofResponseExclusion =
+    let (trieRoot, fact) = honestTrieExclusion
+        bundle = buildBundleWithStateRoot trieRoot
+    in  ProofResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , fact =
+                FactWitness
+                    { state =
+                        WitnessedTokenState
+                            { utxo = bundleState bundle
+                            , state = honestTokenStateAt trieRoot
+                            }
+                    , mpfProof = trieFactProof fact
+                    }
+            }
+
+-- | Synthetic decoded request payload paired with an
+-- existing 'WitnessedUtxo'. The payload is opaque to the
+-- verifier — only the witness round-trips through replay.
+honestRequestPayload :: WitnessedUtxo -> Request
+honestRequestPayload WitnessedUtxo{txIn = ti} =
+    Request
+        { token = txId ti
+        , owner = T.decodeUtf8 (Base16.encode (BS.replicate 28 0xBB))
+        , key = toHex ("apple" :: ByteString)
+        , operation = "insert"
+        , value = Just (toHex ("fruit" :: ByteString))
+        , fee = 1_500_000
+        , submittedAt = 1_700_000_000_000
+        }
+
+-- | @GET \/tokens\/:id\/requests@ honest fixture: every
+-- pending-request witness replays against
+-- @snapshot.utxo_root@.
+honestRequestsResponse :: RequestsResponse
+honestRequestsResponse =
+    let bundle = honestWitness
+        request = bundleRequest bundle
+        request2 = bundleRequest2 bundle
+    in  RequestsResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , requests =
+                [ WitnessedRequest
+                    { utxo = request
+                    , request = honestRequestPayload request
+                    }
+                , WitnessedRequest
+                    { utxo = request2
+                    , request = honestRequestPayload request2
+                    }
+                ]
+            }
+
+-- | An empty pending-request list is honest — the verifier
+-- only runs the snapshot pass.
+honestRequestsResponseEmpty :: RequestsResponse
+honestRequestsResponseEmpty =
+    let bundle = honestWitness
+    in  RequestsResponse
+            { snapshot = sampleSnapshot (bundleRoot bundle)
+            , requests = []
+            }
 
 -- ---------------------------------------------------------------
 -- Hex helpers
