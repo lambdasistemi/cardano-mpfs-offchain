@@ -4,6 +4,7 @@ index-state:
   , hackage.haskell.org 2025-12-07T00:00:00Z
 
 packages:
+  cardano-mpfs-api/
   cardano-mpfs-offchain/
   cardano-mpfs-client/
 

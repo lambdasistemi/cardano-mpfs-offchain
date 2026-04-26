@@ -49,6 +49,7 @@ library
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-ledger-shelley
+    , cardano-mpfs-api
     , cardano-mpfs-cage
     , cardano-node-clients
     , cardano-slotting

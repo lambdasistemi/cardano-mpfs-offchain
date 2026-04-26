@@ -30,7 +30,8 @@ The write-side server endpoints are declared in
 - `POST /tx/update`
 - `POST /tx/end`
 
-The request JSON shapes are implemented in
+The request JSON shapes are implemented in the shared
+`cardano-mpfs-api` package and re-exported by
 `Cardano.MPFS.HTTP.Types`. They use simple wire fields:
 
 - `address`
@@ -41,31 +42,36 @@ The request JSON shapes are implemented in
 - `new_value`
 - `utxo`
 
-The server request types depend on ledger-domain types and currently
-only implement `FromJSON`, because the server only receives them. The
-client package should define its own small request parameter types with
-`ToJSON` instances instead of importing `cardano-mpfs-offchain`.
+The server also needs ledger-domain conversion helpers for token ids,
+addresses, UTxO references, and proof envelopes. Those helpers stay in
+`cardano-mpfs-offchain`; the shared package contains only wire DTOs and
+Servant API aliases.
 
 ## Transport choice
 
-Decision: implement the MOOG-ready HTTP wrapper with `http-client` over a
-caller-supplied `Manager` and a small client-owned `BaseUrl` type.
+Decision: implement the MOOG-ready HTTP wrapper with `servant-client`
+generated from a shared lightweight `TxWriteAPI`, over a caller-supplied
+`Manager` and Servant `BaseUrl`.
 
 Rationale:
 
 - MOOG is native Haskell CLI code for this milestone.
 - A caller-supplied `Manager` lets MOOG own TLS, proxy, timeout, and
   retry policy.
-- `http-client` keeps the wrapper independent of the server package and
-  avoids tying the client library to the full Servant API type.
-- A small `BaseUrl` type is enough for stable endpoint construction and
-  avoids requiring `servant-client` just to reuse its `BaseUrl`.
+- Extracting `cardano-mpfs-api` keeps the client independent of the
+  server package and ledger-heavy type graph while still deriving paths
+  and wire shapes from the single Servant contract.
+- `servant-client` removes duplicated endpoint paths from the client
+  implementation.
+- Servant `BaseUrl` avoids a second local URL representation.
 
 Rejected alternatives:
 
-- Import server `Cardano.MPFS.HTTP.API` and generate Servant client
-  functions: rejected because that couples the client package to the
-  server package and its ledger-heavy type graph.
+- Keep the hand-written `http-client` wrapper: rejected after review
+  because it duplicated paths already present in the Servant server API.
+- Import server `Cardano.MPFS.HTTP.API` directly and generate Servant
+  client functions: rejected because that couples the client package to
+  the server package and its ledger-heavy type graph.
 - Put retry policy in `Cardano.MPFS.Client.Http`: rejected because MOOG
   should own operational retry decisions.
 - Use #221 WASM/JS cross targets as a merge gate: rejected for this
@@ -92,6 +98,7 @@ for:
 - transport exceptions
 - non-success HTTP statuses
 - JSON decode failures
+- local request encoding failures
 - verifier failures
 
 Rationale: MOOG needs to treat these differently. A transport failure may

@@ -95,7 +95,7 @@ import Cardano.MPFS.HTTP.Types
     , RetractTxResponse
     , StatusResponse (..)
     , SubmitRequest (..)
-    , TokenIdJSON (..)
+    , TokenIdJSON
     , TokenResponse (..)
     , UpdateRequest (..)
     , UpdateTxResponse
@@ -112,6 +112,8 @@ import Cardano.MPFS.HTTP.Types
     , mkUpdateTxResponse
     , parseAddr
     , requestToJSON
+    , tokenIdFromJSON
+    , tokenIdToJSON
     , tokenStateToJSON
     , txInToJSON
     )
@@ -217,13 +219,14 @@ tokensHandler ctx = do
     tids <-
         liftIO
             $ St.listTokens (St.tokens (state ctx))
-    pure (map TokenIdJSON tids)
+    pure (map tokenIdToJSON tids)
 
 tokenHandler
     :: Context IO
     -> TokenIdJSON
     -> Handler TokenResponse
-tokenHandler ctx (TokenIdJSON tid) = do
+tokenHandler ctx tokenId = do
+    let tid = tokenIdFromJSON tokenId
     mts <-
         liftIO
             $ St.getToken (St.tokens (state ctx)) tid
@@ -339,19 +342,21 @@ tokenRootHandler
     :: Context IO
     -> TokenIdJSON
     -> Handler Hex
-tokenRootHandler ctx (TokenIdJSON tid) =
-    liftIO
-        $ Trie.withTrie (trieManager ctx) tid
-        $ \trie -> do
-            Root r <- Trie.getRoot trie
-            pure (Hex r)
+tokenRootHandler ctx tokenId =
+    let tid = tokenIdFromJSON tokenId
+    in  liftIO
+            $ Trie.withTrie (trieManager ctx) tid
+            $ \trie -> do
+                Root r <- Trie.getRoot trie
+                pure (Hex r)
 
 tokenFactHandler
     :: Context IO
     -> TokenIdJSON
     -> Hex
     -> Handler FactResponse
-tokenFactHandler ctx (TokenIdJSON tid) (Hex k) = do
+tokenFactHandler ctx tokenId (Hex k) = do
+    let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
         , tokenState = ts
@@ -388,7 +393,8 @@ tokenProofHandler
     -> TokenIdJSON
     -> Hex
     -> Handler ProofResponse
-tokenProofHandler ctx (TokenIdJSON tid) (Hex k) = do
+tokenProofHandler ctx tokenId (Hex k) = do
+    let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
         , tokenState = ts
@@ -432,7 +438,8 @@ tokenRequestsHandler
     :: Context IO
     -> TokenIdJSON
     -> Handler RequestsResponse
-tokenRequestsHandler ctx (TokenIdJSON tid) = do
+tokenRequestsHandler ctx tokenId = do
+    let tid = tokenIdFromJSON tokenId
     _ <- requireToken ctx tid
     snapshot <- requireSnapshot ctx
     reqs <-
@@ -599,11 +606,12 @@ txInsertHandler
 txInsertHandler
     ctx
     InsertRequest
-        { irToken = TokenIdJSON tid
+        { irToken = tokenId
         , irKey = Hex k
         , irValue = Hex v
         , irAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-
@@ -624,11 +632,12 @@ txDeleteHandler
 txDeleteHandler
     ctx
     DeleteRequest
-        { drToken = TokenIdJSON tid
+        { drToken = tokenId
         , drKey = Hex k
         , drValue = Hex v
         , drAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-
@@ -649,12 +658,13 @@ txUpdateValueHandler
 txUpdateValueHandler
     ctx
     UpdateValueRequest
-        { uvrToken = TokenIdJSON tid
+        { uvrToken = tokenId
         , uvrKey = Hex k
         , uvrOldValue = Hex oldV
         , uvrNewValue = Hex newV
         , uvrAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-
@@ -676,9 +686,10 @@ txRejectHandler
 txRejectHandler
     ctx
     RejectRequest
-        { rejToken = TokenIdJSON tid
+        { rejToken = tokenId
         , rejAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-
@@ -697,9 +708,10 @@ txUpdateHandler
 txUpdateHandler
     ctx
     UpdateRequest
-        { urToken = TokenIdJSON tid
+        { urToken = tokenId
         , urAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-
@@ -740,9 +752,10 @@ txEndHandler
 txEndHandler
     ctx
     EndRequest
-        { erToken = TokenIdJSON tid
+        { erToken = tokenId
         , erAddr = addrHex
         } = do
+        let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         snap <- requireBundleSnapshot ctx
         bundle <-

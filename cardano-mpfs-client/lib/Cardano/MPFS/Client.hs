@@ -15,6 +15,29 @@ module Cardano.MPFS.Client
     , Hex (..)
     , statusSnapshot
 
+      -- * HTTP transport
+    , BaseUrl (..)
+    , Scheme (..)
+    , VerifierMode (..)
+    , MpfsHttp (..)
+    , ClientError (..)
+    , BootTxParams (..)
+    , RequestInsertParams (..)
+    , RequestDeleteParams (..)
+    , RequestUpdateParams (..)
+    , RetractParams (..)
+    , RejectParams (..)
+    , UpdateParams (..)
+    , EndParams (..)
+    , bootTx
+    , requestInsertTx
+    , requestDeleteTx
+    , requestUpdateTx
+    , retractTx
+    , rejectTx
+    , updateTx
+    , endTx
+
       -- * Response envelopes
     , TxIn (..)
     , WitnessedUtxo (..)
@@ -96,6 +119,29 @@ import Cardano.MPFS.Client.Bundle
     , UpdateProof (..)
     , UpdateTxResponse (..)
     , WitnessedUtxo (..)
+    )
+import Cardano.MPFS.Client.Http
+    ( BaseUrl (..)
+    , BootTxParams (..)
+    , ClientError (..)
+    , EndParams (..)
+    , MpfsHttp (..)
+    , RejectParams (..)
+    , RequestDeleteParams (..)
+    , RequestInsertParams (..)
+    , RequestUpdateParams (..)
+    , RetractParams (..)
+    , Scheme (..)
+    , UpdateParams (..)
+    , VerifierMode (..)
+    , bootTx
+    , endTx
+    , rejectTx
+    , requestDeleteTx
+    , requestInsertTx
+    , requestUpdateTx
+    , retractTx
+    , updateTx
     )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)

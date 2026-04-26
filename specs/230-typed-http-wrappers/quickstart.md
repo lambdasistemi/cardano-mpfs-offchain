@@ -18,7 +18,7 @@ main = do
     let client =
             MpfsHttp
                 { manager = manager
-                , baseUrl = BaseUrl "http://127.0.0.1:8080"
+                , baseUrl = BaseUrl Http "127.0.0.1" 8080 ""
                 , verifier = RunVerifier
                 }
     result <- bootTx client (BootTxParams someAddressHex)
