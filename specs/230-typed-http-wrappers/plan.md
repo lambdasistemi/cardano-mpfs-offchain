@@ -9,30 +9,32 @@
 **Completed**: The WASM/JS portability spike has been moved out of the
 MOOG-ready milestone into the separate
 `WASM/WASI MPFS API Client` milestone. Issue #230 now targets the native
-Haskell CLI path MOOG needs.
+Haskell CLI path MOOG needs. The implementation extracts the lightweight
+`cardano-mpfs-api` package, derives write-endpoint clients from
+`TxWriteAPI` with `servant-client`, keeps server-only ledger conversion
+helpers in `cardano-mpfs-offchain`, and covers the client wrapper with
+mocked HTTP unit tests.
 
-**Current**: Design the typed HTTP wrapper surface and create the initial
-speckit artifacts before implementation.
+**Current**: Local validation and PR documentation update.
 
-**Blockers**: None known. The main design risk is accidentally importing
-the server package or ledger-heavy request types into
-`cardano-mpfs-client`.
+**Blockers**: None known.
 
 ## Summary
 
-Add `Cardano.MPFS.Client.Http`, a native Haskell transport layer for
-MOOG. It owns typed request bodies for write endpoints, posts JSON to an
-MPFS base URL through a caller-supplied HTTP manager, decodes existing
-proof-bearing response envelopes, and optionally runs the existing pure
-offline verifier before returning success.
+Add a shared Servant wire-contract package and
+`Cardano.MPFS.Client.Http`, a native Haskell transport layer for MOOG.
+The client derives endpoint paths and wire request/response types from
+the shared `TxWriteAPI`, runs through a caller-supplied HTTP manager,
+bridges decoded wire responses into the existing client verifier DTOs,
+and optionally runs the pure offline verifier before returning success.
 
 ## Technical Context
 
 **Language/Version**: Haskell, repo-pinned GHC through the existing Nix
 development shell.
 **Primary Dependencies**: Existing `aeson`, `bytestring`, `text`, and
-verifier dependencies; add native HTTP transport dependencies only to
-`cardano-mpfs-client`.
+verifier dependencies; add `cardano-mpfs-api`, `servant-client`, and
+native HTTP transport dependencies to `cardano-mpfs-client`.
 **Storage**: N/A.
 **Testing**: `cardano-mpfs-client:unit-tests` with mocked local HTTP
 responses.
@@ -44,8 +46,9 @@ retry loop in this module.
 **Constraints**: Do not import `cardano-mpfs-offchain` or
 `cardano-ledger-*` into the client package. Keep verifiers pure. Caller
 owns manager, TLS, retry, and timeout policy.
-**Scale/Scope**: One new client module, cabal dependency/module export
-updates, top-level re-exports, and focused unit tests.
+**Scale/Scope**: One shared API package, server compatibility shims,
+one client HTTP module, cabal dependency/module export updates,
+top-level re-exports, and focused unit tests.
 
 ## Constitution Check
 
@@ -53,7 +56,7 @@ updates, top-level re-exports, and focused unit tests.
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Ledger-Native Types | PASS | Server remains ledger-native. Client request DTOs are wire-format types, not domain replacements. |
+| I. Ledger-Native Types | PASS | Server remains ledger-native. Shared DTOs are wire-format types; conversion helpers stay in the server package. |
 | II. Records of Functions | PASS | No service typeclasses added. HTTP config is an explicit record. |
 | III. Atomic Block Processing | N/A | No persistence/indexer path touched. |
 | IV. External Signing | PASS | Wrapper returns unsigned tx responses; signing remains client-side. |
@@ -84,6 +87,18 @@ specs/230-typed-http-wrappers/
 ### Source Code
 
 ```text
+cardano-mpfs-api/
+├── cardano-mpfs-api.cabal
+└── lib/Cardano/MPFS/
+    ├── API.hs
+    └── API/
+        ├── Encoding.hs
+        └── Types.hs
+cardano-mpfs-offchain/
+└── lib/Cardano/MPFS/HTTP/
+    ├── API.hs
+    ├── Encoding.hs
+    └── Types.hs
 cardano-mpfs-client/
 ├── cardano-mpfs-client.cabal
 ├── lib/Cardano/MPFS/Client.hs
@@ -94,15 +109,18 @@ cardano-mpfs-client/
 ```
 
 **Structure Decision**: define client-owned request DTOs in
-`Cardano.MPFS.Client.Http` for this issue. Move them to a sibling module
-only if the module grows too large during implementation.
+`cardano-mpfs-api` owns the shared Servant API and wire DTOs.
+`Cardano.MPFS.HTTP.*` remains the server import path through
+compatibility shims. `Cardano.MPFS.Client.Http` owns the MOOG-facing
+request parameter records and derives its transport from `TxWriteAPI`.
 
 ## Phase 0: Research
 
 Record the server write endpoint paths and request JSON shapes from
-`Cardano.MPFS.HTTP.API` and `Cardano.MPFS.HTTP.Types`. Confirm that the
-client can mirror the JSON contract without importing the server
-package.
+`Cardano.MPFS.HTTP.API` and `Cardano.MPFS.HTTP.Types`. Extract the
+stable wire contract into `cardano-mpfs-api` so both server and client
+can depend on it without introducing a client dependency on
+`cardano-mpfs-offchain` or ledger packages.
 
 ## Phase 1: Design
 
@@ -119,16 +137,19 @@ data MpfsHttp = MpfsHttp
 ```
 
 One function per write endpoint returns `IO (Either ClientError a)`.
-Each function delegates to a shared `postJson` helper and an
-endpoint-specific verifier hook.
+Each function delegates to the generated Servant client for the matching
+wire endpoint and then to an endpoint-specific verifier hook.
 
 ## Phase 2: Implementation
 
-1. Add dependencies and exposed module.
-2. Add request parameter DTOs and JSON instances.
-3. Add base URL/path joining and shared HTTP POST helper.
-4. Add endpoint functions and verifier-mode handling.
-5. Add focused unit tests with mocked HTTP responses.
+1. Add the `cardano-mpfs-api` package with shared API, encoding, and
+   wire types.
+2. Add offchain compatibility shims and keep ledger conversion helpers
+   in `Cardano.MPFS.HTTP.Types`.
+3. Add client request parameter DTOs and JSON instances.
+4. Derive write endpoint functions from `TxWriteAPI` using
+   `servant-client`.
+5. Add verifier-mode handling and focused mocked HTTP tests.
 6. Re-export the HTTP surface from `Cardano.MPFS.Client`.
 
 ## Complexity Tracking

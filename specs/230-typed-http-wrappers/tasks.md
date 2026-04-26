@@ -13,39 +13,40 @@ description: "Task list for feature 230-typed-http-wrappers"
 - [X] T001 Start issue #230 worktree and move the issue to WIP.
 - [X] T002 Move browser/WASM hard-gate language out of the #230 issue body.
 - [X] T003 Create speckit spec, research, plan, quickstart, and tasks artifacts.
-- [ ] T004 Commit and push initial speckit artifacts, then open a PR.
+- [X] T004 Commit and push initial speckit artifacts, then open a PR.
 
-## Phase 2: HTTP Surface
+## Phase 2: Shared Wire Contract
 
-- [ ] T005 Add native HTTP transport dependencies to `cardano-mpfs-client/cardano-mpfs-client.cabal`.
-- [ ] T006 Add exposed module `Cardano.MPFS.Client.Http`.
-- [ ] T007 Define `BaseUrl`, `VerifierMode`, `MpfsHttp`, and `ClientError`.
-- [ ] T008 Define typed request parameter records for boot, request insert/delete/update, retract, reject, update, and end.
-- [ ] T009 Add `ToJSON` instances matching the server write-endpoint request contract.
+- [X] T005 Add the `cardano-mpfs-api` package to `cabal.project`.
+- [X] T006 Extract shared `Cardano.MPFS.API`, `Cardano.MPFS.API.Encoding`, and `Cardano.MPFS.API.Types`.
+- [X] T007 Add `TxWriteAPI` for the transaction-building endpoint subset.
+- [X] T008 Keep server metrics and ledger conversion helpers in `cardano-mpfs-offchain`.
+- [X] T009 Add compatibility re-exports under `Cardano.MPFS.HTTP.*`.
 
 ## Phase 3: Endpoint Implementation
 
-- [ ] T010 Implement base URL/path joining for configured MPFS services.
-- [ ] T011 Implement shared JSON POST helper with transport, status, and decode error handling.
-- [ ] T012 Implement `bootTx`, `requestInsertTx`, `requestDeleteTx`, and `requestUpdateTx`.
-- [ ] T013 Implement `retractTx`, `rejectTx`, `updateTx`, and `endTx`.
-- [ ] T014 Wire `RunVerifier` / `SkipVerifier` handling for every endpoint.
-- [ ] T015 Re-export the HTTP surface from `Cardano.MPFS.Client`.
+- [X] T010 Add `servant-client` dependencies to `cardano-mpfs-client/cardano-mpfs-client.cabal`.
+- [X] T011 Add exposed module `Cardano.MPFS.Client.Http`.
+- [X] T012 Define `VerifierMode`, `MpfsHttp`, `ClientError`, and MOOG-facing request parameter records.
+- [X] T013 Derive write endpoint clients from `TxWriteAPI`.
+- [X] T014 Wire `RunVerifier` / `SkipVerifier` handling for every endpoint.
+- [X] T015 Re-export the HTTP surface from `Cardano.MPFS.Client`.
 
 ## Phase 4: Tests
 
-- [ ] T016 Add `Cardano.MPFS.Client.HttpSpec` and register it in the client test suite.
-- [ ] T017 Cover JSON request encoding and path selection for every write endpoint.
-- [ ] T018 Cover successful response decode for every write endpoint.
-- [ ] T019 Cover `VerifyFailed` when `RunVerifier` rejects a response.
-- [ ] T020 Cover `SkipVerifier` returning a decoded response without verifier rejection.
-- [ ] T021 Cover transport, non-2xx status, and decode error cases.
+- [X] T016 Add `Cardano.MPFS.Client.HttpSpec` and register it in the client test suite.
+- [X] T017 Cover JSON request encoding and path selection for every write endpoint.
+- [X] T018 Cover successful response decode for every write endpoint.
+- [X] T019 Cover `VerifyFailed` when `RunVerifier` rejects a response.
+- [X] T020 Cover `SkipVerifier` returning a decoded response without verifier rejection.
+- [X] T021 Cover transport, non-2xx status, and decode error cases.
 
 ## Phase 5: Validation and Merge
 
-- [ ] T022 Run `git diff --check`.
-- [ ] T023 Run `nix develop --quiet -c cabal test cardano-mpfs-client:unit-tests -O0 --test-show-details=direct`.
-- [ ] T024 Run `nix develop --quiet -c just format-check`.
-- [ ] T025 Run `nix develop --quiet -c just hlint`.
-- [ ] T026 Update PR body with scope, design decisions, and validation.
-- [ ] T027 Wait for green CI and merge through merge-guard.
+- [X] T022 Run `git diff --check`.
+- [X] T023 Run `nix develop --quiet -c cabal test cardano-mpfs-client:unit-tests -O0 --test-show-details=direct`.
+- [X] T024 Run `nix develop --quiet -c cabal build cardano-mpfs-offchain -O0`.
+- [X] T025 Run `nix develop --quiet -c just format-check`.
+- [X] T026 Run `nix develop --quiet -c just hlint`.
+- [X] T027 Update PR body with scope, design decisions, and validation.
+- [ ] T028 Wait for green CI and merge through merge-guard.
