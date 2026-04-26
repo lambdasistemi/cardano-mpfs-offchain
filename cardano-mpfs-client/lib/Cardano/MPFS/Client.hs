@@ -55,6 +55,17 @@ module Cardano.MPFS.Client
     , EndTxResponse (..)
     , UpdateTxResponse (..)
 
+      -- * Read response envelopes
+    , TokenState (..)
+    , Request (..)
+    , WitnessedTokenState (..)
+    , WitnessedRequest (..)
+    , FactWitness (..)
+    , TokenResponse (..)
+    , FactResponse (..)
+    , ProofResponse (..)
+    , RequestsResponse (..)
+
       -- * Verification
     , VerifyError (..)
     , verifyVerificationSnapshot
@@ -64,6 +75,10 @@ module Cardano.MPFS.Client
     , verifyRejectTxResponse
     , verifyEndTxResponse
     , verifyUpdateTxResponse
+    , verifyTokenResponse
+    , verifyFactResponse
+    , verifyProofResponse
+    , verifyRequestsResponse
 
       -- * Test DSL (re-exported from "Cardano.MPFS.Client.Verify.DSL")
     , shouldAccept
@@ -143,6 +158,17 @@ import Cardano.MPFS.Client.Http
     , retractTx
     , updateTx
     )
+import Cardano.MPFS.Client.Read
+    ( FactResponse (..)
+    , FactWitness (..)
+    , ProofResponse (..)
+    , Request (..)
+    , RequestsResponse (..)
+    , TokenResponse (..)
+    , TokenState (..)
+    , WitnessedRequest (..)
+    , WitnessedTokenState (..)
+    )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)
     , Hex (..)
@@ -153,9 +179,13 @@ import Cardano.MPFS.Client.Verify
     ( VerifyError (..)
     , verifyBootTxResponse
     , verifyEndTxResponse
+    , verifyFactResponse
+    , verifyProofResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
+    , verifyRequestsResponse
     , verifyRetractTxResponse
+    , verifyTokenResponse
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     )
