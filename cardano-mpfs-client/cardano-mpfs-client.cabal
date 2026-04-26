@@ -56,6 +56,7 @@ library
     Cardano.MPFS.Client
     Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Http
+    Cardano.MPFS.Client.Read
     Cardano.MPFS.Client.Snapshot
     Cardano.MPFS.Client.Verify
     Cardano.MPFS.Client.Verify.DSL
@@ -105,6 +106,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
+    Cardano.MPFS.Client.ReadSpec
     Cardano.MPFS.Client.SnapshotSpec
     Cardano.MPFS.Client.VerifySpec
 
