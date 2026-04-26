@@ -15,13 +15,19 @@ module Cardano.MPFS.Client.Verify
     ( VerifyError (..)
     , verifyVerificationSnapshot
 
-      -- * Per-endpoint verifiers
+      -- * Per-endpoint write verifiers
     , verifyBootTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyRejectTxResponse
     , verifyEndTxResponse
     , verifyUpdateTxResponse
+
+      -- * Per-endpoint read verifiers
+    , verifyTokenResponse
+    , verifyFactResponse
+    , verifyProofResponse
+    , verifyRequestsResponse
     ) where
 
 import Data.ByteString qualified as BS
@@ -46,6 +52,16 @@ import Cardano.MPFS.Client.Bundle
     , UpdateProof (..)
     , UpdateTxResponse (..)
     , WitnessedUtxo (..)
+    )
+import Cardano.MPFS.Client.Read
+    ( FactResponse (..)
+    , FactWitness (..)
+    , ProofResponse (..)
+    , RequestsResponse (..)
+    , TokenResponse (..)
+    , TokenState (..)
+    , WitnessedRequest (..)
+    , WitnessedTokenState (..)
     )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)
@@ -207,6 +223,124 @@ verifyUpdateTxResponse
             tread
 
 -- ---------------------------------------------------------------
+-- Read endpoint verifiers
+-- ---------------------------------------------------------------
+
+-- | Verify a @GET \/tokens\/:id@ response.
+--
+-- Replays the state UTxO witness against the snapshot's
+-- @utxo_root@. The decoded 'TokenState' inside the witness
+-- (owner, trie root, tip, process and retract windows) is
+-- passed through verbatim — its bytes already live inside
+-- the cryptographically replayed state @tx_out@. The trie
+-- root is checked structurally (32 bytes) so downstream
+-- 'verifyFactResponse' and 'verifyProofResponse' calls
+-- against it cannot silently malform.
+verifyTokenResponse :: TokenResponse -> Either VerifyError ()
+verifyTokenResponse (TokenResponse s wts) = do
+    let WitnessedTokenState{utxo = stateUtxo} = wts
+    verifyVerificationSnapshot s
+    checkWitnessedTokenStateStructural "token.state" wts
+    rootBs <- decodeHex "token.snapshot.utxo_root" (utxoRoot s)
+    replayWitnessedUtxo "token.state" rootBs stateUtxo
+
+-- | Verify a @GET \/tokens\/:id\/facts\/:key@ response.
+--
+-- The queried key is supplied by the caller (the URL path
+-- component) and rebound to the proof at field path
+-- @"fact.key"@. The verifier:
+--
+-- 1. runs structural checks on the snapshot, the state
+--    witness, the trie root carried in the state, the value,
+--    and the MPF proof;
+-- 2. replays the state UTxO witness against
+--    @snapshot.utxo_root@;
+-- 3. replays the inclusion proof against the trie root
+--    carried in the state, with the queried @key@ and
+--    advertised @value@.
+verifyFactResponse
+    :: Hex
+    -- ^ Queried key (URL path component).
+    -> FactResponse
+    -> Either VerifyError ()
+verifyFactResponse qKey (FactResponse s v fw) = do
+    let FactWitness{state = wts, mpfProof = pf} = fw
+        WitnessedTokenState{utxo = stateUtxo, state = ts} = wts
+        TokenState{root = trieRoot} = ts
+    verifyVerificationSnapshot s
+    checkWitnessedTokenStateStructural "fact.state" wts
+    checkNonEmpty "fact.key" qKey
+    checkNonEmpty "fact.value" v
+    checkNonEmpty "fact.mpf_proof" pf
+    rootBs <- decodeHex "fact.snapshot.utxo_root" (utxoRoot s)
+    replayWitnessedUtxo "fact.state" rootBs stateUtxo
+    trieRootBs <- decodeHex "fact.state.state.root" trieRoot
+    replayTrieFact
+        "fact"
+        trieRootBs
+        TrieFact{key = qKey, value = Just v, mpfProof = pf}
+
+-- | Verify a @GET \/tokens\/:id\/proofs\/:key@ response.
+--
+-- The queried key (and an optional advertised value, when the
+-- response is an inclusion claim) is supplied by the caller.
+-- A 'Nothing' value means the response asserts absence of the
+-- key from the trie. The verifier:
+--
+-- 1. runs structural checks on the snapshot, the state
+--    witness, the trie root carried in the state, and the
+--    MPF proof;
+-- 2. replays the state UTxO witness against
+--    @snapshot.utxo_root@;
+-- 3. replays the inclusion or exclusion proof against the
+--    trie root carried in the state.
+verifyProofResponse
+    :: Hex
+    -- ^ Queried key (URL path component).
+    -> Maybe Hex
+    -- ^ Advertised value, if the caller knows the proof
+    -- should witness an inclusion. Pass 'Nothing' to assert
+    -- absence.
+    -> ProofResponse
+    -> Either VerifyError ()
+verifyProofResponse qKey mValue (ProofResponse s fw) = do
+    let FactWitness{state = wts, mpfProof = pf} = fw
+        WitnessedTokenState{utxo = stateUtxo, state = ts} = wts
+        TokenState{root = trieRoot} = ts
+    verifyVerificationSnapshot s
+    checkWitnessedTokenStateStructural "proof.state" wts
+    checkNonEmpty "proof.key" qKey
+    case mValue of
+        Just v -> checkNonEmpty "proof.value" v
+        Nothing -> Right ()
+    checkNonEmpty "proof.mpf_proof" pf
+    rootBs <- decodeHex "proof.snapshot.utxo_root" (utxoRoot s)
+    replayWitnessedUtxo "proof.state" rootBs stateUtxo
+    trieRootBs <- decodeHex "proof.state.state.root" trieRoot
+    replayTrieFact
+        "proof"
+        trieRootBs
+        TrieFact{key = qKey, value = mValue, mpfProof = pf}
+
+-- | Verify a @GET \/tokens\/:id\/requests@ response.
+--
+-- Replays every pending-request UTxO witness against
+-- @snapshot.utxo_root@. The decoded request payload is
+-- opaque to the verifier — it flows through to the consumer
+-- so MOOG can drive its own application logic on top of the
+-- already-replayed @tx_out@ bytes.
+verifyRequestsResponse
+    :: RequestsResponse -> Either VerifyError ()
+verifyRequestsResponse (RequestsResponse s wrs) = do
+    verifyVerificationSnapshot s
+    checkWitnessedRequestsStructural "requests.requests" wrs
+    rootBs <- decodeHex "requests.snapshot.utxo_root" (utxoRoot s)
+    replayWitnessedUtxos
+        "requests.requests"
+        rootBs
+        (map (\WitnessedRequest{utxo = u} -> u) wrs)
+
+-- ---------------------------------------------------------------
 -- Structural pass (hex decode, 32-byte hashes, non-empty hex)
 -- ---------------------------------------------------------------
 
@@ -225,6 +359,25 @@ checkWitnessedUtxoStructural prefix WitnessedUtxo{..} = do
 checkTxIn :: Text -> TxIn -> Either VerifyError ()
 checkTxIn prefix TxIn{..} =
     checkHash32 (prefix <> ".tx_id") txId
+
+checkWitnessedTokenStateStructural
+    :: Text -> WitnessedTokenState -> Either VerifyError ()
+checkWitnessedTokenStateStructural
+    prefix
+    WitnessedTokenState{utxo = u, state = ts} = do
+        checkWitnessedUtxoStructural prefix u
+        let TokenState{root = r} = ts
+        checkHash32 (prefix <> ".state.root") r
+
+checkWitnessedRequestsStructural
+    :: Text -> [WitnessedRequest] -> Either VerifyError ()
+checkWitnessedRequestsStructural prefix =
+    traverseIndexed prefix checkWitnessedRequestStructural
+
+checkWitnessedRequestStructural
+    :: Text -> WitnessedRequest -> Either VerifyError ()
+checkWitnessedRequestStructural prefix WitnessedRequest{utxo = u} =
+    checkWitnessedUtxoStructural prefix u
 
 checkTrieFactsStructural
     :: Text -> [TrieFact] -> Either VerifyError ()
