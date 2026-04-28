@@ -25,7 +25,10 @@ module Cardano.MPFS.Core.Blueprint
     , extractCompiledCode
 
       -- * Parameter application
-    , applyVersion
+    , applyDataParam
+    , applyBytesParam
+    , applyOutputRef
+    , applyRequestParams
     ) where
 
 import Cardano.MPFS.Cage.Blueprint
@@ -33,7 +36,10 @@ import Cardano.MPFS.Cage.Blueprint
     , Constructor (..)
     , Schema (..)
     , Validator (..)
-    , applyVersion
+    , applyBytesParam
+    , applyDataParam
+    , applyOutputRef
+    , applyRequestParams
     , extractCompiledCode
     , extractScriptHash
     , loadBlueprint
