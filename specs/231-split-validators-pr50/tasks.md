@@ -44,10 +44,15 @@ baseline, and lay out the empty stgit patch stack before writing
 code.
 
 - [ ] T001 Compose `GATE` from `.github/workflows/*.yml` and the
-      `justfile` (likely `nix develop --command just ci`); save it as
-      a single re-runnable shell command in
-      `specs/231-split-validators-pr50/notes/gate.md` (alongside the
-      pinned tool versions used by CI).
+      `justfile`. Note: `just ci` covers build → unit →
+      unit-offchain → format-check → hlint **but not E2E**
+      (`just e2e` is a separate recipe at `justfile:75`). Per
+      Constitution Principle V, E2E parity is load-bearing for this
+      feature, so `GATE` MUST include both: e.g.
+      `nix develop --command bash -c 'just ci && just e2e'`. Save
+      it as a single re-runnable shell command in
+      `specs/231-split-validators-pr50/notes/gate.md` alongside the
+      pinned tool versions used by CI.
 - [ ] T002 Run `GATE` on `origin/main` (a clean tree at the upstream
       base, NOT this branch) and confirm it is green; record the
       exit status and a short transcript at
@@ -57,8 +62,9 @@ code.
 - [ ] T003 [P] Run `stg init` on branch `231-split-validators-pr50`
       and lay out empty patches in topological order, one per
       vertical slice listed in plan.md Phase 2 preview (T010, T015,
-      T020, T030, T031, T032, T040, T041, T050, T060, T070, T071,
-      T080, T081). Empty patches are placeholders — do **not** run
+      T020, T021, T022, T023, T024, T030, T031, T032, T040, T041,
+      T042, T050, T051, T052, T060). Empty patches are placeholders
+      — do **not** run
       `stg clean` during active work.
 
 **Checkpoint**: `GATE` is captured, green on `origin/main`, and the
@@ -128,8 +134,13 @@ per-cage address with the state UTxO referenced.
 
 - [ ] T020 [US1] Update
       `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs`:
-      drop `Mint` import; redeemer becomes `Minting onChainRef` (no
-      wrapper). Per `contracts/tx-shapes.md` "Boot" row.
+      drop `Mint` import; mint policy redeemer becomes
+      `Minting(seed)` carrying the wallet-chosen seed `OutputRef`
+      consumed by the boot tx. The state validator itself is
+      unparameterised (`validator state { ... }` upstream); the
+      seed is **not** a validator parameter and the global state
+      address is the same for every cage in the deployment. Per
+      `contracts/tx-shapes.md` "Boot" row.
 - [ ] T021 [US1] Update
       `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/End.hs`:
       redeemer becomes `Burning (onChainTokenId tid)`. Per
@@ -224,7 +235,19 @@ non-owner and observe the tx fails.
       add `Cardano.MPFS.TxBuilder.Real.Sweep` to
       `exposed-modules` in
       `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`.
-- [ ] T041 [US3] Add a `Sweep` round-trip case to
+- [ ] T041 [US3] Expose the Sweep flow over HTTP so US3 is
+      reachable through the offchain service: add a `TxSweepAPI`
+      type (`POST /tx/sweep` with `SweepRequest` →
+      `SweepTxResponse`) to
+      `cardano-mpfs-offchain/cardano-mpfs-api/lib/Cardano/MPFS/API.hs`,
+      wire it into `TxWriteAPI` so native Servant clients pick it
+      up, define `SweepRequest` / `SweepTxResponse` alongside the
+      existing tx-builder request/response types, and wire the
+      handler in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
+      to call the Sweep entry point from T040. Per
+      `contracts/http-endpoints.md` "POST /tx/sweep (NEW)" row
+      (FR-005).
+- [ ] T042 [US3] Add a `Sweep` round-trip case to
       `cardano-mpfs-offchain/test/Cardano/MPFS/OnChainSpec.hs`
       covering owner-success and non-owner-failure paths against
       the upstream cage test vectors (SC-004, SC-005).

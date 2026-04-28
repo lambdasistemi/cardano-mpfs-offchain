@@ -69,9 +69,15 @@ regression vs the pre-split topology on the existing E2E suite).
 - All redeemer payloads and address derivations match the upstream
   cage test vectors at `cf3a8bdc` byte-for-byte (Constitution
   Principle V).
-- `just ci` (build → unit → e2e → fourmolu → cabal-fmt → hlint) must
-  pass on every commit in the stack (Workflow + Setup step 1 of the
-  `pr` skill).
+- The project's `just ci` recipe covers build → unit →
+  unit-offchain → format-check → hlint, but **does not** include
+  E2E (`just e2e` is a separate recipe in `justfile` that boots a
+  cardano-node subprocess). Per Constitution Principle V — which
+  makes byte-for-byte tx parity load-bearing for this feature —
+  E2E coverage is not optional. The `GATE` for this stack is
+  therefore `just ci && just e2e`, captured as one shell command
+  in `notes/gate.md` and run on every patch in the series
+  (Workflow + Setup step 1 of the `pr` skill).
 
 **Scale/Scope**: ~12 library modules touched in
 `cardano-mpfs-offchain/lib`, plus ~6 E2E spec files and the call sites
@@ -185,8 +191,11 @@ task plan have firm ground:
 
 - **Decision**: The `Cardano.MPFS.Indexer.Backend` follower set is
   parameterised by:
-  - exactly one global state address (one for the deployment, derived
-    from the global state validator's `OutputRef` parameter), plus
+  - exactly one global state address (one for the deployment,
+    corresponding to upstream's unparameterised
+    `validator state { ... }`; the cage seed travels in the boot
+    mint's `Minting(seed)` redeemer, not in a validator parameter),
+    plus
   - one per-cage request address per known cage token, derived as in
     R-001 from `(statePolicyId, tokenName)`.
 

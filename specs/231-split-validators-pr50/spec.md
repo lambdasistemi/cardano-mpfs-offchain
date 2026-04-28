@@ -249,11 +249,12 @@ listing.
 
 ### Key Entities
 
-- **Global state validator**: One on-chain validator parametrised only
-  by an `OutputRef`. There is exactly one global state address per
-  deployment. Holds every cage's state UTxO. Spent with redeemer
-  `Modify` during oracle progress; referenced (not spent) by Retract
-  and Sweep.
+- **Global state validator**: One unparameterised on-chain validator
+  (`validator state { ... }` upstream). There is exactly one global
+  state address per deployment. Holds every cage's state UTxO. The
+  cage seed is carried by the boot mint's `Minting(seed)` redeemer,
+  not by a validator parameter. Spent with redeemer `Modify` during
+  oracle progress; referenced (not spent) by Retract and Sweep.
 - **Per-cage request validator**: An on-chain validator parametrised by
   `(statePolicyId, cageTokenName)`. There is one request address per
   cage. Holds each cage's pending request UTxOs. Spent with redeemer

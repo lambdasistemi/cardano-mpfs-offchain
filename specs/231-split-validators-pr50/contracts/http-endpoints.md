@@ -3,25 +3,23 @@
 **Feature**: 231-split-validators-pr50
 **Date**: 2026-04-28
 
-This feature does **not** change any public HTTP shape. Only the
-server's internal address resolution shifts.
+This feature changes the server's internal address resolution for
+the existing per-token request listing and adds **one new tx-builder
+endpoint** for the owner-only Sweep flow (Story 3 / FR-005). All
+other public shapes are unchanged.
 
-| Endpoint | Public shape | Internal resolution change |
+| Endpoint | Public shape | Change |
 |---|---|---|
-| Per-token request listing (existing route — `GET /requests/{token}` or whichever path the current `Cardano.MPFS.HTTP.Server` already exposes for "list pending requests for token T") | Unchanged: same URL, same JSON envelope, same set of pending requests — exactly the requests the chain holds at the cage's per-cage request address. | Server derives the per-cage request address from `(statePolicyId, token)` per Phase 0 R-001 and reads from the indexer's per-address index, instead of filtering a single global address. |
+| `GET /tokens/:id/requests` (existing route — the canonical "list pending requests for token T" handler in `cardano-mpfs-api/lib/Cardano/MPFS/API.hs`) | Unchanged: same URL, same JSON envelope, same set of pending requests — exactly the requests the chain holds at the cage's per-cage request address. | Server derives the per-cage request address from `(statePolicyId, tokenName)` per Phase 0 R-001 and reads from the indexer's per-address index, instead of filtering a single global address. |
+| `POST /tx/sweep` (NEW) | Request: `SweepRequest` (token id, target output reference at the per-cage request address, owner address); response: `SweepTxResponse` carrying the unsigned CBOR (same envelope shape as the existing tx-builder responses). | New route added to `TxWriteAPI` to expose the owner-only Sweep tx-builder entry point introduced in `Cardano.MPFS.TxBuilder.Real.Sweep`. The handler builds a tx that spends one UTxO at the per-cage request address with redeemer `Sweep(stateRef)` and references the state UTxO. Constitution Principle IV stands — the response is unsigned CBOR; signing remains client-side. |
 
 ## What does **not** change
 
-- No new public endpoints.
 - No removed public endpoints.
-- No JSON envelope or proof-bundle change (Sweep is a TxBuilder entry
-  point only and does not require its own public route in this
-  feature; if the existing server already exposes a generic
-  "build tx for redeemer" route, Sweep can ride along on that
-  surface — that decision is captured at task time, not as a public
-  contract change here).
-- Constitution Principle IV stands: every endpoint that returns a
-  transaction returns unsigned CBOR.
+- No JSON envelope change for any existing route.
+- The route table in `cardano-mpfs-api/lib/Cardano/MPFS/API.hs` grows
+  by exactly one entry (`TxSweepAPI`) and gets re-exported through
+  `TxWriteAPI` so native Servant clients pick it up automatically.
 
 ## Acceptance hook
 
@@ -30,3 +28,8 @@ Story 4 / SC-003 are exercised by `HTTPLifecycleSpec` and
 server starts and a second cage **while** the server is running. Both
 must be reachable through the per-token endpoint without operator
 intervention or process restart.
+
+Story 3 / SC-004 are exercised against `POST /tx/sweep` end-to-end on
+the devnet: an owner-driven sweep succeeds and a non-owner-driven
+sweep fails to validate, neither path consuming the state UTxO or any
+legitimate request UTxO.

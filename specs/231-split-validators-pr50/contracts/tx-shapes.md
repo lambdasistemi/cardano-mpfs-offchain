@@ -16,7 +16,7 @@ not consumed).
 
 | Flow | Cage-relevant inputs | Cage-relevant outputs | Redeemers (per consumed input) | Attached scripts |
 |---|---|---|---|---|
-| Boot | seed UTxO from wallet | state UTxO at **global state address**; cage token paid forward | mint policy: `Minting onChainRef` | mint policy + global state validator |
+| Boot | seed UTxO from wallet | state UTxO at **global state address**; cage token paid forward | mint policy: `Minting(seed)` (the seed is the wallet-chosen `OutputRef` consumed by the boot tx; the state validator itself is unparameterised) | mint policy + global state validator |
 | Request{Insert,Delete,Update} | (none on cage side) | request UTxO at **per-cage request address** with the request datum | (none on cage side; only wallet inputs) | (none — paying to script address only) |
 | Retract | request UTxO at **per-cage request address**; state UTxO at **global state address** **referenced** | requester refund | per-cage request validator: retract redeemer | per-cage request validator |
 | Update | state UTxO at **global state address**; one or more request UTxOs at **per-cage request address** | new state UTxO at **global state address** with advanced datum; per-request payouts as required | global state validator: `Modify`; per request UTxO: `Contribute(stateRef)` | global state validator + per-cage request validator |
@@ -27,8 +27,9 @@ not consumed).
 ## Cross-flow invariants
 
 - The **global state address** is one address per deployment (derived
-  from the global state validator parametrised only by an
-  `OutputRef`). It hosts every cage's state UTxO.
+  from upstream's unparameterised `validator state { ... }`). It hosts
+  every cage's state UTxO. The cage seed is carried by the boot mint's
+  `Minting(seed)` redeemer, not by a validator parameter.
 - The **per-cage request address** is one address per cage (derived
   from the per-cage request validator parametrised by
   `(statePolicyId, cageTokenName)` per Phase 0 R-001). It hosts that
