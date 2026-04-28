@@ -33,6 +33,7 @@ import Test.QuickCheck
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
+    , hashFromBytes
     , hashFromStringAsHex
     , hashToBytes
     )
@@ -107,10 +108,6 @@ import Cardano.MPFS.Core.OnChain
     , OnChainRoot (..)
     , OnChainTokenId (..)
     , OnChainTokenState (..)
-    , cageAddr
-    , cagePolicyId
-    , cageScriptHash
-    , cageScriptHashLedger
     )
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
@@ -166,6 +163,9 @@ import Cardano.MPFS.TxBuilder.Real
     , spendingIndex
     , toPlcData
     )
+import Cardano.MPFS.TxBuilder.Real.Internal
+    ( cagePolicyIdFromCfg
+    )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -173,6 +173,32 @@ import PlutusTx.Builtins.Internal
 -- ---------------------------------------------------------
 -- Test helpers
 -- ---------------------------------------------------------
+
+-- | Synthetic 28-byte script hash used by the
+-- TxBuilder unit tests as a stand-in for "the cage
+-- script". The real global state validator hash is
+-- carried by 'cfgScriptHash' on a 'CageConfig' built
+-- from the upstream blueprint at startup; these unit
+-- tests do not load a blueprint, so a fixed dummy
+-- value is used instead.
+cageScriptHash :: ByteString
+cageScriptHash = BS.replicate 28 0xAB
+
+cageScriptHashLedger :: ScriptHash
+cageScriptHashLedger =
+    ScriptHash
+        $ fromJust
+        $ hashFromBytes cageScriptHash
+
+cagePolicyId :: PolicyID
+cagePolicyId = PolicyID cageScriptHashLedger
+
+cageAddr :: Network -> Addr
+cageAddr net =
+    Addr
+        net
+        (ScriptHashObj cageScriptHashLedger)
+        StakeRefNull
 
 -- | Testnet address from a payment key hash.
 testAddr :: KeyHash 'Payment -> Addr
@@ -762,7 +788,7 @@ bootTokenSpec =
                     Right bp -> do
                         let mCode =
                                 extractCompiledCode
-                                    "cage."
+                                    "state."
                                     bp
                         it "extractCompiledCode succeeds"
                             $ mCode
@@ -795,7 +821,10 @@ bootTokenWithScript scriptBytes = do
         tx <- runBootToken cfg
         let MultiAsset ma =
                 tx ^. bodyTxL . mintTxBodyL
-            mPolicy = Map.lookup cagePolicyId ma
+            mPolicy =
+                Map.lookup
+                    (cagePolicyIdFromCfg cfg)
+                    ma
         mPolicy `shouldSatisfy` isJust
         let assets = fromJust mPolicy
         -- exactly one asset minted
@@ -1621,7 +1650,7 @@ bootTxProps =
                     Right bp ->
                         for_
                             ( extractCompiledCode
-                                "cage."
+                                "state."
                                 bp
                             )
                             bootTxPropsWithScript

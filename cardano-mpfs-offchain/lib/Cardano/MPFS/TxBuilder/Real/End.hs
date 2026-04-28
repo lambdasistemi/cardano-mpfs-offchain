@@ -47,14 +47,18 @@ import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
 
+import Data.ByteString.Short qualified as SBS
+
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , MintRedeemer (..)
+    , OnChainTokenId (..)
     , OnChainTokenState (..)
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
-    ( TokenId (..)
+    ( AssetName (..)
+    , TokenId (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
@@ -140,7 +144,13 @@ endTokenImpl cfg prov proofFn snap tid addr = do
         stateIx =
             spendingIndex stateIn allInputs
         spendRedeemer = End
-        mintRedeemer = Burning
+        onChainTid =
+            OnChainTokenId
+                $ BuiltinByteString
+                $ SBS.fromShort
+                $ let AssetName sbs = unTokenId tid
+                  in  sbs
+        mintRedeemer = Burning onChainTid
         redeemers =
             Redeemers
                 $ Map.fromList
