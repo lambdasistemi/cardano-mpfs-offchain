@@ -21,6 +21,12 @@ module Cardano.MPFS.TxBuilder.Real.Internal
     , cagePolicyIdFromCfg
     , cageAddrFromCfg
 
+      -- * Per-cage request validator
+    , mkRequestScript
+    , requestAddrFromCfg
+    , onChainTokenId
+    , requestScriptBytesFromCfg
+
       -- * Datum helpers
     , mkRequestDatum
     , toPlcData
@@ -141,7 +147,7 @@ import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
     )
-import Cardano.Ledger.Hashes (ScriptHash)
+import Cardano.Ledger.Hashes (ScriptHash (..))
 import Cardano.Ledger.Keys
     ( KeyHash (..)
     , KeyRole (..)
@@ -169,6 +175,7 @@ import PlutusTx.IsData.Class
     , ToData (..)
     )
 
+import Cardano.MPFS.Core.Blueprint (applyRequestParams)
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , OnChainOperation (..)
@@ -355,6 +362,58 @@ cageAddrFromCfg cfg net =
         net
         (ScriptHashObj $ cfgScriptHash cfg)
         StakeRefNull
+
+-- | Build the per-cage request 'Script' from
+-- config bytes, applied to
+-- @(statePolicyId, cageTokenName)@.
+mkRequestScript :: CageConfig -> TokenId -> Script ConwayEra
+mkRequestScript cfg tid =
+    let plutus =
+            Plutus @PlutusV3
+                $ PlutusBinary
+                $ requestScriptBytesFromCfg cfg tid
+    in  case mkPlutusScript plutus of
+            Just ps -> fromPlutusScript ps
+            Nothing ->
+                error
+                    "mkRequestScript: invalid \
+                    \PlutusV3 script"
+
+-- | Compute the per-cage request validator address
+-- for a given token, on the given network.
+requestAddrFromCfg
+    :: CageConfig -> TokenId -> Network -> Addr
+requestAddrFromCfg cfg tid net =
+    Addr
+        net
+        ( ScriptHashObj
+            $ computeScriptHash
+                (requestScriptBytesFromCfg cfg tid)
+        )
+        StakeRefNull
+
+-- | Convert a ledger-side 'TokenId' to its on-chain
+-- @OnChainTokenId@ representation.
+onChainTokenId :: TokenId -> OnChainTokenId
+onChainTokenId tid =
+    OnChainTokenId
+        $ BuiltinByteString
+        $ SBS.fromShort
+        $ let AssetName sbs = unTokenId tid
+          in  sbs
+
+-- | Apply the unapplied request validator UPLC to
+-- @(statePolicyId, cageTokenName)@ for a given
+-- token, producing the per-cage request script
+-- bytes.
+requestScriptBytesFromCfg
+    :: CageConfig -> TokenId -> SBS.ShortByteString
+requestScriptBytesFromCfg cfg tid =
+    let ScriptHash h = cfgScriptHash cfg
+    in  applyRequestParams
+            (hashToBytes h)
+            (onChainTokenId tid)
+            (requestScriptBytes cfg)
 
 -- | Build a 'CageDatum' for a request.
 mkRequestDatum
