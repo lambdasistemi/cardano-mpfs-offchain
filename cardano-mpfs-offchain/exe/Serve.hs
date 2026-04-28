@@ -39,8 +39,7 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( applyVersion
-    , extractCompiledCode
+    ( extractCompiledCode
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types (Coin (..))
@@ -175,13 +174,13 @@ loadScript path = do
         Left err ->
             error $ "Blueprint error: " <> err
         Right bp ->
-            case extractCompiledCode "cage." bp of
+            case extractCompiledCode "state." bp of
                 Nothing ->
                     error
-                        "cage script not found \
+                        "state script not found \
                         \in blueprint"
                 Just sb ->
-                    pure $ applyVersion 1 sb
+                    pure sb
 
 mkCageCfg
     :: Args

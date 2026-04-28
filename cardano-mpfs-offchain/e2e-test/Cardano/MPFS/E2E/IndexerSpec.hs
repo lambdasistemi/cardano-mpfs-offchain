@@ -46,8 +46,7 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( applyVersion
-    , extractCompiledCode
+    ( extractCompiledCode
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
@@ -132,19 +131,15 @@ spec = describe "Indexer E2E" $ do
                         (expectationFailure err)
                 Right bp ->
                     case extractCompiledCode
-                        "cage."
+                        "state."
                         bp of
                         Nothing ->
                             it "no compiled code"
                                 $ expectationFailure
-                                    "cage script not \
+                                    "state script not \
                                     \found in blueprint"
                         Just scriptBytes ->
-                            let applied =
-                                    applyVersion
-                                        1
-                                        scriptBytes
-                            in  indexerSpecs applied
+                            indexerSpecs scriptBytes
 
 -- ---------------------------------------------------------
 -- Test cases

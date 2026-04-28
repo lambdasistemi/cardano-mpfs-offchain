@@ -78,8 +78,7 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( applyVersion
-    , extractCompiledCode
+    ( extractCompiledCode
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
@@ -136,16 +135,15 @@ spec = describe "HTTP lifecycle E2E" $ do
                         $ expectationFailure err
                 Right bp ->
                     case extractCompiledCode
-                        "cage."
+                        "state."
                         bp of
                         Nothing ->
                             it "no compiled code"
                                 $ expectationFailure
-                                    "cage script \
+                                    "state script \
                                     \not found"
                         Just sb ->
-                            lifecycleSpec
-                                $ applyVersion 1 sb
+                            lifecycleSpec sb
 
 -- -------------------------------------------------
 -- Scenario

@@ -12,7 +12,6 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , Migration (..)
-    , Mint (..)
     , MintRedeemer (..)
     , Neighbor (..)
     , OnChainOperation (..)
@@ -24,14 +23,12 @@ import Cardano.MPFS.Core.OnChain
     , ProofStep (..)
     , RequestAction (..)
     , UpdateRedeemer (..)
-    , cageScriptHash
     , deriveAssetName
     )
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Text qualified as T
 import PlutusCore.Data (Data (..))
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -48,6 +45,7 @@ import Test.Hspec
     , it
     , runIO
     , shouldBe
+    , shouldNotBe
     )
 import Test.QuickCheck
     ( Arbitrary (..)
@@ -77,21 +75,6 @@ roundtrip
     => a
     -> Property
 roundtrip x = fromData' (toData' x) === Just x
-
-toHex :: ByteString -> Text
-toHex =
-    T.pack
-        . concatMap
-            ( \w ->
-                let (hi, lo) = w `divMod` 16
-                in  [hexChar hi, hexChar lo]
-            )
-        . BS.unpack
-  where
-    hexChar n
-        | n < 10 = toEnum (fromIntegral n + 48)
-        | otherwise =
-            toEnum (fromIntegral n + 87)
 
 -- ---------------------------------------------------------
 -- Arbitrary instances
@@ -162,9 +145,6 @@ instance Arbitrary CageDatum where
             , StateDatum <$> arbitrary
             ]
 
-instance Arbitrary Mint where
-    arbitrary = Mint <$> arbitrary
-
 instance Arbitrary Migration where
     arbitrary =
         Migration
@@ -176,7 +156,7 @@ instance Arbitrary MintRedeemer where
         oneof
             [ Minting <$> arbitrary
             , Migrating <$> arbitrary
-            , pure Burning
+            , Burning <$> arbitrary
             ]
 
 instance Arbitrary Neighbor where
@@ -239,8 +219,6 @@ spec = do
             roundtrip (x :: OnChainTokenState)
         it "CageDatum" $ property $ \x ->
             roundtrip (x :: CageDatum)
-        it "Mint" $ property $ \x ->
-            roundtrip (x :: Mint)
         it "Migration" $ property $ \x ->
             roundtrip (x :: Migration)
         it "MintRedeemer" $ property $ \x ->
@@ -253,9 +231,16 @@ spec = do
             roundtrip (x :: UpdateRedeemer)
 
     describe "Known value encoding" $ do
-        it "Burning encodes to Constr 2 []"
-            $ toData' Burning
-            `shouldBe` Constr 2 []
+        it "Burning encodes to Constr 2 [tokenId]" $ do
+            let tid =
+                    OnChainTokenId
+                        ( BuiltinByteString
+                            "the-cage-token"
+                        )
+            toData' (Burning tid)
+                `shouldBe` Constr
+                    2
+                    [Constr 0 [B "the-cage-token"]]
         it "End encodes to Constr 0 []"
             $ toData' End
             `shouldBe` Constr 0 []
@@ -316,11 +301,6 @@ spec = do
                 `shouldBe` deriveAssetName ref0
             (deriveAssetName ref0 /= deriveAssetName ref1)
                 `shouldBe` True
-
-    describe "Script hash" $ do
-        it "is 28 bytes"
-            $ BS.length cageScriptHash
-            `shouldBe` 28
 
     describe "Blueprint compliance" $ do
         mPath <- runIO $ lookupEnv "MPFS_BLUEPRINT"
@@ -393,12 +373,6 @@ spec = do
                                 check
                                     "types/State"
                                     (x :: OnChainTokenState)
-                        it "Mint"
-                            $ property
-                            $ \x ->
-                                check
-                                    "types/Mint"
-                                    (x :: Mint)
                         it "TokenId"
                             $ property
                             $ \x ->
@@ -423,13 +397,13 @@ spec = do
                                 check
                                     "cardano/transaction/OutputReference"
                                     (x :: OnChainTxOutRef)
-                        it "script hash matches"
-                            $ let mHash =
-                                    extractScriptHash
-                                        "cage."
-                                        bp
-                              in  mHash
-                                    `shouldBe` Just
-                                        ( toHex
-                                            cageScriptHash
-                                        )
+                        it "exposes the global state validator"
+                            $ extractScriptHash
+                                "state."
+                                bp
+                            `shouldNotBe` Nothing
+                        it "exposes the per-cage request validator"
+                            $ extractScriptHash
+                                "request."
+                                bp
+                            `shouldNotBe` Nothing

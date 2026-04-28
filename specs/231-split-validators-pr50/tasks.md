@@ -89,12 +89,41 @@ phase is complete; every later task imports the helpers added here.
       `applyVersion`). Run `GATE`.
 - [ ] T011 Drop `Mint(..)` from exports + import in
       `cardano-mpfs-offchain/lib/Cardano/MPFS/Core/OnChain.hs` and
-      update the hardcoded `cageScriptHash` literal from the per-token
-      PR #48 hash to the global state validator hash
-      `c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06`.
-      Update the matching round-trip + hash literal in
-      `cardano-mpfs-offchain/test/Cardano/MPFS/OnChainSpec.hs`. Run
-      `GATE`.
+      drop the dead-code identity helpers
+      (`cageScriptHash`, `cageScriptHashLedger`, `cagePolicyId`,
+      `cageAddr`) entirely. Production code only uses the
+      `*FromCfg` variants which read `cfgScriptHash` from a
+      `CageConfig` built from the upstream blueprint at startup —
+      a hardcoded 28-byte literal would not prove "we're using the
+      right blueprint", only the runtime-loaded blueprint can.
+      In `cardano-mpfs-offchain/test/Cardano/MPFS/OnChainSpec.hs`,
+      drop the obsolete `Mint` round-trip + 28-byte assertion and
+      replace the `extractScriptHash "cage."` check with
+      `extractScriptHash "state."` / `"request."` presence checks.
+      In `cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs`,
+      replace the dropped library-level identity helpers with
+      test-local synthetic `cageScriptHash`/`cagePolicyId`/
+      `cageAddr` fixtures that the unit suite uses to build mock
+      cage UTxOs.
+
+      For bisect-safety, this patch ALSO absorbs the minimal
+      Boot/End redeemer-shape changes (originally T020 / T021):
+      `Cardano.MPFS.TxBuilder.Real.Boot` becomes
+      `Minting onChainRef` (no `Mint` wrapper),
+      `Cardano.MPFS.TxBuilder.Real.End` becomes
+      `Burning (onChainTokenId tid)` with the conversion inlined
+      from `TokenId` to `OnChainTokenId`. Without this, the
+      working tree does not compile after dropping `Mint`.
+
+      The same patch updates the 9 call sites of `applyVersion`
+      across `cardano-mpfs-offchain/exe/{DevnetServer,Serve}.hs`
+      and the 6 affected E2E specs to drop the (now-removed)
+      `applyVersion` helper and switch the validator-name prefix
+      from `"cage."` to `"state."`. The existing `applyVersion 1 sb`
+      becomes `sb` (the unparameterised state validator's bytes
+      need no further version wrapping under upstream PR #50).
+
+      Run `GATE`.
 - [ ] T012 Add `requestScriptBytes :: ShortByteString` to `CageConfig`
       in
       `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Config.hs`

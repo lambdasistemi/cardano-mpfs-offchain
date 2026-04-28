@@ -23,8 +23,7 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( applyVersion
-    , extractCompiledCode
+    ( extractCompiledCode
     , loadBlueprint
     )
 import Cardano.MPFS.Core.Types
@@ -135,16 +134,15 @@ spec = describe "Crash recovery" $ do
                         $ expectationFailure err
                 Right bp ->
                     case extractCompiledCode
-                        "cage."
+                        "state."
                         bp of
                         Nothing ->
                             it "no compiled code"
                                 $ expectationFailure
-                                    "cage script \
+                                    "state script \
                                     \not found"
                         Just sb ->
-                            crashRecoverySpecs
-                                $ applyVersion 1 sb
+                            crashRecoverySpecs sb
 
 crashRecoverySpecs
     :: SBS.ShortByteString -> Spec

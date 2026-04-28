@@ -59,7 +59,6 @@ import PlutusTx.Builtins.Internal
 
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
-    , Mint (..)
     , MintRedeemer (..)
     , OnChainRoot (..)
     , OnChainTokenState (..)
@@ -164,7 +163,7 @@ bootTokenImpl cfg prov proofFn snap addr = do
             let script = mkCageScript cfg
                 scriptHash = hashScript script
                 redeemer =
-                    Minting (Mint onChainRef)
+                    Minting onChainRef
                 mintPurpose =
                     ConwayMinting (AsIx 0)
                 redeemers =
