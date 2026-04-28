@@ -130,6 +130,7 @@ library
     Cardano.MPFS.TxBuilder.Real.Reject
     Cardano.MPFS.TxBuilder.Real.Request
     Cardano.MPFS.TxBuilder.Real.Retract
+    Cardano.MPFS.TxBuilder.Real.Sweep
     Cardano.MPFS.TxBuilder.Real.Update
 
 executable mpfs-serve

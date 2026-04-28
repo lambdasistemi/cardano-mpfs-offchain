@@ -16,6 +16,9 @@ module Cardano.MPFS.TxBuilder.Real
     ( -- * Construction
       mkRealTxBuilder
 
+      -- * Owner-only sweep
+    , sweepUtxoImpl
+
       -- * Script hash
     , computeScriptHash
 
@@ -73,6 +76,9 @@ import Cardano.MPFS.TxBuilder.Real.Request
     )
 import Cardano.MPFS.TxBuilder.Real.Retract
     ( retractRequestImpl
+    )
+import Cardano.MPFS.TxBuilder.Real.Sweep
+    ( sweepUtxoImpl
     )
 import Cardano.MPFS.TxBuilder.Real.Update
     ( updateTokenImpl
