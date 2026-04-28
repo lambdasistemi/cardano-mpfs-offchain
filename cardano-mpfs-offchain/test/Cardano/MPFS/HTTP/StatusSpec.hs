@@ -66,6 +66,10 @@ mkTestContext = do
             , state = st
             , submitter = mkMockSubmitter
             , txBuilder = mkMockTxBuilder
+            , cfgCage =
+                error
+                    "mkTestContext: cfgCage \
+                    \not implemented"
             , utxoExists = \_ -> pure False
             , resolveUtxo = \_ -> pure Nothing
             , awaitUtxo = \_ _ -> pure Nothing

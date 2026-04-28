@@ -46,6 +46,7 @@ module Cardano.MPFS.API.Types
     , RejectRequest (..)
     , UpdateRequest (..)
     , RetractRequest (..)
+    , SweepRequest (..)
     , EndRequest (..)
     , SubmitRequest (..)
 
@@ -62,6 +63,7 @@ module Cardano.MPFS.API.Types
     , RetractTxResponse (..)
     , RejectTxResponse (..)
     , EndTxResponse (..)
+    , SweepTxResponse (..)
     , UpdateTxResponse (..)
     ) where
 
@@ -664,6 +666,38 @@ instance FromJSON RetractRequest where
             <$> o .: "utxo"
             <*> o .: "address"
 
+-- | @POST \/tx\/sweep@ request body. Owner-only
+-- request to sweep a non-legitimate UTxO at the
+-- per-cage request address. The state UTxO is
+-- referenced (not consumed) so the on-chain
+-- validator can read the owner key from the state
+-- datum.
+data SweepRequest = SweepRequest
+    { swrToken :: TokenIdJSON
+    -- ^ Cage token whose request address is being
+    -- swept
+    , swrUtxo :: Text
+    -- ^ UTxO reference of the garbage UTxO
+    -- (@txhash#ix@)
+    , swrAddr :: Hex
+    -- ^ Owner address (signs and balances)
+    }
+
+instance ToJSON SweepRequest where
+    toJSON SweepRequest{..} =
+        object
+            [ "token" .= swrToken
+            , "utxo" .= swrUtxo
+            , "address" .= swrAddr
+            ]
+
+instance FromJSON SweepRequest where
+    parseJSON = withObject "SweepRequest" $ \o ->
+        SweepRequest
+            <$> o .: "token"
+            <*> o .: "utxo"
+            <*> o .: "address"
+
 -- | @POST \/tx\/end@ request body.
 data EndRequest = EndRequest
     { erToken :: TokenIdJSON
@@ -951,6 +985,25 @@ instance FromJSON RetractTxResponse where
                 <$> o .: "tx"
                 <*> o .: "snapshot"
                 <*> o .: "proof"
+
+-- | Response envelope for @POST \/tx\/sweep@.
+-- Carries only the unsigned CBOR; sweep does not
+-- bundle a proof envelope (the on-chain validator
+-- enforces the owner-signature predicate against
+-- the referenced state UTxO).
+newtype SweepTxResponse = SweepTxResponse
+    { stTx :: Hex
+    }
+    deriving (Eq, Show)
+
+instance ToJSON SweepTxResponse where
+    toJSON SweepTxResponse{..} =
+        object ["tx" .= stTx]
+
+instance FromJSON SweepTxResponse where
+    parseJSON =
+        withObject "SweepTxResponse" $ \o ->
+            SweepTxResponse <$> o .: "tx"
 
 -- | Response envelope for @POST \/tx\/reject@.
 data RejectTxResponse = RejectTxResponse
@@ -1389,6 +1442,34 @@ instance ToSchema EndRequest where
             & description
                 ?~ "End a token"
 
+instance ToSchema SweepRequest where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        stringSchema <-
+            declareSchemaRef (Proxy @String)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "SweepRequest")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token", tokenSchema)
+                    , ("utxo", stringSchema)
+                    , ("address", hexSchema)
+                    ]
+            & required
+                .~ ["token", "utxo", "address"]
+            & description
+                ?~ "Owner-only sweep of a \
+                   \non-legitimate UTxO at the \
+                   \per-cage request address. \
+                   \UTxO format: txhash#ix"
+
 instance ToSchema SubmitRequest where
     declareNamedSchema _ = do
         hexSchema <-
@@ -1821,6 +1902,28 @@ instance ToSchema EndTxResponse where
             "EndTxResponse"
             (Proxy @EndProofJSON)
             "Proof-bearing response for POST /tx/end"
+
+instance ToSchema SweepTxResponse where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "SweepTxResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList [("tx", hexSchema)]
+            & required
+                .~ ["tx"]
+            & description
+                ?~ "Unsigned sweep transaction. \
+                   \Sweep does not bundle a proof \
+                   \envelope (the on-chain validator \
+                   \enforces the owner-signature \
+                   \predicate against the referenced \
+                   \state UTxO)."
 
 instance ToSchema UpdateTxResponse where
     declareNamedSchema _ =

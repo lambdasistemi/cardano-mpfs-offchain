@@ -50,6 +50,7 @@ module Cardano.MPFS.HTTP.Types
     , RejectRequest (..)
     , UpdateRequest (..)
     , RetractRequest (..)
+    , SweepRequest (..)
     , EndRequest (..)
     , SubmitRequest (..)
 
@@ -69,12 +70,14 @@ module Cardano.MPFS.HTTP.Types
     , RetractTxResponse (..)
     , RejectTxResponse (..)
     , EndTxResponse (..)
+    , SweepTxResponse (..)
     , UpdateTxResponse (..)
     , mkBootTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
     , mkRejectTxResponse
     , mkEndTxResponse
+    , mkSweepTxResponse
     , mkUpdateTxResponse
 
       -- * Address parsing
@@ -119,6 +122,8 @@ import Cardano.MPFS.API.Types
     , RetractTxResponse (..)
     , StatusResponse (..)
     , SubmitRequest (..)
+    , SweepRequest (..)
+    , SweepTxResponse (..)
     , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenStateJSON (..)
@@ -322,6 +327,14 @@ mkRequestTxResponse
                         map witnessedInputToJSON funding
                     }
             }
+
+-- | Package a bare sweep 'Tx' as the JSON response.
+-- Sweep does not bundle a proof envelope (the
+-- on-chain validator enforces the owner-signature
+-- predicate against the referenced state UTxO).
+mkSweepTxResponse :: Tx ConwayEra -> SweepTxResponse
+mkSweepTxResponse tx =
+    SweepTxResponse{stTx = serializeTxHex tx}
 
 -- | Package a 'ProofEnvelope RetractProof' as the JSON response.
 mkRetractTxResponse

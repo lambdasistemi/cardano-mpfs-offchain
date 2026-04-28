@@ -34,6 +34,8 @@ module Cardano.MPFS.Client.Http
     , retractTx
     , rejectTx
     , updateTx
+    , sweepTx
+    , SweepParams (..)
     , endTx
     ) where
 
@@ -377,6 +379,8 @@ txUpdateClient
     :: Wire.UpdateRequest -> ClientM Wire.UpdateTxResponse
 txRetractClient
     :: Wire.RetractRequest -> ClientM Wire.RetractTxResponse
+txSweepClient
+    :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 txEndClient
     :: Wire.EndRequest -> ClientM Wire.EndTxResponse
 txBootClient
@@ -386,5 +390,41 @@ txBootClient
     :<|> txRejectClient
     :<|> txUpdateClient
     :<|> txRetractClient
+    :<|> txSweepClient
     :<|> txEndClient =
         client (Proxy :: Proxy TxWriteAPI)
+
+-- | @POST /tx/sweep@ request body.
+data SweepParams = SweepParams
+    { sweepToken :: Hex
+    , sweepUtxo :: Text
+    , sweepAddress :: Hex
+    }
+    deriving stock (Eq, Show)
+
+instance ToJSON SweepParams where
+    toJSON SweepParams{..} =
+        object
+            [ "token" .= sweepToken
+            , "utxo" .= sweepUtxo
+            , "address" .= sweepAddress
+            ]
+
+-- | Build a sweep transaction.
+--
+-- Sweep responses do not carry a proof envelope (the
+-- on-chain validator enforces the owner-signature
+-- predicate against the referenced state UTxO), so
+-- the verifier is a no-op. The caller is still
+-- responsible for signing the returned CBOR before
+-- submission.
+sweepTx
+    :: MpfsHttp
+    -> SweepParams
+    -> IO (Either ClientError Wire.SweepTxResponse)
+sweepTx http params =
+    runWriteEndpoint
+        http
+        params
+        txSweepClient
+        (\_ -> Right ())

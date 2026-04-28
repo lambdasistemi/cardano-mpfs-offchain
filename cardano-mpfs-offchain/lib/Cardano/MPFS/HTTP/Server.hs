@@ -95,6 +95,8 @@ import Cardano.MPFS.HTTP.Types
     , RetractTxResponse
     , StatusResponse (..)
     , SubmitRequest (..)
+    , SweepRequest (..)
+    , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
     , UpdateRequest (..)
@@ -109,6 +111,7 @@ import Cardano.MPFS.HTTP.Types
     , mkRejectTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
+    , mkSweepTxResponse
     , mkUpdateTxResponse
     , parseAddr
     , requestToJSON
@@ -127,6 +130,7 @@ import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
 import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Cardano.MPFS.TxBuilder qualified as Tx
+import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
 
 -- | Combined API with Swagger UI.
 type FullAPI = SwaggerAPI :<|> API
@@ -156,6 +160,7 @@ mkApp ctx =
             :<|> txRejectHandler ctx
             :<|> txUpdateHandler ctx
             :<|> txRetractHandler ctx
+            :<|> txSweepHandler ctx
             :<|> txEndHandler ctx
             :<|> txSubmitHandler ctx
 
@@ -744,6 +749,30 @@ txRetractHandler
                     txIn
                     addr
         pure (mkRetractTxResponse bundle)
+
+txSweepHandler
+    :: Context IO
+    -> SweepRequest
+    -> Handler SweepTxResponse
+txSweepHandler
+    ctx
+    SweepRequest
+        { swrToken = tokenId
+        , swrUtxo = utxoRef
+        , swrAddr = addrHex
+        } = do
+        let tid = tokenIdFromJSON tokenId
+        addr <- requireAddr addrHex
+        txIn <- parseUtxoRef utxoRef
+        tx <-
+            liftIO
+                $ sweepUtxoImpl
+                    (cfgCage ctx)
+                    (provider ctx)
+                    tid
+                    txIn
+                    addr
+        pure (mkSweepTxResponse tx)
 
 txEndHandler
     :: Context IO
