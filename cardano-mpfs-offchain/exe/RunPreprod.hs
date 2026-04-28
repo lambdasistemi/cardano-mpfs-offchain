@@ -56,6 +56,7 @@ dummyCageConfig :: CageConfig
 dummyCageConfig =
     CageConfig
         { cageScriptBytes = SBS.empty
+        , requestScriptBytes = SBS.empty
         , cfgScriptHash =
             ScriptHash
                 $ fromMaybe

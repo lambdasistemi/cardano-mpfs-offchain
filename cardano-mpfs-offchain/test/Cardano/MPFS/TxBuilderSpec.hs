@@ -243,6 +243,7 @@ testCageConfig :: CageConfig
 testCageConfig =
     CageConfig
         { cageScriptBytes = SBS.toShort "dummy"
+        , requestScriptBytes = SBS.empty
         , cfgScriptHash = cageScriptHashLedger
         , defaultProcessTime = 300_000
         , defaultRetractTime = 600_000
@@ -803,6 +804,7 @@ bootTokenWithScript scriptBytes = do
     let cfg =
             CageConfig
                 { cageScriptBytes = scriptBytes
+                , requestScriptBytes = SBS.empty
                 , cfgScriptHash =
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000
@@ -1661,6 +1663,7 @@ bootTxPropsWithScript scriptBytes = do
     let cfg =
             CageConfig
                 { cageScriptBytes = scriptBytes
+                , requestScriptBytes = SBS.empty
                 , cfgScriptHash =
                     computeScriptHash scriptBytes
                 , defaultProcessTime = 300_000

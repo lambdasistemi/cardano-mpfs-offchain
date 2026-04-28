@@ -23,15 +23,28 @@ import Cardano.MPFS.Core.Types (Coin)
 -- | Configuration for the cage script transaction
 -- builders.
 --
--- The 'cageScriptBytes' field holds the raw
--- flat-encoded UPLC script (after parameter
--- application). The 'cfgScriptHash' is the
--- hash of the deserialized script.
+-- 'cageScriptBytes' holds the flat-encoded UPLC of
+-- the global state validator (upstream's
+-- @validator state {}@, which is unparameterised
+-- under PR #50). 'requestScriptBytes' holds the
+-- /unapplied/ flat-encoded UPLC of the per-cage
+-- request validator; per-cage request addresses
+-- are derived at runtime by applying it to
+-- @(statePolicyId, cageTokenName)@.
+-- 'cfgScriptHash' is the state validator script
+-- hash and therefore the global state policy id.
+--
+-- The cage seed is /not/ a 'CageConfig' field —
+-- the wallet picks the seed @OutputReference@ at
+-- runtime, unlike the upstream cage tests that
+-- thread a fixed seed through configuration.
 data CageConfig = CageConfig
     { cageScriptBytes :: !ShortByteString
-    -- ^ PlutusV3 script bytes (applied parameters)
+    -- ^ Global state validator UPLC bytes
+    , requestScriptBytes :: !ShortByteString
+    -- ^ Unapplied per-cage request validator UPLC
     , cfgScriptHash :: !ScriptHash
-    -- ^ Hash of the PlutusV3 script
+    -- ^ Hash of the global state validator
     , defaultProcessTime :: !Integer
     -- ^ Phase 1 window (ms) for oracle processing
     , defaultRetractTime :: !Integer
