@@ -244,21 +244,31 @@ detectCageEvents scriptHash resolvedInputs tx =
                 (zip [0 ..] outputs)
 
     detectRequest txId (ix :: Word16) txOut =
+        -- PR #50: request UTxOs land at the per-cage
+        -- request validator address, whose script
+        -- hash is parametrised by
+        -- @(statePolicyId, cageTokenName)@. Off-chain
+        -- detection cannot enumerate every per-cage
+        -- hash up front, so we recognise request
+        -- outputs by datum shape: any script-address
+        -- output carrying a 'RequestDatum'. Whether
+        -- the targeted cage token is a known cage is
+        -- enforced downstream when the request is
+        -- consumed (see 'isRequestForToken').
         case txOut ^. addrTxOutL of
-            addr@(Addr _ (ScriptHashObj sh) _)
-                | sh == scriptHash ->
-                    case extractDatum txOut of
-                        Just (RequestDatum ocReq) ->
-                            let txIn =
-                                    TxIn
-                                        txId
-                                        (TxIx ix)
-                                req =
-                                    fromOnChainReq
-                                        addr
-                                        ocReq
-                            in  [CageRequest txIn req]
-                        _ -> []
+            addr@(Addr _ (ScriptHashObj _) _) ->
+                case extractDatum txOut of
+                    Just (RequestDatum ocReq) ->
+                        let txIn =
+                                TxIn
+                                    txId
+                                    (TxIx ix)
+                            req =
+                                fromOnChainReq
+                                    addr
+                                    ocReq
+                        in  [CageRequest txIn req]
+                    _ -> []
             _ -> []
 
     -- --------------------------------------------------
@@ -274,22 +284,29 @@ detectCageEvents scriptHash resolvedInputs tx =
                 resolvedInputs
 
     detectSpend allInputs rdmrs (txIn, txOut) =
+        -- PR #50: cage spends now happen at TWO
+        -- validator addresses: the global state
+        -- validator (Modify) and the per-cage
+        -- request validator (Contribute / Sweep /
+        -- retract). Both produce script-address
+        -- inputs whose redeemer determines the event
+        -- shape; the @decodeSpend@ helper below
+        -- already discriminates by redeemer.
         case txOut ^. addrTxOutL of
-            Addr _ (ScriptHashObj sh) _
-                | sh == scriptHash ->
-                    let ix =
-                            spendingIndex
+            Addr _ (ScriptHashObj _) _ ->
+                let ix =
+                        spendingIndex
+                            txIn
+                            allInputs
+                    purpose =
+                        ConwaySpending (AsIx ix)
+                in  case Map.lookup purpose rdmrs of
+                        Just (redeemerData, _) ->
+                            decodeSpend
                                 txIn
-                                allInputs
-                        purpose =
-                            ConwaySpending (AsIx ix)
-                    in  case Map.lookup purpose rdmrs of
-                            Just (redeemerData, _) ->
-                                decodeSpend
-                                    txIn
-                                    txOut
-                                    redeemerData
-                            Nothing -> []
+                                txOut
+                                redeemerData
+                        Nothing -> []
             _ -> []
 
     decodeSpend txIn txOut redeemerData =
