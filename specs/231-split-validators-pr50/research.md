@@ -36,8 +36,11 @@ below; no `[NEEDS CLARIFICATION]` markers remain.
 
 - **Decision**: `Cardano.MPFS.Indexer.Backend`'s follower set is
   parameterised by:
-  - exactly one global state address (one for the deployment, derived
-    from the global state validator's `OutputRef` parameter), and
+  - exactly one global state address (one for the deployment,
+    corresponding to upstream's unparameterised
+    `validator state { ... }`; the cage seed travels in the boot
+    mint's `Minting(seed)` redeemer, not in a validator parameter),
+    and
   - one per-cage request address per known cage token, derived as in
     R-001 from `(statePolicyId, tokenName)`.
 

@@ -23,7 +23,11 @@ just unit           # MPF / client unit tests
 just unit-offchain  # offchain interface / unit tests (incl. OnChainSpec, TxBuilderSpec)
 just e2e            # CageSpec, CageFlowSpec, ChainSyncSpec,
                     #   HTTPLifecycleSpec, IndexerSpec, ProofsSpec
-just ci             # full local CI mirror — gate before any push
+just ci             # build → unit → unit-offchain → format-check → hlint
+                    #   (does NOT include e2e — see GATE below)
+
+# The full GATE for this stack — required before every push:
+just ci && just e2e
 ```
 
 Expected: every suite passes (SC-001).
@@ -68,11 +72,11 @@ Expected: every suite passes (SC-001).
 1. Stop the offchain server.
 2. Boot one cage `T1` on the devnet.
 3. Start the offchain server.
-4. `GET /requests/T1` returns the pending requests at `T1`'s per-cage
+4. `GET /tokens/T1/requests` returns the pending requests at `T1`'s per-cage
    request address (FR-009).
 5. With the server still running, boot a second cage `T2`.
 6. Submit a request against `T2`.
-7. `GET /requests/T2` returns the new request without restarting the
+7. `GET /tokens/T2/requests` returns the new request without restarting the
    server (FR-008, SC-003).
 
 ## Verifying byte-for-byte parity (SC-005)
