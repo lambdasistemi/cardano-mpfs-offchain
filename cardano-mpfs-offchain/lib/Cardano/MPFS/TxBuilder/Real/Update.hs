@@ -154,11 +154,17 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
     (trieReads, newRoot) <-
         computeProofs tm tid reqUtxos
     -- 3. Extract state and build new datum
-    let (oldState, newStateOut, script, ownerKh) =
-            prepareState
-                cfg
-                stateOut
-                newRoot
+    let ( oldState
+            , newStateOut
+            , stateScript
+            , requestScript
+            , ownerKh
+            ) =
+                prepareState
+                    cfg
+                    tid
+                    stateOut
+                    newRoot
     -- 4. Compute validity upper slot
     upperSlot <-
         computeUpperSlot prov oldState reqUtxos
@@ -174,7 +180,8 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                 feeUtxo
                 oldState
                 newStateOut
-                script
+                stateScript
+                requestScript
                 ownerKh
                 (map readProofSteps trieReads)
                 upperSlot
@@ -269,14 +276,20 @@ queryContext
         , PParams ConwayEra
         )
 queryContext cfg prov tid addr = do
-    let scriptAddr =
+    let stateAddr =
             cageAddrFromCfg cfg (network cfg)
-    cageUtxos <- queryUTxOs prov scriptAddr
+        reqAddr =
+            requestAddrFromCfg
+                cfg
+                tid
+                (network cfg)
+    stateUtxos <- queryUTxOs prov stateAddr
+    requestUtxos <- queryUTxOs prov reqAddr
     let policyId = cagePolicyIdFromCfg cfg
     stateUtxo <- case findStateUtxo
         policyId
         tid
-        cageUtxos of
+        stateUtxos of
         Nothing ->
             error
                 "updateToken: state UTxO \
@@ -284,7 +297,7 @@ queryContext cfg prov tid addr = do
         Just x -> pure x
     let reqUtxos =
             sortOn fst
-                $ findRequestUtxos tid cageUtxos
+                $ findRequestUtxos tid requestUtxos
     when (null reqUtxos)
         $ error "updateToken: no pending requests"
     pp <- queryProtocolParams prov
@@ -318,14 +331,16 @@ data RequestTrieRead = RequestTrieRead
 -- cage script, and owner key hash.
 prepareState
     :: CageConfig
+    -> TokenId
     -> TxOut ConwayEra
     -> Root
     -> ( OnChainTokenState
        , TxOut ConwayEra
        , Script ConwayEra
+       , Script ConwayEra
        , KeyHash 'Witness
        )
-prepareState cfg stateOut newRoot =
+prepareState cfg tid stateOut newRoot =
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
         oldState =
@@ -352,9 +367,15 @@ prepareState cfg stateOut newRoot =
                 & datumTxOutL
                     .~ mkInlineDatum
                         (toPlcData newStateDatum)
-        script = mkCageScript cfg
+        stateScript = mkCageScript cfg
+        requestScript = mkRequestScript cfg tid
         ownerKh = addrWitnessKeyHash ownerBs
-    in  (oldState, newStateOut, script, ownerKh)
+    in  ( oldState
+        , newStateOut
+        , stateScript
+        , requestScript
+        , ownerKh
+        )
 
 -- | Compute the validity upper slot from the
 -- earliest request deadline. Falls back to
@@ -443,6 +464,7 @@ buildProgram
     -> OnChainTokenState
     -> TxOut ConwayEra
     -> Script ConwayEra
+    -> Script ConwayEra
     -> KeyHash 'Witness
     -> [[ProofStep]]
     -> SlotNo
@@ -456,7 +478,8 @@ buildProgram
     feeUtxo
     oldState
     newStateOut
-    script
+    stateScript
+    requestScript
     ownerKh
     proofs
     upperSlot = do
@@ -518,8 +541,9 @@ buildProgram
                         (inject rawRefund)
             )
             (zip [0 ..] reqUtxos)
-        -- Constraints
-        Tx.attachScript script
+        -- Constraints — both validators witness this tx
+        Tx.attachScript stateScript
+        Tx.attachScript requestScript
         Tx.requireSignature ownerKh
         Tx.collateral (fst feeUtxo)
         Tx.validTo upperSlot
