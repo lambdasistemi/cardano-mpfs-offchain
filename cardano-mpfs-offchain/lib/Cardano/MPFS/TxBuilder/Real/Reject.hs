@@ -121,8 +121,13 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
         queryRejectContext cfg prov tid addr
     let (stateIn, stateOut) = stateUtxo
     -- 2. Extract state, build unchanged datum
-    let (oldState, newStateOut, script, ownerKh) =
-            prepareRejectState cfg stateOut
+    let ( oldState
+            , newStateOut
+            , stateScript
+            , requestScript
+            , ownerKh
+            ) =
+                prepareRejectState cfg tid stateOut
     -- 3. Compute validity lower slot
     lowerSlot <-
         computeLowerSlot prov oldState reqUtxos
@@ -137,7 +142,8 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
                 feeUtxo
                 oldState
                 newStateOut
-                script
+                stateScript
+                requestScript
                 ownerKh
                 lowerSlot
     result <-
@@ -186,14 +192,20 @@ queryRejectContext
         , PParams ConwayEra
         )
 queryRejectContext cfg prov tid addr = do
-    let scriptAddr =
+    let stateAddr =
             cageAddrFromCfg cfg (network cfg)
-    cageUtxos <- queryUTxOs prov scriptAddr
+        reqAddr =
+            requestAddrFromCfg
+                cfg
+                tid
+                (network cfg)
+    stateUtxos <- queryUTxOs prov stateAddr
+    requestUtxos <- queryUTxOs prov reqAddr
     let policyId = cagePolicyIdFromCfg cfg
     stateUtxo <- case findStateUtxo
         policyId
         tid
-        cageUtxos of
+        stateUtxos of
         Nothing ->
             error
                 "rejectRequests: state UTxO \
@@ -203,7 +215,7 @@ queryRejectContext cfg prov tid addr = do
     now <- currentPosixMs
     let allReqs =
             sortOn fst
-                $ findRequestUtxos tid cageUtxos
+                $ findRequestUtxos tid requestUtxos
         oldState =
             case extractCageDatum stateOut of
                 Just (StateDatum s) -> s
@@ -238,13 +250,15 @@ queryRejectContext cfg prov tid addr = do
 -- state output, cage script, and owner key hash.
 prepareRejectState
     :: CageConfig
+    -> TokenId
     -> TxOut ConwayEra
     -> ( OnChainTokenState
        , TxOut ConwayEra
        , Script ConwayEra
+       , Script ConwayEra
        , KeyHash 'Witness
        )
-prepareRejectState cfg stateOut =
+prepareRejectState cfg tid stateOut =
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
         oldState =
@@ -268,9 +282,15 @@ prepareRejectState cfg stateOut =
                         ( toPlcData
                             (StateDatum oldState)
                         )
-        script = mkCageScript cfg
+        stateScript = mkCageScript cfg
+        requestScript = mkRequestScript cfg tid
         ownerKh = addrWitnessKeyHash ownerBs
-    in  (oldState, newStateOut, script, ownerKh)
+    in  ( oldState
+        , newStateOut
+        , stateScript
+        , requestScript
+        , ownerKh
+        )
 
 -- | Compute the validity lower slot: must be
 -- AFTER the latest Phase 3 deadline among the
@@ -347,6 +367,7 @@ buildRejectProgram
     -> OnChainTokenState
     -> TxOut ConwayEra
     -> Script ConwayEra
+    -> Script ConwayEra
     -> KeyHash 'Witness
     -> SlotNo
     -> Tx.TxBuild NoCtx Void ()
@@ -358,7 +379,8 @@ buildRejectProgram
     feeUtxo
     oldState
     newStateOut
-    script
+    stateScript
+    requestScript
     ownerKh
     lowerSlot = do
         let stateRef = txInToRef stateIn
@@ -420,7 +442,8 @@ buildRejectProgram
             )
             reqUtxos
         -- Constraints
-        Tx.attachScript script
+        Tx.attachScript stateScript
+        Tx.attachScript requestScript
         Tx.requireSignature ownerKh
         Tx.collateral (fst feeUtxo)
         Tx.validFrom lowerSlot
