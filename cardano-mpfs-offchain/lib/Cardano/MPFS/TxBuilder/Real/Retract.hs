@@ -114,10 +114,21 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
         Nothing ->
             error "retractRequest: unknown request"
         Just LocatedRequest{request = r} -> pure r
-    -- 2. Query cage UTxOs to find request + state
-    let scriptAddr = cageAddrFromCfg cfg (network cfg)
-    cageUtxos <- queryUTxOs prov scriptAddr
-    let reqUtxo = findUtxoByTxIn reqTxIn cageUtxos
+    -- 2. Query the per-cage request address for the
+    --    request UTxO and the global state address
+    --    for the state UTxO (PR #50 split topology).
+    let Request{requestToken = tid} = req
+        reqAddr =
+            requestAddrFromCfg
+                cfg
+                tid
+                (network cfg)
+        stateAddr =
+            cageAddrFromCfg cfg (network cfg)
+    requestUtxos <- queryUTxOs prov reqAddr
+    stateUtxos <- queryUTxOs prov stateAddr
+    let reqUtxo =
+            findUtxoByTxIn reqTxIn requestUtxos
     reqUtxoPair <- case reqUtxo of
         Nothing ->
             error
@@ -126,10 +137,12 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
         Just x -> pure x
     let (reqIn, reqOut) = reqUtxoPair
     -- 3. Find state UTxO for this token
-    let Request{requestToken = tid} = req
-        policyId = cagePolicyIdFromCfg cfg
+    let policyId = cagePolicyIdFromCfg cfg
     stateUtxo <-
-        case findStateUtxo policyId tid cageUtxos of
+        case findStateUtxo
+            policyId
+            tid
+            stateUtxos of
             Nothing ->
                 error
                     "retractRequest: state UTxO \
@@ -187,7 +200,7 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
     SlotNo s <-
         posixMsToSlot prov phase2End
     let upperSlot = SlotNo (max 0 (s - 1))
-        script = mkCageScript cfg
+        script = mkRequestScript cfg tid
         scriptHash = hashScript script
         allInputs =
             Set.fromList [reqIn, fst feeUtxo]
