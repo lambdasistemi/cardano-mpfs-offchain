@@ -7,6 +7,7 @@ module Cardano.MPFS.TxBuilderSpec (spec) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (for_)
 import Data.List (sort)
@@ -14,7 +15,9 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
+import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
+import System.IO.Unsafe (unsafePerformIO)
 
 import Test.Hspec
     ( Spec
@@ -165,6 +168,7 @@ import Cardano.MPFS.TxBuilder.Real
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
+    , requestAddrFromCfg
     )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -236,14 +240,60 @@ realisticPP =
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (Coin 4310)
 
+-- | Real flat-encoded UPLC of upstream's
+-- @validators\/request.ak@ at the pinned PR #50 tip
+-- (@cf3a8bdc@). Loaded once at module init from
+-- @test-data\/request.uplc.hex@ so the synthetic
+-- 'testCageConfig' can compute a consistent
+-- per-cage request address through
+-- 'requestAddrFromCfg'. Production code paths fill
+-- this field from the runtime blueprint instead.
+testRequestScriptBytes :: SBS.ShortByteString
+testRequestScriptBytes =
+    unsafePerformIO loadTestRequestScriptBytes
+{-# NOINLINE testRequestScriptBytes #-}
+
+loadTestRequestScriptBytes :: IO SBS.ShortByteString
+loadTestRequestScriptBytes = do
+    hex <- tryRead candidatePaths
+    let trimmed =
+            BS.takeWhile
+                (\b -> b /= 10 && b /= 13)
+                hex
+    case B16.decode trimmed of
+        Right bs -> pure (SBS.toShort bs)
+        Left err ->
+            error
+                $ "loadTestRequestScriptBytes: "
+                    <> err
+  where
+    candidatePaths =
+        [ "test-data/request.uplc.hex"
+        , "cardano-mpfs-offchain/test-data/request.uplc.hex"
+        ]
+    tryRead [] =
+        error
+            "loadTestRequestScriptBytes: \
+            \test-data/request.uplc.hex not found \
+            \in any of the candidate paths"
+    tryRead (p : ps) = do
+        exists <- doesFileExist p
+        if exists
+            then BS.readFile p
+            else tryRead ps
+
 -- | Cage config for testing with testnet.
--- requestInsert\/requestDelete don't use the script
--- bytes so any value works.
+-- 'cageScriptBytes' carries dummy bytes (the cage
+-- script is not exercised by the synthetic-config
+-- path); 'requestScriptBytes' carries the real
+-- request UPLC so that 'requestAddrFromCfg' resolves
+-- to a deterministic address routable by the mock
+-- provider.
 testCageConfig :: CageConfig
 testCageConfig =
     CageConfig
         { cageScriptBytes = SBS.toShort "dummy"
-        , requestScriptBytes = SBS.empty
+        , requestScriptBytes = testRequestScriptBytes
         , cfgScriptHash = cageScriptHashLedger
         , defaultProcessTime = 300_000
         , defaultRetractTime = 600_000
@@ -691,11 +741,13 @@ updateTokenSpec =
                     tx ^. bodyTxL . mintTxBodyL
             mint `shouldBe` mempty
 
-        it "has cage script witness" $ do
+        it "has state + request script witnesses" $ do
             tx <- runUpdateToken
             let scripts =
                     tx ^. witsTxL . scriptTxWitsL
-            Map.size scripts `shouldBe` 1
+            -- PR #50: state validator + per-cage
+            -- request validator are both attached.
+            Map.size scripts `shouldBe` 2
 
         it "consumes state and request UTxOs" $ do
             (tx, stateIn, reqIn) <-
@@ -887,11 +939,13 @@ rejectRequestsSpec =
                     expectationFailure
                         "no outputs"
 
-        it "has cage script witness" $ do
+        it "has state + request script witnesses" $ do
             tx <- runRejectRequests
             let scripts =
                     tx ^. witsTxL . scriptTxWitsL
-            Map.size scripts `shouldBe` 1
+            -- PR #50: state validator + per-cage
+            -- request validator are both attached.
+            Map.size scripts `shouldBe` 2
 
         it
             "has redeemers for state and request"
@@ -1453,11 +1507,13 @@ updateTxProps =
                 _ ->
                     expectationFailure "no refund output"
 
-        it "exactly 1 script witness" $ do
+        it "state + request script witnesses" $ do
             tx <- runRealisticUpdate
             let scripts =
                     tx ^. witsTxL . scriptTxWitsL
-            Map.size scripts `shouldBe` 1
+            -- PR #50: state validator + per-cage
+            -- request validator are both attached.
+            Map.size scripts `shouldBe` 2
 
         it "required signer = owner" $ do
             (tx, _, _) <- runRealisticUpdateWith
@@ -1830,13 +1886,14 @@ runRetractRequestWith = do
                 , requestSubmittedAt = 0
                 }
     putRequest (requests st) (LocatedRequest reqIn req)
-    -- Build cage UTxOs
-    let scriptAddr = cageAddr Testnet
+    -- Build split cage UTxOs (PR #50 topology):
+    -- state at the global state address, request at
+    -- the per-cage request address.
+    let stateAddr = cageAddr Testnet
+        reqAddr = testReqAddr Testnet
         feeAddr = testAddr testKh
-        cageUtxos =
-            [ (reqIn, mkRequestTxOut)
-            , (stateIn, mkStateTxOut)
-            ]
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos = [(reqIn, mkRequestTxOut)]
         walletUtxos =
             [
                 ( feeIn
@@ -1847,7 +1904,8 @@ runRetractRequestWith = do
             ]
         prov =
             mkRoutingProvider
-                [ (scriptAddr, cageUtxos)
+                [ (stateAddr, stateUtxos)
+                , (reqAddr, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
         builder =
@@ -1886,13 +1944,12 @@ runUpdateTokenWith = do
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
-    -- Build cage UTxOs
-    let scriptAddr = cageAddr Testnet
+    -- Build split cage UTxOs (PR #50 topology).
+    let stateAddr = cageAddr Testnet
+        reqAddr = testReqAddr Testnet
         feeAddr = testAddr testKh
-        cageUtxos =
-            [ (stateIn, mkStateTxOut)
-            , (reqIn, mkRequestTxOut)
-            ]
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos = [(reqIn, mkRequestTxOut)]
         walletUtxos =
             [
                 ( feeIn
@@ -1903,7 +1960,8 @@ runUpdateTokenWith = do
             ]
         prov =
             mkRoutingProvider
-                [ (scriptAddr, cageUtxos)
+                [ (stateAddr, stateUtxos)
+                , (reqAddr, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
     -- Build TrieManager with data
@@ -2001,6 +2059,13 @@ runBootToken cfg = do
 -- | Token ID used across tests.
 testTid :: TokenId
 testTid = TokenId (AssetName "test-token")
+
+-- | Per-cage request address for 'testTid' under
+-- 'testCageConfig'. Mock providers must route
+-- request UTxOs here (PR #50 split topology).
+testReqAddr :: Network -> Addr
+testReqAddr =
+    requestAddrFromCfg testCageConfig testTid
 
 -- | Common fixture: mock state with a token,
 -- provider with a 50-ADA UTxO, and a wired builder.
@@ -2124,12 +2189,11 @@ runRealisticUpdateWith = do
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
-    let scriptAddr = cageAddr Testnet
+    let stateAddr = cageAddr Testnet
+        reqAddr = testReqAddr Testnet
         feeAddr = testAddr testKh
-        cageUtxos =
-            [ (stateIn, mkStateTxOut)
-            , (reqIn, mkRequestTxOut)
-            ]
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos = [(reqIn, mkRequestTxOut)]
         walletUtxos =
             [
                 ( feeIn
@@ -2140,7 +2204,8 @@ runRealisticUpdateWith = do
             ]
         prov =
             mkRealisticRoutingProvider
-                [ (scriptAddr, cageUtxos)
+                [ (stateAddr, stateUtxos)
+                , (reqAddr, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
     trieManager <- mkPureTrieManager
@@ -2179,11 +2244,12 @@ runTightUpdate = do
     stateIn <- generate genTxIn
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
-    let scriptAddr = cageAddr Testnet
+    let stateAddr = cageAddr Testnet
+        reqAddr = testReqAddr Testnet
         feeAddr = testAddr testKh
-        cageUtxos =
-            [ (stateIn, mkStateTxOut)
-            ,
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos =
+            [
                 ( reqIn
                 , mkTightRequestTxOut realisticPP
                 )
@@ -2198,7 +2264,8 @@ runTightUpdate = do
             ]
         prov =
             mkRealisticRoutingProvider
-                [ (scriptAddr, cageUtxos)
+                [ (stateAddr, stateUtxos)
+                , (reqAddr, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
     trieManager <- mkPureTrieManager
@@ -2245,12 +2312,11 @@ runRealisticRetractWith = do
                 , requestSubmittedAt = 0
                 }
     putRequest (requests st) (LocatedRequest reqIn req)
-    let scriptAddr = cageAddr Testnet
+    let stateAddr = cageAddr Testnet
+        reqAddr = testReqAddr Testnet
         feeAddr = testAddr testKh
-        cageUtxos =
-            [ (reqIn, mkRequestTxOut)
-            , (stateIn, mkStateTxOut)
-            ]
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos = [(reqIn, mkRequestTxOut)]
         walletUtxos =
             [
                 ( feeIn
@@ -2261,7 +2327,8 @@ runRealisticRetractWith = do
             ]
         prov =
             mkRealisticRoutingProvider
-                [ (scriptAddr, cageUtxos)
+                [ (stateAddr, stateUtxos)
+                , (reqAddr, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
         builder =
@@ -2372,10 +2439,8 @@ runRejectRequests = do
     reqIn <- generate genTxIn
     feeIn <- generate genTxIn
     let feeAddr = testAddr testKh
-        cageUtxos =
-            [ (stateIn, mkStateTxOut)
-            , (reqIn, mkRequestTxOut)
-            ]
+        stateUtxos = [(stateIn, mkStateTxOut)]
+        requestUtxos = [(reqIn, mkRequestTxOut)]
         walletUtxos =
             [
                 ( feeIn
@@ -2386,7 +2451,8 @@ runRejectRequests = do
             ]
         prov =
             mkRoutingProvider
-                [ (cageAddr Testnet, cageUtxos)
+                [ (cageAddr Testnet, stateUtxos)
+                , (testReqAddr Testnet, requestUtxos)
                 , (feeAddr, walletUtxos)
                 ]
         trieManager = dummyTrieManager

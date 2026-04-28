@@ -271,6 +271,7 @@ test-suite unit-tests
     , containers
     , contra-tracer
     , dependent-map
+    , directory
     , hspec                                    >=2.11 && <2.12
     , http-types
     , lens
