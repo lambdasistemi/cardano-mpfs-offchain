@@ -727,6 +727,7 @@ cageCfg :: SBS.ShortByteString -> CageConfig
 cageCfg scriptBytes =
     CageConfig
         { cageScriptBytes = scriptBytes
+        , requestScriptBytes = SBS.empty
         , cfgScriptHash =
             computeScriptHash scriptBytes
         , defaultProcessTime = 5_000
