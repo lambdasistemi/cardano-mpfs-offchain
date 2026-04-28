@@ -23,6 +23,7 @@ import Cardano.MPFS.State (State)
 import Cardano.MPFS.Submitter (Submitter)
 import Cardano.MPFS.Trie (TrieManager)
 import Cardano.MPFS.TxBuilder (TxBuilder)
+import Cardano.MPFS.TxBuilder.Config (CageConfig)
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
 
 -- | Top-level context bundling all service
@@ -38,6 +39,16 @@ data Context m = Context
     -- ^ Transaction submission
     , txBuilder :: TxBuilder m
     -- ^ Transaction construction
+    , cfgCage :: ~CageConfig
+    -- ^ Static cage script config (used by sweep
+    -- and any handler that needs raw script bytes
+    -- or per-cage parameterisation at runtime).
+    -- Distinct field name from 'AppConfig.cageConfig'
+    -- to avoid ambiguous-field errors at use sites.
+    -- Marked lazy with @~@ so that mock contexts
+    -- which never reach the sweep handler can
+    -- leave this field as @error "…"@ without
+    -- crashing under @StrictData@.
     , utxoExists :: TxIn -> m Bool
     -- ^ Check if a UTxO exists in the indexed state
     , resolveUtxo

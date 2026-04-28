@@ -620,6 +620,8 @@ withApplication cfg action = do
                                         st
                                         tm
                                         proof
+                                , cfgCage =
+                                    cageConfig cfg
                                 , utxoExists = exists
                                 , resolveUtxo = resolve
                                 , awaitUtxo =
