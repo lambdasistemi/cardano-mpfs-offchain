@@ -197,7 +197,10 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
     let datum =
             mkRequestDatum tid addr key op mf now
         scriptAddr =
-            cageAddrFromCfg cfg (network cfg)
+            requestAddrFromCfg
+                cfg
+                tid
+                (network cfg)
         draftOut =
             mkBasicTxOut
                 scriptAddr
