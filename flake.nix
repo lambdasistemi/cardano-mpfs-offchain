@@ -24,10 +24,8 @@
     };
     cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = {
-      # Tracking PR #50 (split state and request validators) during
-      # integration. Will rebump to main once #50 merges.
       url =
-        "github:cardano-foundation/cardano-mpfs-onchain/cf3a8bdcd1414aa62d490c8fa51c2ef87336179f";
+        "github:cardano-foundation/cardano-mpfs-onchain/023d352e850f866752927818da44861478ae99e5";
     };
   };
 
