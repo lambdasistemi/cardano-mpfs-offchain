@@ -99,9 +99,9 @@ they consume as the proof-carrying slices land.
 ```bash
 nix develop
 just build
-just unit            # MPF unit tests
-just unit-offchain   # offchain unit tests
-just e2e             # E2E tests (requires cardano-node in PATH)
+just unit            # unit tests via nix run .#unit-tests
+just unit-offchain   # same unit-test flake app
+just e2e             # E2E tests via nix run .#e2e-tests
 just update-swagger  # regenerate docs/assets/swagger.json
 ```
 

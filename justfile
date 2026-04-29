@@ -8,28 +8,15 @@ default:
 
 # Format all source files
 format:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    hs_files=$(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
-    for i in {1..3}; do
-        fourmolu -i $hs_files
-    done
-    find . -name '*.cabal' -not -path './dist-newstyle/*' | xargs cabal-fmt -i
-    find . -name '*.nix' -not -path './dist-newstyle/*' | xargs nixfmt
+    nix run --quiet .#format
 
 # Check formatting without modifying files
 format-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    hs_files=$(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
-    fourmolu -m check $hs_files
-    find . -name '*.cabal' -not -path './dist-newstyle/*' | xargs cabal-fmt -c
+    nix run --quiet .#format-check
 
 # Run hlint
 hlint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*' | xargs hlint
+    nix run --quiet .#hlint
 
 # Build all components
 build:
@@ -41,31 +28,25 @@ build:
 unit match="":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ '{{ match }}' == "" ]]; then
-        cabal test cardano-mpfs-offchain:unit-tests -O0 --test-show-details=direct
-    else
-        cabal test cardano-mpfs-offchain:unit-tests -O0 \
-            --test-show-details=direct \
-            --test-option=--match \
-            --test-option="{{ match }}"
+    args=()
+    if [[ '{{ match }}' != "" ]]; then
+        args+=(--match "{{ match }}")
     fi
+    nix run --quiet .#unit-tests -- "${args[@]}"
 
 # Run offchain interface tests with optional match
 unit-offchain match="":
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ '{{ match }}' == "" ]]; then
-        cabal test cardano-mpfs-offchain:unit-tests -O0 --test-show-details=direct
-    else
-        cabal test cardano-mpfs-offchain:unit-tests -O0 \
-            --test-show-details=direct \
-            --test-option=--match \
-            --test-option="{{ match }}"
+    args=()
+    if [[ '{{ match }}' != "" ]]; then
+        args+=(--match "{{ match }}")
     fi
+    nix run --quiet .#unit-tests -- "${args[@]}"
 
-# Full CI pipeline (mirrors .github/workflows/ci.yml)
+# Non-Docker CI gate (mirrors .github/workflows/ci.yml)
 ci:
-    just build
+    nix build --quiet .#cardano-mpfs-offchain .#checks.x86_64-linux.swagger-up-to-date
     just unit
     just unit-offchain
     just format-check
@@ -75,13 +56,11 @@ ci:
 e2e match="":
     #!/usr/bin/env bash
     set -euo pipefail
-    nix build .#e2e-tests --quiet
     args=()
     if [[ '{{ match }}' != "" ]]; then
         args+=(--match "{{ match }}")
     fi
-    E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
-        nix develop --quiet -c ./result/bin/e2e-tests "${args[@]}"
+    nix run --quiet .#e2e-tests -- "${args[@]}"
 
 # Regenerate docs/assets/swagger.json
 update-swagger:

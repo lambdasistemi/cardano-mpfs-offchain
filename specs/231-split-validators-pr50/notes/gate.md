@@ -5,15 +5,21 @@ Captured per `pr` skill Setup step 1 (T001).
 ## Single-command form
 
 ```bash
-nix develop --command bash -c '
-  just ci \
-  && find . -name "*.cabal" -not -path "./dist-newstyle/*" | xargs cabal-fmt -c \
-  && just e2e
-'
+just ci && just e2e
 ```
 
-CI (`/.github/workflows/ci.yml`) runs `cabal-fmt -c` on all `.cabal`
-files; `just ci` does not. Adding it here matches CI exactly.
+CI (`/.github/workflows/ci.yml`) uses flake outputs directly for all
+non-Docker verification commands:
+
+```bash
+nix run --quiet .#unit-tests
+nix run --quiet .#format-check
+nix run --quiet .#hlint
+nix run --quiet .#e2e-tests
+```
+
+Docker remains a package build (`nix build .#docker-image`) because
+running Docker is a separate host-level boundary.
 
 Run from the repo root. This is the full per-patch gate — invoke it
 unchanged after every `stg refresh` and at every step of the stack
@@ -24,19 +30,21 @@ walk (T061).
 `just ci` (`justfile:67`) decomposes into:
 
 ```
-just build           # cabal build all -O0 across the multi-package project
-just unit            # MPF / client unit tests
-just unit-offchain   # offchain interface + unit tests (incl. OnChainSpec, TxBuilderSpec)
-just format-check    # fourmolu --mode check
-just hlint
+build package/check  # nix build .#cardano-mpfs-offchain + swagger check
+just unit            # nix run .#unit-tests
+just unit-offchain   # nix run .#unit-tests
+just format-check    # nix run .#format-check
+just hlint           # nix run .#hlint
 ```
 
-`just e2e` (`justfile:75`) builds `.#e2e-tests` through Nix and runs
-the resulting `./result/bin/e2e-tests` executable under `nix develop`.
-This matches the GitHub `e2e` job. The suite covers the offchain E2E
-modules under `cardano-mpfs-offchain/e2e-test/` (CageSpec,
-CageFlowSpec, ChainSyncSpec, HTTPLifecycleSpec, IndexerSpec,
-ProofsSpec) against a `cardano-node` subprocess devnet.
+`just e2e` (`justfile:75`) runs `nix run --quiet .#e2e-tests`.
+The flake app wraps the built E2E test executable with
+`MPFS_BLUEPRINT`, `E2E_GENESIS_DIR`, `cardano-node`, `cardano-cli`,
+and `aiken` on the runtime path. This matches the GitHub `e2e` job.
+The suite covers the offchain E2E modules under
+`cardano-mpfs-offchain/e2e-test/` (CageSpec, CageFlowSpec,
+ChainSyncSpec, HTTPLifecycleSpec, IndexerSpec, ProofsSpec) against a
+`cardano-node` subprocess devnet.
 
 E2E is **not** part of `just ci` — it is a separate recipe. Per
 Constitution Principle V (byte-for-byte parity with the upstream
@@ -45,9 +53,10 @@ this feature, so the gate must include both.
 
 ## Tool versions
 
-Pinned by the project's `flake.nix` development shell (entered via
-`nix develop`). No system-level tools are used; the gate must be run
-through `nix develop`.
+Pinned by the project's flake apps. `format-check` and `hlint` use
+the same haskell.nix tool pins as the development shell. `unit-tests`
+and `e2e-tests` wrap the built test executables with the required
+blueprint/devnet runtime environment.
 
 ## Ordering
 
@@ -58,8 +67,7 @@ short-circuit.
 ## Notes
 
 - Whitespace and typo workflows are not separate jobs in this repo —
-  fourmolu (`just format-check`), hlint (`just hlint`), and
-  `cabal-fmt -c` are the only style gates CI runs.
+  fourmolu + cabal-fmt (`just format-check`) and hlint (`just hlint`)
+  are the only style gates CI runs.
 - Path-scope: `just format-check` covers the entire workspace, not
-  a subset, so no per-path scoping is needed. `cabal-fmt -c` runs
-  against every `*.cabal` outside `dist-newstyle/`.
+  a subset, so no per-path scoping is needed.

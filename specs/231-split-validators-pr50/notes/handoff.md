@@ -62,8 +62,15 @@ Fix:
   `SBS.empty`.
 - E2E assertions/resolvers now query the derived per-cage request
   address when checking or resolving request UTxOs.
-- `just e2e` now runs the same Nix-built `e2e-tests` executable as CI
-  instead of the stale `mpfs-bootstrap-genesis` Cabal target.
+- `just e2e` now runs the `.#e2e-tests` flake app through `nix run`.
+  The app wraps the built E2E executable with the blueprint, devnet
+  genesis, `cardano-node`, `cardano-cli`, and `aiken` runtime
+  environment instead of relying on the stale `mpfs-bootstrap-genesis`
+  Cabal target.
+- The same flake-app standard is used for non-Docker CI commands:
+  `.#unit-tests`, `.#format-check`, `.#hlint`, and `.#e2e-tests` run
+  through `nix run`; Docker remains a `nix build .#docker-image`
+  artifact.
 
 ## Layout notes
 
@@ -85,16 +92,13 @@ Fix:
 gate command:
 
 ```bash
-nix develop --command bash -c '
-  just ci \
-  && find . -name "*.cabal" -not -path "./dist-newstyle/*" | xargs cabal-fmt -c \
-  && just e2e
-'
+just ci && just e2e
 ```
 
-`just ci` does NOT include e2e — the recipe is `build → unit →
-unit-offchain → format-check → hlint`. Add `cabal-fmt -c` to match
-CI exactly.
+`just ci` does NOT include e2e — the recipe is `nix build` for the
+library/swagger check, then `unit → unit-offchain → format-check →
+hlint`. The `unit`, `format-check`, `hlint`, and `e2e` recipes run
+flake apps.
 
 ## Outstanding tasks (in priority order)
 
@@ -130,6 +134,9 @@ just unit-offchain
 
 # E2E (green: 22/0 after e2e green-up)
 just e2e
+
+# Direct flake app form
+nix run .#e2e-tests
 ```
 
 For a single targeted run with verbose output:
