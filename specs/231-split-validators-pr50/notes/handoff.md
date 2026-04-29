@@ -2,8 +2,8 @@
 
 **Branch:** `231-split-validators-pr50`
 **PR:** https://github.com/lambdasistemi/cardano-mpfs-offchain/pull/241 (draft)
-**Head:** `a39b0f6` at pickup; e2e green-up completed locally on
-2026-04-29.
+**Head at pickup:** `a39b0f6`; e2e green-up and the `just e2e`
+recipe fix completed locally on 2026-04-29.
 **Upstream pin:** `cardano-foundation/cardano-mpfs-onchain@cf3a8bdc` (PR #50 tip)
 
 ## What is done
@@ -34,7 +34,7 @@ upward:
 | Build Gate (Nix derivations + swagger up-to-date) | ✅ |
 | build (unit tests, 369/0) | ✅ |
 | deploy (docs) | ✅ |
-| e2e | ✅ 22 examples, 0 failures locally |
+| e2e | ✅ GitHub e2e and local `just e2e` both pass, 22 examples / 0 failures |
 
 ## Resolved e2e blocker
 
@@ -62,6 +62,8 @@ Fix:
   `SBS.empty`.
 - E2E assertions/resolvers now query the derived per-cage request
   address when checking or resolving request UTxOs.
+- `just e2e` now runs the same Nix-built `e2e-tests` executable as CI
+  instead of the stale `mpfs-bootstrap-genesis` Cabal target.
 
 ## Layout notes
 
@@ -127,18 +129,13 @@ just build
 just unit-offchain
 
 # E2E (green: 22/0 after e2e green-up)
-nix build .#e2e-tests
-E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
-  nix develop --quiet -c ./result/bin/e2e-tests --match "Cage E2E"
+just e2e
 ```
 
 For a single targeted run with verbose output:
 
 ```bash
-E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
-  nix develop --quiet -c ./result/bin/e2e-tests \
-    --match "Cage E2E/boot, request, update, retract" \
-    --format=specdoc --print-cpu-time --fail-fast
+just e2e "Cage E2E/boot, request, update, retract"
 ```
 
 ## Spec compliance checkpoint
