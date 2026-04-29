@@ -56,11 +56,17 @@ library
     Cardano.MPFS.Client
     Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Http
+    Cardano.MPFS.Client.Read
     Cardano.MPFS.Client.Snapshot
+    Cardano.MPFS.Client.TrustedRoot
     Cardano.MPFS.Client.Verify
+    Cardano.MPFS.Client.Verify.Completeness
     Cardano.MPFS.Client.Verify.DSL
+    Cardano.MPFS.Client.Verify.Read
     Cardano.MPFS.Client.Verify.Replay
     Cardano.MPFS.Client.Verify.TxView
+    Cardano.MPFS.Client.Verify.Write
+    Cardano.MPFS.Client.Write
 
 executable mpfs-verify
   import:           warnings
