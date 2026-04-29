@@ -75,16 +75,13 @@ ci:
 e2e match="":
     #!/usr/bin/env bash
     set -euo pipefail
-    cabal build mpfs-bootstrap-genesis -O0
-    export PATH="$(cabal list-bin mpfs-bootstrap-genesis -O0 | xargs dirname):$PATH"
-    if [[ '{{ match }}' == "" ]]; then
-        cabal test cardano-mpfs-offchain:e2e-tests -O0 --test-show-details=direct
-    else
-        cabal test cardano-mpfs-offchain:e2e-tests -O0 \
-            --test-show-details=direct \
-            --test-option=--match \
-            --test-option="{{ match }}"
+    nix build .#e2e-tests --quiet
+    args=()
+    if [[ '{{ match }}' != "" ]]; then
+        args+=(--match "{{ match }}")
     fi
+    E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
+        nix develop --quiet -c ./result/bin/e2e-tests "${args[@]}"
 
 # Regenerate docs/assets/swagger.json
 update-swagger:
