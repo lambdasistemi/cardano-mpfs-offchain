@@ -10,15 +10,14 @@
 -- License     : Apache-2.0
 module Cardano.MPFS.E2E.CageSpec (spec) where
 
-import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
+import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Data.Word (Word8)
 import Lens.Micro ((^.))
 import System.Directory
     ( createDirectoryIfMissing
@@ -26,6 +25,7 @@ import System.Directory
     , removePathForcibly
     )
 import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
 import Test.Hspec
@@ -40,7 +40,6 @@ import Test.Hspec
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
-    , sizeTxF
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -52,10 +51,9 @@ import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.BaseTypes
     ( Network (..)
     , TxIx (..)
-    , pvMajor
     )
 import Cardano.Ledger.Binary (serialize)
-import Cardano.Ledger.Core (eraProtVerLow, getMinFeeTx)
+import Cardano.Ledger.Core (eraProtVerLow)
 import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
     )
@@ -159,7 +157,7 @@ cageFlowSpec
 cageFlowSpec bpPath scripts =
     it "boot, request, update, retract"
         $ withE2E scripts
-        $ \_sock _startMs cfg ctx -> do
+        $ \_sock startMs cfg ctx -> do
             let scriptAddr =
                     cageAddrFromCfg cfg Testnet
 
@@ -272,34 +270,11 @@ cageFlowSpec bpPath scripts =
                     addKeyWitness
                         genesisSignKey
                         unsignedUpdate
-            -- Trace sizes
-            pp <- queryProtocolParams (provider ctx)
-            let signedSize =
-                    signedUpdate ^. sizeTxF
-                signedGetMin =
-                    getMinFeeTx pp signedUpdate 0
-            let ver = pvMajor (pp ^. ppProtocolVersionL)
-                signedHex =
-                    B16.encode
-                        ( BSL.toStrict
-                            (serialize ver signedUpdate)
-                        )
-            BS.writeFile
-                "/tmp/mpfs-signed.cbor.hex"
-                signedHex
-            appendFile "/tmp/mpfs-dsl.log"
-                $ "SIGNED: size="
-                    <> show signedSize
-                    <> " getMinFee(0)="
-                    <> show signedGetMin
-                    <> "\n"
-            -- Dump for aiken simulate (before
-            -- submit so UTxOs still exist)
-            dumpTxForAiken
+            maybeDumpTxForAiken
                 (provider ctx)
                 cfg
                 [requestAddr]
-                _startMs
+                startMs
                 bpPath
                 "update"
                 signedUpdate
@@ -506,18 +481,13 @@ extractTokenId cfg tx =
 awaitTx :: IO ()
 awaitTx = threadDelay 5_000_000
 
--- ---------------------------------------------------------
--- Aiken debug dump
--- ---------------------------------------------------------
-
--- | Dump a signed transaction and its resolved
--- inputs to files for @aiken tx simulate@.
+-- | Optionally dump and simulate a signed transaction with Aiken.
 --
--- Resolves all spent + reference inputs by
--- querying wallet and cage addresses, then
--- calls @aiken tx simulate@ with the correct
--- slot configuration and blueprint.
-dumpTxForAiken
+-- The helper is intentionally quiet by default. Set
+-- @MPFS_E2E_AIKEN_SIMULATE=1@ when debugging validator failures; the
+-- signed transaction, resolved inputs, resolved outputs, and simulator
+-- streams are written under @/tmp/aiken-<label>-*@.
+maybeDumpTxForAiken
     :: Provider IO
     -> CageConfig
     -> [Addr]
@@ -526,120 +496,112 @@ dumpTxForAiken
     -> String
     -> Tx ConwayEra
     -> IO ()
-dumpTxForAiken prov cfg extraScriptAddrs startMs bpPath label tx = do
-    let ver = eraProtVerLow @ConwayEra
-    -- 1. Collect all TxIns (spent + ref)
-    let spentIns =
-            Set.toAscList
-                ( tx
-                    ^. bodyTxL
-                        . inputsTxBodyL
-                )
-        refIns =
-            Set.toAscList
-                ( tx
-                    ^. bodyTxL
-                        . referenceInputsTxBodyL
-                )
-        allIns = spentIns <> refIns
-    -- 2. Resolve UTxOs from chain
-    let scriptAddr =
-            cageAddrFromCfg cfg (network cfg)
-    walletUtxos <-
-        queryUTxOs prov genesisAddr
-    scriptUtxos <-
-        concat
-            <$> traverse
-                (queryUTxOs prov)
-                (scriptAddr : extraScriptAddrs)
-    let utxoMap =
-            Map.fromList
-                (walletUtxos <> scriptUtxos)
-        resolve tin =
-            case Map.lookup tin utxoMap of
-                Just out -> (tin, out)
-                Nothing ->
-                    error
-                        $ "dumpTxForAiken: \
-                          \unresolved "
-                            <> show tin
-        resolved = map resolve allIns
-        txIns :: [TxIn]
-        txIns = map fst resolved
-        txOuts :: [TxOut ConwayEra]
-        txOuts = map snd resolved
-    -- 3. Write CBOR hex files
-    let prefix =
-            "/tmp/aiken-" <> label
-    BS.writeFile
-        (prefix <> "-tx.hex")
-        $ toHex
-        $ BSL.toStrict
-        $ serialize ver tx
-    BS.writeFile
-        (prefix <> "-inputs.hex")
-        $ toHex
-        $ BSL.toStrict
-        $ serialize ver txIns
-    BS.writeFile
-        (prefix <> "-outputs.hex")
-        $ toHex
-        $ BSL.toStrict
-        $ serialize ver txOuts
-    -- 4. Run aiken tx simulate (optional)
-    putStrLn
-        $ "=== aiken simulate ("
-            <> label
-            <> ") ==="
-    result <-
-        try
-            $ readProcessWithExitCode
-                "aiken"
-                [ "tx"
-                , "simulate"
-                , prefix <> "-tx.hex"
-                , prefix <> "-inputs.hex"
-                , prefix <> "-outputs.hex"
-                , "--slot-length"
-                , "100"
-                , "--zero-time"
-                , show startMs
-                , "--zero-slot"
-                , "0"
-                , "--blueprint"
-                , bpPath
-                ]
-                ""
-    case result of
-        Left (e :: SomeException) ->
-            putStrLn
-                $ "aiken not available: "
-                    <> show e
-        Right (exitCode, stdout', stderr') -> do
-            putStrLn
-                $ "Exit: " <> show exitCode
-            putStrLn
-                $ "Stdout:\n" <> stdout'
-            putStrLn
-                $ "Stderr:\n" <> stderr'
-
--- | Encode a 'ByteString' to hex.
-toHex :: BS.ByteString -> BS.ByteString
-toHex =
-    BS.concatMap
-        ( \w ->
-            BS.pack
-                [hexChar (w `div` 16), hexChar (w `mod` 16)]
-        )
+maybeDumpTxForAiken prov cfg extraScriptAddrs startMs bpPath label tx = do
+    enabled <-
+        maybe False truthy
+            <$> lookupEnv "MPFS_E2E_AIKEN_SIMULATE"
+    when enabled dumpAndSimulate
   where
-    hexChar :: Word8 -> Word8
-    hexChar n
-        | n < 10 =
-            n + fromIntegral (fromEnum '0')
-        | otherwise =
-            n
-                - 10
-                + fromIntegral (fromEnum 'a')
+    dumpAndSimulate :: IO ()
+    dumpAndSimulate = do
+        let ver = eraProtVerLow @ConwayEra
+            spentIns =
+                Set.toAscList
+                    ( tx
+                        ^. bodyTxL
+                            . inputsTxBodyL
+                    )
+            refIns =
+                Set.toAscList
+                    ( tx
+                        ^. bodyTxL
+                            . referenceInputsTxBodyL
+                    )
+            allIns = spentIns <> refIns
+            scriptAddr =
+                cageAddrFromCfg cfg (network cfg)
+        walletUtxos <-
+            queryUTxOs prov genesisAddr
+        scriptUtxos <-
+            concat
+                <$> traverse
+                    (queryUTxOs prov)
+                    (scriptAddr : extraScriptAddrs)
+        let utxoMap =
+                Map.fromList
+                    (walletUtxos <> scriptUtxos)
+            resolve tin =
+                case Map.lookup tin utxoMap of
+                    Just out -> (tin, out)
+                    Nothing ->
+                        error
+                            $ "maybeDumpTxForAiken: unresolved "
+                                <> show tin
+            resolved = map resolve allIns
+            txIns :: [TxIn]
+            txIns = map fst resolved
+            txOuts :: [TxOut ConwayEra]
+            txOuts = map snd resolved
+            prefix =
+                "/tmp/aiken-" <> label
+            stdoutPath =
+                prefix <> "-stdout.txt"
+            stderrPath =
+                prefix <> "-stderr.txt"
+            encodeCborHex value =
+                B16.encode
+                    $ BSL.toStrict
+                    $ serialize ver value
+        BS.writeFile
+            (prefix <> "-tx.hex")
+            (encodeCborHex tx)
+        BS.writeFile
+            (prefix <> "-inputs.hex")
+            (encodeCborHex txIns)
+        BS.writeFile
+            (prefix <> "-outputs.hex")
+            (encodeCborHex txOuts)
+        result <-
+            try
+                $ readProcessWithExitCode
+                    "aiken"
+                    [ "tx"
+                    , "simulate"
+                    , prefix <> "-tx.hex"
+                    , prefix <> "-inputs.hex"
+                    , prefix <> "-outputs.hex"
+                    , "--slot-length"
+                    , "100"
+                    , "--zero-time"
+                    , show startMs
+                    , "--zero-slot"
+                    , "0"
+                    , "--blueprint"
+                    , bpPath
+                    ]
+                    ""
+        case result of
+            Left (e :: SomeException) ->
+                expectationFailure
+                    $ "aiken tx simulate failed to run: "
+                        <> show e
+            Right (exitCode, stdout', stderr') -> do
+                writeFile stdoutPath stdout'
+                writeFile stderrPath stderr'
+                case exitCode of
+                    ExitSuccess -> pure ()
+                    ExitFailure{} ->
+                        expectationFailure
+                            $ "aiken tx simulate failed: "
+                                <> show exitCode
+                                <> "; see "
+                                <> stdoutPath
+                                <> " and "
+                                <> stderrPath
+
+truthy :: String -> Bool
+truthy value =
+    value `notElem` ["", "0", "false", "False", "no", "No"]
 
 -- ---------------------------------------------------------
 -- Config

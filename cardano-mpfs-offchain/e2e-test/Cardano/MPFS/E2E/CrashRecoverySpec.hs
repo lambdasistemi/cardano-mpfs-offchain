@@ -74,7 +74,7 @@ import Control.Concurrent.STM
     , readTMVar
     , tryPutTMVar
     )
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Control.Tracer
     ( Tracer (..)
     , traceWith
@@ -168,11 +168,10 @@ killAndVerify scripts targetPhase = do
                             -- Record expected state
                             r <- utxoRoot ctx
                             pure (tid, r)
-
-        putStrLn
+        debugLog
             $ "Booted token: "
                 ++ show tokenId
-        putStrLn
+        debugLog
             $ "Expected root: "
                 ++ show expectedRoot
 
@@ -180,7 +179,7 @@ killAndVerify scripts targetPhase = do
         withSystemTempDirectory "mpfs-kill"
             $ \dbPath -> do
                 -- First run: populate then kill
-                putStrLn
+                debugLog
                     $ "Kill during "
                         ++ show targetPhase
                         ++ "..."
@@ -190,14 +189,14 @@ killAndVerify scripts targetPhase = do
                         socketPath
                         cfg
                         dbPath
-                putStrLn
+                debugLog
                     $ "Phases seen: "
                         ++ show phasesSeen
                 last phasesSeen
                     `shouldBe` targetPhase
 
                 -- Step 3: restart, verify
-                putStrLn "Restarting..."
+                debugLog "Restarting..."
                 withMpfsSynced
                     socketPath
                     cfg
@@ -205,11 +204,11 @@ killAndVerify scripts targetPhase = do
                     $ \ctx -> do
                         -- Verify merkle root
                         root <- utxoRoot ctx
-                        putStrLn
+                        debugLog
                             $ "Root after restart: "
                                 ++ show root
                         root
-                            `shouldSatisfy` (/= Nothing)
+                            `shouldBe` expectedRoot
 
                         -- Verify cage state
                         mToken <-
@@ -218,7 +217,7 @@ killAndVerify scripts targetPhase = do
                                     (state ctx)
                                 )
                                 tokenId
-                        putStrLn
+                        debugLog
                             $ "Token after restart: "
                                 ++ show
                                     ( fmap
@@ -229,6 +228,17 @@ killAndVerify scripts targetPhase = do
                                     )
                         mToken
                             `shouldSatisfy` (/= Nothing)
+
+debugLog :: String -> IO ()
+debugLog msg = do
+    enabled <-
+        maybe False truthy
+            <$> lookupEnv "MPFS_E2E_DEBUG"
+    when enabled (putStrLn msg)
+
+truthy :: String -> Bool
+truthy value =
+    value `notElem` ["", "0", "false", "False", "no", "No"]
 
 -- * App helpers
 
