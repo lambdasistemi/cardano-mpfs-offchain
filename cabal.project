@@ -76,11 +76,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  -- Tracking PR cardano-foundation/cardano-mpfs-onchain#50 (split state
-  -- and request validators) during integration. Will rebump to the
-  -- main SHA before merging this downstream PR.
-  tag: cf3a8bdcd1414aa62d490c8fa51c2ef87336179f
-  --sha256: 1bwxf7n7xhbayhn1ln47nij4l58l61d7p34bs3i6hxa2calriqq7
+  tag: 023d352e850f866752927818da44861478ae99e5
+  --sha256: 1w1i4a00m08r0hf4bn6dwvmka1qibrchdz06l9bck8xzzvyn69k1
   subdir: haskell
 
 -- Enable iohk flag for contra-tracer-contrib to use CHaP's simple API

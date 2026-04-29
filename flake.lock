@@ -596,17 +596,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1777366109,
-        "narHash": "sha256-B+OYqWJCdWji0IuMe1owFBVKZLSHWBos9GrBfuxxna8=",
+        "lastModified": 1777468828,
+        "narHash": "sha256-YSZj/f6/o8lWogb8BlleEQc16+bN2EUcBBmBCoAiMfA=",
         "owner": "cardano-foundation",
         "repo": "cardano-mpfs-onchain",
-        "rev": "cf3a8bdcd1414aa62d490c8fa51c2ef87336179f",
+        "rev": "023d352e850f866752927818da44861478ae99e5",
         "type": "github"
       },
       "original": {
         "owner": "cardano-foundation",
         "repo": "cardano-mpfs-onchain",
-        "rev": "cf3a8bdcd1414aa62d490c8fa51c2ef87336179f",
+        "rev": "023d352e850f866752927818da44861478ae99e5",
         "type": "github"
       }
     },
