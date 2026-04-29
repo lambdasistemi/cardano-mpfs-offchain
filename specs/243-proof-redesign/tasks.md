@@ -35,9 +35,9 @@ description: "Task breakdown for post-split proof redesign"
 
 **Purpose**: prepare module scaffolding and Lake project entries before any logic lands.
 
-- [ ] T001 Add new modules to `cardano-mpfs-client/cardano-mpfs-client.cabal`: `Cardano.MPFS.Client.Read`, `Cardano.MPFS.Client.Write`, `Cardano.MPFS.Client.Verify.Read`, `Cardano.MPFS.Client.Verify.Write`, `Cardano.MPFS.Client.Verify.Completeness`, `Cardano.MPFS.Client.TrustedRoot`
-- [ ] T002 [P] Add new Lean files to `lean/lakefile.lean` exports: `Phase4/ProofRedesign.lean`, `Phase4/Completeness.lean`
-- [ ] T003 [P] Update `WIP.md` status section to "Phase 1 — Setup in progress"
+- [X] T001 Add new modules to `cardano-mpfs-client/cardano-mpfs-client.cabal`: `Cardano.MPFS.Client.Read`, `Cardano.MPFS.Client.Write`, `Cardano.MPFS.Client.Verify.Read`, `Cardano.MPFS.Client.Verify.Write`, `Cardano.MPFS.Client.Verify.Completeness`, `Cardano.MPFS.Client.TrustedRoot` (stub modules also created so each commit compiles cleanly)
+- [X] T002 [P] Add new Lean files to `lean/lakefile.lean` exports: `Phase4/ProofRedesign.lean`, `Phase4/Completeness.lean` (no-op — Lake's `lean_lib Phase4` auto-discovers `Phase4/*.lean`; files will materialise in T004)
+- [X] T003 [P] Update `WIP.md` status section to "Phase 1 — Setup in progress"
 
 ---
 
