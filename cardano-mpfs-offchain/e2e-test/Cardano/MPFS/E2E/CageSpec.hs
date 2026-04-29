@@ -16,7 +16,6 @@ import Control.Exception (SomeException, try)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
-import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Word (Word8)
@@ -71,11 +70,12 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
-    ( BlockId (..)
+    ( Addr
+    , BlockId (..)
     , Coin (..)
     , ConwayEra
     , LocatedRequest (..)
@@ -112,6 +112,7 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
     , cagePolicyIdFromCfg
     , computeScriptHash
+    , requestAddrFromCfg
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -135,28 +136,17 @@ spec = describe "Cage E2E" $ do
                 \not set)"
                 (pure () :: IO ())
         Just path -> do
-            ebp <-
-                runIO $ loadBlueprint path
-            case ebp of
+            eScripts <-
+                runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it
                         ( "blueprint error: "
                             <> err
                         )
                         (expectationFailure err)
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script not \
-                                    \found in blueprint"
-                        Just scriptBytes ->
-                            cageFlowSpec
-                                path
-                                scriptBytes
+                Right scripts ->
+                    cageFlowSpec path scripts
 
 -- ---------------------------------------------------------
 -- Test implementation
@@ -165,10 +155,10 @@ spec = describe "Cage E2E" $ do
 -- | Full cage flow: boot, request, update,
 -- and retract.
 cageFlowSpec
-    :: FilePath -> SBS.ShortByteString -> Spec
-cageFlowSpec bpPath scriptBytes =
+    :: FilePath -> CageScripts -> Spec
+cageFlowSpec bpPath scripts =
     it "boot, request, update, retract"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \_sock _startMs cfg ctx -> do
             let scriptAddr =
                     cageAddrFromCfg cfg Testnet
@@ -195,6 +185,11 @@ cageFlowSpec bpPath scriptBytes =
             -- Extract TokenId from mint field
             let tokenId =
                     extractTokenId cfg signedBoot
+                requestAddr =
+                    requestAddrFromCfg
+                        cfg
+                        tokenId
+                        (network cfg)
 
             -- Register in mock state + trie
             createTrie
@@ -256,13 +251,14 @@ cageFlowSpec bpPath scriptBytes =
             assertSubmitted reqResult
             awaitTx
 
-            -- Assert: cage has more UTxOs now
-            cageUtxos2 <-
+            -- Assert: request address has the
+            -- pending request UTxO.
+            requestUtxos <-
                 queryUTxOs
                     (provider ctx)
-                    scriptAddr
-            length cageUtxos2
-                `shouldSatisfy` (> length cageUtxos)
+                    requestAddr
+            requestUtxos
+                `shouldSatisfy` (not . null)
 
             -- Step 3: Update token
             bundleUpdate <-
@@ -302,6 +298,7 @@ cageFlowSpec bpPath scriptBytes =
             dumpTxForAiken
                 (provider ctx)
                 cfg
+                [requestAddr]
                 _startMs
                 bpPath
                 "update"
@@ -321,10 +318,12 @@ cageFlowSpec bpPath scriptBytes =
                     scriptAddr
             cageUtxos3
                 `shouldSatisfy` (not . null)
-            -- Fewer UTxOs: state remains,
-            -- request consumed
-            length cageUtxos3
-                `shouldSatisfy` (< length cageUtxos2)
+            requestUtxosAfterUpdate <-
+                queryUTxOs
+                    (provider ctx)
+                    requestAddr
+            length requestUtxosAfterUpdate
+                `shouldSatisfy` (< length requestUtxos)
 
             -- Step 4: Request + retract
             -- Submit a second request
@@ -372,13 +371,13 @@ cageFlowSpec bpPath scriptBytes =
                 (requests (state ctx))
                 (LocatedRequest req2TxIn req2)
 
-            cageUtxos4 <-
+            requestUtxos2 <-
                 queryUTxOs
                     (provider ctx)
-                    scriptAddr
+                    requestAddr
             -- Has request + state UTxOs
-            length cageUtxos4
-                `shouldSatisfy` (> length cageUtxos3)
+            length requestUtxos2
+                `shouldSatisfy` (> length requestUtxosAfterUpdate)
 
             -- Wait for Phase 2 (process_time =
             -- 30s after request submitted_at)
@@ -404,12 +403,12 @@ cageFlowSpec bpPath scriptBytes =
             awaitTx
 
             -- Assert: request UTxO gone
-            cageUtxos5 <-
+            requestUtxos3 <-
                 queryUTxOs
                     (provider ctx)
-                    scriptAddr
-            length cageUtxos5
-                `shouldSatisfy` (< length cageUtxos4)
+                    requestAddr
+            length requestUtxos3
+                `shouldSatisfy` (< length requestUtxos2)
 
 -- ---------------------------------------------------------
 -- Bracket
@@ -420,7 +419,7 @@ cageFlowSpec bpPath scriptBytes =
 -- Uses the exact system start time from the
 -- genesis to avoid slot/POSIX conversion drift.
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> ( FilePath
          -> Integer
          -> CageConfig
@@ -428,7 +427,7 @@ withE2E
          -> IO a
        )
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     sysTmp <- getTemporaryDirectory
     let rocksDir =
@@ -440,7 +439,7 @@ withE2E scriptBytes action = do
                 rocksDir </> "db"
             genesisJson =
                 gDir </> "shelley-genesis.json"
-        let cfg = cageCfg scriptBytes
+        let cfg = cageCfg scripts
             appCfg =
                 AppConfig
                     { epochSlots =
@@ -521,12 +520,13 @@ awaitTx = threadDelay 5_000_000
 dumpTxForAiken
     :: Provider IO
     -> CageConfig
+    -> [Addr]
     -> Integer
     -> FilePath
     -> String
     -> Tx ConwayEra
     -> IO ()
-dumpTxForAiken prov cfg startMs bpPath label tx = do
+dumpTxForAiken prov cfg extraScriptAddrs startMs bpPath label tx = do
     let ver = eraProtVerLow @ConwayEra
     -- 1. Collect all TxIns (spent + ref)
     let spentIns =
@@ -547,11 +547,14 @@ dumpTxForAiken prov cfg startMs bpPath label tx = do
             cageAddrFromCfg cfg (network cfg)
     walletUtxos <-
         queryUTxOs prov genesisAddr
-    cageUtxos <-
-        queryUTxOs prov scriptAddr
+    scriptUtxos <-
+        concat
+            <$> traverse
+                (queryUTxOs prov)
+                (scriptAddr : extraScriptAddrs)
     let utxoMap =
             Map.fromList
-                (walletUtxos <> cageUtxos)
+                (walletUtxos <> scriptUtxos)
         resolve tin =
             case Map.lookup tin utxoMap of
                 Just out -> (tin, out)
@@ -642,16 +645,15 @@ toHex =
 -- Config
 -- ---------------------------------------------------------
 
--- | Build a 'CageConfig' from applied script bytes
--- and the system start time.
+-- | Build a 'CageConfig' from state and request script bytes.
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 30_000
         , defaultRetractTime = 30_000
         , defaultTip = Coin 1_000_000

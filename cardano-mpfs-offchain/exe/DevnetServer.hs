@@ -23,7 +23,6 @@
 module Main (main) where
 
 import Control.Concurrent (threadDelay)
-import Data.ByteString.Short qualified as SBS
 import Network.Wai.Handler.Warp qualified as Warp
 import System.Environment
     ( getArgs
@@ -45,8 +44,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types (Coin (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -67,7 +66,7 @@ import Cardano.Node.Client.E2E.Setup
 main :: IO ()
 main = do
     port <- parsePort
-    scriptBytes <- loadScript
+    cageScripts <- loadScripts
     gDir <- genesisDir
     putStrLn
         $ "Starting devnet server on port "
@@ -77,7 +76,7 @@ main = do
         withSystemTempDirectory
             "mpfs-devnet-server"
             $ \tmpDir -> do
-                let cfg = mkCageCfg scriptBytes
+                let cfg = mkCageCfg cageScripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -123,9 +122,9 @@ parsePort = go <$> getArgs
     go (_ : rest) = go rest
     go [] = 8080
 
--- | Load cage script from @MPFS_BLUEPRINT@ env.
-loadScript :: IO SBS.ShortByteString
-loadScript = do
+-- | Load state and request scripts from @MPFS_BLUEPRINT@ env.
+loadScripts :: IO CageScripts
+loadScripts = do
     mPath <- lookupEnv "MPFS_BLUEPRINT"
     case mPath of
         Nothing ->
@@ -134,35 +133,27 @@ loadScript = do
                 \Point it to the cage \
                 \blueprint JSON."
         Just path -> do
-            ebp <- loadBlueprint path
-            case ebp of
+            eScripts <- loadCageScripts path
+            case eScripts of
                 Left err ->
                     error
                         $ "Blueprint error: " <> err
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            error
-                                "state script not \
-                                \found in blueprint"
-                        Just sb ->
-                            pure sb
+                Right scripts ->
+                    pure scripts
 
 -- -------------------------------------------------
 -- Config
 -- -------------------------------------------------
 
 mkCageCfg
-    :: SBS.ShortByteString
+    :: CageScripts
     -> CageConfig
-mkCageCfg scriptBytes =
+mkCageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 300_000
         , defaultRetractTime = 300_000
         , defaultTip = Coin 2_000_000

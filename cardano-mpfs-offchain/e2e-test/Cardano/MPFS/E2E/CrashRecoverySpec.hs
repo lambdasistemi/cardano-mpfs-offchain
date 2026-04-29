@@ -23,8 +23,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -80,7 +80,6 @@ import Control.Tracer
     , traceWith
     )
 import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as SBS
 import Data.Foldable (for_)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -127,28 +126,19 @@ spec = describe "Crash recovery" $ do
             it "skipped (no MPFS_BLUEPRINT)"
                 $ pure @IO ()
         Just path -> do
-            ebp <- runIO $ loadBlueprint path
-            case ebp of
+            eScripts <- runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it ("blueprint: " <> err)
                         $ expectationFailure err
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script \
-                                    \not found"
-                        Just sb ->
-                            crashRecoverySpecs sb
+                Right scripts ->
+                    crashRecoverySpecs scripts
 
 crashRecoverySpecs
-    :: SBS.ShortByteString -> Spec
-crashRecoverySpecs scriptBytes = do
+    :: CageScripts -> Spec
+crashRecoverySpecs scripts = do
     it "kill during following — cage state survives"
-        $ killAndVerify scriptBytes Following
+        $ killAndVerify scripts Following
 
 -- * Test logic
 
@@ -156,11 +146,11 @@ crashRecoverySpecs scriptBytes = do
 -- during a phase, restart, verify the token state
 -- and merkle root are consistent.
 killAndVerify
-    :: SBS.ShortByteString -> Phase -> IO ()
-killAndVerify scriptBytes targetPhase = do
+    :: CageScripts -> Phase -> IO ()
+killAndVerify scripts targetPhase = do
     gDir <- genesisDir
     withCardanoNode gDir $ \socketPath _startMs -> do
-        let cfg = cageCfg scriptBytes
+        let cfg = cageCfg scripts
 
         -- Step 1: run the app, boot a token, let
         -- the follower index it
@@ -363,13 +353,13 @@ emptySnap =
 -- * Config
 
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 15_000
         , defaultRetractTime = 15_000
         , defaultTip = Coin 1_000_000

@@ -14,7 +14,6 @@ module Cardano.MPFS.E2E.IndexerSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -46,8 +45,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( Addr
@@ -99,6 +98,7 @@ import Cardano.MPFS.TxBuilder.Config
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
     , computeScriptHash
+    , requestAddrFromCfg
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -121,36 +121,27 @@ spec = describe "Indexer E2E" $ do
                 \not set)"
                 (pure () :: IO ())
         Just path -> do
-            ebp <- runIO $ loadBlueprint path
-            case ebp of
+            eScripts <- runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it
                         ( "blueprint error: "
                             <> err
                         )
                         (expectationFailure err)
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script not \
-                                    \found in blueprint"
-                        Just scriptBytes ->
-                            indexerSpecs scriptBytes
+                Right scripts ->
+                    indexerSpecs scripts
 
 -- ---------------------------------------------------------
 -- Test cases
 -- ---------------------------------------------------------
 
 -- | All indexer E2E test cases.
-indexerSpecs :: SBS.ShortByteString -> Spec
-indexerSpecs scriptBytes = do
+indexerSpecs :: CageScripts -> Spec
+indexerSpecs scripts = do
     -- Test 1: boot indexes token
     it "boot indexes token"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -205,7 +196,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 2: request indexes request
     it "request indexes request"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -272,7 +263,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 3: update updates trie root
     it "update updates trie root"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -286,6 +277,8 @@ indexerSpecs scriptBytes = do
             tid <- case tids of
                 (t : _) -> pure t
                 [] -> error "no tokens"
+            let requestAddr =
+                    requestAddrFromCfg cfg tid Testnet
 
             -- Submit request
             signedReq <-
@@ -320,14 +313,19 @@ indexerSpecs scriptBytes = do
                 (LocatedRequest reqTxIn req)
 
             -- Snapshot before update
-            preUtxos <-
+            stateUtxos <-
                 snapshotCageUtxos
                     (provider ctx)
                     scriptAddr
+            requestUtxos <-
+                queryUTxOs
+                    (provider ctx)
+                    requestAddr
             genesisUtxos <-
                 queryUTxOs
                     (provider ctx)
                     genesisAddr
+            let preUtxos = stateUtxos <> requestUtxos
 
             -- Submit update tx
             signedUpdate <-
@@ -420,7 +418,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 4: retract removes request
     it "retract removes request"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -434,6 +432,8 @@ indexerSpecs scriptBytes = do
             tid <- case tids of
                 (t : _) -> pure t
                 [] -> error "no tokens"
+            let requestAddr =
+                    requestAddrFromCfg cfg tid Testnet
 
             -- Submit request
             signedReq <-
@@ -470,14 +470,19 @@ indexerSpecs scriptBytes = do
             threadDelay 17_000_000
 
             -- Snapshot before retract
-            preUtxos <-
+            stateUtxos <-
                 snapshotCageUtxos
                     (provider ctx)
                     scriptAddr
+            requestUtxos <-
+                queryUTxOs
+                    (provider ctx)
+                    requestAddr
             genesisUtxos <-
                 queryUTxOs
                     (provider ctx)
                     genesisAddr
+            let preUtxos = stateUtxos <> requestUtxos
 
             -- Submit retract tx
             signedRetract <-
@@ -524,7 +529,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 5: burn removes token
     it "burn removes token"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -589,7 +594,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 6: burn inverse roundtrip
     it "burn inverse roundtrip"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -678,7 +683,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 7: inverse roundtrip (boot)
     it "inverse roundtrip"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -746,7 +751,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 7: batch update (2 requests)
     it "batch update (2 requests)"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -760,6 +765,8 @@ indexerSpecs scriptBytes = do
             tid <- case tids of
                 (t : _) -> pure t
                 [] -> error "no tokens"
+            let requestAddr =
+                    requestAddrFromCfg cfg tid Testnet
 
             -- Submit request 1
             signedReq1 <-
@@ -824,14 +831,19 @@ indexerSpecs scriptBytes = do
                 (LocatedRequest reqTxIn2 req2)
 
             -- Snapshot before update
-            preUtxos <-
+            stateUtxos <-
                 snapshotCageUtxos
                     (provider ctx)
                     scriptAddr
+            requestUtxos <-
+                queryUTxOs
+                    (provider ctx)
+                    requestAddr
             genesisUtxos <-
                 queryUTxOs
                     (provider ctx)
                     genesisAddr
+            let preUtxos = stateUtxos <> requestUtxos
 
             -- Submit update tx (consumes both
             -- requests)
@@ -861,7 +873,7 @@ indexerSpecs scriptBytes = do
 
     -- Test 8: persistent state survives reopen
     it "persistent state survives reopen"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let sh = cfgScriptHash cfg
                 scriptAddr =
@@ -920,13 +932,13 @@ indexerSpecs scriptBytes = do
 -- | Start a devnet node, wire a full 'Context IO',
 -- wait for N2C to connect, then run the action.
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> ( CageConfig
          -> Context IO
          -> IO a
        )
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory "mpfs-e2e"
@@ -937,7 +949,7 @@ withE2E scriptBytes action = do
                         gDir
                             </> "shelley-genesis.json"
                 let cfg =
-                        cageCfg scriptBytes
+                        cageCfg scripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -1064,16 +1076,15 @@ bootAndRegister cfg ctx = do
 -- Config
 -- ---------------------------------------------------------
 
--- | Build a 'CageConfig' from applied script bytes
--- and the system start time.
+-- | Build a 'CageConfig' from state and request script bytes.
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 15_000
         , defaultRetractTime = 15_000
         , defaultTip = Coin 1_000_000

@@ -15,7 +15,6 @@ module Cardano.MPFS.E2E.ChainSyncSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Lens.Micro ((^.))
 import System.Environment (lookupEnv)
@@ -48,8 +47,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -109,37 +108,28 @@ spec = describe "ChainSync E2E" $ do
                 \not set)"
                 (pure () :: IO ())
         Just path -> do
-            ebp <-
-                runIO $ loadBlueprint path
-            case ebp of
+            eScripts <-
+                runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it
                         ( "blueprint error: "
                             <> err
                         )
                         (expectationFailure err)
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script not \
-                                    \found in blueprint"
-                        Just scriptBytes ->
-                            chainsyncSpecs scriptBytes
+                Right scripts ->
+                    chainsyncSpecs scripts
 
 -- ---------------------------------------------------------
 -- Test cases
 -- ---------------------------------------------------------
 
 -- | All ChainSync E2E test cases.
-chainsyncSpecs :: SBS.ShortByteString -> Spec
-chainsyncSpecs scriptBytes = do
+chainsyncSpecs :: CageScripts -> Spec
+chainsyncSpecs scripts = do
     -- Test 1: boot auto-indexes token
     it "boot auto-indexes token" $ do
-        withE2E scriptBytes $ \cfg ctx -> do
+        withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
@@ -171,7 +161,7 @@ chainsyncSpecs scriptBytes = do
 
     -- Test 2: request auto-indexes
     it "request auto-indexes" $ do
-        withE2E scriptBytes $ \cfg ctx -> do
+        withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
@@ -238,7 +228,7 @@ chainsyncSpecs scriptBytes = do
 
     -- Test 3: checkpoint tracks processed blocks
     it "checkpoint tracks processed blocks" $ do
-        withE2E scriptBytes $ \cfg ctx -> do
+        withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx to ensure blocks
             -- are being processed
             signedBoot <-
@@ -283,13 +273,13 @@ chainsyncSpecs scriptBytes = do
 -- with CageFollower, wait for N2C to connect,
 -- then run the action.
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> ( CageConfig
          -> Context IO
          -> IO a
        )
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory "mpfs-chainsync"
@@ -300,7 +290,7 @@ withE2E scriptBytes action = do
                         gDir
                             </> "shelley-genesis.json"
                 let cfg =
-                        cageCfg scriptBytes
+                        cageCfg scripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -410,16 +400,15 @@ pollUntilJust timeoutSec action = go attempts
 -- Config
 -- ---------------------------------------------------------
 
--- | Build a 'CageConfig' from applied script bytes
--- and the system start time.
+-- | Build a 'CageConfig' from state and request script bytes.
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 15_000
         , defaultRetractTime = 15_000
         , defaultTip = Coin 1_000_000
