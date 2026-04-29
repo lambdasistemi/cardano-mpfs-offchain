@@ -38,7 +38,8 @@ End-to-end tests run against a real `cardano-node` subprocess.
 No Docker, no external services.
 
 ```bash
-just e2e             # E2E tests (requires cardano-node in PATH)
+nix run .#e2e-tests  # direct flake app
+just e2e             # same app, with optional --match support
 ```
 
 ### How It Works
@@ -85,11 +86,11 @@ single-node devnet:
 
 ### Prerequisites
 
-`cardano-node` and `cardano-cli` must be in `PATH`. The nix dev
-shell provides them:
+The flake app wraps the E2E executable with `cardano-node`,
+`cardano-cli`, `MPFS_BLUEPRINT`, and `E2E_GENESIS_DIR`, so a dev shell
+is not required for the E2E command itself:
 
 ```bash
-nix develop    # adds cardano-node 10.5.4 to PATH
 just e2e
 ```
 

@@ -41,20 +41,16 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build and run offchain tests
-        run: |
-          nix build .#offchain-tests --quiet
-          nix develop --quiet -c ./result/bin/unit-tests
+        run: nix run --quiet .#unit-tests
 
       - name: Build offchain interfaces
         run: nix build .#cardano-mpfs-offchain --quiet
 
       - name: Check formatting
-        run: |
-          nix develop --quiet -c fourmolu -m check $(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
-          nix develop --quiet -c bash -c "find . -name '*.cabal' -not -path './dist-newstyle/*' | xargs cabal-fmt -c"
+        run: nix run --quiet .#format-check
 
       - name: Lint
-        run: nix develop --quiet -c hlint $(find . -name '*.hs' -not -path './dist-newstyle/*' -not -path './.direnv/*')
+        run: nix run --quiet .#hlint
 
       - name: Build docker image
         run: nix build .#docker-image --quiet
@@ -76,10 +72,5 @@ jobs:
           name: paolino
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Build E2E tests
-        run: nix build .#e2e-tests --quiet
-
       - name: Run E2E tests
-        run: |
-          E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
-            nix develop --quiet -c ./result/bin/e2e-tests
+        run: nix run --quiet .#e2e-tests

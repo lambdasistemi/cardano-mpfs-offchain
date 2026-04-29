@@ -34,14 +34,15 @@ review:
 - Working tree including the E2E output cleanup: local non-E2E gate:
 
   ```bash
-  nix develop --quiet -c bash -lc '
-    just ci \
-    && find . -name "*.cabal" -not -path "./dist-newstyle/*" | xargs cabal-fmt -c
-  '
+  just ci
   ```
 
   Result: **success** — build, unit 369/0, unit-offchain 369/0,
   format-check, hlint, and cabal-fmt all passed.
+- The CI command standard is now flake-output based for non-Docker
+  verification: `nix run .#unit-tests`, `nix run .#format-check`,
+  `nix run .#hlint`, and `nix run .#e2e-tests`. Docker remains
+  `nix build .#docker-image`.
 
 This file is therefore a baseline note plus final gate transcript, not
 a claim that pre-existing failures were fixed in this PR.

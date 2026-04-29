@@ -13,17 +13,19 @@ the success criteria.
   `231-split-validators-pr50`.
 - Upstream pin already in place at `cf3a8bdc` (`cabal.project`,
   `flake.nix`, `flake.lock`, `Core/Blueprint.hs`).
-- `nix develop` shell entered.
+- Nix flakes enabled. The test/style commands below run through flake
+  apps, so they do not require entering `nix develop`.
 
 ## Build and full E2E
 
 ```bash
 just build          # full build of the cabal project under the pinned upstream
-just unit           # MPF / client unit tests
-just unit-offchain  # offchain interface / unit tests (incl. OnChainSpec, TxBuilderSpec)
-just e2e            # CageSpec, CageFlowSpec, ChainSyncSpec,
+just unit           # nix run .#unit-tests
+just unit-offchain  # same unit-test flake app
+nix run .#e2e-tests # direct flake app for the E2E suite
+just e2e            # same app; CageSpec, CageFlowSpec, ChainSyncSpec,
                     #   HTTPLifecycleSpec, IndexerSpec, ProofsSpec
-just ci             # build → unit → unit-offchain → format-check → hlint
+just ci             # nix build package/check → unit → unit-offchain → format-check → hlint
                     #   (does NOT include e2e — see GATE below)
 
 # The full GATE for this stack — required before every push:
