@@ -22,7 +22,6 @@
 -- Optional: @--byron-genesis@, @--epoch-slots@
 module Main (main) where
 
-import Data.ByteString.Short qualified as SBS
 import Network.Wai.Handler.Warp qualified as Warp
 import System.Directory
     ( createDirectoryIfMissing
@@ -39,8 +38,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types (Coin (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -118,9 +117,9 @@ main :: IO ()
 main = do
     args <- parseArgs <$> getArgs
     validate args
-    scriptBytes <- loadScript (argBlueprint args)
+    cageScripts <- loadScripts (argBlueprint args)
     createDirectoryIfMissing True (argDb args)
-    let cfg = mkCageCfg args scriptBytes
+    let cfg = mkCageCfg args cageScripts
         appCfg = mkAppConfig args cfg
     putStrLn
         $ "mpfs-serve starting on port "
@@ -165,33 +164,24 @@ validate args = do
 -- Config
 -- -------------------------------------------------
 
--- | Load cage script from blueprint.
-loadScript
-    :: FilePath -> IO SBS.ShortByteString
-loadScript path = do
-    ebp <- loadBlueprint path
-    case ebp of
-        Left err ->
-            error $ "Blueprint error: " <> err
-        Right bp ->
-            case extractCompiledCode "state." bp of
-                Nothing ->
-                    error
-                        "state script not found \
-                        \in blueprint"
-                Just sb ->
-                    pure sb
+-- | Load state and request scripts from blueprint.
+loadScripts :: FilePath -> IO CageScripts
+loadScripts path = do
+    eScripts <- loadCageScripts path
+    case eScripts of
+        Left err -> error $ "Blueprint error: " <> err
+        Right scripts -> pure scripts
 
 mkCageCfg
     :: Args
-    -> SBS.ShortByteString
+    -> CageScripts
     -> CageConfig
-mkCageCfg args scriptBytes =
+mkCageCfg args (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 300_000
         , defaultRetractTime = 300_000
         , defaultTip = Coin 2_000_000

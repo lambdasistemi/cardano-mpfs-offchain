@@ -101,8 +101,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -177,22 +177,13 @@ spec = describe "Proof-bearing envelopes E2E" $ do
             it "skipped (no MPFS_BLUEPRINT)"
                 $ pure @IO ()
         Just path -> do
-            ebp <- runIO $ loadBlueprint path
-            case ebp of
+            eScripts <- runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it ("blueprint: " <> err)
                         $ expectationFailure err
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script \
-                                    \not found"
-                        Just sb ->
-                            proofsSpec sb
+                Right scripts ->
+                    proofsSpec scripts
 
 -- -------------------------------------------------
 -- Scenario
@@ -221,10 +212,10 @@ factKey = "hello"
 factValue :: ByteString
 factValue = "world"
 
-proofsSpec :: SBS.ShortByteString -> Spec
-proofsSpec scriptBytes =
+proofsSpec :: CageScripts -> Spec
+proofsSpec scripts =
     it "read and write envelopes carry verifiable proofs"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let app = mkApp ctx
                 tb = txBuilder ctx
@@ -690,16 +681,16 @@ extractTokenId cfg tx =
 -- -------------------------------------------------
 
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> (CageConfig -> Context IO -> IO a)
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory
             "mpfs-proofs-e2e"
             $ \tmpDir -> do
-                let cfg = cageCfg scriptBytes
+                let cfg = cageCfg scripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -723,13 +714,13 @@ withE2E scriptBytes action = do
                     threadDelay 10_000_000
                     action cfg ctx
 
-cageCfg :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+cageCfg :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 5_000
         , defaultRetractTime = 5_000
         , defaultTip = Coin 1_000_000

@@ -140,7 +140,6 @@ executable mpfs-serve
   main-is:          Serve.hs
   build-depends:
     , base
-    , bytestring
     , cardano-ledger-byron
     , cardano-ledger-core
     , cardano-mpfs-offchain
@@ -172,7 +171,6 @@ executable mpfs-devnet-server
   main-is:          DevnetServer.hs
   build-depends:
     , base
-    , bytestring
     , cardano-ledger-byron
     , cardano-ledger-core
     , cardano-mpfs-offchain

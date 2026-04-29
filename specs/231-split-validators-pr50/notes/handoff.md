@@ -2,7 +2,8 @@
 
 **Branch:** `231-split-validators-pr50`
 **PR:** https://github.com/lambdasistemi/cardano-mpfs-offchain/pull/241 (draft)
-**Head:** `68ba77b` (T050)
+**Head:** `a39b0f6` at pickup; e2e green-up completed locally on
+2026-04-29.
 **Upstream pin:** `cardano-foundation/cardano-mpfs-onchain@cf3a8bdc` (PR #50 tip)
 
 ## What is done
@@ -26,67 +27,41 @@ upward:
 | `9655db9` / `2c481d2` | T041 | `POST /tx/sweep`: `SweepRequest` / `SweepTxResponse` types in `cardano-mpfs-api`, `TxSweepAPI` wired into `TxWriteAPI` + the full `API` chain, `txSweepHandler` in `HTTP.Server`, `Context.cfgCage` (lazy), Swagger schemas + regenerated `docs/assets/swagger.json`, `sweepTx` wrapper in `cardano-mpfs-client` |
 | `68ba77b` | T050 | `Cardano.MPFS.Indexer.Event.detectCageEvents` relaxed-predicate detector: request outputs are recognised by `RequestDatum` shape at any script address; spent UTxOs at any script address get redeemer-dispatched |
 
-## CI status on `68ba77b`
+## CI status after e2e green-up
 
 | Check | Result |
 |---|---|
 | Build Gate (Nix derivations + swagger up-to-date) | ✅ |
 | build (unit tests, 369/0) | ✅ |
 | deploy (docs) | ✅ |
-| e2e | ❌ 22 examples, 11 failures — **same failure shape since the moment e2e could run** |
+| e2e | ✅ 22 examples, 0 failures locally |
 
-## Known-red e2e
+## Resolved e2e blocker
 
-Every e2e test fails identically:
+The previous full-suite failure was:
 
 ```
 uncaught exception: DeserialiseFailure
 DeserialiseFailure 0 "end of input"
 ```
 
-No Haskell call site is exposed by Hspec. Local reproduction with the
-canonical `nix build .#e2e-tests && ./result/bin/e2e-tests` confirms.
+Root cause was not the N2C codec or the `applyVersion` removal. The
+runtime and E2E configs loaded only the global state validator from the
+blueprint and set `requestScriptBytes = SBS.empty`. Once request routes
+derived/attached the per-cage request validator, the empty script bytes
+could be forced through `PlutusBinary`, producing the position-0 CBOR
+failure.
 
-**What I ruled out:**
+Fix:
 
-- Test-side typo or bad assertion — same error pre- and post-T050.
-- Bad redeemer constructor — `Minting`/`Burning`/`Modify`/`Contribute`/`Sweep` shapes match upstream `Cage.Types.MintRedeemer` / `UpdateRedeemer` at `cf3a8bdc` (verified via `cardano-mpfs-onchain` source in `dist-newstyle/src/cardano-m_-...`).
-- Mock-provider routing — unit tests fully green at 369/0 with the per-cage route through `requestAddrFromCfg testCageConfig testTid Testnet` against the real request UPLC.
-- StatusSpec mock — fixed via `Context.cfgCage :: ~CageConfig` (lazy under `StrictData`).
-
-**What is suspect (next person to pick this up should start here):**
-
-- The error originates in a CBOR codec, almost certainly inside one of:
-  - `cardano-node-clients/lib/Cardano/Node/Client/N2C/Codecs.hs` (the only `DeserialiseFailure` raise in the dependency tree).
-  - `cardano-utxo-csmt/lib/Cardano/UTxOCSMT/Ouroboros/Codecs.hs` (the chain-follower's wire codec).
-- Likely path: the `cf3a8bdc` pin pulled in a transitive dep change that shifted the wire shape between offchain and node by a single byte boundary, hence "position 0, end of input" — the decoder runs to completion expecting more bytes than the message carries.
-- Alternative: the `applyVersion`-removal stub in T011 produced a script-bytes shape that the node can't deserialise when running the script. If the node submits a `MsgRejectTx` / `MsgScriptFailure` that the offchain decodes wrongly, you'd see this exact error.
-
-## How to make progress on e2e
-
-1. **Get a real stack trace.** The default Nix build of `e2e-tests` is
-   not profiled, so `+RTS -xc -RTS` is rejected. Either rebuild
-   profiling-enabled (`cabal build --enable-profiling`) or temporarily
-   thread `traceIO` markers through the chain-follower start path:
-   - `Cardano.MPFS.Application.withApplication` (entry).
-   - `Cardano.UTxOCSMT.Application.ChainSyncN2C.mkN2CChainSyncApplication`
-     (where chain-sync starts).
-   - `Cardano.Node.Client.N2C.Connection.runNodeClient` (where the
-     N2C codec runs).
-2. **Bisect by reverting T011's `applyVersion`-stub change.** The
-   commit replaced `applyVersion 1 sb` with `sb` in 9 call sites. If
-   `applyVersion` was actually CBOR-wrapping the flat UPLC bytes, then
-   the script attached to the boot tx is a raw flat program where a
-   CBOR-wrapped Plutus script is expected, and the node can't decode
-   it. Swap one call site back to a stub that produces CBOR-wrapped
-   bytes (e.g. `serialize'` from `cardano-ledger-binary`) and see if
-   the boot tx makes it past validation.
-3. **Read upstream cage's E2E test setup.** Upstream
-   `cardano-mpfs-cage`'s
-   `dist-newstyle/src/cardano-m_-…/haskell/e2e-test/Cardano/MPFS/Cage/E2E/CageSpec.hs`
-   shows how the cage tests load the script bytes and submit a boot —
-   verify our offchain mirrors the EXACT same bytecode handling
-   (especially around the boot `Minting(seed)` redeemer).
+- `Cardano.MPFS.Core.Blueprint.loadCageScripts` now loads both
+  `state.state` and `request.request` compiled code from the pinned
+  split-validator blueprint.
+- `mpfs-serve`, `mpfs-devnet-server`, and all E2E `CageConfig`
+  constructors pass the real request validator bytes instead of
+  `SBS.empty`.
+- E2E assertions/resolvers now query the derived per-cage request
+  address when checking or resolving request UTxOs.
 
 ## Layout notes
 
@@ -100,7 +75,7 @@ canonical `nix build .#e2e-tests && ./result/bin/e2e-tests` confirms.
   T060 — these were placeholders for E2E coverage extensions and the
   drop-Mint-test polish. Of those, only T060 is library-relevant
   (TxBuilderSpec hash-literal fold-back) and is small. The E2E
-  coverage tasks are blocked on the e2e green-up.
+  coverage tasks are no longer blocked by the suite-level green-up.
 
 ## Quality gate (re-runnable)
 
@@ -121,20 +96,18 @@ CI exactly.
 
 ## Outstanding tasks (in priority order)
 
-1. **e2e green-up** (blocking merge). See "How to make progress on
-   e2e" above.
-2. **T060** — drop the obsolete `Mint` test in
+1. **T060** — drop the obsolete `Mint` test in
    `test/Cardano/MPFS/TxBuilderSpec.hs`, update any remaining hash
    literals. Small. Parts of T060 already absorbed into T011 / T022-fixup.
-3. **T024 / T032 / T052** — extend the E2E coverage to assert on the
+2. **T024 / T032 / T052** — extend the E2E coverage to assert on the
    per-cage routing and dual-witness shape per `tasks.md` acceptance
-   scenarios. Blocked on e2e being green.
-4. **PR description sweep** — replace the in-progress checklist with a
+   scenarios. No longer blocked on e2e being green.
+3. **PR description sweep** — replace the in-progress checklist with a
    final, reviewer-facing summary once e2e is green.
-5. **stgit cleanup** — empty placeholder patches for T024/T032/T042/T052/T060
+4. **stgit cleanup** — empty placeholder patches for T024/T032/T042/T052/T060
    exist in the local stack but are not in remote history. Either
    fill them with real work or `stg delete` them at finalisation.
-6. **Verify byte-for-byte parity (SC-005)**. The fixture under
+5. **Verify byte-for-byte parity (SC-005)**. The fixture under
    `cardano-mpfs-offchain/test-data/request.uplc.hex` was generated by
    `aiken build` against the pinned upstream source tree at session
    time. Add a small test (or document the reproduction recipe) that
@@ -153,7 +126,7 @@ just build
 # Unit tests (green: 369/0)
 just unit-offchain
 
-# E2E (red: 22/11)
+# E2E (green: 22/0 after e2e green-up)
 nix build .#e2e-tests
 E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
   nix develop --quiet -c ./result/bin/e2e-tests --match "Cage E2E"
@@ -182,4 +155,4 @@ E2E_GENESIS_DIR=cardano-mpfs-offchain/e2e-test/genesis \
 | FR-008 auto-add per-cage on boot | ✅ T050 (atomic via the same detector path; no separate follower set to update) |
 | FR-009 HTTP per-token resolves via per-cage address | ✅ covered by T050 (indexer keys requests by token id) + existing `requestsByToken` |
 | FR-010 `requestScriptBytes` on `CageConfig` | ✅ T012 |
-| FR-011 byte-for-byte parity with upstream cage test vectors | ⚠ unit tests pass against the canonical request UPLC fixture; e2e cannot confirm until the codec issue above is resolved |
+| FR-011 byte-for-byte parity with upstream cage test vectors | ✅ unit tests pass against the canonical request UPLC fixture; full E2E now confirms the split-validator byte handling against the pinned blueprint |

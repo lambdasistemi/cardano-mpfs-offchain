@@ -78,8 +78,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -128,22 +128,13 @@ spec = describe "HTTP lifecycle E2E" $ do
             it "skipped (no MPFS_BLUEPRINT)"
                 $ pure @IO ()
         Just path -> do
-            ebp <- runIO $ loadBlueprint path
-            case ebp of
+            eScripts <- runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it ("blueprint: " <> err)
                         $ expectationFailure err
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script \
-                                    \not found"
-                        Just sb ->
-                            lifecycleSpec sb
+                Right scripts ->
+                    lifecycleSpec scripts
 
 -- -------------------------------------------------
 -- Scenario
@@ -154,10 +145,10 @@ spec = describe "HTTP lifecycle E2E" $ do
 awaitTimeout :: Int
 awaitTimeout = 60
 
-lifecycleSpec :: SBS.ShortByteString -> Spec
-lifecycleSpec scriptBytes =
+lifecycleSpec :: CageScripts -> Spec
+lifecycleSpec scripts =
     it "boot → insert → update → insert → retract → end"
-        $ withE2E scriptBytes
+        $ withE2E scripts
         $ \cfg ctx -> do
             let app = mkApp ctx
                 tb = txBuilder ctx
@@ -395,10 +386,10 @@ extractTokenId cfg tx =
 
 -- | Devnet node + full application + 10s warmup.
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> (CageConfig -> Context IO -> IO a)
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory
@@ -406,7 +397,7 @@ withE2E scriptBytes action = do
             $ \tmpDir -> do
                 let cfg =
                         cageCfg
-                            scriptBytes
+                            scripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -438,13 +429,13 @@ withE2E scriptBytes action = do
 -- -------------------------------------------------
 
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 5_000
         , defaultRetractTime = 5_000
         , defaultTip = Coin 1_000_000

@@ -16,7 +16,6 @@ module Cardano.MPFS.E2E.CageFlowSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Lens.Micro ((^.))
 import System.Environment (lookupEnv)
@@ -59,8 +58,8 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
+    ( CageScripts
+    , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -120,28 +119,19 @@ spec = describe "CageFlow E2E" $ do
                 \not set)"
                 (pure () :: IO ())
         Just path -> do
-            ebp <-
-                runIO $ loadBlueprint path
-            case ebp of
+            eScripts <-
+                runIO $ loadCageScripts path
+            case eScripts of
                 Left err ->
                     it
                         ( "blueprint error: "
                             <> err
                         )
                         (expectationFailure err)
-                Right bp ->
-                    case extractCompiledCode
-                        "state."
-                        bp of
-                        Nothing ->
-                            it "no compiled code"
-                                $ expectationFailure
-                                    "state script not \
-                                    \found in blueprint"
-                        Just scriptBytes -> do
-                            cageFlowSpec scriptBytes
-                            deleteFlowSpec scriptBytes
-                            rejectFlowSpec scriptBytes
+                Right scripts -> do
+                    cageFlowSpec scripts
+                    deleteFlowSpec scripts
+                    rejectFlowSpec scripts
 
 -- ---------------------------------------------------------
 -- Test implementation
@@ -149,10 +139,10 @@ spec = describe "CageFlow E2E" $ do
 
 -- | Full cage flow via CageFollower: boot, request,
 -- update, and retract — all auto-indexed.
-cageFlowSpec :: SBS.ShortByteString -> Spec
-cageFlowSpec scriptBytes =
+cageFlowSpec :: CageScripts -> Spec
+cageFlowSpec scripts =
     it "full cage flow via CageFollower" $ do
-        withE2E scriptBytes $ \cfg ctx -> do
+        withE2E scripts $ \cfg ctx -> do
             -- Step 1: Boot token
             signedBoot <-
                 buildAndSubmit ctx
@@ -278,11 +268,11 @@ cageFlowSpec scriptBytes =
 
 -- | Delete and mixed batch via CageFollower:
 -- insert → update → delete → update → mixed batch.
-deleteFlowSpec :: SBS.ShortByteString -> Spec
-deleteFlowSpec scriptBytes =
+deleteFlowSpec :: CageScripts -> Spec
+deleteFlowSpec scripts =
     it "delete and mixed batch via CageFollower"
         $ do
-            withE2E scriptBytes $ \cfg ctx -> do
+            withE2E scripts $ \cfg ctx -> do
                 -- Boot
                 signedBoot <-
                     buildAndSubmit ctx
@@ -541,11 +531,11 @@ deleteFlowSpec scriptBytes =
 -- | Reject via CageFollower:
 -- boot → insert request → wait Phase 3 → reject
 -- → verify requests consumed, root unchanged.
-rejectFlowSpec :: SBS.ShortByteString -> Spec
-rejectFlowSpec scriptBytes =
+rejectFlowSpec :: CageScripts -> Spec
+rejectFlowSpec scripts =
     it "reject expired requests via CageFollower"
         $ do
-            withE2E scriptBytes $ \cfg ctx -> do
+            withE2E scripts $ \cfg ctx -> do
                 -- Boot
                 signedBoot <-
                     buildAndSubmit ctx
@@ -635,13 +625,13 @@ rejectFlowSpec scriptBytes =
 -- with CageFollower enabled, wait for N2C to
 -- connect, then run the action.
 withE2E
-    :: SBS.ShortByteString
+    :: CageScripts
     -> ( CageConfig
          -> Context IO
          -> IO a
        )
     -> IO a
-withE2E scriptBytes action = do
+withE2E scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory "mpfs-cageflow"
@@ -652,7 +642,7 @@ withE2E scriptBytes action = do
                         gDir
                             </> "shelley-genesis.json"
                 let cfg =
-                        cageCfg scriptBytes
+                        cageCfg scripts
                     appCfg =
                         AppConfig
                             { epochSlots =
@@ -778,16 +768,15 @@ extractTokenId cfg tx =
 -- Config
 -- ---------------------------------------------------------
 
--- | Build a 'CageConfig' from applied script bytes
--- and the system start time.
+-- | Build a 'CageConfig' from state and request script bytes.
 cageCfg
-    :: SBS.ShortByteString -> CageConfig
-cageCfg scriptBytes =
+    :: CageScripts -> CageConfig
+cageCfg (stateBytes, requestBytes) =
     CageConfig
-        { cageScriptBytes = scriptBytes
-        , requestScriptBytes = SBS.empty
+        { cageScriptBytes = stateBytes
+        , requestScriptBytes = requestBytes
         , cfgScriptHash =
-            computeScriptHash scriptBytes
+            computeScriptHash stateBytes
         , defaultProcessTime = 15_000
         , defaultRetractTime = 15_000
         , defaultTip = Coin 100_000
