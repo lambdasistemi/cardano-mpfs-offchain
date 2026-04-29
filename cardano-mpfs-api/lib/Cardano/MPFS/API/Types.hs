@@ -29,6 +29,12 @@ module Cardano.MPFS.API.Types
     , TxInJSON (..)
     , WitnessedUtxo (..)
 
+      -- * Post-split proof primitives (#243)
+    , UtxoRef (..)
+    , UtxoEntry (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoSetWitness (..)
+
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
     , WitnessedRequest (..)
@@ -340,6 +346,133 @@ instance FromJSON WitnessedUtxo where
             <$> o .: "tx_in"
             <*> o .: "tx_out"
             <*> o .: "utxo_proof"
+
+-- ---------------------------------------------------------
+-- Post-split proof primitives (#243)
+-- ---------------------------------------------------------
+-- Successors of 'TxInJSON' / 'WitnessedUtxo' for the
+-- post-split API surface. The new types adopt the wire
+-- vocabulary the redesign locked in:
+--
+--   * @ref@             — UTxO reference
+--   * @txout_cbor@      — CBOR-encoded TxOut (hex)
+--   * @inclusion_proof@ — CSMT inclusion proof against
+--                         the snapshot's @utxo_root@
+--   * @entries@         — flat list of refs in a witness
+--   * @completeness_proof@ — CSMT prefix-completeness
+--                            proof outside the entries
+--                            list, attesting the set is
+--                            exactly the leaves under a
+--                            script-hash prefix
+--
+-- Old types stay until every endpoint is migrated; they
+-- will be removed in the polish slice of #243.
+
+-- | UTxO reference (@{ tx_id, tx_ix }@).
+data UtxoRef = UtxoRef
+    { urTxId :: Hex
+    -- ^ Transaction id (32-byte blake2b, hex)
+    , urTxIx :: Word64
+    -- ^ Output index within the transaction
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UtxoRef where
+    toJSON UtxoRef{..} =
+        object
+            [ "tx_id" .= urTxId
+            , "tx_ix" .= urTxIx
+            ]
+
+instance FromJSON UtxoRef where
+    parseJSON = withObject "UtxoRef" $ \o ->
+        UtxoRef
+            <$> o .: "tx_id"
+            <*> o .: "tx_ix"
+
+-- | A single attested UTxO: reference, resolved
+-- @TxOut@, and a CSMT inclusion proof against the
+-- enclosing response's @snapshot.utxo_root@.
+data UtxoEntry = UtxoEntry
+    { ueRef :: UtxoRef
+    -- ^ UTxO reference (@ref@)
+    , ueTxOutCbor :: Hex
+    -- ^ CBOR-encoded @TxOut@ (@txout_cbor@)
+    , ueInclusionProof :: Hex
+    -- ^ CSMT inclusion proof (@inclusion_proof@)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UtxoEntry where
+    toJSON UtxoEntry{..} =
+        object
+            [ "ref" .= ueRef
+            , "txout_cbor" .= ueTxOutCbor
+            , "inclusion_proof" .= ueInclusionProof
+            ]
+
+instance FromJSON UtxoEntry where
+    parseJSON = withObject "UtxoEntry" $ \o ->
+        UtxoEntry
+            <$> o .: "ref"
+            <*> o .: "txout_cbor"
+            <*> o .: "inclusion_proof"
+
+-- | A UTxO entry without a per-entry inclusion proof.
+-- Appears inside a 'UtxoSetWitness' where the
+-- enclosing 'uswCompletenessProof' attests the whole
+-- set at once.
+data UtxoEntryRefOnly = UtxoEntryRefOnly
+    { uerRef :: UtxoRef
+    , uerTxOutCbor :: Hex
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UtxoEntryRefOnly where
+    toJSON UtxoEntryRefOnly{..} =
+        object
+            [ "ref" .= uerRef
+            , "txout_cbor" .= uerTxOutCbor
+            ]
+
+instance FromJSON UtxoEntryRefOnly where
+    parseJSON =
+        withObject "UtxoEntryRefOnly" $ \o ->
+            UtxoEntryRefOnly
+                <$> o .: "ref"
+                <*> o .: "txout_cbor"
+
+-- | An enumerated set of UTxOs at a known script-hash
+-- prefix together with a single CSMT prefix-completeness
+-- proof attesting the set is exactly the leaves under
+-- that prefix in the snapshot's CSMT.
+--
+-- The script-hash prefix itself is not part of the
+-- witness — the verifier derives it locally from the
+-- trusted blueprint.
+data UtxoSetWitness = UtxoSetWitness
+    { uswEntries :: [UtxoEntryRefOnly]
+    -- ^ Enumerated entries (@entries@)
+    , uswCompletenessProof :: Hex
+    -- ^ CSMT prefix-completeness proof
+    -- (@completeness_proof@)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UtxoSetWitness where
+    toJSON UtxoSetWitness{..} =
+        object
+            [ "entries" .= uswEntries
+            , "completeness_proof"
+                .= uswCompletenessProof
+            ]
+
+instance FromJSON UtxoSetWitness where
+    parseJSON =
+        withObject "UtxoSetWitness" $ \o ->
+            UtxoSetWitness
+                <$> o .: "entries"
+                <*> o .: "completeness_proof"
 
 -- ---------------------------------------------------------
 -- Proof-bearing read responses
@@ -1573,6 +1706,106 @@ instance ToSchema WitnessedRequest where
             & required .~ ["utxo", "request"]
             & description
                 ?~ "Pending request plus UTxO witness"
+
+-- Post-split (#243) primitives.
+
+instance ToSchema UtxoRef where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        pure
+            $ Swagger.NamedSchema (Just "UtxoRef")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("tx_id", hexSchema)
+                    , ("tx_ix", word64Schema)
+                    ]
+            & required .~ ["tx_id", "tx_ix"]
+            & description ?~ "UTxO reference"
+
+instance ToSchema UtxoEntry where
+    declareNamedSchema _ = do
+        refSchema <-
+            declareSchemaRef (Proxy @UtxoRef)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema (Just "UtxoEntry")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("ref", refSchema)
+                    , ("txout_cbor", hexSchema)
+                    , ("inclusion_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "ref"
+                   , "txout_cbor"
+                   , "inclusion_proof"
+                   ]
+            & description
+                ?~ "UTxO ref, CBOR body, and CSMT \
+                   \inclusion proof against the \
+                   \enclosing snapshot's utxo_root"
+
+instance ToSchema UtxoEntryRefOnly where
+    declareNamedSchema _ = do
+        refSchema <-
+            declareSchemaRef (Proxy @UtxoRef)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "UtxoEntryRefOnly")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("ref", refSchema)
+                    , ("txout_cbor", hexSchema)
+                    ]
+            & required .~ ["ref", "txout_cbor"]
+            & description
+                ?~ "UTxO ref and CBOR body, without a \
+                   \per-entry inclusion proof. Used \
+                   \inside a UtxoSetWitness."
+
+instance ToSchema UtxoSetWitness where
+    declareNamedSchema _ = do
+        entrySchema <-
+            declareSchemaRef
+                (Proxy @[UtxoEntryRefOnly])
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "UtxoSetWitness")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("entries", entrySchema)
+                    , ("completeness_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "entries"
+                   , "completeness_proof"
+                   ]
+            & description
+                ?~ "Enumerated UTxOs at a known \
+                   \script-hash prefix, with a single \
+                   \CSMT prefix-completeness proof \
+                   \attesting the set is exactly the \
+                   \leaves under that prefix."
 
 instance ToSchema FactWitness where
     declareNamedSchema _ = do

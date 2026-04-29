@@ -52,7 +52,7 @@ description: "Task breakdown for post-split proof redesign"
 - [ ] T008 Confirmation test in `cardano-mpfs-client/test/Cardano/MPFS/Client/CompletenessSpec.hs` exercises `haskell-mts`'s `CSMT.Proof.Completeness.generateProof`/verifier on the empty-leaf-set case under a known prefix and asserts success; corresponding forgery (claiming empty when leaves exist) fails with named error
 - [ ] T009 Add `TrustedRoot` newtype in `cardano-mpfs-client/lib/Cardano/MPFS/Client/TrustedRoot.hs`
 - [ ] T010 Add `Blueprint` data type in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` with `bpStatePolicyId`, `bpStateScriptAddress`, `bpRequestScriptAddress` fields
-- [ ] T011 Add `UtxoEntry`, `UtxoEntryRefOnly`, `UtxoSetWitness` types with JSON instances in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`
+- [X] T011 Add `UtxoEntry`, `UtxoEntryRefOnly`, `UtxoSetWitness` types with JSON instances in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs` (also adds `UtxoRef` since the new vocabulary uses `ref` not `tx_in`; `ToSchema` instances included)
 - [ ] T012 Add `VerificationSnapshot` JSON instance reuse + new `UnsignedTxResponse` (uniform write response with optional `requests_completeness_proof`) in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`
 - [ ] T013 Add `verifyCompleteness :: TrustedRoot -> Address -> UtxoSetWitness -> Either VerifyError ()` in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs`
 - [ ] T014 Add `verifyCompletenessEmpty :: TrustedRoot -> Address -> UtxoSetWitness -> Either VerifyError ()` in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs`
