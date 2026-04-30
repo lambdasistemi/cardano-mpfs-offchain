@@ -83,6 +83,7 @@ mkTestContext = do
                         \implemented (HTTP unit \
                         \tests do not exercise \
                         \tx-build paths)"
+            , utxoSetWitness = \_ -> pure Nothing
             , readMetrics = pure Nothing
             }
 

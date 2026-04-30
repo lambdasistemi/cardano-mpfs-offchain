@@ -1,18 +1,27 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.TokensSpec
 -- Description : Tests for GET /tokens endpoint
 -- License     : Apache-2.0
+--
+-- The endpoint returns a 'TokensListResponse' carrying a
+-- 'VerificationSnapshot' and a 'UtxoSetWitness' (the proof-bearing
+-- shape introduced in 243-tokens-list). The unit tests below
+-- exercise the response *shape* — not cryptographic validity of the
+-- completeness proof, which is the e2e suite's job.
 module Cardano.MPFS.HTTP.TokensSpec
     ( spec
     , mkDummyTokenState
     ) where
 
-import Data.Aeson (decode)
-import Data.Aeson.Types (Value (..))
+import Data.Aeson (Value (..), decode)
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
-import Data.ByteString.Short qualified as SBS
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as BSL
 import Network.HTTP.Types (status200)
 import Network.Wai.Test
     ( SResponse (..)
@@ -29,14 +38,14 @@ import Test.Hspec
     , shouldBe
     )
 
-import Cardano.Ledger.Mary.Value (AssetName (..))
-
+import Cardano.Ledger.Binary (natVersion, serialize)
+import Cardano.Ledger.TxIn (TxIn)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
-    , LocatedTokenState (..)
+    ( BlockId (..)
+    , Coin (..)
     , Root (..)
-    , TokenId (..)
+    , SlotNo (..)
     , TokenState (..)
     )
 import Cardano.MPFS.Generators (genKeyHash, genTxIn)
@@ -45,6 +54,7 @@ import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.State qualified as St
 import Test.QuickCheck (generate)
 
+-- | Hit @GET /tokens@ on the supplied context.
 getTokens :: Context IO -> IO SResponse
 getTokens ctx =
     runSession
@@ -53,7 +63,7 @@ getTokens ctx =
         )
         (mkApp ctx)
 
--- | A dummy token state for testing.
+-- | A dummy token state for callers that still need one.
 mkDummyTokenState :: IO TokenState
 mkDummyTokenState = do
     kh <- generate genKeyHash
@@ -66,35 +76,82 @@ mkDummyTokenState = do
             , retractTime = 30_000
             }
 
+-- | Seed the snapshot precondition: the handler 503s unless the
+-- mock context has a CSMT root and a chain checkpoint. Returns a
+-- context with both filled in plus a caller-supplied
+-- @utxoSetWitness@ stub.
+withSnapshot
+    :: ( BS.ByteString
+         -> IO
+                ( Maybe
+                    ([(BS.ByteString, BS.ByteString)], BS.ByteString)
+                )
+       )
+    -> IO (Context IO)
+withSnapshot stubWitness = do
+    ctx <- mkTestContext
+    let rootBs = BS.replicate 32 0
+        ctx' =
+            ctx
+                { utxoRoot = pure (Just rootBs)
+                , utxoSetWitness = stubWitness
+                }
+    St.putCheckpoint
+        (St.checkpoints (state ctx'))
+        (SlotNo 1)
+        (BlockId (BS.replicate 32 0))
+    pure ctx'
+
+-- | Decode the response body and look up @tokens.entries@.
+tokensEntries :: ByteString -> Maybe Value
+tokensEntries body = do
+    Object root <- decode body
+    Object tokens <- KM.lookup "tokens" root
+    KM.lookup "entries" tokens
+
 spec :: Spec
 spec = describe "GET /tokens" $ do
-    it "returns empty list on fresh state" $ do
-        ctx <- mkTestContext
-        resp <- getTokens ctx
-        simpleStatus resp `shouldBe` status200
-        case decode (simpleBody resp) of
-            Just (Array arr) ->
-                length arr `shouldBe` 0
-            _ ->
-                expectationFailure
-                    "Expected JSON array"
+    it "returns 200 with empty entries when the witness is empty"
+        $ do
+            ctx <-
+                withSnapshot
+                    ( \_ ->
+                        pure (Just ([], BS.empty))
+                    )
+            resp <- getTokens ctx
+            simpleStatus resp `shouldBe` status200
+            case tokensEntries (simpleBody resp) of
+                Just (Array arr) ->
+                    length arr `shouldBe` 0
+                _ ->
+                    expectationFailure
+                        "Expected JSON object with \
+                        \tokens.entries array"
 
-    it "returns token after insertion" $ do
-        ctx <- mkTestContext
-        ts <- mkDummyTokenState
-        txIn <- generate genTxIn
-        let tid =
-                TokenId
-                    (AssetName (SBS.toShort "deadbeef"))
-        St.putToken
-            (St.tokens (state ctx))
-            tid
-            (LocatedTokenState txIn ts)
-        resp <- getTokens ctx
-        simpleStatus resp `shouldBe` status200
-        case decode (simpleBody resp) of
-            Just (Array arr) ->
-                length arr `shouldBe` 1
-            _ ->
-                expectationFailure
-                    "Expected JSON array with 1 element"
+    it "returns 200 with one entry when the witness has one"
+        $ do
+            txIn <- generate genTxIn
+            let txInBs =
+                    BSL.toStrict
+                        ( serialize
+                            (natVersion @11)
+                            (txIn :: TxIn)
+                        )
+                txOutBs = BS.replicate 16 0xbb
+            ctx <-
+                withSnapshot
+                    ( \_ ->
+                        pure
+                            ( Just
+                                ([(txInBs, txOutBs)], BS.empty)
+                            )
+                    )
+            resp <- getTokens ctx
+            simpleStatus resp `shouldBe` status200
+            case tokensEntries (simpleBody resp) of
+                Just (Array arr) ->
+                    length arr `shouldBe` 1
+                _ ->
+                    expectationFailure
+                        "Expected JSON object with \
+                        \tokens.entries array"
