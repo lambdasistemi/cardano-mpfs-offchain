@@ -8,6 +8,7 @@ import Control.Monad
     )
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.IORef
     ( IORef
@@ -36,10 +37,11 @@ import Test.Hspec
     , shouldSatisfy
     )
 
+import Cardano.MPFS.API.Encoding qualified as Wire
+import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
     ( BaseUrl (..)
     , BootTxParams (..)
-    , BootTxResponse (..)
     , ClientError (..)
     , EndParams (..)
     , Hex (..)
@@ -62,11 +64,12 @@ import Cardano.MPFS.Client
     , updateTx
     )
 import Cardano.MPFS.Client.Fixtures
-    ( honestBootResponse
+    ( honestBootTrustedRoot
     , honestEndResponse
     , honestRejectResponse
     , honestRequestResponse
     , honestRetractResponse
+    , honestUnsignedBootResponse
     , honestUpdateResponse
     )
 
@@ -82,33 +85,68 @@ spec = do
                     assertSeen seen endpointPath endpointRequest
 
         it "runs the verifier when configured with RunVerifier"
-            $ withJsonServer status200 (Aeson.encode honestBootResponse)
+            $ withJsonServer
+                status200
+                (Aeson.encode honestUnsignedBootResponse)
             $ \_ base -> do
                 client <- mkClient base RunVerifier
-                result <- bootTx client bootParams
-                result `shouldBeRight` honestBootResponse
+                result <-
+                    bootTx
+                        client
+                        honestBootTrustedRoot
+                        bootParams
+                result `shouldBeRight` honestUnsignedBootResponse
 
         it "returns VerifyFailed when the verifier rejects" $ do
-            let forged :: BootTxResponse
-                forged = honestBootResponse{tx = Hex "00"}
+            -- Forge: server emits a snapshot whose utxo_root
+            -- doesn't match the externally-supplied trusted
+            -- root. Verifier emits TrustedRootMismatch.
+            let forged :: Wire.UnsignedTxResponse
+                forged =
+                    honestUnsignedBootResponse
+                        { Wire.utrSnapshot =
+                            ( Wire.utrSnapshot
+                                honestUnsignedBootResponse
+                            )
+                                { Wire.vsUtxoRoot =
+                                    Wire.Hex
+                                        (BS.replicate 32 0xAB)
+                                }
+                        }
             withJsonServer status200 (Aeson.encode forged) $ \_ base -> do
                 client <- mkClient base RunVerifier
-                result <- bootTx client bootParams
+                result <-
+                    bootTx
+                        client
+                        honestBootTrustedRoot
+                        bootParams
                 result `shouldSatisfy` isVerifyFailed
 
         it "can skip verification for inspection tooling" $ do
-            let forged :: BootTxResponse
-                forged = honestBootResponse{tx = Hex "00"}
+            let forged :: Wire.UnsignedTxResponse
+                forged =
+                    honestUnsignedBootResponse
+                        { Wire.utrUnsignedTxCbor =
+                            Wire.Hex (BS.singleton 0x00)
+                        }
             withJsonServer status200 (Aeson.encode forged) $ \_ base -> do
                 client <- mkClient base SkipVerifier
-                result <- bootTx client bootParams
+                result <-
+                    bootTx
+                        client
+                        honestBootTrustedRoot
+                        bootParams
                 result `shouldBeRight` forged
 
         it "surfaces non-success HTTP statuses"
             $ withJsonServer status500 "server failed"
             $ \_ base -> do
                 client <- mkClient base SkipVerifier
-                result <- bootTx client bootParams
+                result <-
+                    bootTx
+                        client
+                        honestBootTrustedRoot
+                        bootParams
                 result
                     `shouldSatisfy` \case
                         Left (StatusError 500 "server failed") -> True
@@ -118,7 +156,11 @@ spec = do
             $ withJsonServer status200 "not-json"
             $ \_ base -> do
                 client <- mkClient base SkipVerifier
-                result <- bootTx client bootParams
+                result <-
+                    bootTx
+                        client
+                        honestBootTrustedRoot
+                        bootParams
                 result
                     `shouldSatisfy` \case
                         Left (DecodeError _) -> True
@@ -129,7 +171,11 @@ spec = do
                 mkClient
                     (BaseUrl Http "127.0.0.1" 1 "")
                     SkipVerifier
-            result <- bootTx client bootParams
+            result <-
+                bootTx
+                    client
+                    honestBootTrustedRoot
+                    bootParams
             result
                 `shouldSatisfy` \case
                     Left (TransportError _) -> True
@@ -147,8 +193,11 @@ writeEndpointCases =
     [ EndpointCase
         ["tx", "boot"]
         (Aeson.toJSON bootParams)
-        (Aeson.encode honestBootResponse)
-        (voidRight . (`bootTx` bootParams))
+        (Aeson.encode honestUnsignedBootResponse)
+        ( \http ->
+            voidRight
+                (bootTx http honestBootTrustedRoot bootParams)
+        )
     , EndpointCase
         ["tx", "request", "insert"]
         (Aeson.toJSON insertParams)

@@ -93,6 +93,7 @@ test-suite unit-tests
     , base
     , base16-bytestring
     , bytestring
+    , cardano-mpfs-api
     , cardano-mpfs-client
     , cborg                >=0.2  && <0.3
     , hspec                >=2.11 && <2.12
@@ -112,6 +113,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
     Cardano.MPFS.Client.SnapshotSpec
+    Cardano.MPFS.Client.Verify.WriteSpec
     Cardano.MPFS.Client.VerifySpec
 
   ghc-options:      -threaded -with-rtsopts=-N
