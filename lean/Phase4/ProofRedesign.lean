@@ -276,4 +276,109 @@ theorem forge_boot_input_breaks_validity
       mem_replayInputs_acceptedWitnesses]
   simp [VerifiedEnvelope.init, h]
 
+-- =========================================================
+-- GET /tokens/:id/facts/:key (US1, slice 3) — fact present
+-- and fact absent
+-- =========================================================
+
+/-- Replay a fact-present response: the state UTxO is
+    accepted as a CSMT witness and the @(key, value)@ pair
+    is accepted as an inclusion trie fact. The Haskell
+    `verifyFactPresentResponse` mirrors this exact two-step
+    bind: state-UTxO inclusion proof first, MPF inclusion
+    proof second. -/
+def replayFactPresent
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fv : Value) (fp : Proof)
+    : VerifiedEnvelope Root Key Value Proof :=
+  VerifiedEnvelope.replayTrieFact
+    (VerifiedEnvelope.replayWitness env sk sv sp)
+    fk
+    (some fv)
+    fp
+
+/-- Replay a fact-absent response: state UTxO accepted as a
+    CSMT witness, advertised key recorded as an exclusion
+    trie fact. Mirrors `verifyFactAbsentResponse`. -/
+def replayFactAbsent
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fp : Proof)
+    : VerifiedEnvelope Root Key Value Proof :=
+  VerifiedEnvelope.replayTrieFact
+    (VerifiedEnvelope.replayWitness env sk sv sp)
+    fk
+    none
+    fp
+
+/-- After a fact-present replay the head of the recorded
+    trie facts is the advertised inclusion triple. -/
+theorem replayFactPresent_records_inclusion
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fv : Value) (fp : Proof) :
+    (replayFactPresent env sk sv sp fk fv fp).acceptedTrieFacts.head?
+      = some (fk, some fv, fp) := by
+  simp [replayFactPresent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
+/-- After a fact-absent replay the head of the recorded
+    trie facts is the advertised exclusion claim. -/
+theorem replayFactAbsent_records_exclusion
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fp : Proof) :
+    (replayFactAbsent env sk sv sp fk fp).acceptedTrieFacts.head?
+      = some (fk, none, fp) := by
+  simp [replayFactAbsent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
+/-- The state UTxO recorded by a fact-present replay is
+    exactly the advertised triple. -/
+theorem replayFactPresent_records_state_utxo
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fv : Value) (fp : Proof) :
+    (replayFactPresent env sk sv sp fk fv fp).acceptedWitnesses.head?
+      = some (sk, sv, sp) := by
+  simp [replayFactPresent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
+/-- The state UTxO recorded by a fact-absent replay is
+    exactly the advertised triple. -/
+theorem replayFactAbsent_records_state_utxo
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fp : Proof) :
+    (replayFactAbsent env sk sv sp fk fp).acceptedWitnesses.head?
+      = some (sk, sv, sp) := by
+  simp [replayFactAbsent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
+/-- Fact replay never rewrites the trusted root: the root
+    threaded through `verifyFactPresentResponse` /
+    `verifyFactAbsentResponse` from the externally-supplied
+    `TrustedRoot` is the same root the cryptographic
+    primitives consume. -/
+theorem replayFactPresent_preserves_root
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fv : Value) (fp : Proof) :
+    (replayFactPresent env sk sv sp fk fv fp).trustedRoot
+      = env.trustedRoot := by
+  simp [replayFactPresent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
+/-- Same property as `replayFactPresent_preserves_root`,
+    for the fact-absent flow. -/
+theorem replayFactAbsent_preserves_root
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (sk : Key) (sv : Value) (sp : Proof)
+    (fk : Key) (fp : Proof) :
+    (replayFactAbsent env sk sv sp fk fp).trustedRoot
+      = env.trustedRoot := by
+  simp [replayFactAbsent, VerifiedEnvelope.replayTrieFact,
+        VerifiedEnvelope.replayWitness]
+
 end Phase4.ProofRedesign
