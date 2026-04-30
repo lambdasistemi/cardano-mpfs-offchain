@@ -276,4 +276,100 @@ theorem forge_boot_input_breaks_validity
       mem_replayInputs_acceptedWitnesses]
   simp [VerifiedEnvelope.init, h]
 
+-- =========================================================
+-- GET /tokens (US5) — trust-minimised cage discovery
+-- =========================================================
+
+/-- Replay state for the `GET /tokens` response: a single
+    `CompletenessEnvelope` anchored at the externally-supplied
+    `trustedRoot` and the locally-derived global state script
+    address as `scriptPrefix`. The cryptographic verifier is
+    delegated to the upstream `verifyCompletenessProof`; the
+    structural invariants captured here are exactly those of
+    `Phase4.Completeness.CompletenessEnvelope`. -/
+abbrev TokensListEnvelope (Root Prefix Key Value : Type) :=
+  CompletenessEnvelope Root Prefix Key Value
+
+namespace TokensListEnvelope
+
+variable {Root Prefix Key Value : Type}
+
+/-- Initial envelope for a `GET /tokens` response. -/
+def init
+    (r : Root) (pfx : Prefix)
+    : TokensListEnvelope Root Prefix Key Value :=
+  CompletenessEnvelope.init r pfx
+
+/-- Replay one advertised entry into the listing. -/
+def replayEntry
+    (env : TokensListEnvelope Root Prefix Key Value)
+    (k : Key) (v : Value)
+    : TokensListEnvelope Root Prefix Key Value :=
+  CompletenessEnvelope.replayLeaf env k v
+
+end TokensListEnvelope
+
+variable {Root Prefix Key Value : Type}
+
+/-- The replay never rewrites the trusted root supplied at
+    initialisation. Specialisation of
+    `Phase4.Completeness.replayLeaf_preserves_root_trust` to
+    the `GET /tokens` envelope. -/
+theorem tokensList_replayEntry_preserves_root_trust
+    (env : TokensListEnvelope Root Prefix Key Value)
+    (k : Key) (v : Value) :
+    (TokensListEnvelope.replayEntry env k v).trustedRoot
+      = env.trustedRoot := by
+  simp [TokensListEnvelope.replayEntry,
+        CompletenessEnvelope.replayLeaf]
+
+/-- The replay never rewrites the script-address prefix.
+    Specialisation of
+    `Phase4.Completeness.replayLeaf_preserves_script_prefix`. -/
+theorem tokensList_replayEntry_preserves_script_prefix
+    (env : TokensListEnvelope Root Prefix Key Value)
+    (k : Key) (v : Value) :
+    (TokensListEnvelope.replayEntry env k v).scriptPrefix
+      = env.scriptPrefix := by
+  simp [TokensListEnvelope.replayEntry,
+        CompletenessEnvelope.replayLeaf]
+
+/-- Folding `replayEntry` over an entries list preserves the
+    trusted root anchor — generalisation across the whole
+    listing of
+    `tokensList_replayEntry_preserves_root_trust`. -/
+theorem tokensList_fold_preserves_root_trust
+    (env : TokensListEnvelope Root Prefix Key Value)
+    (entries : List (Key × Value)) :
+    (entries.foldl
+        (fun e kv =>
+          TokensListEnvelope.replayEntry e kv.1 kv.2)
+        env).trustedRoot
+      = env.trustedRoot := by
+  induction entries generalizing env with
+  | nil => rfl
+  | cons _ rest ih =>
+      simp [TokensListEnvelope.replayEntry,
+            CompletenessEnvelope.replayLeaf]
+      exact ih _
+
+/-- Folding `replayEntry` over an entries list preserves the
+    script-address prefix — generalisation across the whole
+    listing of
+    `tokensList_replayEntry_preserves_script_prefix`. -/
+theorem tokensList_fold_preserves_script_prefix
+    (env : TokensListEnvelope Root Prefix Key Value)
+    (entries : List (Key × Value)) :
+    (entries.foldl
+        (fun e kv =>
+          TokensListEnvelope.replayEntry e kv.1 kv.2)
+        env).scriptPrefix
+      = env.scriptPrefix := by
+  induction entries generalizing env with
+  | nil => rfl
+  | cons _ rest ih =>
+      simp [TokensListEnvelope.replayEntry,
+            CompletenessEnvelope.replayLeaf]
+      exact ih _
+
 end Phase4.ProofRedesign
