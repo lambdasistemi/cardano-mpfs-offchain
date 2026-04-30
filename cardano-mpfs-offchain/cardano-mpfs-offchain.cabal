@@ -67,6 +67,7 @@ library
     , mts
     , mts:csmt
     , mts:csmt-core
+    , mts:csmt-verify
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks

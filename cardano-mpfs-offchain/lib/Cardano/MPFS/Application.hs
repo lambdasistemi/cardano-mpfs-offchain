@@ -64,6 +64,7 @@ import Control.Concurrent.STM
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer (..), contramap, traceWith)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -100,12 +101,18 @@ import Ouroboros.Network.Point
     )
 
 import CSMT.Core.CBOR (renderCompletenessProof)
+import CSMT.Core.Hash (Hash (..), byteStringToKey)
+import CSMT.Core.Types (Indirect (..))
 import CSMT.Hashes
     ( generateInclusionProof
+    , mkHash
     , renderHash
     )
 import CSMT.Proof.Completeness qualified as CSMT.Completeness
     ( generateProof
+    )
+import CSMT.Verify qualified as CSMT.Verify
+    ( verifyCompletenessProof
     )
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
@@ -175,7 +182,6 @@ import Cardano.Ledger.Binary
     , serialize
     )
 
-import CSMT.Hashes.Types (Hash)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
@@ -632,20 +638,87 @@ withApplication cfg action = do
                                         CSMTCol
                                         []
                                         targetPrefix
-                                pure
-                                    $ fmap
-                                        ( \p ->
-                                            ( map
-                                                ( \(k, v) ->
-                                                    ( BSL.toStrict k
-                                                    , BSL.toStrict v
-                                                    )
-                                                )
-                                                entries
-                                            , renderCompletenessProof p
-                                            )
+                                mRoot <-
+                                    queryMerkleRoot
+                                        ( hashing
+                                            context
                                         )
-                                        mProof
+                                pure
+                                    $ case (mProof, mRoot) of
+                                        (Just p, Just r) ->
+                                            let strictEntries =
+                                                    map
+                                                        ( \(k, v) ->
+                                                            ( BSL.toStrict k
+                                                            , BSL.toStrict v
+                                                            )
+                                                        )
+                                                        entries
+                                                proofBs =
+                                                    renderCompletenessProof
+                                                        p
+                                                rootBs =
+                                                    renderHash
+                                                        r
+                                                leaves =
+                                                    map
+                                                        ( \(k, v) ->
+                                                            Indirect
+                                                                ( byteStringToKey
+                                                                    ( BSL.toStrict
+                                                                        k
+                                                                    )
+                                                                )
+                                                                ( mkHash
+                                                                    ( BSL.toStrict
+                                                                        v
+                                                                    )
+                                                                )
+                                                        )
+                                                        entries
+                                                ok =
+                                                    CSMT.Verify.verifyCompletenessProof
+                                                        rootBs
+                                                        targetPrefix
+                                                        leaves
+                                                        proofBs
+                                            in  if ok
+                                                    then
+                                                        Just
+                                                            ( strictEntries
+                                                            , proofBs
+                                                            )
+                                                    else
+                                                        error
+                                                            ( "setWitness self-check failed:\n"
+                                                                <> "  rootBs len = "
+                                                                <> show
+                                                                    ( BS.length
+                                                                        rootBs
+                                                                    )
+                                                                <> "\n  prefix len (bits) = "
+                                                                <> show
+                                                                    ( length
+                                                                        targetPrefix
+                                                                    )
+                                                                <> "\n  proofBs len = "
+                                                                <> show
+                                                                    ( BS.length
+                                                                        proofBs
+                                                                    )
+                                                                <> "\n  leaves count = "
+                                                                <> show
+                                                                    ( length
+                                                                        leaves
+                                                                    )
+                                                                <> "\n  leaves = "
+                                                                <> show leaves
+                                                                <> "\n  rootBs = "
+                                                                <> show rootBs
+                                                                <> "\n  proofBs = "
+                                                                <> show proofBs
+                                                            )
+                                        _ -> Nothing
                         ctx =
                             Context
                                 { provider = prov
