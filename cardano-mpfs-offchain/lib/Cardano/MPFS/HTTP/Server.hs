@@ -78,7 +78,6 @@ import Cardano.MPFS.HTTP.Swagger
     )
 import Cardano.MPFS.HTTP.Types
     ( BootRequest (..)
-    , BootTxResponse
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
@@ -99,6 +98,7 @@ import Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
+    , UnsignedTxResponse
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
@@ -595,7 +595,7 @@ requireAddr h =
 txBootHandler
     :: Context IO
     -> BootRequest
-    -> Handler BootTxResponse
+    -> Handler UnsignedTxResponse
 txBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
     snap <- requireBundleSnapshot ctx

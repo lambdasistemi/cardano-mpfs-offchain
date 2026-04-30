@@ -72,6 +72,7 @@ module Cardano.MPFS.HTTP.Types
     , EndTxResponse (..)
     , SweepTxResponse (..)
     , UpdateTxResponse (..)
+    , UnsignedTxResponse (..)
     , mkBootTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
@@ -129,10 +130,13 @@ import Cardano.MPFS.API.Types
     , TokenStateJSON (..)
     , TrieFactJSON (..)
     , TxInJSON (..)
+    , UnsignedTxResponse (..)
     , UpdateProofJSON (..)
     , UpdateRequest (..)
     , UpdateTxResponse (..)
     , UpdateValueRequest (..)
+    , UtxoEntry (..)
+    , UtxoRef (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
@@ -250,6 +254,32 @@ witnessedInputToJSON
             , wuProof = Hex prf
             }
 
+-- | Convert a 'WitnessedInput' to a post-split
+-- 'UtxoEntry' with a per-entry CSMT inclusion proof.
+-- The wire keys are @ref@ / @txout_cbor@ /
+-- @inclusion_proof@ rather than the legacy
+-- @tx_in@ / @tx_out@ / @proof@.
+witnessedInputToUtxoEntry :: WitnessedInput -> UtxoEntry
+witnessedInputToUtxoEntry
+    WitnessedInput
+        { witnessedRef = TxIn (TxId sh) (TxIx ix)
+        , witnessedTxOut = out
+        , witnessedCsmtProof = prf
+        } =
+        UtxoEntry
+            { ueRef =
+                UtxoRef
+                    { urTxId =
+                        Hex
+                            ( Crypto.hashToBytes
+                                (extractHash sh)
+                            )
+                    , urTxIx = fromIntegral ix
+                    }
+            , ueTxOutCbor = Hex out
+            , ueInclusionProof = Hex prf
+            }
+
 -- | Convert an internal 'TrieFact' to JSON.
 trieFactToJSON :: TrieFact -> TrieFactJSON
 trieFactToJSON
@@ -287,23 +317,27 @@ bundleSnapshotToJSON
 serializeTxHex :: Tx ConwayEra -> Hex
 serializeTxHex = Hex . serialize' (natVersion @11)
 
--- | Package a 'ProofEnvelope BootProof' as the JSON response.
+-- | Package a 'ProofEnvelope BootProof' as the
+-- post-split uniform write response (#243).
+--
+-- Boot has no consumed protocol UTxOs — only the
+-- booter's funding inputs — so the @inputs@ list is
+-- exactly the funding witnesses, each carrying its
+-- CSMT inclusion proof against the snapshot's
+-- @utxo_root@.
 mkBootTxResponse
-    :: ProofEnvelope BootProof -> BootTxResponse
+    :: ProofEnvelope BootProof -> UnsignedTxResponse
 mkBootTxResponse
     ProofEnvelope
         { envTx = tx
         , envSnapshot = snap
         , envProof = BootProof{bootFunding = funding}
         } =
-        BootTxResponse
-            { btrTx = serializeTxHex tx
-            , btrSnapshot = bundleSnapshotToJSON snap
-            , btrProof =
-                BootProofJSON
-                    { bpFunding =
-                        map witnessedInputToJSON funding
-                    }
+        UnsignedTxResponse
+            { utrUnsignedTxCbor = serializeTxHex tx
+            , utrSnapshot = bundleSnapshotToJSON snap
+            , utrInputs =
+                map witnessedInputToUtxoEntry funding
             }
 
 -- | Package a 'ProofEnvelope RequestProof' as the JSON response shared

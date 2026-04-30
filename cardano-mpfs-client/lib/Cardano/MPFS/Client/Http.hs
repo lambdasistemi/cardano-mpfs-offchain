@@ -366,7 +366,7 @@ fromServantError err =
             TransportError err
 
 txBootClient
-    :: Wire.BootRequest -> ClientM Wire.BootTxResponse
+    :: Wire.BootRequest -> ClientM Wire.UnsignedTxResponse
 txInsertClient
     :: Wire.InsertRequest -> ClientM Wire.RequestTxResponse
 txDeleteClient
