@@ -64,6 +64,7 @@ import Control.Concurrent.STM
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer (..), contramap, traceWith)
+import Data.Bifunctor (bimap)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
@@ -111,7 +112,7 @@ import CSMT.Hashes
 import CSMT.Proof.Completeness qualified as CSMT.Completeness
     ( generateProof
     )
-import CSMT.Verify qualified as CSMT.Verify
+import CSMT.Verify qualified
     ( verifyCompletenessProof
     )
 import Cardano.Ledger.Shelley.Genesis
@@ -648,10 +649,9 @@ withApplication cfg action = do
                                         (Just p, Just r) ->
                                             let strictEntries =
                                                     map
-                                                        ( \(k, v) ->
-                                                            ( BSL.toStrict k
-                                                            , BSL.toStrict v
-                                                            )
+                                                        ( bimap
+                                                            BSL.toStrict
+                                                            BSL.toStrict
                                                         )
                                                         entries
                                                 proofBs =

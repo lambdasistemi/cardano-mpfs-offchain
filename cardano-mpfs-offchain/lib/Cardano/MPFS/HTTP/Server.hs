@@ -44,6 +44,7 @@ import Data.ByteString.Lazy.Char8 qualified as BL
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Api.Tx (Tx)
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary
     ( DecoderError
     , decodeFull'
@@ -53,7 +54,6 @@ import Cardano.Ledger.Hashes
     ( extractHash
     , unsafeMakeSafeHash
     )
-import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.TxIn
     ( TxId (..)
     , TxIn (..)
@@ -101,12 +101,12 @@ import Cardano.MPFS.HTTP.Types
     , TokenResponse (..)
     , TokensListResponse (..)
     , UnsignedTxResponse
-    , UtxoEntryRefOnly (..)
-    , UtxoRef (..)
-    , UtxoSetWitness (..)
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
+    , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
@@ -133,10 +133,10 @@ import Cardano.UTxOCSMT.Application.Metrics
     , renderPrometheus
     )
 
+import Cardano.Ledger.Address (serialiseAddr)
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
-import Cardano.Ledger.Address (serialiseAddr)
 import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Cardano.MPFS.TxBuilder qualified as Tx
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
