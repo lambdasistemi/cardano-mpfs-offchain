@@ -17,6 +17,7 @@
 module Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
     , replayWitnessedUtxo
+    , replayUtxoEntry
     , replayTrieFact
     ) where
 
@@ -44,7 +45,11 @@ import MPF.Verify
     , verifyAikenInclusionProof
     )
 
-import Cardano.MPFS.API.Types (UtxoRef)
+import Cardano.MPFS.API.Encoding qualified as Wire
+import Cardano.MPFS.API.Types
+    ( UtxoEntry (..)
+    , UtxoRef (..)
+    )
 import Cardano.MPFS.Client.Bundle
     ( TrieFact (..)
     , TxIn (..)
@@ -167,6 +172,66 @@ replayWitnessedUtxo path trustedRoot WitnessedUtxo{..} = do
     checkRootReplay proofBs
   where
     proofPath = path <> ".utxo_proof"
+    checkValueBinding advertised proofVal
+        | advertised == proofVal = Right ()
+        | otherwise =
+            Left
+                ( CsmtReplayFailed
+                    proofPath
+                    "value binding mismatch"
+                )
+    checkKeyBinding proofKeyBs advertisedTxIdBs advertisedTxIx
+        | keyBindingMatches
+            proofKeyBs
+            advertisedTxIdBs
+            advertisedTxIx =
+            Right ()
+        | otherwise =
+            Left
+                ( CsmtReplayFailed
+                    proofPath
+                    "key binding mismatch"
+                )
+    checkRootReplay proofBs
+        | verifyInclusionProof trustedRoot proofBs = Right ()
+        | otherwise =
+            Left (CsmtReplayFailed proofPath "root mismatch")
+
+-- | Replay a post-split 'UtxoEntry' against a trusted CSMT
+-- root. Mirror of 'replayWitnessedUtxo' for the
+-- @ref@/@txout_cbor@/@inclusion_proof@ wire shape introduced
+-- by #243. Same three checks in the same structural →
+-- binding → root order, with the @inclusion_proof@ suffix
+-- replacing the legacy @utxo_proof@.
+replayUtxoEntry
+    :: Text
+    -- ^ dotted field path, e.g. @"boot.inputs[0]"@. The
+    -- @inclusion_proof@ suffix is appended by this
+    -- function.
+    -> ByteString
+    -- ^ trusted CSMT root bytes (32-byte Blake2b-256 hash).
+    -> UtxoEntry
+    -> Either VerifyError ()
+replayUtxoEntry path trustedRoot UtxoEntry{..} = do
+    let proofBs = Wire.unHex ueInclusionProof
+        txOutBs = Wire.unHex ueTxOutCbor
+        txIdBs = Wire.unHex (urTxId ueRef)
+    parsed <- case parseProof proofBs of
+        Just p -> Right p
+        Nothing ->
+            Left
+                ( CsmtReplayFailed
+                    proofPath
+                    "malformed proof CBOR"
+                )
+    let advertisedValueHash = blake2b256 txOutBs
+        Hash proofValueBytes = proofValue parsed
+        proofKeyBytes = keyToByteString (proofKey parsed)
+    checkValueBinding advertisedValueHash proofValueBytes
+    checkKeyBinding proofKeyBytes txIdBs (urTxIx ueRef)
+    checkRootReplay proofBs
+  where
+    proofPath = path <> ".inclusion_proof"
     checkValueBinding advertised proofVal
         | advertised == proofVal = Right ()
         | otherwise =
