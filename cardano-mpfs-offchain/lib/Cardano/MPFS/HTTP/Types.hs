@@ -73,6 +73,10 @@ module Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , UpdateTxResponse (..)
     , UnsignedTxResponse (..)
+    , TokensListResponse (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
+    , UtxoSetWitness (..)
     , mkBootTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
@@ -128,6 +132,7 @@ import Cardano.MPFS.API.Types
     , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenStateJSON (..)
+    , TokensListResponse (..)
     , TrieFactJSON (..)
     , TxInJSON (..)
     , UnsignedTxResponse (..)
@@ -136,7 +141,9 @@ import Cardano.MPFS.API.Types
     , UpdateTxResponse (..)
     , UpdateValueRequest (..)
     , UtxoEntry (..)
+    , UtxoEntryRefOnly (..)
     , UtxoRef (..)
+    , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)

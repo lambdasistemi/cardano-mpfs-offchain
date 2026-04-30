@@ -75,6 +75,23 @@ data Context m = Context
     -- composition follows from there being a single
     -- @run@. See spec
     -- @specs\/249-atomic-boot-handler@.
+    , utxoSetWitness
+        :: ByteString
+        -> m
+            ( Maybe
+                ( [(ByteString, ByteString)]
+                , ByteString
+                )
+            )
+    -- ^ Enumerate UTxOs at a given on-chain address
+    -- (raw serialized bytes) and return them with a
+    -- single CSMT prefix-completeness proof against
+    -- the current root. The first 'ByteString' in
+    -- each pair is the canonical 'TxIn' CBOR (the
+    -- KV key); the second is the @TxOut@ CBOR
+    -- (value). The trailing 'ByteString' is the
+    -- CompletenessProof CBOR. Returns 'Nothing' when
+    -- the CSMT is not yet available.
     , readMetrics :: m (Maybe Metrics)
     -- ^ Current metrics snapshot (if available)
     }

@@ -82,6 +82,7 @@ import Cardano.MPFS.API.Types
     , SweepTxResponse
     , TokenIdJSON
     , TokenResponse
+    , TokensListResponse
     , UnsignedTxResponse
     , UpdateRequest
     , UpdateTxResponse
@@ -91,8 +92,15 @@ import Cardano.MPFS.API.Types
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
 
--- | @GET \/tokens@ — list all known token IDs.
-type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
+-- | @GET \/tokens@ — trust-minimised cage discovery.
+--
+-- Returns one snapshot plus a 'UtxoSetWitness' over every
+-- UTxO at the global state validator address: a flat
+-- list of @{ref, txout_cbor}@ entries with a single CSMT
+-- prefix-completeness proof outside the list. The address
+-- itself is not carried — clients derive it locally from
+-- the trusted blueprint.
+type TokensAPI = "tokens" :> Get '[JSON] TokensListResponse
 
 -- | @GET \/tokens\/:id@ — get a token's state
 -- together with its UTxO witness and the

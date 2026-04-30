@@ -53,9 +53,10 @@ import Cardano.Ledger.Hashes
     ( extractHash
     , unsafeMakeSafeHash
     )
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.TxIn
     ( TxId (..)
-    , TxIn
+    , TxIn (..)
     , mkTxInPartial
     )
 
@@ -98,7 +99,11 @@ import Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
+    , TokensListResponse (..)
     , UnsignedTxResponse
+    , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
+    , UtxoSetWitness (..)
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
@@ -116,7 +121,6 @@ import Cardano.MPFS.HTTP.Types
     , parseAddr
     , requestToJSON
     , tokenIdFromJSON
-    , tokenIdToJSON
     , tokenStateToJSON
     , txInToJSON
     )
@@ -132,9 +136,12 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
+import Cardano.Ledger.Address (serialiseAddr)
 import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Cardano.MPFS.TxBuilder qualified as Tx
+import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
+import Cardano.MPFS.TxBuilder.Real.Internal (cageAddrFromCfg)
 
 -- | Combined API with Swagger UI.
 type FullAPI = SwaggerAPI :<|> API
@@ -222,13 +229,70 @@ statusHandler ctx = do
             , currentUtxoRoot = fmap Hex mRoot
             }
 
+-- | @GET \/tokens@ — return the trust-minimised
+-- listing: every UTxO at the global state validator
+-- address with a single CSMT prefix-completeness
+-- proof, anchored to one snapshot.
+--
+-- Emits @503@ when the indexer has no CSMT root yet
+-- (still bootstrapping), or when the
+-- 'utxoSetWitness' primitive returns 'Nothing'.
 tokensHandler
-    :: Context IO -> Handler [TokenIdJSON]
+    :: Context IO -> Handler TokensListResponse
 tokensHandler ctx = do
-    tids <-
-        liftIO
-            $ St.listTokens (St.tokens (state ctx))
-    pure (map tokenIdToJSON tids)
+    snapshot <- requireSnapshot ctx
+    let cfg = cfgCage ctx
+        net = network cfg
+        addr = cageAddrFromCfg cfg net
+        addrBytes = serialiseAddr addr
+    mWitness <- liftIO $ utxoSetWitness ctx addrBytes
+    case mWitness of
+        Nothing ->
+            throwError
+                $ err503
+                    { errBody =
+                        "csmt not available yet"
+                    }
+        Just (entries, completenessBs) ->
+            pure
+                TokensListResponse
+                    { tlrSnapshot = snapshot
+                    , tlrTokens =
+                        UtxoSetWitness
+                            { uswEntries =
+                                map
+                                    txInPairToEntry
+                                    entries
+                            , uswCompletenessProof =
+                                Hex completenessBs
+                            }
+                    }
+  where
+    txInPairToEntry (txInBs, txOutBs) =
+        UtxoEntryRefOnly
+            { uerRef = txInBytesToRef txInBs
+            , uerTxOutCbor = Hex txOutBs
+            }
+    -- The CSMT KV-key is the canonical Shelley TxIn
+    -- CBOR layout: @[bytestring tx_id, uint tx_ix]@.
+    -- Decode it into a 'UtxoRef' for the wire.
+    txInBytesToRef bs =
+        case decodeFull' (natVersion @11) bs of
+            Right (TxIn (TxId sh) (TxIx ix)) ->
+                UtxoRef
+                    { urTxId =
+                        Hex
+                            ( Crypto.hashToBytes
+                                ( extractHash
+                                    sh
+                                )
+                            )
+                    , urTxIx = fromIntegral ix
+                    }
+            Left _ ->
+                error
+                    "tokensHandler: TxIn CBOR \
+                    \decode failed"
 
 tokenHandler
     :: Context IO

@@ -58,5 +58,6 @@ mkMockContext = do
                         "mkMockContext: runIndexerTx \
                         \not implemented (mock context \
                         \does not exercise tx-build paths)"
+            , utxoSetWitness = \_ -> pure Nothing
             , readMetrics = pure Nothing
             }

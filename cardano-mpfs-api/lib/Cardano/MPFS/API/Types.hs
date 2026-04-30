@@ -35,6 +35,7 @@ module Cardano.MPFS.API.Types
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , UnsignedTxResponse (..)
+    , TokensListResponse (..)
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -523,6 +524,38 @@ instance FromJSON UnsignedTxResponse where
                 <$> o .: "unsigned_tx_cbor"
                 <*> o .: "snapshot"
                 <*> o .: "inputs"
+
+-- | Response envelope for @GET \/tokens@.
+--
+-- The trust-minimised oracle-discovery shape under #243:
+-- one snapshot, one 'UtxoSetWitness' (every UTxO at the
+-- global state validator address with a single CSMT
+-- prefix-completeness proof). The address itself is not
+-- carried — the verifier derives it locally from the
+-- trusted blueprint and cross-checks the wire entries
+-- against the proof.
+data TokensListResponse = TokensListResponse
+    { tlrSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled completeness proof targets.
+    , tlrTokens :: UtxoSetWitness
+    -- ^ Enumerated UTxOs at the global state validator
+    -- address with a single completeness proof.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokensListResponse where
+    toJSON TokensListResponse{..} =
+        object
+            [ "snapshot" .= tlrSnapshot
+            , "tokens" .= tlrTokens
+            ]
+
+instance FromJSON TokensListResponse where
+    parseJSON =
+        withObject "TokensListResponse" $ \o ->
+            TokensListResponse
+                <$> o .: "snapshot"
+                <*> o .: "tokens"
 
 -- ---------------------------------------------------------
 -- Proof-bearing read responses
@@ -1890,6 +1923,33 @@ instance ToSchema UnsignedTxResponse where
                    \snapshot and a flat list of spent \
                    \and reference inputs, each with its \
                    \CSMT inclusion proof."
+
+instance ToSchema TokensListResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokensSchema <-
+            declareSchemaRef (Proxy @UtxoSetWitness)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokensListResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("tokens", tokensSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "tokens"
+                   ]
+            & description
+                ?~ "Trust-minimised cage discovery: one \
+                   \snapshot plus a UtxoSetWitness over \
+                   \the global state validator address."
 
 instance ToSchema FactWitness where
     declareNamedSchema _ = do

@@ -99,9 +99,13 @@ import Ouroboros.Network.Point
     , WithOrigin (..)
     )
 
+import CSMT.Core.CBOR (renderCompletenessProof)
 import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
+    )
+import CSMT.Proof.Completeness qualified as CSMT.Completeness
+    ( generateProof
     )
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
@@ -126,6 +130,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     , ReadyState (..)
     , mkCSMTOps
     , openCSMTOps
+    , queryByAddress
     , queryMerkleRoot
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
@@ -138,6 +143,7 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
     , context
+    , hashAddressKey
     , prisms
     )
 import Cardano.UTxOCSMT.Bootstrap.Genesis
@@ -610,6 +616,36 @@ withApplication cfg action = do
                                         )
                                 pure
                                     $ fmap snd result
+                        setWitness addressBs =
+                            CSMT.transact utxoRt $ do
+                                let fkv =
+                                        fromKV context
+                                    targetPrefix =
+                                        hashAddressKey
+                                            addressBs
+                                entries <-
+                                    queryByAddress
+                                        fkv
+                                        targetPrefix
+                                mProof <-
+                                    CSMT.Completeness.generateProof
+                                        CSMTCol
+                                        []
+                                        targetPrefix
+                                pure
+                                    $ fmap
+                                        ( \p ->
+                                            ( map
+                                                ( \(k, v) ->
+                                                    ( BSL.toStrict k
+                                                    , BSL.toStrict v
+                                                    )
+                                                )
+                                                entries
+                                            , renderCompletenessProof p
+                                            )
+                                        )
+                                        mProof
                         ctx =
                             Context
                                 { provider = prov
@@ -640,6 +676,8 @@ withApplication cfg action = do
                                 , runIndexerTx =
                                     \(IndexerTx body) ->
                                         run body
+                                , utxoSetWitness =
+                                    setWitness
                                 , readMetrics =
                                     readIORef metricsRef
                                 }
