@@ -19,6 +19,7 @@ module Cardano.MPFS.Client.Verify.Replay
     , replayWitnessedUtxo
     , replayUtxoEntry
     , replayTrieFact
+    , encodeTxIn
     ) where
 
 import Codec.CBOR.Encoding qualified as CBOR
