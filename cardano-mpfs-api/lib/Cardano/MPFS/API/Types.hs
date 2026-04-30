@@ -34,6 +34,7 @@ module Cardano.MPFS.API.Types
     , UtxoEntry (..)
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
+    , UnsignedTxResponse (..)
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -473,6 +474,55 @@ instance FromJSON UtxoSetWitness where
             UtxoSetWitness
                 <$> o .: "entries"
                 <*> o .: "completeness_proof"
+
+-- | Uniform response envelope for proof-bearing write
+-- endpoints under #243.
+--
+-- Carries the unsigned transaction CBOR plus the
+-- verification snapshot and a single flat list of
+-- inputs. Each entry in @inputs@ — spent or reference —
+-- carries its CSMT inclusion proof against the
+-- enclosing snapshot's @utxo_root@; the role of each
+-- input is encoded by the redeemers in
+-- @unsigned_tx_cbor@ and is not discriminated by the
+-- envelope.
+--
+-- The endpoints that bundle a per-cage requests
+-- completeness witness (@POST \/tx\/oracle\/update@,
+-- @POST \/tx\/oracle\/end@) carry that witness in a
+-- separate response type added by their slices; this
+-- envelope intentionally omits it so that boot,
+-- requester, reject, sweeps and submit share the
+-- exact same shape.
+data UnsignedTxResponse = UnsignedTxResponse
+    { utrUnsignedTxCbor :: Hex
+    -- ^ CBOR-hex of the unsigned transaction
+    -- (@unsigned_tx_cbor@).
+    , utrSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled inclusion proofs target
+    -- (@snapshot@).
+    , utrInputs :: [UtxoEntry]
+    -- ^ Flat list of every spent and reference input
+    -- (@inputs@). Roles are derived from the
+    -- redeemers in @unsigned_tx_cbor@.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UnsignedTxResponse where
+    toJSON UnsignedTxResponse{..} =
+        object
+            [ "unsigned_tx_cbor" .= utrUnsignedTxCbor
+            , "snapshot" .= utrSnapshot
+            , "inputs" .= utrInputs
+            ]
+
+instance FromJSON UnsignedTxResponse where
+    parseJSON =
+        withObject "UnsignedTxResponse" $ \o ->
+            UnsignedTxResponse
+                <$> o .: "unsigned_tx_cbor"
+                <*> o .: "snapshot"
+                <*> o .: "inputs"
 
 -- ---------------------------------------------------------
 -- Proof-bearing read responses
@@ -1806,6 +1856,40 @@ instance ToSchema UtxoSetWitness where
                    \CSMT prefix-completeness proof \
                    \attesting the set is exactly the \
                    \leaves under that prefix."
+
+instance ToSchema UnsignedTxResponse where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        inputsSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        pure
+            $ Swagger.NamedSchema
+                (Just "UnsignedTxResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("unsigned_tx_cbor", hexSchema)
+                    , ("snapshot", snapshotSchema)
+                    , ("inputs", inputsSchema)
+                    ]
+            & required
+                .~ [ "unsigned_tx_cbor"
+                   , "snapshot"
+                   , "inputs"
+                   ]
+            & description
+                ?~ "Uniform proof-bearing response for \
+                   \write endpoints. Carries the \
+                   \unsigned transaction CBOR plus a \
+                   \snapshot and a flat list of spent \
+                   \and reference inputs, each with its \
+                   \CSMT inclusion proof."
 
 instance ToSchema FactWitness where
     declareNamedSchema _ = do
