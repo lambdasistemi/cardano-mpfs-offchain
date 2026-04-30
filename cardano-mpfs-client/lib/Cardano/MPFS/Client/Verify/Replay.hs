@@ -44,6 +44,7 @@ import MPF.Verify
     , verifyAikenInclusionProof
     )
 
+import Cardano.MPFS.API.Types (UtxoRef)
 import Cardano.MPFS.Client.Bundle
     ( TrieFact (..)
     , TxIn (..)
@@ -77,6 +78,54 @@ data VerifyError
     | -- | The transaction body does not match the endpoint
       -- proof roles. Carries a dotted field path and reason.
       TxBindingFailed Text Text
+    | -- | Two snapshot fields disagree across nested response
+      -- positions (paths of the two snapshots).
+      SnapshotMismatch Text Text
+    | -- | The response's @snapshot.utxo_root@ does not match
+      -- the externally-supplied trusted root. Field path of
+      -- the snapshot.
+      TrustedRootMismatch Text
+    | -- | Decoded @txout_cbor@'s address is not the
+      -- locally-derived global state validator address.
+      StateAddressMismatch Text
+    | -- | Decoded @txout_cbor@'s address is not the
+      -- locally-derived per-cage request validator address.
+      RequestAddressMismatch Text
+    | -- | Decoded @txout_cbor@'s value carries an NFT under
+      -- a policy that is not the trusted state policy id.
+      StateNftPolicyMismatch Text
+    | -- | Decoded @txout_cbor@'s value carries an NFT under
+      -- the trusted state policy but with a different asset
+      -- name than the requested token id.
+      StateNftNameMismatch Text
+    | -- | Decoded @txout_cbor@'s value contains zero or more
+      -- than one NFT under the trusted state policy id.
+      StateNftNotUnique Text
+    | -- | Decoded @txout_cbor@'s datum could not be parsed
+      -- as the expected State shape.
+      StateDatumMalformed Text
+    | -- | A CSMT prefix-completeness proof did not validate
+      -- under the trusted root and the locally-derived
+      -- script-hash prefix.
+      CompletenessProofInvalid Text
+    | -- | A leaf claimed in the witness is not actually
+      -- under the prefix in the CSMT.
+      CompletenessExtraLeaf Text UtxoRef
+    | -- | An on-chain leaf under the prefix is not in the
+      -- witness — only detectable when an independent source
+      -- attests the same prefix.
+      CompletenessMissingLeaf Text UtxoRef
+    | -- | An MPF inclusion proof did not validate against
+      -- the recovered trie root.
+      MpfInclusionInvalid Text
+    | -- | An MPF exclusion proof did not validate against
+      -- the recovered trie root.
+      MpfExclusionInvalid Text
+    | -- | HTTP 404 with no body — the indexer has no
+      -- record of the requested token. Soft signal; the
+      -- caller falls back to @GET \/tokens@ for verifiable
+      -- absence.
+      TokenUnknown Text
     deriving stock (Eq, Show)
 
 -- | Replay a 'WitnessedUtxo' against a trusted CSMT root.
