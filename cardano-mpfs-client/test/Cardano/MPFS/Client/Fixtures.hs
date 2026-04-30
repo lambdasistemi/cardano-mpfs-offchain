@@ -12,6 +12,8 @@
 module Cardano.MPFS.Client.Fixtures
     ( -- * Per-endpoint honest responses
       honestBootResponse
+    , honestUnsignedBootResponse
+    , honestBootTrustedRoot
     , honestRequestResponse
     , honestRetractResponse
     , honestRejectResponse
@@ -22,6 +24,8 @@ module Cardano.MPFS.Client.Fixtures
 
       -- * Underlying primitives
     , honestWitness
+    , bundleRoot
+    , bundleFunding
     , honestTrieInclusion
     , honestTrieExclusion
 
@@ -87,6 +91,8 @@ import MPF.Test.Lib
     )
 import MPF.Test.Lib qualified as MPFTest (getRootHashM)
 
+import Cardano.MPFS.API.Encoding qualified as Wire
+import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client.Bundle
     ( BootProof (..)
     , BootTxResponse (..)
@@ -109,6 +115,7 @@ import Cardano.MPFS.Client.Snapshot
     , Hex (..)
     , VerificationSnapshot (..)
     )
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify.TxView
     ( TxAsset (..)
     )
@@ -567,6 +574,71 @@ honestBootResponse =
             )
             (sampleSnapshot (bundleRoot honestWitness))
             (BootProof [funding])
+
+-- | Boot response in the post-split #243 wire shape:
+-- snapshot + flat list of inputs each carrying its own
+-- inclusion proof.
+honestUnsignedBootResponse :: Wire.UnsignedTxResponse
+honestUnsignedBootResponse =
+    Wire.UnsignedTxResponse
+        { Wire.utrUnsignedTxCbor =
+            wireBytes $ unTextHex (txOut funding) -- placeholder, see comment
+        , Wire.utrSnapshot =
+            Wire.VerificationSnapshot
+                { Wire.vsUtxoRoot =
+                    Wire.Hex (bundleRoot honestWitness)
+                , Wire.vsChainPoint =
+                    Wire.ChainPointJSON
+                        { Wire.cpSlot = sampleSlot
+                        , Wire.cpBlockId =
+                            Wire.Hex sampleBlockId
+                        }
+                }
+        , Wire.utrInputs =
+            [witnessedToUtxoEntry funding]
+        }
+  where
+    funding = bundleFunding honestWitness
+
+-- The boot tx CBOR shape itself is not exercised by
+-- 'verifyUnsignedTxResponse' (it stays out of scope until
+-- the per-endpoint redeemer/asset bindings land in their
+-- own slices). Use the funding output's CBOR as a non-empty
+-- placeholder so JSON round-trips deterministically.
+--
+-- The line above (`utrUnsignedTxCbor = wireBytes ...`) is
+-- kept syntactically simple on purpose: the verifier under
+-- test ignores the field, and end-to-end binding will
+-- exercise it later.
+
+-- | Externally-supplied trusted CSMT root that
+-- 'honestUnsignedBootResponse' validates against.
+honestBootTrustedRoot :: TrustedRoot
+honestBootTrustedRoot =
+    TrustedRoot (Wire.Hex (bundleRoot honestWitness))
+
+witnessedToUtxoEntry :: WitnessedUtxo -> Wire.UtxoEntry
+witnessedToUtxoEntry WitnessedUtxo{..} =
+    Wire.UtxoEntry
+        { Wire.ueRef =
+            Wire.UtxoRef
+                { Wire.urTxId = wireBytes (unTextHex (txId txIn))
+                , Wire.urTxIx = txIx txIn
+                }
+        , Wire.ueTxOutCbor = wireBytes (unTextHex txOut)
+        , Wire.ueInclusionProof =
+            wireBytes (unTextHex utxoProof)
+        }
+
+unTextHex :: Hex -> ByteString
+unTextHex (Hex t) = case Base16.decode (T.encodeUtf8 t) of
+    Right bs -> bs
+    Left err ->
+        error
+            ("Fixtures.unTextHex: malformed test hex: " <> err)
+
+wireBytes :: ByteString -> Wire.Hex
+wireBytes = Wire.Hex
 
 honestRequestResponse :: RequestTxResponse
 honestRequestResponse =

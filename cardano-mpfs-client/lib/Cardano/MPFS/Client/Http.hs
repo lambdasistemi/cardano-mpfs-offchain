@@ -72,22 +72,24 @@ import Servant.Client.Core.Response
 import Cardano.MPFS.API (TxWriteAPI)
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client.Bundle
-    ( BootTxResponse
-    , EndTxResponse
+    ( EndTxResponse
     , RejectTxResponse
     , RequestTxResponse
     , RetractTxResponse
     , UpdateTxResponse
     )
 import Cardano.MPFS.Client.Snapshot (Hex)
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
     ( VerifyError
-    , verifyBootTxResponse
     , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
+    )
+import Cardano.MPFS.Client.Verify.Write
+    ( verifyUnsignedTxResponse
     )
 
 -- | Whether HTTP wrappers run the offline verifier before returning a
@@ -235,13 +237,21 @@ instance ToJSON EndParams where
             , "address" .= endAddress
             ]
 
--- | Build a boot transaction.
+-- | Build a boot transaction. The post-split #243 shape: caller
+-- supplies an externally-trusted CSMT root; the verifier checks
+-- @snapshot.utxo_root@ matches that root and replays each
+-- bundled input's inclusion proof against it.
 bootTx
     :: MpfsHttp
+    -> TrustedRoot
     -> BootTxParams
-    -> IO (Either ClientError BootTxResponse)
-bootTx http params =
-    runWriteEndpoint http params txBootClient verifyBootTxResponse
+    -> IO (Either ClientError Wire.UnsignedTxResponse)
+bootTx http trustedRoot params =
+    runWriteEndpoint
+        http
+        params
+        txBootClient
+        (verifyUnsignedTxResponse "boot" trustedRoot)
 
 -- | Build an insert-request transaction.
 requestInsertTx
