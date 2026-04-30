@@ -28,11 +28,14 @@ import Servant
     , Handler
     , NoContent (..)
     , ServerError (..)
+    , Union
+    , WithStatus (..)
     , err400
     , err404
     , err502
     , err503
     , errBody
+    , respond
     , serve
     , throwError
     , (:<|>) (..)
@@ -44,6 +47,7 @@ import Data.ByteString.Lazy.Char8 qualified as BL
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Api.Tx (Tx)
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary
     ( DecoderError
     , decodeFull'
@@ -55,7 +59,7 @@ import Cardano.Ledger.Hashes
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
-    , TxIn
+    , TxIn (..)
     , mkTxInPartial
     )
 
@@ -82,7 +86,8 @@ import Cardano.MPFS.HTTP.Types
     , DeleteRequest (..)
     , EndRequest (..)
     , EndTxResponse
-    , FactResponse (..)
+    , FactAbsentResponse (..)
+    , FactPresentResponse (..)
     , FactWitness (..)
     , InsertRequest (..)
     , ProofResponse (..)
@@ -102,6 +107,8 @@ import Cardano.MPFS.HTTP.Types
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
+    , UtxoEntry (..)
+    , UtxoRef (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
@@ -347,6 +354,33 @@ requireUtxoWitness ctx txIn = do
                     }
         _ -> throwError err404
 
+-- | Resolve a 'TxIn' to a post-split 'UtxoEntry', or
+-- @404@ if the UTxO or its CSMT inclusion proof is
+-- missing. Mirror of 'requireUtxoWitness' for the new
+-- ref/txout_cbor/inclusion_proof wire shape (#243).
+requireUtxoEntry
+    :: Context IO -> TxIn -> Handler UtxoEntry
+requireUtxoEntry ctx txIn@(TxIn (TxId sh) (TxIx ix)) = do
+    mOut <- liftIO $ resolveUtxo ctx txIn
+    mProof <- liftIO $ utxoProof ctx txIn
+    case (mOut, mProof) of
+        (Just out, Just proof) ->
+            pure
+                UtxoEntry
+                    { ueRef =
+                        UtxoRef
+                            { urTxId =
+                                Hex
+                                    ( Crypto.hashToBytes
+                                        (extractHash sh)
+                                    )
+                            , urTxIx = fromIntegral ix
+                            }
+                    , ueTxOutCbor = Hex out
+                    , ueInclusionProof = Hex proof
+                    }
+        _ -> throwError err404
+
 tokenRootHandler
     :: Context IO
     -> TokenIdJSON
@@ -359,43 +393,59 @@ tokenRootHandler ctx tokenId =
                 Root r <- Trie.getRoot trie
                 pure (Hex r)
 
+-- | @GET \/tokens\/:id\/facts\/:key@ — trust-minimised
+-- fact lookup. Per the post-split #243 redesign:
+--
+--  * @200 FactPresentResponse@ when the trie contains
+--    the key.
+--  * @404 FactAbsentResponse@ (with body) when the cage
+--    exists but the trie does not contain the key.
+--  * Bare @404@ via 'throwError' when the indexer has
+--    no record of the cage.
 tokenFactHandler
     :: Context IO
     -> TokenIdJSON
     -> Hex
-    -> Handler FactResponse
+    -> Handler
+        ( Union
+            '[ WithStatus 200 FactPresentResponse
+             , WithStatus 404 FactAbsentResponse
+             ]
+        )
 tokenFactHandler ctx tokenId (Hex k) = do
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
-        , tokenState = ts
         } <-
         requireToken ctx tid
     snapshot <- requireSnapshot ctx
-    witness <- requireUtxoWitness ctx tokenStateRef
+    stateUtxo <- requireUtxoEntry ctx tokenStateRef
     mv <-
         liftIO
             $ Trie.withTrie (trieManager ctx) tid
             $ \trie -> Trie.lookup trie k
-    v <- case mv of
-        Just v -> pure v
-        Nothing -> throwError err404
-    proof <- requireMpfProof ctx tid k
-    pure
-        FactResponse
-            { frSnapshot = snapshot
-            , frValue = Hex v
-            , frFact =
-                FactWitness
-                    { fwState =
-                        WitnessedTokenState
-                            { wtsUtxo = witness
-                            , wtsState =
-                                tokenStateToJSON ts
-                            }
-                    , fwMpfProof = proof
-                    }
-            }
+    case mv of
+        Just v -> do
+            proof <- requireMpfProof ctx tid k
+            respond
+                ( WithStatus @200
+                    FactPresentResponse
+                        { fprSnapshot = snapshot
+                        , fprStateUtxo = stateUtxo
+                        , fprValue = Hex v
+                        , fprMpfInclusionProof = proof
+                        }
+                )
+        Nothing -> do
+            proof <- requireMpfExclusionProof ctx tid k
+            respond
+                ( WithStatus @404
+                    FactAbsentResponse
+                        { farSnapshot = snapshot
+                        , farStateUtxo = stateUtxo
+                        , farMpfExclusionProof = proof
+                        }
+                )
 
 tokenProofHandler
     :: Context IO
@@ -441,6 +491,29 @@ requireMpfProof ctx tid k = do
             $ \trie -> Trie.getProof trie k
     case mp of
         Nothing -> throwError err404
+        Just p -> pure (Hex (Trie.unProof p))
+
+-- | Compute an MPF exclusion proof for a key absent
+-- from the token's trie, or @502@ if the trie machinery
+-- cannot produce one (which would indicate an internal
+-- bug rather than a client-visible condition).
+requireMpfExclusionProof
+    :: Context IO
+    -> TokenId
+    -> ByteString
+    -> Handler Hex
+requireMpfExclusionProof ctx tid k = do
+    mp <-
+        liftIO
+            $ Trie.withTrie (trieManager ctx) tid
+            $ \trie -> Trie.getExclusionProof trie k
+    case mp of
+        Nothing ->
+            throwError
+                err502
+                    { errBody =
+                        "trie unavailable for exclusion proof"
+                    }
         Just p -> pure (Hex (Trie.unProof p))
 
 tokenRequestsHandler

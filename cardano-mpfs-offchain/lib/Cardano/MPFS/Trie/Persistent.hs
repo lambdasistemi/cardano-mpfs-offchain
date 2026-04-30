@@ -103,6 +103,7 @@ import MPF.Hashes
     , mpfHashing
     , renderMPFHash
     )
+import MPF.Hashes.Aiken (renderAikenProof)
 import MPF.Insertion (inserting)
 import MPF.Interface
     ( HexIndirect (..)
@@ -110,6 +111,10 @@ import MPF.Interface
     , byteStringToHexKey
     , hexKeyPrism
     , mpfCodecs
+    )
+import MPF.Proof.Exclusion
+    ( mkMPFExclusionProof
+    , mpfExclusionProofSteps
     )
 import MPF.Proof.Insertion
     ( mkMPFInclusionProof
@@ -173,6 +178,8 @@ mkUnifiedTrie pfx =
         , lookup = unifiedLookup pfx
         , getRoot = unifiedGetRoot pfx
         , getProof = unifiedGetProof pfx
+        , getExclusionProof =
+            unifiedGetExclusionProof pfx
         , getProofSteps =
             unifiedGetProofSteps pfx
         }
@@ -281,6 +288,37 @@ unifiedGetProof pfx k = do
         $ fmap
             ( Proof
                 . serializeProof
+            )
+            mProof
+
+-- | Generate an MPF exclusion proof for a key absent
+-- from the unified-column trie. Wire format matches
+-- 'verifyAikenExclusionProof'.
+unifiedGetExclusionProof
+    :: (Monad m)
+    => HexKey
+    -> ByteString
+    -> Transaction
+        m
+        cf
+        AllColumns
+        ops
+        (Maybe Proof)
+unifiedGetExclusionProof pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFExclusionProof
+            pfx
+            fromHexKVIdentity
+            mpfHashing
+            TrieNodes
+            hexKey
+    pure
+        $ fmap
+            ( Proof
+                . renderAikenProof
+                . mpfExclusionProofSteps
             )
             mProof
 
@@ -894,6 +932,8 @@ mkPersistentTrie pfx database =
         , getRoot = persistentGetRoot pfx database
         , getProof =
             persistentGetProof pfx database
+        , getExclusionProof =
+            persistentGetExclusionProof pfx database
         , getProofSteps =
             persistentGetProofSteps pfx database
         }
@@ -919,6 +959,8 @@ mkSpeculativeTrie pfx =
         , lookup = speculativeLookup pfx
         , getRoot = speculativeGetRoot pfx
         , getProof = speculativeGetProof pfx
+        , getExclusionProof =
+            speculativeGetExclusionProof pfx
         , getProofSteps =
             speculativeGetProofSteps pfx
         }
@@ -1007,6 +1049,22 @@ persistentGetProof
 persistentGetProof pfx database k =
     runTransactionUnguarded database
         $ speculativeGetProof pfx k
+
+-- | Generate an exclusion proof for a key absent from
+-- the trie. Mirrors 'persistentGetProof' for the
+-- absence case.
+persistentGetExclusionProof
+    :: HexKey
+    -> Database
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+    -> ByteString
+    -> IO (Maybe Proof)
+persistentGetExclusionProof pfx database k =
+    runTransactionUnguarded database
+        $ speculativeGetExclusionProof pfx k
 
 persistentGetProofSteps
     :: HexKey
@@ -1139,6 +1197,37 @@ speculativeGetProof pfx k = do
         $ fmap
             ( Proof
                 . serializeProof
+            )
+            mProof
+
+-- | Generate an MPF exclusion proof for a key absent
+-- from the speculative trie session. Wire format is the
+-- Aiken-compatible step list 'verifyAikenExclusionProof'
+-- consumes.
+speculativeGetExclusionProof
+    :: HexKey
+    -> ByteString
+    -> Transaction
+        IO
+        ColumnFamily
+        (MPFStandalone HexKey MPFHash MPFHash)
+        BatchOp
+        (Maybe Proof)
+speculativeGetExclusionProof pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
+    mProof <-
+        mkMPFExclusionProof
+            pfx
+            fromHexKVIdentity
+            mpfHashing
+            MPFStandaloneMPFCol
+            hexKey
+    pure
+        $ fmap
+            ( Proof
+                . renderAikenProof
+                . mpfExclusionProofSteps
             )
             mProof
 

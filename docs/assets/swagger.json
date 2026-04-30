@@ -110,14 +110,37 @@
             ],
             "type": "object"
         },
-        "FactResponse": {
-            "description": "Proof-bearing fact value response",
+        "FactAbsentResponse": {
+            "description": "GET /tokens/:id/facts/:key — absent (HTTP 404 with body). Carries an MPF exclusion proof against the trie root recovered from state_utxo's datum.",
             "properties": {
-                "fact": {
-                    "$ref": "#/definitions/FactWitness"
+                "mpf_exclusion_proof": {
+                    "$ref": "#/definitions/Hex"
                 },
                 "snapshot": {
                     "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                }
+            },
+            "required": [
+                "snapshot",
+                "state_utxo",
+                "mpf_exclusion_proof"
+            ],
+            "type": "object"
+        },
+        "FactPresentResponse": {
+            "description": "GET /tokens/:id/facts/:key — present (HTTP 200). Carries the value plus an MPF inclusion proof against the trie root recovered from state_utxo's datum.",
+            "properties": {
+                "mpf_inclusion_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
                 },
                 "value": {
                     "$ref": "#/definitions/Hex"
@@ -125,8 +148,9 @@
             },
             "required": [
                 "snapshot",
+                "state_utxo",
                 "value",
-                "fact"
+                "mpf_inclusion_proof"
             ],
             "type": "object"
         },
@@ -1071,11 +1095,17 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/FactResponse"
+                            "$ref": "#/definitions/FactPresentResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid `key` or `id`"
+                    },
+                    "404": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/FactAbsentResponse"
+                        }
                     }
                 }
             }

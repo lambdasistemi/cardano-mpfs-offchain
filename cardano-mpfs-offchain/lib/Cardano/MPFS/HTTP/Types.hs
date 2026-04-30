@@ -39,6 +39,8 @@ module Cardano.MPFS.HTTP.Types
     , FactWitness (..)
     , TokenResponse (..)
     , FactResponse (..)
+    , FactPresentResponse (..)
+    , FactAbsentResponse (..)
     , ProofResponse (..)
     , RequestsResponse (..)
 
@@ -73,6 +75,8 @@ module Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , UpdateTxResponse (..)
     , UnsignedTxResponse (..)
+    , UtxoEntry (..)
+    , UtxoRef (..)
     , mkBootTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
@@ -107,6 +111,8 @@ import Cardano.MPFS.API.Types
     , EndProofJSON (..)
     , EndRequest (..)
     , EndTxResponse (..)
+    , FactAbsentResponse (..)
+    , FactPresentResponse (..)
     , FactResponse (..)
     , FactWitness (..)
     , InsertRequest (..)

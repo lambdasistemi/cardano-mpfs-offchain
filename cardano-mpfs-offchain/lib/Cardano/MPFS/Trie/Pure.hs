@@ -43,11 +43,14 @@ import MPF.Hashes
     ( mkMPFHash
     , renderMPFHash
     )
+import MPF.Hashes.Aiken (renderAikenProof)
 import MPF.Interface (byteStringToHexKey)
+import MPF.Proof.Exclusion (mpfExclusionProofSteps)
 import MPF.Test.Lib
     ( deleteMPFM
     , getRootHashM
     , insertByteStringM
+    , proofExcludeMPFM
     , proofMPFM
     )
 
@@ -73,6 +76,7 @@ mkPureTrieFromRef ref =
         , lookup = pureLookup ref
         , getRoot = pureGetRoot ref
         , getProof = pureGetProof ref
+        , getExclusionProof = pureGetExclusionProof ref
         , getProofSteps = pureGetProofSteps ref
         }
 
@@ -153,6 +157,35 @@ pureGetProof ref k = do
         Nothing -> Nothing
         Just proof ->
             Just (Proof (serializeProof proof))
+
+-- | Generate an exclusion proof for a key. Wraps the
+-- MPF exclusion proof's steps in an 'MPFProof' so the
+-- existing 'serializeProof' produces the same Aiken-
+-- compatible wire format the verifier consumes (the
+-- on-wire shape is a flat step list either way).
+pureGetExclusionProof
+    :: IORef MPFInMemoryDB
+    -> ByteString
+    -> IO (Maybe Proof)
+pureGetExclusionProof ref k = do
+    db <- readIORef ref
+    let hexKey =
+            byteStringToHexKey
+                $ renderMPFHash
+                $ mkMPFHash k
+        (mProof, _) =
+            runMPFPure db (proofExcludeMPFM hexKey)
+    pure $ case mProof of
+        Nothing -> Nothing
+        Just exProof ->
+            Just
+                ( Proof
+                    ( renderAikenProof
+                        ( mpfExclusionProofSteps
+                            exProof
+                        )
+                    )
+                )
 
 -- | Generate on-chain proof steps for a key.
 pureGetProofSteps

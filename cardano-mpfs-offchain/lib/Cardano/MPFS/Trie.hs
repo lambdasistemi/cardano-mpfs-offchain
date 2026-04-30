@@ -86,7 +86,17 @@ data Trie m = Trie
     , getRoot :: m Root
     -- ^ Get current root hash
     , getProof :: ByteString -> m (Maybe Proof)
-    -- ^ Generate a Merkle proof for a key
+    -- ^ Generate a Merkle inclusion proof for a key
+    -- present in the trie.
+    , getExclusionProof
+        :: ByteString -> m (Maybe Proof)
+    -- ^ Generate a Merkle exclusion proof for a key
+    -- /not/ present in the trie. Returns 'Nothing'
+    -- when the trie itself does not exist; otherwise
+    -- 'Just' a serialized 'MPFExclusionProof'. Used
+    -- by the 'GET \/tokens\/:id\/facts\/:key' handler
+    -- to honest-emit @404 FactAbsentResponse@ under
+    -- the post-split #243 redesign.
     , getProofSteps
         :: ByteString -> m (Maybe [ProofStep])
     -- ^ Generate on-chain proof steps for a key

@@ -57,6 +57,9 @@ import Servant.API
     , Post
     , QueryParam
     , ReqBody
+    , StdMethod (..)
+    , UVerb
+    , WithStatus
     , (:<|>)
     , (:>)
     )
@@ -67,7 +70,8 @@ import Cardano.MPFS.API.Types
     , DeleteRequest
     , EndRequest
     , EndTxResponse
-    , FactResponse
+    , FactAbsentResponse
+    , FactPresentResponse
     , InsertRequest
     , ProofResponse
     , RejectRequest
@@ -109,16 +113,31 @@ type TokenRootAPI =
         :> "root"
         :> Get '[JSON] Hex
 
--- | @GET \/tokens\/:id\/facts\/:key@ — look up a
--- value by key, returning the value, the state
--- witness it belongs to, and an MPF inclusion proof
--- against that state's trie root.
+-- | @GET \/tokens\/:id\/facts\/:key@ — trust-minimised
+-- fact lookup. Two body-bearing shapes encoded via 'UVerb':
+--
+--  * @200 FactPresentResponse@ — the trie contains the
+--    key; carries the value and an MPF inclusion proof.
+--  * @404 FactAbsentResponse@ — the cage exists but the
+--    trie does not contain the key; carries an MPF
+--    exclusion proof.
+--
+-- A third response — bare @404@ with no body — is emitted
+-- by the handler through @throwError err404@ when the
+-- indexer has no record of the cage. That case is
+-- unverified by design and so is not part of the typed
+-- 'UVerb' enumeration.
 type TokenFactAPI =
     "tokens"
         :> Capture "id" TokenIdJSON
         :> "facts"
         :> Capture "key" Hex
-        :> Get '[JSON] FactResponse
+        :> UVerb
+            'GET
+            '[JSON]
+            '[ WithStatus 200 FactPresentResponse
+             , WithStatus 404 FactAbsentResponse
+             ]
 
 -- | @GET \/tokens\/:id\/proofs\/:key@ — produce an
 -- MPF inclusion proof for a key together with the
