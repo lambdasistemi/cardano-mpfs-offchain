@@ -64,7 +64,6 @@ import Servant.API
 import Cardano.MPFS.API.Encoding (Hex)
 import Cardano.MPFS.API.Types
     ( BootRequest
-    , BootTxResponse
     , DeleteRequest
     , EndRequest
     , EndTxResponse
@@ -83,6 +82,7 @@ import Cardano.MPFS.API.Types
     , SweepTxResponse
     , TokenIdJSON
     , TokenResponse
+    , UnsignedTxResponse
     , UpdateRequest
     , UpdateTxResponse
     , UpdateValueRequest
@@ -176,12 +176,16 @@ type TxAwaitAPI =
 
 -- | @POST \/tx\/boot@ — build a boot transaction,
 -- returning the unsigned CBOR together with the
--- verification snapshot and boot proof payload.
+-- verification snapshot and the flat list of
+-- inputs (each with its CSMT inclusion proof).
+--
+-- Boot is a top-level write (no signer role): the
+-- booter is becoming the cage's oracle.
 type TxBootAPI =
     "tx"
         :> "boot"
         :> ReqBody '[JSON] BootRequest
-        :> Post '[JSON] BootTxResponse
+        :> Post '[JSON] UnsignedTxResponse
 
 -- | @POST \/tx\/request\/insert@ — build an insert
 -- request transaction.
