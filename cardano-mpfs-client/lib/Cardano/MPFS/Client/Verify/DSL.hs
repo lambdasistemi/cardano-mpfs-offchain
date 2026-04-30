@@ -110,6 +110,7 @@ module Cardano.MPFS.Client.Verify.DSL
     , csmtReplayFailedAt
     , mpfReplayFailedAt
     , txBindingFailedAt
+    , trustedRootMismatchAt
     , malformedHexAt
     , wrongHexLengthAt
     , withReason
@@ -267,6 +268,21 @@ mpfReplayFailedAt path =
             _ -> False
         , matcherDescribes =
             "MpfReplayFailed " <> quote path <> " <any reason>"
+        }
+
+-- | Match 'TrustedRootMismatch' at the given dotted field
+-- path. Emitted by 'verifyUnsignedTxResponse' (and the
+-- read-side verifiers, when they land) when
+-- @snapshot.utxo_root@ disagrees with the externally-supplied
+-- 'TrustedRoot'.
+trustedRootMismatchAt :: Text -> ErrorMatcher
+trustedRootMismatchAt path =
+    ErrorMatcher
+        { matcherMatches = \case
+            TrustedRootMismatch p -> p == path
+            _ -> False
+        , matcherDescribes =
+            "TrustedRootMismatch " <> quote path
         }
 
 -- | Match 'MalformedHex' at the given dotted field path.

@@ -40,6 +40,7 @@ import Data.Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.Types (parseEither)
+import Data.Bits qualified as Bits
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
@@ -137,9 +138,10 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
+import Cardano.MPFS.API.Encoding qualified as Wire
+import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
-    ( BootTxResponse
-    , EndTxResponse
+    ( EndTxResponse
     , Hex (..)
     , RejectTxResponse
     , RequestTxResponse
@@ -150,7 +152,6 @@ import Cardano.MPFS.Client
     , flipProof
     , flipSnapshotRoot
     , flipTxOut
-    , runForgeBoot
     , runForgeEnd
     , runForgeReject
     , runForgeRequest
@@ -158,7 +159,7 @@ import Cardano.MPFS.Client
     , runForgeUpdate
     , shouldAccept
     , shouldRejectWith
-    , verifyBootTxResponse
+    , trustedRootMismatchAt
     , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
@@ -166,6 +167,10 @@ import Cardano.MPFS.Client
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     , withReason
+    )
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.MPFS.Client.Verify.Write
+    ( verifyUnsignedTxResponse
     )
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -327,15 +332,37 @@ proofsSpec scripts =
             -- One tampered field per program, explicit
             -- dotted field path + reason on every rejection.
 
+            -- POST /tx/boot now emits the post-split #243
+            -- uniform `UnsignedTxResponse`. The verifier
+            -- takes the externally-supplied trusted root;
+            -- in e2e we read it from the response's own
+            -- snapshot for the honest path, then forge a
+            -- different one for the rejection path.
             bootResp <-
                 postJSON app "/tx/boot"
                     $ object ["address" .= addrHex]
-            (bootResp :: BootTxResponse)
-                `shouldAccept` verifyBootTxResponse
-            runForgeBoot (flipProof "funding[0]") bootResp
-                `shouldRejectWith` verifyBootTxResponse
-                $ csmtReplayFailedAt
-                    "boot.funding[0].utxo_proof"
+            let bootResp' = bootResp :: Wire.UnsignedTxResponse
+                bootSnapRoot =
+                    Wire.vsUtxoRoot
+                        (Wire.utrSnapshot bootResp')
+                bootTrustedRoot = TrustedRoot bootSnapRoot
+            bootResp'
+                `shouldAccept` verifyUnsignedTxResponse
+                    "boot"
+                    bootTrustedRoot
+            -- Forgery: tamper the externally-supplied
+            -- trusted root. Verifier emits
+            -- TrustedRootMismatch at
+            -- @boot.snapshot.utxo_root@.
+            let forgedRoot =
+                    TrustedRoot
+                        (flipMidByte bootSnapRoot)
+            bootResp'
+                `shouldRejectWith` verifyUnsignedTxResponse
+                    "boot"
+                    forgedRoot
+                $ trustedRootMismatchAt
+                    "boot.snapshot.utxo_root"
 
             insertResp <-
                 postJSON
@@ -421,6 +448,25 @@ proofsSpec scripts =
                 `shouldRejectWith` verifyEndTxResponse
                 $ csmtReplayFailedAt
                     "end.state.utxo_proof"
+
+-- -------------------------------------------------
+-- Forgery helpers for the post-split write verifier
+-- -------------------------------------------------
+
+-- | Flip every bit of the byte half-way through the
+-- payload. Targets the body of a CBOR proof rather than
+-- its outer list-length tag.
+flipMidByte :: Wire.Hex -> Wire.Hex
+flipMidByte (Wire.Hex bs)
+    | BS.null bs = Wire.Hex bs
+    | otherwise =
+        let n = BS.length bs `div` 2
+        in  Wire.Hex
+                ( BS.take n bs
+                    <> BS.singleton
+                        (BS.index bs n `Bits.xor` 0xFF)
+                    <> BS.drop (n + 1) bs
+                )
 
 -- -------------------------------------------------
 -- Assertions on response shape
