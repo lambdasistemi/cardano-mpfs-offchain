@@ -35,6 +35,8 @@ module Cardano.MPFS.API.Types
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , UnsignedTxResponse (..)
+    , FactPresentResponse (..)
+    , FactAbsentResponse (..)
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -523,6 +525,82 @@ instance FromJSON UnsignedTxResponse where
                 <$> o .: "unsigned_tx_cbor"
                 <*> o .: "snapshot"
                 <*> o .: "inputs"
+
+-- | Response envelope for @GET \/tokens\/:id\/facts\/:key@
+-- when the trie contains the key (HTTP 200).
+--
+-- Carries the value plus an MPF inclusion proof against
+-- the trie root recovered from @state_utxo@'s on-chain
+-- datum, all anchored to one snapshot.
+data FactPresentResponse = FactPresentResponse
+    { fprSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , fprStateUtxo :: UtxoEntry
+    -- ^ State UTxO with its CSMT inclusion proof.
+    , fprValue :: Hex
+    -- ^ The trie value associated with the key.
+    , fprMpfInclusionProof :: Hex
+    -- ^ Aiken MPF inclusion proof against the trie
+    -- root recovered from @state_utxo.txout_cbor@'s
+    -- inline datum.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactPresentResponse where
+    toJSON FactPresentResponse{..} =
+        object
+            [ "snapshot" .= fprSnapshot
+            , "state_utxo" .= fprStateUtxo
+            , "value" .= fprValue
+            , "mpf_inclusion_proof"
+                .= fprMpfInclusionProof
+            ]
+
+instance FromJSON FactPresentResponse where
+    parseJSON =
+        withObject "FactPresentResponse" $ \o ->
+            FactPresentResponse
+                <$> o .: "snapshot"
+                <*> o .: "state_utxo"
+                <*> o .: "value"
+                <*> o .: "mpf_inclusion_proof"
+
+-- | Response envelope for @GET \/tokens\/:id\/facts\/:key@
+-- when the trie does /not/ contain the key (HTTP 404
+-- with body).
+--
+-- HTTP 404 with /no/ body is returned for the distinct
+-- case where the indexer has no record of the cage
+-- itself; that response is unverified by design and not
+-- modelled by a Haskell type.
+data FactAbsentResponse = FactAbsentResponse
+    { farSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , farStateUtxo :: UtxoEntry
+    -- ^ State UTxO with its CSMT inclusion proof.
+    , farMpfExclusionProof :: Hex
+    -- ^ Aiken MPF exclusion proof against the trie
+    -- root recovered from @state_utxo.txout_cbor@'s
+    -- inline datum.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactAbsentResponse where
+    toJSON FactAbsentResponse{..} =
+        object
+            [ "snapshot" .= farSnapshot
+            , "state_utxo" .= farStateUtxo
+            , "mpf_exclusion_proof"
+                .= farMpfExclusionProof
+            ]
+
+instance FromJSON FactAbsentResponse where
+    parseJSON =
+        withObject "FactAbsentResponse" $ \o ->
+            FactAbsentResponse
+                <$> o .: "snapshot"
+                <*> o .: "state_utxo"
+                <*> o .: "mpf_exclusion_proof"
 
 -- ---------------------------------------------------------
 -- Proof-bearing read responses
@@ -1890,6 +1968,74 @@ instance ToSchema UnsignedTxResponse where
                    \snapshot and a flat list of spent \
                    \and reference inputs, each with its \
                    \CSMT inclusion proof."
+
+instance ToSchema FactPresentResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        utxoEntrySchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "FactPresentResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("state_utxo", utxoEntrySchema)
+                    , ("value", hexSchema)
+                    , ("mpf_inclusion_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "state_utxo"
+                   , "value"
+                   , "mpf_inclusion_proof"
+                   ]
+            & description
+                ?~ "GET /tokens/:id/facts/:key — present \
+                   \(HTTP 200). Carries the value plus \
+                   \an MPF inclusion proof against the \
+                   \trie root recovered from \
+                   \state_utxo's datum."
+
+instance ToSchema FactAbsentResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        utxoEntrySchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "FactAbsentResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("state_utxo", utxoEntrySchema)
+                    , ("mpf_exclusion_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "state_utxo"
+                   , "mpf_exclusion_proof"
+                   ]
+            & description
+                ?~ "GET /tokens/:id/facts/:key — absent \
+                   \(HTTP 404 with body). Carries an \
+                   \MPF exclusion proof against the \
+                   \trie root recovered from \
+                   \state_utxo's datum."
 
 instance ToSchema FactWitness where
     declareNamedSchema _ = do
