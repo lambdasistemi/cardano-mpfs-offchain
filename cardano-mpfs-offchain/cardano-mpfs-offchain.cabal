@@ -333,6 +333,7 @@ test-suite e2e-tests
     , cardano-ledger-byron
     , cardano-ledger-core
     , cardano-ledger-mary
+    , cardano-mpfs-api
     , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-node-clients

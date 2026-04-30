@@ -72,6 +72,7 @@ module Cardano.MPFS.Client
     , csmtReplayFailedAt
     , mpfReplayFailedAt
     , txBindingFailedAt
+    , trustedRootMismatchAt
     , malformedHexAt
     , wrongHexLengthAt
     , withReason
@@ -188,6 +189,7 @@ import Cardano.MPFS.Client.Verify.DSL
     , shouldAccept
     , shouldRejectWith
     , swapHexTo
+    , trustedRootMismatchAt
     , txBindingFailedAt
     , withReason
     , wrongHexLengthAt
