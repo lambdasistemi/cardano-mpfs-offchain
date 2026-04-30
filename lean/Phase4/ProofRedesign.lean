@@ -189,4 +189,91 @@ theorem replayTrieFact_records_inclusion
       = some (k, some v, p) := by
   simp [VerifiedEnvelope.replayTrieFact]
 
+-- =========================================================
+-- Uniform write response (boot, requester, reject, sweeps,
+-- submit) — the inputs-only replay fold (#243 US2 boot
+-- subset). Endpoints that bundle a per-cage requests
+-- completeness witness extend this with a
+-- `CompletenessEnvelope` step in their own slices.
+-- =========================================================
+
+/-- Replay every input from an `UnsignedTxResponse` against
+    the same trusted root in one fold. The Haskell call
+    site enforces `snapshot.utxo_root = trustedRoot` before
+    initialising the envelope; this transition only models
+    the per-input replay step. -/
+def replayInputs
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (inputs : List (Key × Value × Proof))
+    : VerifiedEnvelope Root Key Value Proof :=
+  inputs.foldl
+    (fun e kvp =>
+      VerifiedEnvelope.replayWitness
+        e kvp.1 kvp.2.1 kvp.2.2)
+    env
+
+/-- Replay over the input list never rewrites the trusted
+    root. -/
+theorem replayInputs_preserves_root
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (inputs : List (Key × Value × Proof)) :
+    (replayInputs env inputs).trustedRoot
+      = env.trustedRoot := by
+  induction inputs generalizing env with
+  | nil => rfl
+  | cons _ rest ih =>
+      simp [replayInputs, VerifiedEnvelope.replayWitness]
+      exact ih _
+
+/-- Membership characterisation for the post-replay
+    accepted-witnesses set: a triple is accepted iff it
+    was already accepted or it was advertised in the
+    input list. -/
+theorem mem_replayInputs_acceptedWitnesses
+    (env : VerifiedEnvelope Root Key Value Proof)
+    (inputs : List (Key × Value × Proof))
+    (k : Key) (v : Value) (p : Proof) :
+    (k, v, p)
+      ∈ (replayInputs env inputs).acceptedWitnesses
+    ↔ (k, v, p) ∈ env.acceptedWitnesses
+      ∨ (k, v, p) ∈ inputs := by
+  induction inputs generalizing env with
+  | nil => simp [replayInputs]
+  | cons head rest ih =>
+      have step :
+          replayInputs env (head :: rest)
+            = replayInputs
+                (VerifiedEnvelope.replayWitness env
+                  head.1 head.2.1 head.2.2)
+                rest := rfl
+      rw [step, ih]
+      have eta : (head.1, head.2.1, head.2.2) = head := by
+        rcases head with ⟨_, _, _⟩; rfl
+      simp only [VerifiedEnvelope.replayWitness, eta,
+                 List.mem_cons, or_assoc, or_left_comm]
+
+/-- Forgery preservation theorem for `POST /tx/boot`
+    (and every other write endpoint that ships only an
+    inputs list with no completeness witness): a triple
+    not in the advertised inputs cannot appear in the
+    replayed envelope's accepted set when starting from
+    an empty initial envelope.
+
+    The Haskell `verifyUnsignedTxResponse` mirrors the
+    converse direction by replaying each advertised input
+    individually; this theorem rules out attacker-injected
+    triples from sneaking in. -/
+theorem forge_boot_input_breaks_validity
+    (r : Root) (inputs : List (Key × Value × Proof))
+    (k : Key) (v : Value) (p : Proof)
+    (h : (k, v, p) ∉ inputs) :
+    let env := replayInputs (VerifiedEnvelope.init r) inputs
+    (k, v, p) ∉ env.acceptedWitnesses := by
+  intro env
+  show ¬ ((k, v, p) ∈ env.acceptedWitnesses)
+  rw [show env =
+        replayInputs (VerifiedEnvelope.init r) inputs from rfl,
+      mem_replayInputs_acceptedWitnesses]
+  simp [VerifiedEnvelope.init, h]
+
 end Phase4.ProofRedesign
