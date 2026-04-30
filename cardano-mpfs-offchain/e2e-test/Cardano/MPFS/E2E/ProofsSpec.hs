@@ -29,14 +29,17 @@ module Cardano.MPFS.E2E.ProofsSpec
 import Control.Concurrent (threadDelay)
 import Data.Aeson
     ( FromJSON (..)
+    , Result (..)
     , Value
     , decode
     , encode
+    , fromJSON
     , object
     , withObject
     , (.:)
     , (.=)
     )
+import Data.Aeson qualified as Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.Types (parseEither)
@@ -129,7 +132,8 @@ import Cardano.MPFS.TxBuilder
     )
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
-    ( cagePolicyIdFromCfg
+    ( cageAddrFromCfg
+    , cagePolicyIdFromCfg
     , computeScriptHash
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
@@ -170,7 +174,14 @@ import Cardano.MPFS.Client
     , verifyVerificationSnapshot
     , withReason
     )
-import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.MPFS.Client.TrustedRoot
+    ( Address (..)
+    , Blueprint (..)
+    , TrustedRoot (..)
+    )
+import Cardano.MPFS.Client.Verify.Read
+    ( verifyTokensListResponse
+    )
 import Cardano.MPFS.Client.Verify.Write
     ( verifyUnsignedTxResponse
     )
@@ -279,6 +290,68 @@ proofsSpec scripts =
                         genesisAddr
             let reqTxIn =
                     TxIn (txIdTx reqTx) (TxIx 0)
+
+            -- GET /tokens — trust-minimised cage discovery
+            -- (post-split #243). Decode as the new
+            -- `TokensListResponse`, then verify with the
+            -- externally-supplied trusted root and a
+            -- locally-derived blueprint mock. The forgery
+            -- tampers the trusted root — verifier emits
+            -- TrustedRootMismatch.
+            tokensListVal <- getJSON app "/tokens"
+            tokensListResp' <-
+                case fromJSON tokensListVal of
+                    Success r ->
+                        pure
+                            (r :: Wire.TokensListResponse)
+                    Aeson.Error err -> do
+                        expectationFailure
+                            $ "TokensListResponse \
+                              \decode failed: "
+                                <> err
+                        error "unreachable"
+            let tokensSnapRoot =
+                    Wire.vsUtxoRoot
+                        ( Wire.tlrSnapshot
+                            tokensListResp'
+                        )
+                tokensTrustedRoot =
+                    TrustedRoot tokensSnapRoot
+                stateAddrBytes =
+                    serialiseAddr
+                        ( cageAddrFromCfg
+                            cfg
+                            (network cfg)
+                        )
+                tokensBlueprint =
+                    Blueprint
+                        { bpStatePolicyId =
+                            Wire.Hex BS.empty
+                        , bpStateScriptAddress =
+                            Address
+                                ( Wire.Hex
+                                    stateAddrBytes
+                                )
+                        , bpRequestScriptAddress =
+                            \_ ->
+                                Address
+                                    ( Wire.Hex
+                                        BS.empty
+                                    )
+                        }
+            tokensListResp'
+                `shouldAccept` verifyTokensListResponse
+                    tokensTrustedRoot
+                    tokensBlueprint
+            let forgedTokensRoot =
+                    TrustedRoot
+                        (flipMidByte tokensSnapRoot)
+            tokensListResp'
+                `shouldRejectWith` verifyTokensListResponse
+                    forgedTokensRoot
+                    tokensBlueprint
+                $ trustedRootMismatchAt
+                    "tokens.snapshot.utxo_root"
 
             -- Pull every proof-bearing read.
             tokenObj <- getJSON app ("/tokens/" <> tidHex)
