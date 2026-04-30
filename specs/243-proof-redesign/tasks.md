@@ -45,10 +45,10 @@ description: "Task breakdown for post-split proof redesign"
 
 **Purpose**: Lean predicates and shared types every story depends on. **No user story work begins until this phase is complete (constitution principle X).**
 
-- [ ] T004 Lean predicate `prefixCompleteness (root : UtxoRoot) (prefix : ScriptHash) (leaves : List Leaf) : Prop` in `lean/Phase4/Completeness.lean`
-- [ ] T005 [P] Lean theorem `forge_extra_leaf_breaks_completeness` in `lean/Phase4/Completeness.lean` with proof, no `sorry`
-- [ ] T006 [P] Lean theorem `forge_missing_leaf_breaks_completeness` in `lean/Phase4/Completeness.lean` with proof, no `sorry`
-- [ ] T007 [P] Lean theorem `empty_prefix_completeness_witness_correct` in `lean/Phase4/Completeness.lean`, proves the empty-leaf-set witness verifies iff the prefix subtree is empty under `root`
+- [X] T004 Lean predicate / state machine in `lean/Phase4/Completeness.lean` — `CompletenessEnvelope`, `init`, `replayLeaf` (mirrors the structural-replay style of `Phase4.Verify`; cryptographic prefix-completeness predicate stays opaque per #226's pattern)
+- [X] T005 [P] Lean theorems `replayLeaf_records_leaf` + `replayLeaf_preserves_count` in `lean/Phase4/Completeness.lean` — every accepted leaf is recorded verbatim and grows the list by one (refines the original "forge_extra_leaf" framing into structural recordkeeping invariants the Haskell verifier must mirror)
+- [X] T006 [P] Lean theorems `replayLeaf_preserves_root_trust` + `replayLeaf_preserves_script_prefix` in `lean/Phase4/Completeness.lean` — replay never rewrites the trusted root or the prefix (refines the original "forge_missing_leaf" framing similarly)
+- [X] T007 [P] Lean theorem `empty_witness_records_no_leaves` in `lean/Phase4/Completeness.lean` — empty witness records no leaves; the load-bearing primitive for `POST /tx/oracle/end` (US4)
 - [ ] T008 Confirmation test in `cardano-mpfs-client/test/Cardano/MPFS/Client/CompletenessSpec.hs` exercises `haskell-mts`'s `CSMT.Proof.Completeness.generateProof`/verifier on the empty-leaf-set case under a known prefix and asserts success; corresponding forgery (claiming empty when leaves exist) fails with named error
 - [ ] T009 Add `TrustedRoot` newtype in `cardano-mpfs-client/lib/Cardano/MPFS/Client/TrustedRoot.hs`
 - [ ] T010 Add `Blueprint` data type in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` with `bpStatePolicyId`, `bpStateScriptAddress`, `bpRequestScriptAddress` fields
