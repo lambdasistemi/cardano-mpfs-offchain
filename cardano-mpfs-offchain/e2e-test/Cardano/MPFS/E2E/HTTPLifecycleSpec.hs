@@ -16,7 +16,7 @@ module Cardano.MPFS.E2E.HTTPLifecycleSpec
     ) where
 
 import Control.Concurrent (threadDelay)
-import Data.Aeson (decode)
+import Data.Aeson (decode, eitherDecode)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
@@ -72,6 +72,10 @@ import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
 
+import Cardano.MPFS.API.Types
+    ( TokensListResponse (..)
+    , UtxoSetWitness (..)
+    )
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
@@ -334,12 +338,15 @@ tokenCount :: Application -> IO Int
 tokenCount app = do
     resp <- get app "/tokens"
     simpleStatus resp `shouldBe` status200
-    case decode (simpleBody resp) of
-        Just (Array arr) ->
-            pure (V.length arr)
-        _ -> do
+    case eitherDecode (simpleBody resp) of
+        Right (TokensListResponse{tlrTokens}) ->
+            pure
+                (length (uswEntries tlrTokens))
+        Left e -> do
             expectationFailure
-                "Expected JSON array"
+                ( "Expected TokensListResponse: "
+                    <> e
+                )
             pure 0
 
 -- | Low-level GET helper.
