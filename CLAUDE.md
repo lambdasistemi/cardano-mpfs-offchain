@@ -18,6 +18,8 @@ after design.
 - Haskell GHC 9.10.1 (offchain server, verifier library); Lean 4 (formal model — `lean/` directory) + Servant (HTTP API), `cardano-mpfs-cage` (Aiken-derived on-chain types via PlutusV3 blueprint), `cardano-mpfs-client` (verifier package), `haskell-mts` (CSMT inclusion + prefix-completeness primitives, MPF inclusion + exclusion), `cardano-utxo-csmt` (CSMT runtime), `cardano-ledger-conway` (TxOut/Tx serialization), `cardano-node-clients` (N2C wiring), `chain-follower` (block stream) (243-proof-redesign)
 - RocksDB (existing CSMT + index column families) (243-proof-redesign)
 - RocksDB with 13 column families (6 UTxO from (249-atomic-boot-handler)
+- `rocksdb-kv-transactions` (atomic batch writes), `mts:mpf` (per-token MPF trie), `Cardano.MPFS.Indexer.Event` (`InvTrieInsert`/`InvTrieDelete` inverse-op machinery) (248-value-persistence)
+- RocksDB column families. Existing trie-related families: `TrieNodes` (`KV HexKey (HexIndirect MPFHash)`), `TrieKV` (`KV HexKey MPFHash`, the value-hash mirror the merkle layer queries), `TrieMeta` (token visibility registry). This feature adds a fourth family for raw values. (248-value-persistence)
 
 - Haskell with GHC 9.10.1 for native builds.
 - `cardano-mpfs-client` verifiers must remain compatible with native
@@ -80,6 +82,7 @@ Every issue starts with speckit artifacts before implementation:
 4. Implementation follows the task list, updating status as work lands.
 
 ## Recent Changes
+- 248-value-persistence: add `TrieRawValues` column family + fix `Trie.lookup` to return raw value bytes
 - 249-atomic-boot-handler: Added Haskell GHC 9.10.1
 - 243-proof-redesign: Added Haskell GHC 9.10.1 (offchain server, verifier library); Lean 4 (formal model — `lean/` directory) + Servant (HTTP API), `cardano-mpfs-cage` (Aiken-derived on-chain types via PlutusV3 blueprint), `cardano-mpfs-client` (verifier package), `haskell-mts` (CSMT inclusion + prefix-completeness primitives, MPF inclusion + exclusion), `cardano-utxo-csmt` (CSMT runtime), `cardano-ledger-conway` (TxOut/Tx serialization), `cardano-node-clients` (N2C wiring), `chain-follower` (block stream)
 
