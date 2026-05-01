@@ -144,6 +144,7 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
+import Cardano.MPFS.API.Encoding qualified as ApiHex
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
     ( EndTxResponse
@@ -326,16 +327,16 @@ proofsSpec scripts =
                 tokensBlueprint =
                     Blueprint
                         { bpStatePolicyId =
-                            Wire.Hex BS.empty
+                            ApiHex.Hex BS.empty
                         , bpStateScriptAddress =
                             Address
-                                ( Wire.Hex
+                                ( ApiHex.Hex
                                     stateAddrBytes
                                 )
                         , bpRequestScriptAddress =
                             \_ ->
                                 Address
-                                    ( Wire.Hex
+                                    ( ApiHex.Hex
                                         BS.empty
                                     )
                         }
@@ -345,7 +346,7 @@ proofsSpec scripts =
                     tokensBlueprint
             let forgedTokensRoot =
                     TrustedRoot
-                        (flipMidByte tokensSnapRoot)
+                        (flipApiHexMidByte tokensSnapRoot)
             tokensListResp'
                 `shouldRejectWith` verifyTokensListResponse
                     forgedTokensRoot
