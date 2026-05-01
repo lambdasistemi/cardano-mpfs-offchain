@@ -79,6 +79,7 @@ module Cardano.MPFS.Client
 
       -- * Forgery helpers
     , flipByteInHex
+    , flipApiHexMidByte
     , swapHexTo
     , forgeWitnessedUtxoProof
     , forgeWitnessedUtxoTxOut
@@ -167,6 +168,7 @@ import Cardano.MPFS.Client.Verify.DSL
     , csmtReplayFailedAt
     , dropToExclusion
     , dropTrieFactToExclusion
+    , flipApiHexMidByte
     , flipByteInHex
     , flipProof
     , flipSnapshotRoot

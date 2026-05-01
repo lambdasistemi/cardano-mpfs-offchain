@@ -117,6 +117,7 @@ module Cardano.MPFS.Client.Verify.DSL
 
       -- * Forgery helpers
     , flipByteInHex
+    , flipApiHexMidByte
     , swapHexTo
     , forgeWitnessedUtxoProof
     , forgeWitnessedUtxoTxOut
@@ -160,6 +161,7 @@ import Data.Text.Encoding qualified as T
 import GHC.Stack (HasCallStack)
 import Test.Hspec (Expectation, expectationFailure)
 
+import Cardano.MPFS.API.Encoding qualified as ApiHex
 import Cardano.MPFS.Client.Bundle
     ( BootProof (..)
     , BootTxResponse (..)
@@ -375,6 +377,27 @@ flipByteInHex (Hex txt) =
 swapHexTo :: ByteString -> Hex -> Hex
 swapHexTo newBytes _ =
     Hex (T.decodeUtf8 (Base16.encode newBytes))
+
+-- | Flip the byte half-way through a post-split
+-- 'ApiHex.Hex' payload. Targets the body of a CSMT proof
+-- CBOR rather than its outer list-length tag, so a shallow
+-- CBOR parser still accepts the structure while the hash
+-- chain breaks.
+--
+-- Use this instead of a local definition wherever a test
+-- needs to tamper with a post-split 'ApiHex.Hex' field (e.g.
+-- 'inclusion_proof', 'unsigned_tx_cbor').
+flipApiHexMidByte :: ApiHex.Hex -> ApiHex.Hex
+flipApiHexMidByte (ApiHex.Hex bs)
+    | BS.null bs = ApiHex.Hex bs
+    | otherwise =
+        let n = BS.length bs `div` 2
+        in  ApiHex.Hex
+                ( BS.take n bs
+                    <> BS.singleton
+                        (BS.index bs n `xor` 0xFF)
+                    <> BS.drop (n + 1) bs
+                )
 
 -- | Flip the last byte of a 'WitnessedUtxo'\'s @utxo_proof@,
 -- leaving every other field intact. Models the

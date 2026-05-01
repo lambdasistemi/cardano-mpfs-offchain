@@ -9,12 +9,9 @@ module Cardano.MPFS.Client.Verify.WriteSpec
     ( spec
     ) where
 
-import Data.Bits (xor)
-import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Test.Hspec (Spec, describe, it, shouldBe)
 
-import Cardano.MPFS.API.Encoding qualified as Wire
 import Cardano.MPFS.API.Types
     ( UnsignedTxResponse (..)
     , UtxoEntry (..)
@@ -24,24 +21,9 @@ import Cardano.MPFS.Client.Fixtures
     , honestUnsignedBootResponse
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.MPFS.Client.Verify.DSL (flipApiHexMidByte)
 import Cardano.MPFS.Client.Verify.Replay (VerifyError (..))
 import Cardano.MPFS.Client.Verify.Write (verifyUnsignedTxResponse)
-
--- | Flip every bit of the byte half-way through the payload.
--- Targets the body of a CBOR proof rather than its outer
--- list-length tag, so a shallow CBOR parser still accepts the
--- structure but the hash chain breaks.
-flipMidByte :: Wire.Hex -> Wire.Hex
-flipMidByte (Wire.Hex bs)
-    | BS.null bs = Wire.Hex bs
-    | otherwise =
-        let n = BS.length bs `div` 2
-        in  Wire.Hex
-                ( BS.take n bs
-                    <> BS.singleton
-                        (BS.index bs n `xor` 0xFF)
-                    <> BS.drop (n + 1) bs
-                )
 
 spec :: Spec
 spec = describe "verifyUnsignedTxResponse" $ do
@@ -54,7 +36,7 @@ spec = describe "verifyUnsignedTxResponse" $ do
 
     it "rejects a wrong trusted root with TrustedRootMismatch" $ do
         let TrustedRoot rootHex = honestBootTrustedRoot
-            forged = TrustedRoot (flipMidByte rootHex)
+            forged = TrustedRoot (flipApiHexMidByte rootHex)
         verifyUnsignedTxResponse
             "boot"
             forged
@@ -67,7 +49,7 @@ spec = describe "verifyUnsignedTxResponse" $ do
             tampered =
                 entry
                     { ueInclusionProof =
-                        flipMidByte (ueInclusionProof entry)
+                        flipApiHexMidByte (ueInclusionProof entry)
                     }
             response =
                 honestUnsignedBootResponse{utrInputs = [tampered]}
@@ -86,7 +68,7 @@ spec = describe "verifyUnsignedTxResponse" $ do
             tampered =
                 entry
                     { ueTxOutCbor =
-                        flipMidByte (ueTxOutCbor entry)
+                        flipApiHexMidByte (ueTxOutCbor entry)
                     }
             response =
                 honestUnsignedBootResponse{utrInputs = [tampered]}
