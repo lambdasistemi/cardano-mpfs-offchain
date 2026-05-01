@@ -679,6 +679,22 @@
             ],
             "type": "object"
         },
+        "TokensListResponse": {
+            "description": "Trust-minimised cage discovery: one snapshot plus a UtxoSetWitness over the global state validator address.",
+            "properties": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                }
+            },
+            "required": [
+                "snapshot",
+                "tokens"
+            ],
+            "type": "object"
+        },
         "TrieFactJSON": {
             "description": "Trie read: key, optional value, and MPF proof against a trie root",
             "properties": {
@@ -862,6 +878,22 @@
             ],
             "type": "object"
         },
+        "UtxoEntryRefOnly": {
+            "description": "UTxO ref and CBOR body, without a per-entry inclusion proof. Used inside a UtxoSetWitness.",
+            "properties": {
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor"
+            ],
+            "type": "object"
+        },
         "UtxoRef": {
             "description": "UTxO reference",
             "properties": {
@@ -878,6 +910,25 @@
             "required": [
                 "tx_id",
                 "tx_ix"
+            ],
+            "type": "object"
+        },
+        "UtxoSetWitness": {
+            "description": "Enumerated UTxOs at a known script-hash prefix, with a single CSMT prefix-completeness proof attesting the set is exactly the leaves under that prefix.",
+            "properties": {
+                "completeness_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntryRefOnly"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "entries",
+                "completeness_proof"
             ],
             "type": "object"
         },
@@ -1013,10 +1064,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "items": {
-                                "$ref": "#/definitions/TokenIdJSON"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/TokensListResponse"
                         }
                     }
                 }
