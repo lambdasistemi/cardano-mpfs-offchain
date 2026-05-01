@@ -40,7 +40,6 @@ import Data.Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.Types (parseEither)
-import Data.Bits qualified as Bits
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
@@ -138,7 +137,6 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
-import Cardano.MPFS.API.Encoding qualified as Wire
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
     ( EndTxResponse
@@ -149,6 +147,7 @@ import Cardano.MPFS.Client
     , UpdateTxResponse
     , VerificationSnapshot
     , csmtReplayFailedAt
+    , flipApiHexMidByte
     , flipProof
     , flipSnapshotRoot
     , flipTxOut
@@ -356,7 +355,7 @@ proofsSpec scripts =
             -- @boot.snapshot.utxo_root@.
             let forgedRoot =
                     TrustedRoot
-                        (flipMidByte bootSnapRoot)
+                        (flipApiHexMidByte bootSnapRoot)
             bootResp'
                 `shouldRejectWith` verifyUnsignedTxResponse
                     "boot"
@@ -448,25 +447,6 @@ proofsSpec scripts =
                 `shouldRejectWith` verifyEndTxResponse
                 $ csmtReplayFailedAt
                     "end.state.utxo_proof"
-
--- -------------------------------------------------
--- Forgery helpers for the post-split write verifier
--- -------------------------------------------------
-
--- | Flip every bit of the byte half-way through the
--- payload. Targets the body of a CBOR proof rather than
--- its outer list-length tag.
-flipMidByte :: Wire.Hex -> Wire.Hex
-flipMidByte (Wire.Hex bs)
-    | BS.null bs = Wire.Hex bs
-    | otherwise =
-        let n = BS.length bs `div` 2
-        in  Wire.Hex
-                ( BS.take n bs
-                    <> BS.singleton
-                        (BS.index bs n `Bits.xor` 0xFF)
-                    <> BS.drop (n + 1) bs
-                )
 
 -- -------------------------------------------------
 -- Assertions on response shape
