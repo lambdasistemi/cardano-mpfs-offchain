@@ -64,12 +64,11 @@ import Control.Concurrent.STM
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer (..), contramap, traceWith)
-import Data.Bifunctor (bimap)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (toShort)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Ouroboros.Consensus.HardFork.Combinator
     ( OneEraHash (..)
     )
@@ -102,15 +101,15 @@ import Ouroboros.Network.Point
     )
 
 import CSMT.Core.CBOR (renderCompletenessProof)
-import CSMT.Core.Hash (Hash (..), byteStringToKey)
+import CSMT.Core.Hash (Hash, keyToByteString)
 import CSMT.Core.Types (Indirect (..))
 import CSMT.Hashes
     ( generateInclusionProof
-    , mkHash
     , renderHash
     )
 import CSMT.Proof.Completeness qualified as CSMT.Completeness
-    ( generateProof
+    ( collectValues
+    , generateProof
     )
 import CSMT.Verify qualified
     ( verifyCompletenessProof
@@ -138,7 +137,6 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     , ReadyState (..)
     , mkCSMTOps
     , openCSMTOps
-    , queryByAddress
     , queryMerkleRoot
     )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction qualified as CSMT
@@ -625,14 +623,13 @@ withApplication cfg action = do
                                     $ fmap snd result
                         setWitness addressBs =
                             CSMT.transact utxoRt $ do
-                                let fkv =
-                                        fromKV context
-                                    targetPrefix =
+                                let targetPrefix =
                                         hashAddressKey
                                             addressBs
-                                entries <-
-                                    queryByAddress
-                                        fkv
+                                indirects <-
+                                    CSMT.Completeness.collectValues
+                                        CSMTCol
+                                        []
                                         targetPrefix
                                 mProof <-
                                     CSMT.Completeness.generateProof
@@ -644,80 +641,75 @@ withApplication cfg action = do
                                         ( hashing
                                             context
                                         )
-                                pure
-                                    $ case (mProof, mRoot) of
-                                        (Just p, Just r) ->
-                                            let strictEntries =
-                                                    map
-                                                        ( bimap
-                                                            BSL.toStrict
-                                                            BSL.toStrict
-                                                        )
-                                                        entries
-                                                proofBs =
-                                                    renderCompletenessProof
-                                                        p
-                                                rootBs =
-                                                    renderHash
-                                                        r
-                                                leaves =
-                                                    map
-                                                        ( \(k, v) ->
-                                                            Indirect
-                                                                ( byteStringToKey
-                                                                    ( BSL.toStrict
-                                                                        k
-                                                                    )
+                                let
+                                    -- Each absolute leaf jump
+                                    -- is @targetPrefix ++ kvBits@.
+                                    -- Strip the prefix to recover
+                                    -- the kvKey bytes.
+                                    stripList
+                                        :: Eq x
+                                        => [x]
+                                        -> [x]
+                                        -> Maybe [x]
+                                    stripList [] xs = Just xs
+                                    stripList (a : as) (b : bs)
+                                        | a == b =
+                                            stripList as bs
+                                    stripList _ _ = Nothing
+                                    kvKeyOf
+                                        :: Indirect a
+                                        -> Maybe BS.ByteString
+                                    kvKeyOf Indirect{jump} =
+                                        keyToByteString
+                                            <$> stripList
+                                                targetPrefix
+                                                jump
+                                rawEntries <-
+                                    catMaybes
+                                        <$> traverse
+                                            ( \ind ->
+                                                case kvKeyOf ind of
+                                                    Nothing ->
+                                                        pure Nothing
+                                                    Just k -> do
+                                                        mv <-
+                                                            query
+                                                                KVCol
+                                                                ( BSL.fromStrict
+                                                                    k
                                                                 )
-                                                                ( mkHash
-                                                                    ( BSL.toStrict
+                                                        pure
+                                                            $ fmap
+                                                                ( \v ->
+                                                                    ( k
+                                                                    , BSL.toStrict
                                                                         v
                                                                     )
                                                                 )
-                                                        )
-                                                        entries
+                                                                mv
+                                            )
+                                            indirects
+                                pure
+                                    $ case (mProof, mRoot) of
+                                        (Just p, Just r) ->
+                                            let proofBs =
+                                                    renderCompletenessProof
+                                                        p
+                                                rootBs =
+                                                    renderHash r
                                                 ok =
                                                     CSMT.Verify.verifyCompletenessProof
                                                         rootBs
                                                         targetPrefix
-                                                        leaves
+                                                        indirects
                                                         proofBs
                                             in  if ok
                                                     then
                                                         Just
-                                                            ( strictEntries
+                                                            ( rawEntries
                                                             , proofBs
                                                             )
-                                                    else
-                                                        error
-                                                            ( "setWitness self-check failed:\n"
-                                                                <> "  rootBs len = "
-                                                                <> show
-                                                                    ( BS.length
-                                                                        rootBs
-                                                                    )
-                                                                <> "\n  prefix len (bits) = "
-                                                                <> show
-                                                                    ( length
-                                                                        targetPrefix
-                                                                    )
-                                                                <> "\n  proofBs len = "
-                                                                <> show
-                                                                    ( BS.length
-                                                                        proofBs
-                                                                    )
-                                                                <> "\n  leaves count = "
-                                                                <> show
-                                                                    ( length
-                                                                        leaves
-                                                                    )
-                                                                <> "\n  leaves = "
-                                                                <> show leaves
-                                                                <> "\n  rootBs = "
-                                                                <> show rootBs
-                                                                <> "\n  proofBs = "
-                                                                <> show proofBs
-                                                            )
+                                                    else Nothing
                                         _ -> Nothing
                         ctx =
                             Context

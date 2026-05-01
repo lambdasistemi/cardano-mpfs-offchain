@@ -28,7 +28,7 @@ import CSMT.Core.Hash
     ( Hash (..)
     , byteStringToKey
     )
-import CSMT.Core.Types (Indirect (..))
+import CSMT.Core.Types (Indirect (..), Key)
 import CSMT.Verify (verifyCompletenessProof)
 import CSMT.Verify.Blake2b (blake2b256)
 
@@ -82,7 +82,7 @@ verifyCompleteness path trustedRoot address witness = do
                 Wire.Hex proofBs
             } = witness
         prefix = byteStringToKey (blake2b256 addressBs)
-        leaves = map entryToIndirect entries
+        leaves = map (entryToIndirect prefix) entries
     if verifyCompletenessProof rootBs prefix leaves proofBs
         then Right ()
         else Left (CompletenessProofInvalid path)
@@ -124,17 +124,21 @@ verifyCompletenessEmpty path trustedRoot address witness =
 -- @addressPrefix(A) ++ encodeTxIn(ref)@ where
 -- @addressPrefix(A) = byteStringToKey (blake2b256 A)@. The
 -- 'Indirect' presented to 'verifyCompletenessProof' carries
--- only the post-prefix portion as its @jump@ — the prefix is
--- supplied separately. The 'Hash' value is the leaf's stored
+-- the *absolute* path bits as its @jump@ — i.e. the
+-- @addressPrefix(A) ++ byteStringToKey(encodeTxIn ref)@
+-- concatenation — per the @csmt-verify@ contract since
+-- @haskell-mts#158@. The 'Hash' value is the leaf's stored
 -- hash, which is @blake2b256@ of the @TxOut@ CBOR.
-entryToIndirect :: UtxoEntryRefOnly -> Indirect Hash
-entryToIndirect UtxoEntryRefOnly{uerRef, uerTxOutCbor} =
+entryToIndirect
+    :: Key -> UtxoEntryRefOnly -> Indirect Hash
+entryToIndirect prefix UtxoEntryRefOnly{uerRef, uerTxOutCbor} =
     let txInBytes :: ByteString
         txInBytes =
             encodeTxIn
                 (Wire.unHex (urTxId uerRef))
                 (urTxIx uerRef)
     in  Indirect
-            { jump = byteStringToKey txInBytes
+            { jump =
+                prefix <> byteStringToKey txInBytes
             , value = Hash (blake2b256 (Wire.unHex uerTxOutCbor))
             }
