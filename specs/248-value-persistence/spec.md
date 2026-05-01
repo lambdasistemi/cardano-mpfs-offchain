@@ -3,7 +3,17 @@
 **Feature Branch**: `248-value-persistence`
 **Created**: 2026-04-30
 **Status**: Draft
-**Input**: User description: "248 — `GET /tokens/:id/facts/:key` returns the wrong byte string in its `value` field. Today the endpoint returns `mkMPFHash key` (a hash of the request's key) in the `value` field of `FactResponse`, instead of the bytes the requester originally inserted. Root cause: the per-token MPF trie is content-addressed and stores only the value-hash; the raw value is discarded at insert time, and the lookup helper was wired to return any 32 bytes that satisfied the type signature. The endpoint's e2e test only asserts \"non-empty hex\" on `value` and so missed it for the endpoint's entire life (postmortem: lambdasistemi/cardano-mpfs-offchain#248). Scope: make the endpoint return the actual inserted bytes. Persist raw value bytes inside the offchain so lookup can recover them. The chain-follower's \"one block = one DB transaction\" invariant must still hold; rollbacks must restore prior raw-value state via the existing inverse-op machinery (`InvTrieInsert`/`InvTrieDelete` in `Cardano.MPFS.Indexer.Event`). Migration story for existing devnet/preprod databases included. Acceptance: the e2e for the endpoint inserts a (key, value) pair and asserts the GET response's `value` field equals the inserted bytes byte-for-byte."
+**Input**: User description: "248 — `GET /tokens/:id/facts/:key` returns the wrong byte string in its `value` field. Today the endpoint returns `mkMPFHash key` (a hash of the request's key) in the `value` field of `FactResponse`, instead of the bytes the requester originally inserted. Root cause: the per-token MPF trie is content-addressed and stores only the value-hash; the raw value is discarded at insert time, and the lookup helper was wired to return any 32 bytes that satisfied the type signature. The endpoint's e2e test only asserts \"non-empty hex\" on `value` and so missed it for the endpoint's entire life (postmortem: lambdasistemi/cardano-mpfs-offchain#248). Scope: make the endpoint return the actual inserted bytes. Persist raw value bytes inside the offchain so lookup can recover them. The chain-follower's \"one block = one DB transaction\" invariant must still hold; rollbacks must restore prior raw-value state via the existing inverse-op machinery (`InvTrieInsert`/`InvTrieDelete` in `Cardano.MPFS.Indexer.Event`). Acceptance: the e2e for the endpoint inserts a (key, value) pair and asserts the GET response's `value` field equals the inserted bytes byte-for-byte."
+
+## Clarifications
+
+### Session 2026-04-30
+
+- Q: How does the offchain handle a pre-change database directory at startup? → A: No migration concerns; existing deployments are wiped and resynced as part of normal upgrade hygiene, no explicit detection or guided migration step is required.
+
+### Session 2026-05-01
+
+- Q: How does the HTTP fact-lookup handler reach the new raw-value storage? → A: `Trie.lookup` stays the single read interface for both transactional and IO consumers; the new column is threaded through the existing trie manager so `Trie.lookup` returns the actual value bytes. No sibling primitive on `Context`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -39,21 +49,6 @@ The chain-follower processes blocks atomically: every mutation a block produces 
 
 ---
 
-### User Story 3 - Existing operators have a migration path (Priority: P2)
-
-Operators running this offchain on devnets, preprod, or any other deployment have an existing database on disk built before this change. The release notes for the version that ships value persistence document, in plain language, what those operators need to do when upgrading.
-
-**Why this priority**: Real deployments exist (devnet stack, preprod indexer reachable at `umpfs.plutimus.com`). Shipping a storage-shape change without operator-facing instructions creates an outage even if the code is correct. Lower priority than the fix and the rollback story because the technical risk is contained — failed startup is loud and recoverable — but it's still required for the feature to be operationally correct.
-
-**Independent Test**: take a database snapshot from a deployment running the pre-change version, attempt to start the new version against it, and verify that the documented migration procedure (whatever it is) is sufficient to bring the deployment up to a state where User Story 1 passes.
-
-**Acceptance Scenarios**:
-
-1. **Given** a database directory produced by a pre-change version of the offchain, **When** an operator follows the documented upgrade procedure, **Then** the new version starts successfully and `GET /tokens/:id/facts/:key` returns correct values for every fact inserted after the upgrade completes.
-2. **Given** a database directory produced by a pre-change version, **When** an operator runs the new version without following the documented procedure, **Then** the offchain refuses to start with an error message that points the operator at the migration documentation. (Failure is loud; never silent corruption.)
-
----
-
 ### Edge Cases
 
 - **Empty value insert.** A requester inserts `(k, "")` (zero-byte value). The lookup returns a present response with `value = ""`. Empty is a legitimate value, distinct from "key absent."
@@ -70,14 +65,11 @@ Operators running this offchain on devnets, preprod, or any other deployment hav
 - **FR-002**: When a request that deletes a key is observed and processed, the offchain MUST remove the previously persisted raw value for that key from storage. A subsequent fact lookup MUST report the key as absent.
 - **FR-003**: Every storage mutation introduced by FR-001 and FR-002 MUST happen within the same atomic write boundary as the existing trie-node and KV-hash mutations the follower already performs for the same block. There is no observable storage state in which the trie reflects block N while raw values reflect block N-1, or vice versa.
 - **FR-004**: When the chain-follower rolls back a block that previously applied an Insert, Update, or Delete to a token's trie, the offchain MUST restore the raw-value storage to the state it had immediately before that block was applied. After the rollback completes, fact lookups MUST return the values that were correct at the new chain tip.
-- **FR-005**: When the offchain starts against a database directory whose schema does not include the storage required by FR-001, the offchain MUST refuse to start and emit an error pointing the operator at the migration documentation. The offchain MUST NOT silently corrupt, partially upgrade, or otherwise mutate such a database.
-- **FR-006**: The end-to-end test for `GET /tokens/:id/facts/:key` MUST exercise FR-001 by inserting a known `(key, value)` pair through the request → process flow and asserting the response's `value` field equals the inserted bytes byte-for-byte. The pre-existing `assertFactEnvelope` structural-only check (whose only test on `value` was `not . T.null`) MUST be removed.
-- **FR-007**: The migration documentation produced by FR-005 MUST cover, at minimum: which deployments need migration (devnet, preprod, mainnet); what the operator must do (e.g., wipe-and-resync vs explicit migration step); and the expected downtime for each affected deployment class.
+- **FR-005**: The end-to-end test for `GET /tokens/:id/facts/:key` MUST exercise FR-001 by inserting a known `(key, value)` pair through the request → process flow and asserting the response's `value` field equals the inserted bytes byte-for-byte. The pre-existing `assertFactEnvelope` structural-only check (whose only test on `value` was `not . T.null`) MUST be removed.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Raw fact value**: the bytes a requester originally supplied as the `value` of an Insert or Update request, scoped to a single `(token, key)` pair. Distinct from the value-hash that the merkle tree retains for proof construction. Lifecycle: created when the corresponding request is processed; replaced when an Update for the same `(token, key)` is processed; removed when a Delete is processed; restored to its prior state when any of those operations is rolled back.
-- **Storage upgrade boundary**: the schema version distinction between "database produced by the pre-change offchain" and "database produced by the post-change offchain." Detection of this boundary by the offchain at startup is what gates FR-005.
 
 ## Success Criteria *(mandatory)*
 
@@ -85,13 +77,11 @@ Operators running this offchain on devnets, preprod, or any other deployment hav
 
 - **SC-001**: 100% of `GET /tokens/:id/facts/:key` calls following a successful Insert/Update return the requester's exact value bytes, verified by an end-to-end test that compares response bytes to inserted bytes byte-for-byte. (Today: 0%.)
 - **SC-002**: Rollback fixtures exercising Insert, Update, and Delete operations across single-block and multi-block reorgs leave fact-lookup responses byte-identical to the lookup responses that would be observed if the rolled-back blocks had never been seen. Measured by automated test, no manual inspection.
-- **SC-003**: Operator-facing release notes for the version that ships this change include a migration section. Reviewed by a person who has run the offchain in deployment but did not write the change.
-- **SC-004**: The pre-existing `assertFactEnvelope` structural-only check (`val \`shouldSatisfy\` (not . T.null)`) no longer appears in the test suite as the sole verification of the fact endpoint's `value` field. Replaced by the byte-equality test from SC-001.
+- **SC-003**: The pre-existing `assertFactEnvelope` structural-only check (`val \`shouldSatisfy\` (not . T.null)`) no longer appears in the test suite as the sole verification of the fact endpoint's `value` field. Replaced by the byte-equality test from SC-001.
 
 ## Assumptions
 
 - The offchain's chain-follower already implements atomic block writes (`InvTrieInsert`/`InvTrieDelete` and the rest of the inverse-op machinery in `Cardano.MPFS.Indexer.Event`). FR-003 and FR-004 reuse that mechanism rather than introducing a parallel one.
-- Wipe-and-resync is acceptable for devnet and preprod deployments. Resync time on preprod is roughly 70 minutes based on the most recent measurement during the dependency-bump work; that's the order of magnitude expected, not a guarantee. Mainnet has not yet shipped this offchain, so no mainnet migration is in scope.
+- Existing deployments are wiped and resynced as part of normal upgrade hygiene; no in-place migration path is offered or required by this feature. (See clarification 2026-04-30.)
 - The current wire shape of `GET /tokens/:id/facts/:key` (the `FactResponse` envelope, including the `value` field's existence and JSON encoding) is unchanged by this feature. A separate concurrent change (#243) replaces the wire shape; that work is out of scope here.
 - "Raw value" means the byte string the requester originally placed in the request datum's value field, exactly as it arrived in the indexed transaction's CBOR. No re-encoding, no normalisation.
-- Operators reading the migration documentation are technically competent with the offchain's deployment story (Docker, RocksDB on disk). The documentation does not need to teach them what RocksDB is.
