@@ -1,20 +1,5 @@
 {
     "definitions": {
-        "BootProofJSON": {
-            "description": "Proof payload for POST /tx/boot",
-            "properties": {
-                "funding": {
-                    "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "funding"
-            ],
-            "type": "object"
-        },
         "BootRequest": {
             "description": "Boot a new token",
             "properties": {
@@ -24,26 +9,6 @@
             },
             "required": [
                 "address"
-            ],
-            "type": "object"
-        },
-        "BootTxResponse": {
-            "description": "Proof-bearing response for POST /tx/boot",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/BootProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
-                "snapshot",
-                "proof"
             ],
             "type": "object"
         },
@@ -753,6 +718,29 @@
             ],
             "type": "object"
         },
+        "UnsignedTxResponse": {
+            "description": "Uniform proof-bearing response for write endpoints. Carries the unsigned transaction CBOR plus a snapshot and a flat list of spent and reference inputs, each with its CSMT inclusion proof.",
+            "properties": {
+                "inputs": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "unsigned_tx_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "unsigned_tx_cbor",
+                "snapshot",
+                "inputs"
+            ],
+            "type": "object"
+        },
         "UpdateProofJSON": {
             "description": "Proof payload for POST /tx/update",
             "properties": {
@@ -851,6 +839,45 @@
                 "old_value",
                 "new_value",
                 "address"
+            ],
+            "type": "object"
+        },
+        "UtxoEntry": {
+            "description": "UTxO ref, CBOR body, and CSMT inclusion proof against the enclosing snapshot's utxo_root",
+            "properties": {
+                "inclusion_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor",
+                "inclusion_proof"
+            ],
+            "type": "object"
+        },
+        "UtxoRef": {
+            "description": "UTxO reference",
+            "properties": {
+                "tx_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_ix": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tx_id",
+                "tx_ix"
             ],
             "type": "object"
         },
@@ -1159,7 +1186,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "$ref": "#/definitions/BootTxResponse"
+                            "$ref": "#/definitions/UnsignedTxResponse"
                         }
                     },
                     "400": {
