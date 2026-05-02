@@ -13,16 +13,23 @@
 module Cardano.MPFS.Context
     ( -- * Context
       Context (..)
+
+      -- * Atomic indexer reader
+    , AtomicCageReader
+    , AtomicCageRead (..)
+    , AtomicReaderError (..)
     ) where
 
 import Data.ByteString (ByteString)
+
+import Cardano.Ledger.Address (Addr)
 
 import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Provider (Provider)
 import Cardano.MPFS.State (State)
 import Cardano.MPFS.Submitter (Submitter)
 import Cardano.MPFS.Trie (TrieManager)
-import Cardano.MPFS.TxBuilder (TxBuilder)
+import Cardano.MPFS.TxBuilder (BundleSnapshot, TxBuilder)
 import Cardano.MPFS.TxBuilder.Config (CageConfig)
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
 
@@ -62,6 +69,60 @@ data Context m = Context
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
     -- ^ CSMT inclusion proof for a TxIn (raw bytes)
+    , atomicCageReader :: AtomicCageReader m
+    -- ^ Single-transaction reader over the indexer.
+    -- Returns the @BundleSnapshot@ together with
+    -- @(TxIn, TxOut bytes, CSMT proof)@ triples for
+    -- every wallet UTxO at the requested address —
+    -- all from one coherent read. Used by the
+    -- proof-bearing tx builders to eliminate
+    -- between-read race windows. See spec
+    -- @specs/249-atomic-boot-handler@.
     , readMetrics :: m (Maybe Metrics)
     -- ^ Current metrics snapshot (if available)
     }
+
+-- | Reader returning a coherent indexer view scoped
+-- to one address. The implementation MUST perform
+-- every read inside a single @RunTransaction@ call
+-- over the unified column families projected to the
+-- UTxO columns; the snapshot's CSMT root MUST be the
+-- root every returned proof verifies against.
+type AtomicCageReader m =
+    Addr
+    -> m (Either AtomicReaderError AtomicCageRead)
+
+-- | Successful payload of an 'AtomicCageReader'
+-- call. Each @acrInputs@ entry is the triple
+-- @(input ref, TxOut CBOR bytes, CSMT inclusion
+-- proof bytes)@.
+data AtomicCageRead = AtomicCageRead
+    { acrSnapshot :: BundleSnapshot
+    -- ^ Snapshot the proofs are anchored to
+    , acrInputs :: [(TxIn, ByteString, ByteString)]
+    -- ^ Wallet inputs at the address with their
+    -- resolved @TxOut@ bytes and CSMT proofs
+    }
+    deriving (Show)
+
+-- | Failure modes of an 'AtomicCageReader' call.
+-- Each constructor maps to a distinct, deterministic
+-- HTTP error so clients can distinguish
+-- "indexer not ready" from "no UTxOs at address"
+-- from "indexer corruption".
+data AtomicReaderError
+    = -- | Indexer has no chain checkpoint yet
+      -- (server just started, no block applied).
+      AtomicReaderNoCheckpoint
+    | -- | CSMT has no Merkle root yet
+      -- (empty / un-bootstrapped CSMT).
+      AtomicReaderRootMissing
+    | -- | Address has zero UTxOs in the indexer
+      -- (unfunded or fully-spent address).
+      AtomicReaderNoUtxos
+    | -- | A leaf was found in the CSMT but its
+      -- resolved @TxOut@ bytes are absent from the
+      -- KV column family (indexer corruption — fail
+      -- loud).
+      AtomicReaderKvMissing TxIn
+    deriving (Show, Eq)

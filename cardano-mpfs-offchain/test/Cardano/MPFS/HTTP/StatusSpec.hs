@@ -75,6 +75,14 @@ mkTestContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , atomicCageReader =
+                \_ ->
+                    error
+                        "mkTestContext: \
+                        \atomicCageReader not \
+                        \implemented (HTTP unit \
+                        \tests do not exercise \
+                        \tx-build paths)"
             , readMetrics = pure Nothing
             }
 

@@ -166,7 +166,10 @@ import Ouroboros.Network.Block qualified as Network
 import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
 
 import CSMT.Hashes.Types (Hash)
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context
+    ( AtomicCageReader
+    , Context (..)
+    )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
@@ -230,6 +233,18 @@ data AppConfig = AppConfig
     -- alongside Shelley initial funds on fresh DB.
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
+    , atomicCageReaderOverride
+        :: !(Maybe (AtomicCageReader IO))
+    -- ^ Optional startup-time override for the
+    -- production 'AtomicCageReader'. Production
+    -- entry points (@Serve@, @DevnetServer@,
+    -- @RunPreprod@) leave this 'Nothing'. Test
+    -- harnesses that disable the chain follower
+    -- (@followerEnabled = False@) install a
+    -- wallet-backed stub here so they can build
+    -- transactions against a manually-driven
+    -- indexer; see spec
+    -- @specs\/249-atomic-boot-handler@ §FR-006.
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
@@ -630,6 +645,19 @@ withApplication cfg action = do
                                         resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
+                                , atomicCageReader =
+                                    -- NOTE: stub for
+                                    -- bisect-safety,
+                                    -- replaced in
+                                    -- "feat(boot):
+                                    -- atomic indexer
+                                    -- read for POST
+                                    -- /tx/boot".
+                                    fromMaybe
+                                        notImplementedReader
+                                        ( atomicCageReaderOverride
+                                            cfg
+                                        )
                                 , readMetrics =
                                     readIORef metricsRef
                                 }
@@ -682,6 +710,23 @@ seedGenesis genesis mByronPath st runner ops = do
     insertPair (k, v) =
         CSMT.transact runner
             $ csmtInsert ops k v
+
+-- | Bisect-safe placeholder for the production
+-- 'AtomicCageReader'. Replaced in the next patch
+-- ("feat(boot): atomic indexer read for POST
+-- \/tx\/boot") with a closure that performs every
+-- read inside a single @CSMT.transact utxoRt@
+-- block. Until that lands, no caller invokes the
+-- field — the boot path still routes through
+-- @bootTokenImpl@'s @queryUTxOs@ call.
+notImplementedReader :: AtomicCageReader IO
+notImplementedReader _ =
+    error
+        "Application.notImplementedReader: \
+        \atomicCageReader is not yet wired in this \
+        \patch — see specs/249-atomic-boot-handler. \
+        \No caller should reach this code in the \
+        \scaffolding commit."
 
 -- | Convert a cage checkpoint to a chain
 -- intersection 'Point'.

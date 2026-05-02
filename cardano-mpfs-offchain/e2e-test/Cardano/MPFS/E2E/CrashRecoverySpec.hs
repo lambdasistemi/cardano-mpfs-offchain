@@ -319,6 +319,7 @@ mkAppConfig socketPath cfg tracer dbPath = do
             , cageConfig = cfg
             , byronGenesisPath = Nothing
             , followerEnabled = True
+            , atomicCageReaderOverride = Nothing
             , appTracer = tracer
             }
 
