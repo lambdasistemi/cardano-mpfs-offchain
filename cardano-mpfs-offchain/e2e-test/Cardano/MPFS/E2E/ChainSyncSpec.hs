@@ -63,6 +63,9 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State
     ( Checkpoints (..)
@@ -131,11 +134,16 @@ chainsyncSpecs scripts = do
     it "boot auto-indexes token" $ do
         withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
                         emptySnap
+                        bootInputs
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -163,11 +171,16 @@ chainsyncSpecs scripts = do
     it "request auto-indexes" $ do
         withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
                         emptySnap
+                        bootInputs
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
@@ -231,11 +244,16 @@ chainsyncSpecs scripts = do
         withE2E scripts $ \cfg ctx -> do
             -- Submit boot tx to ensure blocks
             -- are being processed
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
                         emptySnap
+                        bootInputs
                         genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot

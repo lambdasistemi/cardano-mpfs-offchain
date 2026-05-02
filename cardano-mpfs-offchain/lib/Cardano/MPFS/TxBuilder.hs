@@ -31,6 +31,7 @@ module Cardano.MPFS.TxBuilder
     , WitnessedInput (..)
     , TrieFact (..)
     , UtxoProofFn
+    , ResolvedWalletInput
 
       -- * Per-endpoint proof envelopes
     , ProofEnvelope (..)
@@ -67,9 +68,15 @@ import Cardano.MPFS.Core.Types
 data TxBuilder m = TxBuilder
     { bootToken
         :: BundleSnapshot
+        -> [ResolvedWalletInput]
         -> Addr
         -> m (ProofEnvelope BootProof)
-    -- ^ Create a new MPFS token
+    -- ^ Create a new MPFS token. The
+    -- @[ResolvedWalletInput]@ list is sourced from
+    -- the indexer atomically (see
+    -- 'Cardano.MPFS.Context.AtomicCageReader');
+    -- the builder MUST NOT consult cardano-node
+    -- for UTxO state.
     , requestInsert
         :: BundleSnapshot
         -> TokenId
@@ -159,6 +166,16 @@ data WitnessedInput = WitnessedInput
 -- does not (yet) know about the input — the verifier
 -- will reject the resulting envelope.
 type UtxoProofFn = TxIn -> IO (Maybe ByteString)
+
+-- | Pre-resolved wallet input bundle:
+-- @(input ref, ledger CBOR of @TxOut@,
+-- CSMT inclusion proof bytes)@. Sourced from the
+-- indexer in a single transaction by an
+-- 'Cardano.MPFS.Context.AtomicCageReader' so that
+-- the bytes and proof verify against the same
+-- @snapshotUtxoRoot@.
+type ResolvedWalletInput =
+    (TxIn, ByteString, ByteString)
 
 -- | A trie fact the builder depended on. Produced by
 -- endpoints that read from the MPF trie behind a

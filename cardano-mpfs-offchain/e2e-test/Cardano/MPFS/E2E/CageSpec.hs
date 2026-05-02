@@ -84,6 +84,9 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.Provider
     ( Provider (..)
     , SlotNo (..)
@@ -162,10 +165,15 @@ cageFlowSpec bpPath scripts =
                     cageAddrFromCfg cfg Testnet
 
             -- Step 1: Boot token
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             bundleBoot <-
                 bootToken
                     (txBuilder ctx)
                     emptySnap
+                    bootInputs
                     genesisAddr
             let unsignedBoot = envTx bundleBoot
                 signedBoot =

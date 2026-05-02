@@ -87,6 +87,9 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , TokenId (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -164,9 +167,17 @@ lifecycleSpec scripts =
                         (tokenIdHex tid)
 
             -- Boot
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             bootTx <-
                 submit
-                    $ bootToken tb emptySnap genesisAddr
+                    $ bootToken
+                        tb
+                        emptySnap
+                        bootInputs
+                        genesisAddr
             let tid =
                     extractTokenId cfg bootTx
 

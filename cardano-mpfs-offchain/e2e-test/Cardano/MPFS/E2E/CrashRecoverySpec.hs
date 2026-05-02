@@ -31,6 +31,9 @@ import Cardano.MPFS.Core.Types
     , SlotNo (..)
     , TokenId
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.State
     ( State (..)
     , Tokens (..)
@@ -327,8 +330,14 @@ mkAppConfig socketPath cfg tracer dbPath = do
 -- index it.
 bootAndAwait :: Context IO -> IO TokenId
 bootAndAwait ctx = do
+    inputs <-
+        walletBootInputs (provider ctx) genesisAddr
     bundle <-
-        bootToken (txBuilder ctx) emptySnap genesisAddr
+        bootToken
+            (txBuilder ctx)
+            emptySnap
+            inputs
+            genesisAddr
     let unsignedBoot = envTx bundle
         signed =
             addKeyWitness genesisSignKey unsignedBoot
