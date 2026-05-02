@@ -1,7 +1,7 @@
 # cardano-mpfs-offchain Development Guidelines
 
 Auto-generated from active feature plans and maintained by hand where
-repo-wide guidance is stable. Last updated: 2026-04-29.
+repo-wide guidance is stable. Last updated: 2026-05-02.
 
 ## Source of Truth
 
@@ -17,6 +17,7 @@ after design.
 ## Active Technologies
 - Haskell GHC 9.10.1 (offchain server, verifier library); Lean 4 (formal model — `lean/` directory) + Servant (HTTP API), `cardano-mpfs-cage` (Aiken-derived on-chain types via PlutusV3 blueprint), `cardano-mpfs-client` (verifier package), `haskell-mts` (CSMT inclusion + prefix-completeness primitives, MPF inclusion + exclusion), `cardano-utxo-csmt` (CSMT runtime), `cardano-ledger-conway` (TxOut/Tx serialization), `cardano-node-clients` (N2C wiring), `chain-follower` (block stream) (243-proof-redesign)
 - RocksDB (existing CSMT + index column families) (243-proof-redesign)
+- RocksDB with 13 column families (6 UTxO from (249-atomic-boot-handler)
 
 - Haskell with GHC 9.10.1 for native builds.
 - `cardano-mpfs-client` verifiers must remain compatible with native
@@ -76,6 +77,7 @@ Every issue starts with speckit artifacts before implementation:
 4. Implementation follows the task list, updating status as work lands.
 
 ## Recent Changes
+- 249-atomic-boot-handler: Added Haskell GHC 9.10.1
 - 243-proof-redesign: Added Haskell GHC 9.10.1 (offchain server, verifier library); Lean 4 (formal model — `lean/` directory) + Servant (HTTP API), `cardano-mpfs-cage` (Aiken-derived on-chain types via PlutusV3 blueprint), `cardano-mpfs-client` (verifier package), `haskell-mts` (CSMT inclusion + prefix-completeness primitives, MPF inclusion + exclusion), `cardano-utxo-csmt` (CSMT runtime), `cardano-ledger-conway` (TxOut/Tx serialization), `cardano-node-clients` (N2C wiring), `chain-follower` (block stream)
 
 - `178-crypto-proof-replay`: added proof-bearing response verification,
