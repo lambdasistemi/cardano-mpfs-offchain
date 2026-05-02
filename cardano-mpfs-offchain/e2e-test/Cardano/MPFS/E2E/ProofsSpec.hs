@@ -110,6 +110,9 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , TokenId (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -230,8 +233,17 @@ proofsSpec scripts =
                         ctx
 
             -- Boot → insert → update to land the fact
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             bootTx <-
-                submit $ bootToken tb emptySnap genesisAddr
+                submit
+                    $ bootToken
+                        tb
+                        emptySnap
+                        bootInputs
+                        genesisAddr
             let tid = extractTokenId cfg bootTx
                 tidHex = tokenIdHex tid
                 keyHex = B16.encode factKey

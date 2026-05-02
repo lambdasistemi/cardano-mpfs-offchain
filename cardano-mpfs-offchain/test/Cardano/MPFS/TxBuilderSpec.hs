@@ -84,6 +84,10 @@ import Cardano.Ledger.BaseTypes
     , Network (..)
     , StrictMaybe (..)
     )
+import Cardano.Ledger.Binary
+    ( natVersion
+    , serialize'
+    )
 import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
@@ -2054,7 +2058,28 @@ runBootToken cfg = do
                 st
                 dummyTrieManager
                 dummyProofFn
-    envTx <$> bootToken builder testSnap feeAddr
+    let bootInputs =
+            [
+                ( txIn1
+                , serialize'
+                    (natVersion @11)
+                    utxo1
+                , BS.empty
+                )
+            ,
+                ( txIn2
+                , serialize'
+                    (natVersion @11)
+                    utxo2
+                , BS.empty
+                )
+            ]
+    envTx
+        <$> bootToken
+            builder
+            testSnap
+            bootInputs
+            feeAddr
 
 -- | Token ID used across tests.
 testTid :: TokenId
@@ -2417,7 +2442,28 @@ runRealisticBootToken cfg = do
                 st
                 dummyTrieManager
                 dummyProofFn
-    envTx <$> bootToken builder testSnap feeAddr
+    let bootInputs =
+            [
+                ( txIn1
+                , serialize'
+                    (natVersion @11)
+                    utxo1
+                , BS.empty
+                )
+            ,
+                ( txIn2
+                , serialize'
+                    (natVersion @11)
+                    utxo2
+                , BS.empty
+                )
+            ]
+    envTx
+        <$> bootToken
+            builder
+            testSnap
+            bootInputs
+            feeAddr
 
 -- | Run rejectRequests with mock expired request.
 -- The request has submittedAt=0, processTime=300s,

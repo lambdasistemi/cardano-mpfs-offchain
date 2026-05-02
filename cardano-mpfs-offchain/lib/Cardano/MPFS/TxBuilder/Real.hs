@@ -100,7 +100,7 @@ mkRealTxBuilder
     -> TxBuilder IO
 mkRealTxBuilder cfg prov st tm proofFn =
     TxBuilder
-        { bootToken = bootTokenImpl cfg prov proofFn
+        { bootToken = bootTokenImpl cfg prov
         , requestInsert =
             requestInsertImpl cfg prov st proofFn
         , requestDelete =

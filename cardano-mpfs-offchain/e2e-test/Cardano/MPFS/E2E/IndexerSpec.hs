@@ -60,6 +60,9 @@ import Cardano.MPFS.Core.Types
     , Root (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( walletBootInputs
+    )
 import Cardano.MPFS.Indexer.Event
     ( CageEvent (..)
     , inversesOf
@@ -154,9 +157,17 @@ indexerSpecs scripts = do
                     scriptAddr
 
             -- Submit boot tx
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken (txBuilder ctx) emptySnap genesisAddr
+                    $ bootToken
+                        (txBuilder ctx)
+                        emptySnap
+                        bootInputs
+                        genesisAddr
             let resolver =
                     mkResolver preUtxos []
 
@@ -696,11 +707,16 @@ indexerSpecs scripts = do
                     scriptAddr
 
             -- Submit boot tx
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
                         emptySnap
+                        bootInputs
                         genesisAddr
             let resolver =
                     mkResolver preUtxos []
@@ -884,11 +900,16 @@ indexerSpecs scripts = do
                 snapshotCageUtxos
                     (provider ctx)
                     scriptAddr
+            bootInputs <-
+                walletBootInputs
+                    (provider ctx)
+                    genesisAddr
             signedBoot <-
                 buildAndSubmit ctx
                     $ bootToken
                         (txBuilder ctx)
                         emptySnap
+                        bootInputs
                         genesisAddr
             let resolver =
                     mkResolver preUtxos []
@@ -1055,9 +1076,17 @@ bootAndRegister cfg ctx = do
         queryUTxOs (provider ctx) genesisAddr
 
     -- Build + submit boot tx
+    bootInputs <-
+        walletBootInputs
+            (provider ctx)
+            genesisAddr
     signedBoot <-
         buildAndSubmit ctx
-            $ bootToken (txBuilder ctx) emptySnap genesisAddr
+            $ bootToken
+                (txBuilder ctx)
+                emptySnap
+                bootInputs
+                genesisAddr
 
     -- Detect and apply
     let resolver =

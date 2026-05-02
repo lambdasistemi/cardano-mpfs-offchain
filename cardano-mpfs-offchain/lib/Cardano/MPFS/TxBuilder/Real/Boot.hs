@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 
 -- |
@@ -10,10 +11,20 @@
 -- derivation, mints +1 token at the cage policy, and
 -- creates a State UTxO with empty root and configured
 -- default parameters.
+--
+-- __Invariant__: this module MUST NOT call
+-- 'Cardano.MPFS.Provider.queryUTxOs'. Wallet UTxO
+-- discovery is the responsibility of the caller (the
+-- HTTP layer's 'Cardano.MPFS.Context.AtomicCageReader');
+-- the builder consumes the pre-resolved tuples and
+-- builds the transaction. See spec
+-- @specs\/249-atomic-boot-handler@.
 module Cardano.MPFS.TxBuilder.Real.Boot
     ( bootTokenImpl
     ) where
 
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as StrictSeq
@@ -37,13 +48,19 @@ import Cardano.Ledger.Api.Tx.Body
     , outputsTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
-    ( datumTxOutL
+    ( TxOut
+    , datumTxOutL
     , mkBasicTxOut
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
     , rdmrsTxWitsL
     , scriptTxWitsL
+    )
+import Cardano.Ledger.Binary
+    ( DecoderError
+    , decodeFull
+    , natVersion
     )
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose (..)
@@ -67,13 +84,16 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
+    , ConwayEra
+    , TxIn
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
     ( BootProof (..)
     , BundleSnapshot
     , ProofEnvelope (..)
-    , UtxoProofFn
+    , ResolvedWalletInput
+    , WitnessedInput (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -82,31 +102,49 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 
 -- | Build a boot-token minting transaction.
 --
--- Picks a wallet UTxO as seed for the asset name,
--- mints +1 token at the cage policy, and creates
--- a State UTxO with empty root and tip.
+-- Picks the seed input from the @[ResolvedWalletInput]@
+-- list (sourced atomically from the local indexer by an
+-- 'Cardano.MPFS.Context.AtomicCageReader'), derives the
+-- asset name from it, mints +1 token at the cage policy,
+-- and creates a State UTxO with empty root and default
+-- parameters.
+--
+-- The @prov@ argument is consulted only for protocol
+-- parameters and tx evaluation. Its @queryUTxOs@ field
+-- is __forbidden on this path__ and not invoked.
 bootTokenImpl
     :: CageConfig
     -- ^ Cage script config
     -> Provider IO
-    -- ^ Blockchain query interface
-    -> UtxoProofFn
-    -- ^ CSMT inclusion proof lookup
+    -- ^ Provider — used for protocol params + evaluate
+    -- only. @queryUTxOs@ MUST NOT be called.
     -> BundleSnapshot
     -- ^ Snapshot this bundle will be anchored to
+    -> [ResolvedWalletInput]
+    -- ^ Pre-resolved wallet inputs from the indexer
     -> Addr
     -- ^ Owner address (receives change, owns the token)
     -> IO (ProofEnvelope BootProof)
-bootTokenImpl cfg prov proofFn snap addr = do
+bootTokenImpl cfg prov snap inputs addr = do
     pp <- queryProtocolParams prov
-    utxos <- queryUTxOs prov addr
-    case utxos of
-        [] -> error "bootToken: no UTxOs"
-        (seedUtxo : rest) -> do
-            let (seedRef, _seedOut) = seedUtxo
-                allInputUtxos = case rest of
-                    [] -> [seedUtxo]
-                    (u : _) -> [seedUtxo, u]
+    case decodeAll inputs of
+        Left err ->
+            error
+                $ "bootToken: failed to decode \
+                  \indexer-resolved TxOut bytes: "
+                    <> show err
+        Right [] ->
+            error
+                "bootToken: empty input list — \
+                \HTTP layer should have rejected \
+                \with NoUtxos"
+        Right (seedRow : restRows) -> do
+            let pickedRows = case restRows of
+                    [] -> [seedRow]
+                    (u : _) -> [seedRow, u]
+                pickedLedgerPairs =
+                    map ledgerPair pickedRows
+                seedRef = rowRef seedRow
             -- 1. Derive asset name from seed
             let onChainRef = txInToRef seedRef
                 assetNameBs =
@@ -190,7 +228,8 @@ bootTokenImpl cfg prov proofFn snap addr = do
                         & collateralInputsTxBodyL
                             .~ Set.singleton
                                 ( fst
-                                    $ last allInputUtxos
+                                    $ last
+                                        pickedLedgerPairs
                                 )
                         & scriptIntegrityHashTxBodyL
                             .~ integrity
@@ -207,11 +246,11 @@ bootTokenImpl cfg prov proofFn snap addr = do
                 evaluateAndBalance
                     prov
                     pp
-                    allInputUtxos
+                    pickedLedgerPairs
                     addr
                     tx
-            fundingWitnesses <-
-                witnesses proofFn allInputUtxos
+            let fundingWitnesses =
+                    map rowToWitness pickedRows
             pure
                 ProofEnvelope
                     { envTx = balanced
@@ -222,3 +261,48 @@ bootTokenImpl cfg prov proofFn snap addr = do
                                 fundingWitnesses
                             }
                     }
+
+-- | Decoded view of an indexer-resolved input. The
+-- ledger 'TxOut' is needed to feed
+-- 'evaluateAndBalance'; the original CBOR bytes are
+-- preserved so they pass through to
+-- 'witnessedTxOut' verbatim (matching what the
+-- indexer applied and what on-chain validators
+-- compute).
+data InputRow = InputRow
+    { rowRef :: TxIn
+    , rowOut :: TxOut ConwayEra
+    , rowOutBytes :: ByteString
+    , rowProof :: ByteString
+    }
+
+decodeAll
+    :: [ResolvedWalletInput]
+    -> Either DecoderError [InputRow]
+decodeAll = traverse decodeOne
+  where
+    decodeOne (tin, outBytes, proofBytes) =
+        case decodeFull
+            (natVersion @11)
+            (BSL.fromStrict outBytes) of
+            Left err -> Left err
+            Right out ->
+                Right
+                    InputRow
+                        { rowRef = tin
+                        , rowOut = out
+                        , rowOutBytes = outBytes
+                        , rowProof = proofBytes
+                        }
+
+ledgerPair
+    :: InputRow -> (TxIn, TxOut ConwayEra)
+ledgerPair r = (rowRef r, rowOut r)
+
+rowToWitness :: InputRow -> WitnessedInput
+rowToWitness r =
+    WitnessedInput
+        { witnessedRef = rowRef r
+        , witnessedTxOut = rowOutBytes r
+        , witnessedCsmtProof = rowProof r
+        }
