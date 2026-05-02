@@ -52,5 +52,11 @@ mkMockContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , atomicCageReader =
+                \_ ->
+                    error
+                        "mkMockContext: atomicCageReader \
+                        \not implemented (mock context \
+                        \does not exercise tx-build paths)"
             , readMetrics = pure Nothing
             }

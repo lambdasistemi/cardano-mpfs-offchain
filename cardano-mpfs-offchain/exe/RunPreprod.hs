@@ -46,6 +46,7 @@ preprodConfig sock dbDir =
                 "/tmp/cardano-preprod/config\
                 \/byron-genesis.json"
         , followerEnabled = True
+        , atomicCageReaderOverride = Nothing
         , appTracer = jsonLinesTracer
         }
 

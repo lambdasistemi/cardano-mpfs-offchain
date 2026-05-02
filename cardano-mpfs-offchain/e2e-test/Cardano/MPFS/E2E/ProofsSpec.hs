@@ -731,6 +731,8 @@ withE2E scripts action = do
                             , byronGenesisPath =
                                 Nothing
                             , followerEnabled = True
+                            , atomicCageReaderOverride =
+                                Nothing
                             , appTracer = nullTracer
                             }
                 withApplication appCfg $ \ctx -> do

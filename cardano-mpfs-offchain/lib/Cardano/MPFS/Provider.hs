@@ -55,7 +55,23 @@ data Provider m = Provider
     { queryUTxOs
         :: Addr
         -> m [(TxIn, TxOut ConwayEra)]
-    -- ^ Look up UTxOs at an address
+    -- ^ Look up UTxOs at an address.
+    --
+    -- __FORBIDDEN on tx-build paths.__ The
+    -- underlying cardano-node @LocalStateQuery@
+    -- @GetUTxOByAddress@ scans the entire ledger
+    -- UTxO set; its cost is @O(total UTxOs on
+    -- chain)@, not @O(K)@ at the queried address.
+    -- A high-traffic server using this on the hot
+    -- path effectively DoS's its own node.
+    --
+    -- Server-side tx builders MUST source UTxO
+    -- state from the local indexer's CSMT (see
+    -- 'Cardano.MPFS.Context.AtomicCageReader').
+    -- Wallet-side test code may still call this on
+    -- its own @LocalStateQuery@ connection because
+    -- each test queries a tiny devnet UTxO set
+    -- infrequently. See issue #252.
     , queryProtocolParams
         :: m (PParams ConwayEra)
     -- ^ Fetch current protocol parameters
