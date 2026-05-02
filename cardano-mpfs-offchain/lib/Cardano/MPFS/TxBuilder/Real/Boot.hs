@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Boot
@@ -14,6 +16,7 @@ module Cardano.MPFS.TxBuilder.Real.Boot
     ( bootTokenImpl
     ) where
 
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as StrictSeq
@@ -45,6 +48,10 @@ import Cardano.Ledger.Api.Tx.Wits
     , rdmrsTxWitsL
     , scriptTxWitsL
     )
+import Cardano.Ledger.Binary
+    ( decodeFull
+    , natVersion
+    )
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose (..)
     )
@@ -57,6 +64,7 @@ import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
 
+import Cardano.MPFS.Context (AtomicCageReader)
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , MintRedeemer (..)
@@ -67,13 +75,12 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
+    , TxIn
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
     ( BootProof (..)
-    , BundleSnapshot
     , ProofEnvelope (..)
-    , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -89,24 +96,89 @@ bootTokenImpl
     :: CageConfig
     -- ^ Cage script config
     -> Provider IO
-    -- ^ Blockchain query interface
-    -> UtxoProofFn
-    -- ^ CSMT inclusion proof lookup
-    -> BundleSnapshot
-    -- ^ Snapshot this bundle will be anchored to
+    -- ^ Blockchain query interface (used only for
+    -- 'queryProtocolParams' and 'evaluateTx' /
+    -- 'evaluateAndBalance', never for UTxO state).
+    -> AtomicCageReader IO
+    -- ^ Atomic indexer reader. Returns the
+    -- 'BundleSnapshot' together with the resolved
+    -- @TxOut@ bytes and CSMT inclusion proof for
+    -- every supplied 'TxIn', all read in ONE
+    -- database transaction. This is the only
+    -- source of UTxO state on the tx-build hot
+    -- path (#250 / #252).
     -> Addr
     -- ^ Owner address (receives change, owns the token)
+    -> [TxIn]
+    -- ^ Wallet-supplied funding inputs. The wallet
+    -- selects which UTxOs to spend; the server does
+    -- not pick them itself (per Principle IV —
+    -- External Signing — and #252: cardano-node's
+    -- @GetUTxOByAddress@ is forbidden because it
+    -- is O(total UTxOs on chain)). The first ref
+    -- becomes the seed for asset-name derivation
+    -- and the spending input; the last ref becomes
+    -- the collateral input. At least one ref is
+    -- required.
     -> IO (ProofEnvelope BootProof)
-bootTokenImpl cfg prov proofFn snap addr = do
+bootTokenImpl cfg prov atomicReader addr fundingRefs = do
     pp <- queryProtocolParams prov
-    utxos <- queryUTxOs prov addr
-    case utxos of
-        [] -> error "bootToken: no UTxOs"
-        (seedUtxo : rest) -> do
-            let (seedRef, _seedOut) = seedUtxo
-                allInputUtxos = case rest of
-                    [] -> [seedUtxo]
-                    (u : _) -> [seedUtxo, u]
+    case fundingRefs of
+        [] ->
+            error
+                "bootToken: empty funding inputs \
+                \(wallet must supply at least one)"
+        (seedRef : _) -> do
+            let collateralRef =
+                    last fundingRefs
+            -- ATOMIC INDEXER READ: snapshot +
+            -- (TxOut bytes, inclusion proof) for
+            -- every supplied input, all in one DB
+            -- transaction. No cardano-node UTxO
+            -- query is involved: the indexer is the
+            -- single source of truth on the
+            -- tx-build path (#250, #252).
+            mAtomic <-
+                atomicReader fundingRefs
+            (snap, triples) <-
+                case mAtomic of
+                    Nothing ->
+                        error
+                            "bootToken: snapshot or \
+                            \input data unavailable \
+                            \in indexer (chain \
+                            \follower behind, or \
+                            \input not indexed)"
+                    Just (s, ts) -> pure (s, ts)
+            -- Decode the resolved 'TxOut' bytes
+            -- once, here, for tx balancing.
+            let decodeTxOut bs =
+                    case decodeFull
+                        (natVersion @11)
+                        ( BSL.fromStrict
+                            bs
+                        ) of
+                        Left e ->
+                            error
+                                $ "bootToken: \
+                                  \TxOut CBOR \
+                                  \decode failed: "
+                                    <> show e
+                        Right t -> t
+                allInputUtxos =
+                    [ (r, decodeTxOut v)
+                    | (r, v, _) <- triples
+                    ]
+                proofMap =
+                    Map.fromList
+                        [ (r, p)
+                        | (r, _, p) <- triples
+                        ]
+                proofFn ref =
+                    pure
+                        $ Map.lookup
+                            ref
+                            proofMap
             -- 1. Derive asset name from seed
             let onChainRef = txInToRef seedRef
                 assetNameBs =
@@ -189,9 +261,7 @@ bootTokenImpl cfg prov proofFn snap addr = do
                         & mintTxBodyL .~ mintMA
                         & collateralInputsTxBodyL
                             .~ Set.singleton
-                                ( fst
-                                    $ last allInputUtxos
-                                )
+                                collateralRef
                         & scriptIntegrityHashTxBodyL
                             .~ integrity
                 tx =

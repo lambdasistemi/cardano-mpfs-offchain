@@ -52,7 +52,7 @@ import Cardano.Ledger.BaseTypes
     ( Network (..)
     , TxIx (..)
     )
-import Cardano.Ledger.Binary (serialize)
+import Cardano.Ledger.Binary (natVersion, serialize)
 import Cardano.Ledger.Core (eraProtVerLow)
 import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
@@ -66,7 +66,10 @@ import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
     )
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context
+    ( AtomicCageReader
+    , Context (..)
+    )
 import Cardano.MPFS.Core.Blueprint
     ( CageScripts
     , loadCageScripts
@@ -84,6 +87,7 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.Provider
     ( Provider (..)
     , SlotNo (..)
@@ -163,10 +167,7 @@ cageFlowSpec bpPath scripts =
 
             -- Step 1: Boot token
             bundleBoot <-
-                bootToken
-                    (txBuilder ctx)
-                    emptySnap
-                    genesisAddr
+                walletBoot ctx genesisAddr
             let unsignedBoot = envTx bundleBoot
                 signedBoot =
                     addKeyWitness
@@ -429,6 +430,8 @@ withE2E scripts action = do
                         Nothing
                     , followerEnabled =
                         False
+                    , atomicCageReaderOverride =
+                        Just stubAtomicReader
                     , appTracer =
                         nullTracer
                     }
@@ -480,6 +483,37 @@ extractTokenId cfg tx =
 -- (~50 devnet blocks at 0.1s slots).
 awaitTx :: IO ()
 awaitTx = threadDelay 5_000_000
+
+-- | Wallet-backed 'AtomicCageReader' stub for
+-- @followerEnabled = False@ fixtures. See
+-- 'IndexerSpec.stubAtomicReader'.
+stubAtomicReader
+    :: Provider IO -> AtomicCageReader IO
+stubAtomicReader prov refs = do
+    utxos <- queryUTxOs prov genesisAddr
+    let utxoMap = Map.fromList utxos
+        encode txOut =
+            BSL.toStrict
+                $ serialize
+                    (natVersion @11)
+                    txOut
+        triples =
+            [ (r, encode txOut, BS.empty)
+            | r <- refs
+            , Just txOut <-
+                [Map.lookup r utxoMap]
+            ]
+    pure
+        $ Just
+            ( BundleSnapshot
+                { snapshotUtxoRoot =
+                    BS.replicate 32 0
+                , snapshotSlot = SlotNo 0
+                , snapshotBlockId =
+                    BlockId (BS.replicate 32 0)
+                }
+            , triples
+            )
 
 -- | Optionally dump and simulate a signed transaction with Aiken.
 --

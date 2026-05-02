@@ -92,6 +92,7 @@ main = do
                             , byronGenesisPath =
                                 Nothing
                             , followerEnabled = True
+                            , atomicCageReaderOverride = Nothing
                             , appTracer = nullTracer
                             }
                 withApplication appCfg $ \ctx -> do

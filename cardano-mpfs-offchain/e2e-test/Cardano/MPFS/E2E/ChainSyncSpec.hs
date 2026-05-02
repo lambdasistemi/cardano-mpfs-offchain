@@ -63,6 +63,7 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State
     ( Checkpoints (..)
@@ -133,10 +134,7 @@ chainsyncSpecs scripts = do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
 
@@ -165,10 +163,7 @@ chainsyncSpecs scripts = do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
 
@@ -233,10 +228,7 @@ chainsyncSpecs scripts = do
             -- are being processed
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
 
@@ -305,6 +297,7 @@ withE2E scripts action = do
                                 Nothing
                             , followerEnabled =
                                 True
+                            , atomicCageReaderOverride = Nothing
                             , appTracer =
                                 nullTracer
                             }

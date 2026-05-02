@@ -102,6 +102,7 @@ import Cardano.MPFS.HTTP.Types
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
+    , UtxoRef (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
@@ -596,12 +597,29 @@ txBootHandler
     :: Context IO
     -> BootRequest
     -> Handler UnsignedTxResponse
-txBootHandler ctx (BootRequest addrHex) = do
-    addr <- requireAddr addrHex
-    snap <- requireBundleSnapshot ctx
+txBootHandler ctx BootRequest{brAddr, brFunding} = do
+    addr <- requireAddr brAddr
+    -- The wallet supplies the funding inputs in
+    -- the request body (Principle IV — server does
+    -- not pick wallet UTxOs). 'bootToken' reads
+    -- the snapshot, the resolved @TxOut@ bytes,
+    -- and the inclusion proof for each ref from
+    -- the local indexer in ONE database
+    -- transaction. cardano-node's
+    -- @GetUTxOByAddress@ is never called on this
+    -- path (#252).
+    fundingRefs <-
+        traverse
+            ( \UtxoRef{urTxId, urTxIx} ->
+                requireTxIn urTxId urTxIx
+            )
+            brFunding
     bundle <-
         liftIO
-            $ Tx.bootToken (txBuilder ctx) snap addr
+            $ Tx.bootToken
+                (txBuilder ctx)
+                addr
+                fundingRefs
     pure (mkBootTxResponse bundle)
 
 txInsertHandler

@@ -38,6 +38,7 @@ module Cardano.MPFS.TxBuilder.Real
     , spendingIndex
     ) where
 
+import Cardano.MPFS.Context (AtomicCageReader)
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.Trie (TrieManager (..))
@@ -96,11 +97,19 @@ mkRealTxBuilder
     -> TrieManager IO
     -- ^ Per-token trie manager
     -> UtxoProofFn
-    -- ^ CSMT inclusion proof lookup
+    -- ^ CSMT inclusion proof lookup (legacy, used
+    -- by handlers that have not yet been migrated
+    -- to atomic snapshot+proof reads — #250).
+    -> AtomicCageReader IO
+    -- ^ Atomic snapshot + proofs reader; used by
+    -- 'bootToken' to read its 'BundleSnapshot' and
+    -- inclusion proofs in ONE database transaction.
+    -- Other operations still use 'proofFn' until
+    -- they are migrated.
     -> TxBuilder IO
-mkRealTxBuilder cfg prov st tm proofFn =
+mkRealTxBuilder cfg prov st tm proofFn atomicReader =
     TxBuilder
-        { bootToken = bootTokenImpl cfg prov proofFn
+        { bootToken = bootTokenImpl cfg prov atomicReader
         , requestInsert =
             requestInsertImpl cfg prov st proofFn
         , requestDelete =

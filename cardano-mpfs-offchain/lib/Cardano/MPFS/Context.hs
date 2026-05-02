@@ -13,6 +13,9 @@
 module Cardano.MPFS.Context
     ( -- * Context
       Context (..)
+
+      -- * Atomic cage reader
+    , AtomicCageReader
     ) where
 
 import Data.ByteString (ByteString)
@@ -22,9 +25,46 @@ import Cardano.MPFS.Provider (Provider)
 import Cardano.MPFS.State (State)
 import Cardano.MPFS.Submitter (Submitter)
 import Cardano.MPFS.Trie (TrieManager)
-import Cardano.MPFS.TxBuilder (TxBuilder)
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot
+    , TxBuilder
+    )
 import Cardano.MPFS.TxBuilder.Config (CageConfig)
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
+
+-- | Read a 'BundleSnapshot' (CSMT root + chain
+-- checkpoint), the resolved @TxOut@ bytes, and the
+-- CSMT inclusion proof for each supplied 'TxIn' in
+-- ONE database transaction. Proof-bearing handlers
+-- MUST use this — never combine a separately-fetched
+-- snapshot with separately-fetched proofs or
+-- separately-fetched UTxO state.
+--
+-- Returning the @TxOut@ bytes here is what lets the
+-- server avoid cardano-node's @LocalStateQuery@
+-- @GetUTxOByAddress@ entirely on the tx-build hot
+-- path. That node-side query is a linear scan over
+-- the entire ledger UTxO set; calling it from a
+-- proof-bearing endpoint is forbidden (#252) both
+-- on cost and on torn-read grounds — the indexer is
+-- the single source of truth, and one transaction
+-- against it gives a coherent view.
+--
+-- Returns 'Nothing' if the indexer is not ready
+-- (no checkpoint or no root yet) or any input is
+-- not present in the current snapshot.
+type AtomicCageReader m =
+    [TxIn]
+    -> m
+        ( Maybe
+            ( BundleSnapshot
+            , [ ( TxIn
+                , ByteString
+                , ByteString
+                )
+              ]
+            )
+        )
 
 -- | Top-level context bundling all service
 -- interfaces. Parametric in the effect @m@.
@@ -58,10 +98,18 @@ data Context m = Context
         :: TxIn -> Maybe Int -> m (Maybe ByteString)
     -- ^ Block until a UTxO appears or timeout expires
     , utxoRoot :: m (Maybe ByteString)
-    -- ^ Current CSMT Merkle root hash (raw bytes)
+    -- ^ Current CSMT Merkle root hash (raw bytes).
+    -- Use only for non-proof-bearing /status reads.
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
-    -- ^ CSMT inclusion proof for a TxIn (raw bytes)
+    -- ^ CSMT inclusion proof for a TxIn. NOT atomic
+    -- with a separately-fetched snapshot — kept for
+    -- handlers that have not yet been migrated to
+    -- 'atomicCageReader' (#250). New code must use
+    -- 'atomicCageReader'.
+    , atomicCageReader :: AtomicCageReader m
+    -- ^ Atomic snapshot + proofs reader for
+    -- proof-bearing handlers (see 'AtomicCageReader').
     , readMetrics :: m (Maybe Metrics)
     -- ^ Current metrics snapshot (if available)
     }

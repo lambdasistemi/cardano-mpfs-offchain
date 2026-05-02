@@ -31,6 +31,7 @@ module Cardano.MPFS.HTTP.Types
       -- * UTxO witnesses
     , TxInJSON (..)
     , txInToJSON
+    , UtxoRef (..)
     , WitnessedUtxo (..)
 
       -- * Proof-bearing read responses

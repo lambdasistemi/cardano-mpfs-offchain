@@ -8,6 +8,7 @@ module Cardano.MPFS.TxBuilderSpec (spec) where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (for_)
 import Data.List (sort)
@@ -84,6 +85,7 @@ import Cardano.Ledger.BaseTypes
     , Network (..)
     , StrictMaybe (..)
     )
+import Cardano.Ledger.Binary (natVersion, serialize)
 import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
@@ -100,6 +102,7 @@ import Cardano.Ledger.Mary.Value
     )
 import Cardano.Ledger.TxIn (TxIn)
 
+import Cardano.MPFS.Context (AtomicCageReader)
 import Cardano.MPFS.Core.Blueprint
     ( extractCompiledCode
     , loadBlueprint
@@ -319,6 +322,40 @@ mkTestProvider utxos =
 -- exercise proof content; they only verify tx shape.
 dummyProofFn :: TxIn -> IO (Maybe ByteString)
 dummyProofFn _ = pure Nothing
+
+-- | Build a dummy 'AtomicCageReader' from a set of
+-- known @(TxIn, TxOut)@ pairs. The reader returns a
+-- constant 'testSnap', the serialized @TxOut@ bytes
+-- for any matching ref (so the tx-builder can
+-- balance), and a zero-byte proof. Tests only
+-- verify tx shape; concrete proof bytes aren't
+-- validated.
+mkDummyAtomicReader
+    :: [(TxIn, TxOut ConwayEra)]
+    -> AtomicCageReader IO
+mkDummyAtomicReader utxos refs =
+    let utxoMap = Map.fromList utxos
+        encode txOut =
+            BSL.toStrict
+                $ serialize
+                    (natVersion @11)
+                    txOut
+        triples =
+            [ (r, encode txOut, mempty)
+            | r <- refs
+            , Just txOut <-
+                [Map.lookup r utxoMap]
+            ]
+    in  pure $ Just (testSnap, triples)
+
+-- | Empty 'AtomicCageReader' for tests that build
+-- tx-builders for non-boot operations (which never
+-- invoke the reader). The boot-related tests must
+-- use 'mkDummyAtomicReader' with real
+-- @(TxIn, TxOut)@ pairs so the tx-builder can
+-- decode the resolved 'TxOut' bytes for balancing.
+dummyAtomicReader :: AtomicCageReader IO
+dummyAtomicReader = mkDummyAtomicReader []
 
 -- | Dummy TrieManager that errors on use.
 dummyTrieManager :: TrieManager IO
@@ -1915,6 +1952,7 @@ runRetractRequestWith = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <-
         retractRequest builder testSnap reqIn feeAddr
     pure (envTx bundle, reqIn, stateIn)
@@ -1978,6 +2016,7 @@ runUpdateTokenWith = do
                 st
                 trieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <-
         updateToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn, reqIn)
@@ -2026,6 +2065,7 @@ runEndTokenWith = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <- endToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn)
 
@@ -2054,7 +2094,12 @@ runBootToken cfg = do
                 st
                 dummyTrieManager
                 dummyProofFn
-    envTx <$> bootToken builder testSnap feeAddr
+                ( mkDummyAtomicReader
+                    [ (txIn1, utxo1)
+                    , (txIn2, utxo2)
+                    ]
+                )
+    envTx <$> bootToken builder feeAddr [txIn1, txIn2]
 
 -- | Token ID used across tests.
 testTid :: TokenId
@@ -2097,6 +2142,7 @@ mkTestFixture = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     pure (st, prov, builder, txIn)
 
 -- ---------------------------------------------------------
@@ -2138,6 +2184,7 @@ mkRealisticFixture = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     pure (st, prov, builder, txIn)
 
 -- | Run requestInsert with realistic PParams.
@@ -2220,6 +2267,7 @@ runRealisticUpdateWith = do
                 st
                 trieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <-
         updateToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn, reqIn)
@@ -2280,6 +2328,7 @@ runTightUpdate = do
                 st
                 trieManager
                 dummyProofFn
+                dummyAtomicReader
     envTx
         <$> updateToken builder testSnap testTid feeAddr
 
@@ -2338,6 +2387,7 @@ runRealisticRetractWith = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <-
         retractRequest builder testSnap reqIn feeAddr
     pure (envTx bundle, reqIn, stateIn)
@@ -2388,6 +2438,7 @@ runRealisticEndWith = do
                 st
                 dummyTrieManager
                 dummyProofFn
+                dummyAtomicReader
     bundle <- endToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn)
 
@@ -2417,7 +2468,12 @@ runRealisticBootToken cfg = do
                 st
                 dummyTrieManager
                 dummyProofFn
-    envTx <$> bootToken builder testSnap feeAddr
+                ( mkDummyAtomicReader
+                    [ (txIn1, utxo1)
+                    , (txIn2, utxo2)
+                    ]
+                )
+    envTx <$> bootToken builder feeAddr [txIn1, txIn2]
 
 -- | Run rejectRequests with mock expired request.
 -- The request has submittedAt=0, processTime=300s,
@@ -2463,5 +2519,6 @@ runRejectRequests = do
                 st
                 trieManager
                 dummyProofFn
+                dummyAtomicReader
     envTx
         <$> rejectRequests builder testSnap testTid feeAddr

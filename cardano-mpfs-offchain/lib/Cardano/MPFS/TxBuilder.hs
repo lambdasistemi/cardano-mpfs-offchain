@@ -66,10 +66,19 @@ import Cardano.MPFS.Core.Types
 -- 'witnessedRef's covers every @txIn@ of 'envTx'.
 data TxBuilder m = TxBuilder
     { bootToken
-        :: BundleSnapshot
-        -> Addr
+        :: Addr
+        -> [TxIn]
         -> m (ProofEnvelope BootProof)
-    -- ^ Create a new MPFS token
+    -- ^ Create a new MPFS token at the owner
+    -- address using the wallet-supplied funding
+    -- inputs. The implementation reads its
+    -- 'BundleSnapshot', the resolved @TxOut@ bytes,
+    -- and the inclusion proof for each input from
+    -- the local indexer in ONE database transaction
+    -- — never via cardano-node's @GetUTxOByAddress@
+    -- (#252). The first input is the seed for
+    -- asset-name derivation; the last is the
+    -- collateral input.
     , requestInsert
         :: BundleSnapshot
         -> TokenId

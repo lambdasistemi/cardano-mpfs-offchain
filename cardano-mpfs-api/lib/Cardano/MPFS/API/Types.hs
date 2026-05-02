@@ -697,18 +697,34 @@ instance FromJSON RequestsResponse where
             <*> o .: "requests"
 
 -- | @POST \/tx\/boot@ request body.
-newtype BootRequest = BootRequest
+data BootRequest = BootRequest
     { brAddr :: Hex
-    -- ^ Address (hex-encoded serialized)
+    -- ^ Address (hex-encoded serialized).
+    , brFunding :: [UtxoRef]
+    -- ^ Wallet-supplied funding inputs. The first
+    -- entry is used as the seed for asset-name
+    -- derivation; the last entry is used as the
+    -- collateral input. The wallet selects these —
+    -- the server NEVER queries cardano-node's
+    -- 'GetUTxOByAddress' (an O(total UTxOs)
+    -- linear scan) to pick them. The server only
+    -- reads each ref's 'TxOut' and CSMT inclusion
+    -- proof from its local indexer, atomically
+    -- with the snapshot.
     }
 
 instance ToJSON BootRequest where
     toJSON BootRequest{..} =
-        object ["address" .= brAddr]
+        object
+            [ "address" .= brAddr
+            , "funding" .= brFunding
+            ]
 
 instance FromJSON BootRequest where
     parseJSON = withObject "BootRequest" $ \o ->
-        BootRequest <$> o .: "address"
+        BootRequest
+            <$> o .: "address"
+            <*> o .: "funding"
 
 -- | @POST \/tx\/request\/insert@ request body.
 data InsertRequest = InsertRequest
@@ -1438,6 +1454,8 @@ instance ToSchema BootRequest where
     declareNamedSchema _ = do
         hexSchema <-
             declareSchemaRef (Proxy @Hex)
+        fundingSchema <-
+            declareSchemaRef (Proxy @[UtxoRef])
         pure
             $ Swagger.NamedSchema
                 (Just "BootRequest")
@@ -1446,8 +1464,13 @@ instance ToSchema BootRequest where
                 ?~ Swagger.SwaggerObject
             & properties
                 .~ fromList
-                    [("address", hexSchema)]
-            & required .~ ["address"]
+                    [ ("address", hexSchema)
+                    , ("funding", fundingSchema)
+                    ]
+            & required
+                .~ [ "address"
+                   , "funding"
+                   ]
             & description
                 ?~ "Boot a new token"
 

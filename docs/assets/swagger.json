@@ -5,10 +5,17 @@
             "properties": {
                 "address": {
                     "$ref": "#/definitions/Hex"
+                },
+                "funding": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoRef"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
-                "address"
+                "address",
+                "funding"
             ],
             "type": "object"
         },

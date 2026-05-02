@@ -55,7 +55,21 @@ data Provider m = Provider
     { queryUTxOs
         :: Addr
         -> m [(TxIn, TxOut ConwayEra)]
-    -- ^ Look up UTxOs at an address
+    -- ^ FORBIDDEN IN ANY TX-BUILD PATH.
+    --
+    -- This call routes to cardano-node's
+    -- @LocalStateQuery@ @GetUTxOByAddress@, whose
+    -- implementation IS A LINEAR SCAN OVER THE
+    -- ENTIRE LEDGER UTXO SET. Cost is O(total
+    -- UTxOs on chain), not O(UTxOs at the
+    -- address). On mainnet that is millions of
+    -- entries per call.
+    --
+    -- Use the local indexer's atomic
+    -- @AtomicCageReader@ instead — it is O(M)
+    -- where M = UTxOs at the address. This field
+    -- is retained only for legacy callers that
+    -- have not yet been migrated.
     , queryProtocolParams
         :: m (PParams ConwayEra)
     -- ^ Fetch current protocol parameters

@@ -70,6 +70,7 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.Provider
     ( Provider (..)
     , SlotNo (..)
@@ -146,10 +147,7 @@ cageFlowSpec scripts =
             -- Step 1: Boot token
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let tokenId =
                     extractTokenId cfg signedBoot
 
@@ -276,10 +274,7 @@ deleteFlowSpec scripts =
                 -- Boot
                 signedBoot <-
                     buildAndSubmit ctx
-                        $ bootToken
-                            (txBuilder ctx)
-                            emptySnap
-                            genesisAddr
+                        $ walletBoot ctx genesisAddr
                 let tokenId =
                         extractTokenId cfg signedBoot
                 _ <-
@@ -539,10 +534,7 @@ rejectFlowSpec scripts =
                 -- Boot
                 signedBoot <-
                     buildAndSubmit ctx
-                        $ bootToken
-                            (txBuilder ctx)
-                            emptySnap
-                            genesisAddr
+                        $ walletBoot ctx genesisAddr
                 let tokenId =
                         extractTokenId cfg signedBoot
                 _ <-
@@ -657,6 +649,7 @@ withE2E scripts action = do
                                 Nothing
                             , followerEnabled =
                                 True
+                            , atomicCageReaderOverride = Nothing
                             , appTracer =
                                 nullTracer
                             }

@@ -75,6 +75,7 @@ mkTestContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , atomicCageReader = \_ -> pure Nothing
             , readMetrics = pure Nothing
             }
 

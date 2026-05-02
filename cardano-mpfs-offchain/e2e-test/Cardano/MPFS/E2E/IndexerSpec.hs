@@ -14,6 +14,7 @@ module Cardano.MPFS.E2E.IndexerSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.Map.Strict qualified as Map
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -34,6 +35,7 @@ import Cardano.Ledger.BaseTypes
     ( Network (..)
     , TxIx (..)
     )
+import Cardano.Ledger.Binary (natVersion, serialize)
 import Cardano.Ledger.TxIn (TxIn (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
@@ -43,7 +45,10 @@ import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
     )
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context
+    ( AtomicCageReader
+    , Context (..)
+    )
 import Cardano.MPFS.Core.Blueprint
     ( CageScripts
     , loadCageScripts
@@ -60,6 +65,7 @@ import Cardano.MPFS.Core.Types
     , Root (..)
     , TokenState (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.Indexer.Event
     ( CageEvent (..)
     , inversesOf
@@ -156,7 +162,7 @@ indexerSpecs scripts = do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken (txBuilder ctx) emptySnap genesisAddr
+                    $ walletBoot ctx genesisAddr
             let resolver =
                     mkResolver preUtxos []
 
@@ -698,10 +704,7 @@ indexerSpecs scripts = do
             -- Submit boot tx
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let resolver =
                     mkResolver preUtxos []
             events <-
@@ -886,10 +889,7 @@ indexerSpecs scripts = do
                     scriptAddr
             signedBoot <-
                 buildAndSubmit ctx
-                    $ bootToken
-                        (txBuilder ctx)
-                        emptySnap
-                        genesisAddr
+                    $ walletBoot ctx genesisAddr
             let resolver =
                     mkResolver preUtxos []
             events <-
@@ -964,6 +964,8 @@ withE2E scripts action = do
                                 Nothing
                             , followerEnabled =
                                 False
+                            , atomicCageReaderOverride =
+                                Just stubAtomicReader
                             , appTracer =
                                 nullTracer
                             }
@@ -1016,6 +1018,41 @@ assertSubmitted (Rejected reason) =
 awaitTx :: IO ()
 awaitTx = threadDelay 5_000_000
 
+-- | Wallet-backed 'AtomicCageReader' stub for
+-- fixtures that run with @followerEnabled = False@.
+-- Looks up resolved @TxOut@ bytes via cardano-node
+-- 'queryUTxOs' at the wallet address so the
+-- tx-builder can balance, but emits placeholder
+-- 'BundleSnapshot' and zero-length proofs — these
+-- specs do not exercise the proof-bearing verifier.
+stubAtomicReader
+    :: Provider IO -> AtomicCageReader IO
+stubAtomicReader prov refs = do
+    utxos <- queryUTxOs prov genesisAddr
+    let utxoMap = Map.fromList utxos
+        encode txOut =
+            BSL.toStrict
+                $ serialize
+                    (natVersion @11)
+                    txOut
+        triples =
+            [ (r, encode txOut, BS.empty)
+            | r <- refs
+            , Just txOut <-
+                [Map.lookup r utxoMap]
+            ]
+    pure
+        $ Just
+            ( BundleSnapshot
+                { snapshotUtxoRoot =
+                    BS.replicate 32 0
+                , snapshotSlot = SlotNo 0
+                , snapshotBlockId =
+                    BlockId (BS.replicate 32 0)
+                }
+            , triples
+            )
+
 -- | Snapshot UTxOs at the cage script address for
 -- building a resolver. Must be called BEFORE
 -- submitting a transaction (spent UTxOs disappear).
@@ -1055,7 +1092,7 @@ bootAndRegister cfg ctx = do
     -- Build + submit boot tx
     signedBoot <-
         buildAndSubmit ctx
-            $ bootToken (txBuilder ctx) emptySnap genesisAddr
+            $ walletBoot ctx genesisAddr
 
     -- Detect and apply
     let resolver =

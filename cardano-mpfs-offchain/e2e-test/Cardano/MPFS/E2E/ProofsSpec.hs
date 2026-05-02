@@ -110,6 +110,7 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , TokenId (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -231,7 +232,7 @@ proofsSpec scripts =
 
             -- Boot → insert → update to land the fact
             bootTx <-
-                submit $ bootToken tb emptySnap genesisAddr
+                submit $ walletBoot ctx genesisAddr
             let tid = extractTokenId cfg bootTx
                 tidHex = tokenIdHex tid
                 keyHex = B16.encode factKey
@@ -337,9 +338,33 @@ proofsSpec scripts =
             -- in e2e we read it from the response's own
             -- snapshot for the honest path, then forge a
             -- different one for the rejection path.
+            -- Discover wallet UTxOs and pass their
+            -- refs in the request body. Server-side
+            -- 'queryUTxOs' is forbidden (#252).
+            walletUtxos <-
+                queryUTxOs (provider ctx) genesisAddr
+            let walletFunding =
+                    map
+                        ( \(TxIn (TxId txid) (TxIx ix), _) ->
+                            object
+                                [ "tx_id"
+                                    .= Hex
+                                        ( TE.decodeUtf8
+                                            $ B16.encode
+                                                ( Crypto.hashToBytes
+                                                    (extractHash txid)
+                                                )
+                                        )
+                                , "tx_ix" .= ix
+                                ]
+                        )
+                        walletUtxos
             bootResp <-
                 postJSON app "/tx/boot"
-                    $ object ["address" .= addrHex]
+                    $ object
+                        [ "address" .= addrHex
+                        , "funding" .= walletFunding
+                        ]
             let bootResp' = bootResp :: Wire.UnsignedTxResponse
                 bootSnapRoot =
                     Wire.vsUtxoRoot
@@ -731,6 +756,7 @@ withE2E scripts action = do
                             , byronGenesisPath =
                                 Nothing
                             , followerEnabled = True
+                            , atomicCageReaderOverride = Nothing
                             , appTracer = nullTracer
                             }
                 withApplication appCfg $ \ctx -> do

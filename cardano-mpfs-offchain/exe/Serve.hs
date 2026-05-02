@@ -203,6 +203,7 @@ mkAppConfig args cfg =
         , byronGenesisPath =
             argByronGenesis args
         , followerEnabled = True
+        , atomicCageReaderOverride = Nothing
         , appTracer = jsonLinesTracer
         }
 

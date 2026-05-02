@@ -257,6 +257,7 @@ test-suite unit-tests
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
+    , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
@@ -364,3 +365,4 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.ProofsSpec
     Cardano.MPFS.E2E.ProviderSpec
     Cardano.MPFS.E2E.SubmitterSpec
+    Cardano.MPFS.E2E.WalletSim

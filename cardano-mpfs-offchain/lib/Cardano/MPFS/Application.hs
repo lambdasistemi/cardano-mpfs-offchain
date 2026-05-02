@@ -166,7 +166,10 @@ import Ouroboros.Network.Block qualified as Network
 import Cardano.Ledger.Binary (EncCBOR, natVersion, serialize)
 
 import CSMT.Hashes.Types (Hash)
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context
+    ( AtomicCageReader
+    , Context (..)
+    )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
@@ -177,6 +180,7 @@ import Cardano.MPFS.Indexer.Backend
 import Cardano.MPFS.Indexer.CageFollower
     ( mkCageIntersector
     )
+import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Data.Dependent.Map (DMap)
 
 import Cardano.MPFS.Indexer.Codecs (allUnifiedCodecs)
@@ -184,6 +188,7 @@ import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.Indexer.Persistent
     ( mkPersistentState
     )
+import Cardano.MPFS.Provider (Provider)
 import Cardano.MPFS.Provider.NodeClient
     ( mkNodeClientProvider
     )
@@ -230,6 +235,22 @@ data AppConfig = AppConfig
     -- alongside Shelley initial funds on fresh DB.
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
+    , atomicCageReaderOverride
+        :: !( Maybe
+                (Provider IO -> AtomicCageReader IO)
+            )
+    -- ^ Override the indexer-backed
+    -- 'AtomicCageReader' with a test stub.
+    -- 'withApplication' applies the override (if
+    -- 'Just') to the constructed 'Provider' and
+    -- wires the resulting reader into
+    -- 'mkRealTxBuilder' and 'Context.atomicCageReader'
+    -- instead of the real one. Production code
+    -- always passes 'Nothing'; tests with
+    -- @followerEnabled = False@ supply a wallet-
+    -- backed stub that pulls @TxOut@ bytes via
+    -- 'queryUTxOs' so the boot tx-builder can
+    -- balance without a real indexer.
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
@@ -603,6 +624,94 @@ withApplication cfg action = do
                                         )
                                 pure
                                     $ fmap snd result
+                        -- Atomic indexer reader: opens ONE
+                        -- 'run' transaction over
+                        -- 'UnifiedColumns' and reads, in this
+                        -- order, the CSMT root, the chain
+                        -- checkpoint, and (TxOut bytes,
+                        -- inclusion proof) for every supplied
+                        -- 'TxIn'. RocksDB snapshot isolation
+                        -- guarantees the resulting
+                        -- 'BundleSnapshot', resolved values,
+                        -- and proofs are coherent regardless
+                        -- of concurrent chain-follower writes.
+                        --
+                        -- Returning the @TxOut@ bytes here is
+                        -- what lets bootTokenImpl and any
+                        -- future tx-builder avoid
+                        -- 'queryUTxOs prov addr' on the
+                        -- tx-build hot path — see #252 for
+                        -- the cost (cardano-node implements
+                        -- @GetUTxOByAddress@ as a linear
+                        -- scan over the entire ledger UTxO
+                        -- set) and #250 for the atomicity
+                        -- contract.
+                        atomicReader refs = run $ do
+                            let fkv = fromKV context
+                            mRoot <-
+                                mapColumns InUtxo
+                                    $ fmap renderHash
+                                        <$> queryMerkleRoot
+                                            ( hashing
+                                                context
+                                            )
+                            hist <-
+                                CFStore.queryHistory
+                                    InRollbacks
+                            mResolved <-
+                                traverse
+                                    ( mapColumns
+                                        InUtxo
+                                        . generateInclusionProof
+                                            fkv
+                                            KVCol
+                                            CSMTCol
+                                        . cborEncode
+                                    )
+                                    refs
+                            pure
+                                $ case (mRoot, hist) of
+                                    (Just rootBs, pts@(_ : _))
+                                        | Just resolved <-
+                                            sequence
+                                                mResolved ->
+                                            let (slot, rp) =
+                                                    last pts
+                                                blkId =
+                                                    fromMaybe
+                                                        ( BlockId
+                                                            mempty
+                                                        )
+                                                        (rpMeta rp)
+                                                snap =
+                                                    BundleSnapshot
+                                                        { snapshotUtxoRoot =
+                                                            rootBs
+                                                        , snapshotSlot =
+                                                            slot
+                                                        , snapshotBlockId =
+                                                            blkId
+                                                        }
+                                                triples =
+                                                    zipWith
+                                                        ( \r (v, p) ->
+                                                            ( r
+                                                            , BSL.toStrict
+                                                                v
+                                                            , p
+                                                            )
+                                                        )
+                                                        refs
+                                                        resolved
+                                            in  Just
+                                                    (snap, triples)
+                                    _ -> Nothing
+                        effectiveReader =
+                            case atomicCageReaderOverride
+                                cfg of
+                                Just mk -> mk prov
+                                Nothing ->
+                                    atomicReader
                         ctx =
                             Context
                                 { provider = prov
@@ -620,6 +729,7 @@ withApplication cfg action = do
                                         st
                                         tm
                                         proof
+                                        effectiveReader
                                 , cfgCage =
                                     cageConfig cfg
                                 , utxoExists = exists
@@ -630,6 +740,8 @@ withApplication cfg action = do
                                         resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
+                                , atomicCageReader =
+                                    effectiveReader
                                 , readMetrics =
                                     readIORef metricsRef
                                 }

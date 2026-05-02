@@ -27,10 +27,9 @@ import Cardano.MPFS.Core.Blueprint
     , loadCageScripts
     )
 import Cardano.MPFS.Core.Types
-    ( BlockId (..)
-    , SlotNo (..)
-    , TokenId
+    ( TokenId
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.State
     ( State (..)
     , Tokens (..)
@@ -41,9 +40,7 @@ import Cardano.MPFS.Submitter
     )
 import Cardano.MPFS.Trace (AppTrace (..))
 import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot (..)
-    , ProofEnvelope (..)
-    , TxBuilder (..)
+    ( ProofEnvelope (..)
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -79,7 +76,6 @@ import Control.Tracer
     ( Tracer (..)
     , traceWith
     )
-import Data.ByteString qualified as BS
 import Data.Foldable (for_)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -319,6 +315,7 @@ mkAppConfig socketPath cfg tracer dbPath = do
             , cageConfig = cfg
             , byronGenesisPath = Nothing
             , followerEnabled = True
+            , atomicCageReaderOverride = Nothing
             , appTracer = tracer
             }
 
@@ -327,7 +324,7 @@ mkAppConfig socketPath cfg tracer dbPath = do
 bootAndAwait :: Context IO -> IO TokenId
 bootAndAwait ctx = do
     bundle <-
-        bootToken (txBuilder ctx) emptySnap genesisAddr
+        walletBoot ctx genesisAddr
     let unsignedBoot = envTx bundle
         signed =
             addKeyWitness genesisSignKey unsignedBoot
@@ -348,17 +345,6 @@ bootAndAwait ctx = do
             error
                 $ "boot rejected: "
                     ++ show reason
-
--- | Placeholder snapshot used by e2e tests. The
--- builder embeds it verbatim but does not yet use
--- it to drive tx construction.
-emptySnap :: BundleSnapshot
-emptySnap =
-    BundleSnapshot
-        { snapshotUtxoRoot = BS.replicate 32 0
-        , snapshotSlot = SlotNo 0
-        , snapshotBlockId = BlockId (BS.replicate 32 0)
-        }
 
 -- * Config
 

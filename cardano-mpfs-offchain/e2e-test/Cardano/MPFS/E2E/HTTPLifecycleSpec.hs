@@ -87,6 +87,7 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , TokenId (..)
     )
+import Cardano.MPFS.E2E.WalletSim (walletBoot)
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -166,7 +167,7 @@ lifecycleSpec scripts =
             -- Boot
             bootTx <-
                 submit
-                    $ bootToken tb emptySnap genesisAddr
+                    $ walletBoot ctx genesisAddr
             let tid =
                     extractTokenId cfg bootTx
 
@@ -414,6 +415,7 @@ withE2E scripts action = do
                                 Nothing
                             , followerEnabled =
                                 True
+                            , atomicCageReaderOverride = Nothing
                             , appTracer =
                                 nullTracer
                             }
