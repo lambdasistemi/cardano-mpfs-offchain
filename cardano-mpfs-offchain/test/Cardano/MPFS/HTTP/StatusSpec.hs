@@ -75,11 +75,11 @@ mkTestContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
-            , atomicCageReader =
+            , runIndexerTx =
                 \_ ->
                     error
                         "mkTestContext: \
-                        \atomicCageReader not \
+                        \runIndexerTx not \
                         \implemented (HTTP unit \
                         \tests do not exercise \
                         \tx-build paths)"
