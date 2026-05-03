@@ -1,7 +1,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 
 -- |
--- Module      : Cardano.MPFS.TxBuilder.Real.Boot.Components
+-- Module      : Cardano.MPFS.TxBuilder.Real.Boot.Transaction
 -- Description : Per-step builders for POST /tx/boot
 -- License     : Apache-2.0
 --
@@ -12,7 +12,7 @@
 -- signature so the orchestrator
 -- ('Cardano.MPFS.TxBuilder.Real.Boot.bootTokenImpl')
 -- reads as a sequence of named operations.
-module Cardano.MPFS.TxBuilder.Real.Boot.Components
+module Cardano.MPFS.TxBuilder.Real.Boot.Transaction
     ( -- * Mint
       bootAssetName
     , bootMintValue
