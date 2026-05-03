@@ -6,7 +6,7 @@
 -- Top-level orchestrator for @POST \/tx\/boot@. The
 -- per-step builders (asset name, datum, output, script,
 -- body, tx) live in
--- "Cardano.MPFS.TxBuilder.Real.Boot.Components"; the
+-- "Cardano.MPFS.TxBuilder.Real.Boot.Transaction"; the
 -- pre-resolved input decoding lives in
 -- "Cardano.MPFS.TxBuilder.Real.Boot.Inputs".
 --
@@ -32,7 +32,7 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
-import Cardano.MPFS.TxBuilder.Real.Boot.Components
+import Cardano.MPFS.TxBuilder.Real.Boot.Transaction
     ( bootAssembledTx
     , bootAssetName
     , bootMintValue
@@ -57,7 +57,7 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 -- Picks the seed input from the @[ResolvedWalletInput]@
 -- list (sourced atomically from the local indexer by
 -- the HTTP layer), composes the per-step builders from
--- "Cardano.MPFS.TxBuilder.Real.Boot.Components", then
+-- "Cardano.MPFS.TxBuilder.Real.Boot.Transaction", then
 -- evaluates and balances against the provider's
 -- protocol parameters.
 --
