@@ -107,6 +107,7 @@ library
     Cardano.MPFS.Indexer.Event
     Cardano.MPFS.Indexer.Follower
     Cardano.MPFS.Indexer.Persistent
+    Cardano.MPFS.Indexer.Reads
     Cardano.MPFS.Mock.Context
     Cardano.MPFS.Mock.Provider
     Cardano.MPFS.Mock.State

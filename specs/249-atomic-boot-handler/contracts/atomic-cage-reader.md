@@ -1,183 +1,155 @@
-# Internal Contract: AtomicCageReader
+# Internal Contract: IndexerTx primitives
 
 ## Purpose
 
-The boot endpoint must produce a proof-bearing response whose snapshot,
-resolved input bytes, and CSMT inclusion proofs all reflect a single
-coherent point in the indexer's chain history. `AtomicCageReader` is
-the seam that owns "produce that coherent reading" responsibility on
-behalf of any handler that needs it. This slice wires it for
-`POST /tx/boot`; subsequent slices in the #250 family wire it for
-`tokens-list`, `requestInsert/Delete/Update`, `retract`, `reject`,
-`update`, and `end`.
+Every proof-bearing tx-build handler needs to produce a response
+whose snapshot, resolved input bytes, and CSMT inclusion proofs all
+reflect a single coherent point in the indexer's chain history.
+`Cardano.MPFS.Indexer.Reads` exposes the underlying transaction as a
+small monadic DSL plus a library of read primitives; handlers
+compose the primitives they need inside one `IndexerTx` value and
+discharge it through `Cardano.MPFS.Context.runIndexerTx`. The
+atomicity of a handler's reads follows from the discipline that all
+reads for one HTTP request live in one `runIndexerTx` call.
 
-This is an **internal** contract: there is no HTTP surface. The wire
-contract `POST /tx/boot { address }` is preserved unchanged.
+This is an **internal** contract: there is no HTTP surface. The
+wire contract `POST /tx/boot { address }` is preserved unchanged.
 
 ## Signature
 
 ```haskell
-type AtomicCageReader m =
-    Addr
-    -> m (Either AtomicReaderError AtomicCageRead)
-
-data AtomicCageRead = AtomicCageRead
-    { acrSnapshot :: BundleSnapshot
-    , acrInputs   :: [(TxIn, ByteString, ByteString)]
+newtype IndexerTx a = IndexerTx
+    { unIndexerTx
+        :: forall cf op
+         . L.Transaction IO cf UnifiedColumns op a
     }
+    deriving (Functor, Applicative, Monad)  -- hand-written
 
-data AtomicReaderError
-    = AtomicReaderNoCheckpoint
-    | AtomicReaderRootMissing
-    | AtomicReaderNoUtxos
-    | AtomicReaderKvMissing TxIn
+readCheckpoint     :: IndexerTx (Maybe (SlotNo, BlockId))
+readMerkleRoot     :: IndexerTx (Maybe ByteString)
+readSnapshot       :: IndexerTx (Maybe BundleSnapshot)
+readWalletInputsAt :: Addr -> IndexerTx [ResolvedWalletInput]
+
+-- on Context:
+runIndexerTx :: forall a. IndexerTx a -> m a
 ```
 
-Module: `Cardano.MPFS.Context`.
+Module: `Cardano.MPFS.Indexer.Reads`.
 
 ## Semantics
 
 The implementation MUST satisfy the following:
 
-1. **One transaction.** The reader MUST perform every read it needs
-   inside a single `RunTransaction` call over `UnifiedColumns`,
-   projected to `InUtxo`. No call site may interleave a second
-   transaction or any IO that observes the indexer outside this
-   transaction.
+1. **One transaction per dispatch.** Each call to `runIndexerTx ctx`
+   MUST open exactly one underlying RocksDB transaction. The reads
+   composed inside the action observe a coherent snapshot of the
+   indexer at the moment that transaction opens.
 
-2. **Coherent snapshot.** The CSMT root inside `acrSnapshot` MUST be
-   the root the inclusion proofs in `acrInputs` verify against. The
-   chain checkpoint inside `acrSnapshot` MUST be the indexer's
-   checkpoint at the moment the transaction opened.
+2. **Coherent snapshot.** When a handler reads `readSnapshot >>= …`
+   followed by other primitives in the same `IndexerTx`, the CSMT
+   root inside the returned `BundleSnapshot` MUST be the root every
+   subsequent read in that same `IndexerTx` observes.
 
-3. **Address scoping.** The reader MUST limit its leaf walk to the
-   subtree of the CSMT keyed by the input `Addr` (using
-   `collectValues CSMTCol [] addressKey` or an equivalent prefix
-   walk). Its cost MUST grow with the number of UTxOs at the address,
-   not with the total UTxOs on chain.
+3. **Address scoping.** `readWalletInputsAt` MUST limit its leaf
+   walk to the subtree of the CSMT keyed by the input `Addr` (using
+   `collectValues CSMTCol [] addrKey`). Its cost MUST grow with the
+   number of UTxOs at the address, not with the total UTxOs on
+   chain.
 
-4. **No node query.** The reader MUST NOT call any
-   `Cardano.MPFS.Provider` field for UTxO state. (Calls to the
-   Provider for protocol parameters and tx evaluation/balance happen
-   *outside* the reader, in the builder, and are unaffected by this
-   contract.)
+4. **No node query.** No primitive in `Cardano.MPFS.Indexer.Reads`
+   MUST consult `Cardano.MPFS.Provider.queryUTxOs` (or any other
+   cardano-node UTxO query) for UTxO state. The Provider is only
+   queried for protocol parameters and tx evaluation, which happens
+   in the tx-builder, not in the indexer reader.
 
-5. **Deterministic errors.** On any of the four documented failure
-   modes, the reader MUST return the corresponding `Left` variant.
-   The reader MUST NOT throw exceptions for these cases. Unexpected
-   failures (e.g. a RocksDB IO error) propagate as IO exceptions in
-   the usual way.
+5. **Pure values for missing data.** When the indexer is not ready
+   (no checkpoint, no root) `readSnapshot` returns `Nothing` and
+   the handler maps that to a 503. When an address has no UTxOs,
+   `readWalletInputsAt` returns `[]` and the handler maps that to
+   a 400. Implementations MUST NOT throw exceptions for these cases.
+   Truly unexpected failures (RocksDB IO error, decoder mismatch on
+   indexer-internal bytes) propagate as IO exceptions in the usual
+   way.
 
-6. **Order preservation.** The order of `acrInputs` is the order the
-   underlying `collectValues` walk produces. Callers may rely on this
-   order being stable across calls against the same indexer state.
+6. **Composability.** Two `IndexerTx` actions composed with `>>=`
+   MUST execute inside the same single underlying transaction.
+   The Monad instance is hand-written to preserve this invariant
+   under the rank-2 newtype wrapper.
 
 ## Production wiring
 
-`Cardano.MPFS.Application.withApplication` builds the closure:
+`Cardano.MPFS.Application.withApplication` provides the runner:
 
 ```haskell
-let atomicReaderProd :: AtomicCageReader IO
-    atomicReaderProd addr =
-        CSMT.transact utxoRt $ do
-            mRoot <-
-                queryMerkleRoot (hashing context)
-            case mRoot of
-                Nothing ->
-                    pure (Left AtomicReaderRootMissing)
-                Just rootHash -> do
-                    mCheckpoint <- … latestRollbackPoint …
-                    case mCheckpoint of
-                        Nothing ->
-                            pure (Left AtomicReaderNoCheckpoint)
-                        Just (slot, blockId) -> do
-                            let snap =
-                                    BundleSnapshot
-                                        { snapshotUtxoRoot =
-                                            renderHash rootHash
-                                        , snapshotSlot = slot
-                                        , snapshotBlockId = blockId
-                                        }
-                                addrKey = encodeAddrAsCsmtKey addr
-                            indirects <-
-                                collectValues CSMTCol [] addrKey
-                            case indirects of
-                                [] -> pure (Left AtomicReaderNoUtxos)
-                                xs -> readEach snap xs
-  where
-    readEach snap xs = do
-        ms <- traverse (readOne (fromKV context)) xs
-        case sequenceA ms of
-            Left tin -> pure (Left (AtomicReaderKvMissing tin))
-            Right rs -> pure (Right (AtomicCageRead snap rs))
-
-    readOne fkv Indirect{jump} = do
-        let key = jump
-        mTxOut <- query KVCol key
-        case mTxOut of
-            Nothing ->
-                pure (Left (decodeTxInFromCsmtKey key))
-            Just txOut -> do
-                proof <-
-                    generateInclusionProof
-                        fkv KVCol CSMTCol key
-                pure
-                    $ Right
-                        ( decodeTxInFromCsmtKey key
-                        , BSL.toStrict txOut
-                        , maybe mempty BSL.toStrict
-                            (fmap snd proof)
-                        )
+let unifiedDb = … in do
+    L.RunTransaction run <- newRunTransaction unifiedDb
+    let ctx = Context { …, runIndexerTx = \(IndexerTx body) -> run body, … }
+    action ctx
 ```
 
-The exact code is not the point of this contract — the point is that
-the entire body lives inside one `CSMT.transact utxoRt $ do { … }`
-block. SC-005 is the gate.
+The runner is a single line: `\(IndexerTx body) -> run body`. Every
+caller goes through it; no parallel runners exist.
 
-## Test seam wiring
+## Caller composition
 
-`AppConfig.atomicCageReaderOverride :: Maybe (AtomicCageReader IO)`.
-`Serve.hs` sets `Nothing`. Test fixtures with `followerEnabled = False`
-construct an override that:
+`txBootHandler` is the canonical caller:
 
-- queries `Provider.queryUTxOs` (wallet-side allowance — the test
-  *is* a wallet on its own LSQ connection),
-- synthesises a `BundleSnapshot` whose `snapshotUtxoRoot` is the
-  empty-root constant the on-chain validator already accepts at boot,
-  and whose `snapshotSlot` / `snapshotBlockId` reflect a sentinel
-  value the verifier in those fixtures is configured to accept,
-- emits an empty proof bytestring per input (those fixtures do not
-  exercise the verifier on the boot response).
+```haskell
+txBootHandler ctx (BootRequest addrHex) = do
+    addr <- requireAddr addrHex
+    (mSnap, inputs) <-
+        liftIO $ runIndexerTx ctx $ do
+            snap <- readSnapshot
+            ins <- readWalletInputsAt addr
+            pure (snap, ins)
+    case mSnap of
+        Nothing -> throwError err503 …
+        Just snap
+            | null inputs -> throwError err400 …
+            | otherwise -> do
+                bundle <-
+                    liftIO
+                        $ Tx.bootToken (txBuilder ctx)
+                            snap inputs addr
+                pure (mkBootTxResponse bundle)
+```
 
-The override is constructed in the harness module that already wires
-the manual indexer driver — it is not exported from
-`cardano-mpfs-offchain` proper.
+Future handlers (`requestInsert`, `retract`, `update`, `reject`,
+`end`) will follow the same pattern: compose the primitives they
+need inside one `runIndexerTx ctx $ do { … }` block. New primitives
+are added to `Cardano.MPFS.Indexer.Reads` — never as new
+transactions.
 
 ## Caller obligations
 
-Callers (currently only `txBootHandler` and `bootTokenImpl`) MUST:
+Callers MUST:
 
-- Treat each `AtomicReaderError` variant as terminal — no fallback
-  to the Provider, no retry inside the same request.
-- Not re-read the snapshot or the inputs from any other source after
-  invoking the reader.
+- Call `runIndexerTx ctx` at most once per HTTP request — never
+  open a second transaction inside the same request handler.
+- Treat `Nothing` / `[]` as terminal — no fallback to the Provider,
+  no retry inside the same request.
+- Compose all reads they need *before* calling `runIndexerTx`. If a
+  read can't be expressed yet, add a primitive to
+  `Cardano.MPFS.Indexer.Reads` rather than reaching for the
+  underlying `L.Transaction`.
 
-The `bootToken` field of `TxBuilder` accepts an `AtomicCageRead`
-directly; it does not invoke the reader itself. This keeps "did the
+The `bootToken` field of `TxBuilder` accepts the
+`(BundleSnapshot, [ResolvedWalletInput], Addr)` triple directly; it
+does not invoke any indexer reader itself. This keeps "did the
 single-transaction read actually happen?" reviewable in one place
 (the handler).
 
 ## Forbidden patterns
 
 The following patterns MUST NOT appear in
-`cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs` or
-`cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`'s boot
-handler after this slice:
+`cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs`,
+`Cardano.MPFS.TxBuilder.Real.Boot.*`, or
+`Cardano.MPFS.HTTP.Server`'s boot handler after this slice:
 
-- Any call to `queryUTxOs (provider ctx)` or
-  `queryUTxOs prov` on the build path. (FR-002, SC-002.)
-- A `requireBundleSnapshot` call inside `txBootHandler`. (FR-001.)
-- A second `RunTransaction` call inside the boot reader for the same
-  request. (FR-001.)
+- Any call to `queryUTxOs (provider ctx)` or `queryUTxOs prov` on
+  the build path. (FR-002, SC-002.)
+- A second `runIndexerTx ctx` call for the same HTTP request. (FR-001.)
+- A call to the underlying `L.RunTransaction` directly, bypassing
+  the `IndexerTx` newtype.
 
 These are the greppable acceptance criteria for the slice.

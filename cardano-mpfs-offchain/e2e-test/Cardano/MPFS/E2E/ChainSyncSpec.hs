@@ -323,8 +323,6 @@ withE2E scripts action = do
                                 Nothing
                             , followerEnabled =
                                 True
-                            , atomicCageReaderOverride =
-                                Nothing
                             , appTracer =
                                 nullTracer
                             }

@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NamedFieldPuns #-}
 
 -- |
 -- Module      : Cardano.MPFS.Application
@@ -100,14 +99,10 @@ import Ouroboros.Network.Point
     , WithOrigin (..)
     )
 
-import CSMT.Core.Types (Indirect (..))
 import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
     )
-import CSMT.Interface (FromKV (..))
-import CSMT.Proof.Completeness (collectValues)
-import Cardano.Ledger.Address (serialiseAddr)
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
     , sgNetworkMagic
@@ -143,7 +138,6 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.UTxOCSMT.Application.Run.Config
     ( armageddonParams
     , context
-    , hashAddressKey
     , prisms
     )
 import Cardano.UTxOCSMT.Bootstrap.Genesis
@@ -162,7 +156,7 @@ import ChainFollower.Backend (Init (..), Restoring (..))
 import ChainFollower.Rollbacks.Store qualified as CFStore
 import ChainFollower.Rollbacks.Types (RollbackPoint (..))
 import ChainFollower.Runner (Phase (..))
-import Control.Lens (iso, review)
+import Control.Lens (iso)
 import Data.Tracer.Fold (foldTracer)
 import Data.Tracer.Timestamp (utcTimestampTracer)
 
@@ -171,18 +165,12 @@ import Ouroboros.Network.Block qualified as Network
 
 import Cardano.Ledger.Binary
     ( EncCBOR
-    , decodeFull
     , natVersion
     , serialize
     )
 
 import CSMT.Hashes.Types (Hash)
-import Cardano.MPFS.Context
-    ( AtomicCageRead (..)
-    , AtomicCageReader
-    , AtomicReaderError (..)
-    , Context (..)
-    )
+import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
@@ -193,8 +181,8 @@ import Cardano.MPFS.Indexer.Backend
 import Cardano.MPFS.Indexer.CageFollower
     ( mkCageIntersector
     )
-import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot (..)
+import Cardano.MPFS.Indexer.Reads
+    ( IndexerTx (..)
     )
 import Data.Dependent.Map (DMap)
 
@@ -249,18 +237,6 @@ data AppConfig = AppConfig
     -- alongside Shelley initial funds on fresh DB.
     , followerEnabled :: !Bool
     -- ^ Start CageFollower ChainSync processing
-    , atomicCageReaderOverride
-        :: !(Maybe (AtomicCageReader IO))
-    -- ^ Optional startup-time override for the
-    -- production 'AtomicCageReader'. Production
-    -- entry points (@Serve@, @DevnetServer@,
-    -- @RunPreprod@) leave this 'Nothing'. Test
-    -- harnesses that disable the chain follower
-    -- (@followerEnabled = False@) install a
-    -- wallet-backed stub here so they can build
-    -- transactions against a manually-driven
-    -- indexer; see spec
-    -- @specs\/249-atomic-boot-handler@ §FR-006.
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
@@ -661,14 +637,9 @@ withApplication cfg action = do
                                         resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
-                                , atomicCageReader =
-                                    fromMaybe
-                                        ( productionAtomicReader
-                                            run
-                                        )
-                                        ( atomicCageReaderOverride
-                                            cfg
-                                        )
+                                , runIndexerTx =
+                                    \(IndexerTx body) ->
+                                        run body
                                 , readMetrics =
                                     readIORef metricsRef
                                 }
@@ -721,160 +692,6 @@ seedGenesis genesis mByronPath st runner ops = do
     insertPair (k, v) =
         CSMT.transact runner
             $ csmtInsert ops k v
-
--- | Production 'AtomicCageReader'. Performs every
--- read it needs — chain checkpoint, CSMT root,
--- per-leaf @TxOut@ bytes, per-leaf inclusion proof
--- — inside a single unified-database transaction.
---
--- This single-transaction discipline is the whole
--- point: the chain follower writes one block per
--- @run@, so a single @run@ on the read side observes
--- a coherent snapshot that includes the matching
--- checkpoint, root, KV bytes, and proofs.
---
--- The function is closed over the unified
--- 'L.RunTransaction' value @run@; callers use the
--- 'AtomicCageReader' shape and never see this
--- internal handle. See spec
--- @specs\/249-atomic-boot-handler@ §FR-001 / SC-005.
-productionAtomicReader
-    :: ( forall a
-          . L.Transaction
-                IO
-                cf
-                ( UnifiedColumns
-                    Point
-                    Hash
-                    BSL.ByteString
-                    BSL.ByteString
-                )
-                op
-                a
-         -> IO a
-       )
-    -> AtomicCageReader IO
-productionAtomicReader run addr =
-    run $ do
-        -- Checkpoint lives in the composed-rollbacks
-        -- column family.
-        history <-
-            CFStore.queryHistory InRollbacks
-        case history of
-            [] ->
-                pure
-                    $ Left
-                        AtomicReaderNoCheckpoint
-            pts -> do
-                let (slot, rp) = last pts
-                    blockId =
-                        fromMaybe
-                            (BlockId mempty)
-                            (rpMeta rp)
-                -- Everything else is in the UTxO
-                -- columns; project once and stay
-                -- inside the same outer 'run'.
-                mapColumns InUtxo
-                    $ readUtxoSide slot blockId addr
-  where
-    fkv = fromKV context
-    addrKey =
-        hashAddressKey (serialiseAddr addr)
-
-    readUtxoSide slot blockId addr' = do
-        mRoot <-
-            queryMerkleRoot (hashing context)
-        case mRoot of
-            Nothing ->
-                pure
-                    $ Left
-                        AtomicReaderRootMissing
-            Just rootHash -> do
-                indirects <-
-                    collectValues
-                        CSMTCol
-                        []
-                        (addrKeyFor addr')
-                case indirects of
-                    [] ->
-                        pure
-                            $ Left
-                                AtomicReaderNoUtxos
-                    leaves ->
-                        loadAll
-                            slot
-                            blockId
-                            rootHash
-                            leaves
-
-    addrKeyFor addr'
-        | addr' == addr = addrKey
-        | otherwise =
-            -- Defensive: should never differ; the
-            -- closure was just invoked with this
-            -- argument. Guards against a future
-            -- refactor that decouples the two.
-            hashAddressKey (serialiseAddr addr')
-
-    loadAll slot blockId rootHash leaves = do
-        rows <- traverse loadOne leaves
-        case sequenceA rows of
-            Left missing ->
-                pure
-                    $ Left
-                        ( AtomicReaderKvMissing
-                            missing
-                        )
-            Right ts ->
-                pure
-                    $ Right
-                        AtomicCageRead
-                            { acrSnapshot =
-                                BundleSnapshot
-                                    { snapshotUtxoRoot =
-                                        renderHash
-                                            rootHash
-                                    , snapshotSlot =
-                                        slot
-                                    , snapshotBlockId =
-                                        blockId
-                                    }
-                            , acrInputs = ts
-                            }
-
-    loadOne Indirect{jump} = do
-        let lazyKey = review (isoK fkv) jump
-            txInDecoded =
-                case decodeFull
-                    (natVersion @11)
-                    lazyKey of
-                    Right t -> t
-                    Left e ->
-                        error
-                            $ "productionAtomicReader: \
-                              \indexer KV column \
-                              \produced a leaf whose \
-                              \key did not decode as \
-                              \a TxIn: "
-                                <> show e
-        mTxOut <- query KVCol lazyKey
-        case mTxOut of
-            Nothing ->
-                pure
-                    $ Left txInDecoded
-            Just txOutBytes -> do
-                mProof <-
-                    generateInclusionProof
-                        fkv
-                        KVCol
-                        CSMTCol
-                        lazyKey
-                pure
-                    $ Right
-                        ( txInDecoded
-                        , BSL.toStrict txOutBytes
-                        , maybe mempty snd mProof
-                        )
 
 -- | Convert a cage checkpoint to a chain
 -- intersection 'Point'.

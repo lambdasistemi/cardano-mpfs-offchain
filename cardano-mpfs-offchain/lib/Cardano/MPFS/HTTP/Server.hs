@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -31,7 +30,6 @@ import Servant
     , ServerError (..)
     , err400
     , err404
-    , err500
     , err502
     , err503
     , errBody
@@ -61,11 +59,7 @@ import Cardano.Ledger.TxIn
     , mkTxInPartial
     )
 
-import Cardano.MPFS.Context
-    ( AtomicCageRead (..)
-    , AtomicReaderError (..)
-    , Context (..)
-    )
+import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
@@ -125,6 +119,10 @@ import Cardano.MPFS.HTTP.Types
     , tokenIdToJSON
     , tokenStateToJSON
     , txInToJSON
+    )
+import Cardano.MPFS.Indexer.Reads
+    ( readSnapshot
+    , readWalletInputsAt
     )
 import Cardano.UTxOCSMT.Application.Metrics
     ( Metrics (..)
@@ -598,53 +596,49 @@ requireAddr h =
                         BL.pack msg
                     }
 
+-- | @POST \/tx\/boot@. Reads snapshot and wallet
+-- inputs at the owner address inside ONE indexer
+-- transaction (composed from primitives in
+-- "Cardano.MPFS.Indexer.Reads"), then hands the
+-- result to the boot tx-builder.
 txBootHandler
     :: Context IO
     -> BootRequest
     -> Handler UnsignedTxResponse
 txBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
-    er <-
-        liftIO (atomicCageReader ctx addr)
-    case er of
-        Left e -> throwError (mapAtomicError e)
-        Right rd -> do
-            bundle <-
-                liftIO
-                    $ Tx.bootToken
-                        (txBuilder ctx)
-                        (acrSnapshot rd)
-                        (acrInputs rd)
-                        addr
-            pure (mkBootTxResponse bundle)
-
--- | Map an 'AtomicReaderError' to its documented HTTP
--- response. See spec @specs\/249-atomic-boot-handler@
--- §FR-004.
-mapAtomicError :: AtomicReaderError -> ServerError
-mapAtomicError = \case
-    AtomicReaderNoCheckpoint ->
-        err503
-            { errBody =
-                "Indexer not ready: no chain \
-                \checkpoint"
-            }
-    AtomicReaderRootMissing ->
-        err503
-            { errBody =
-                "Indexer not ready: no CSMT root"
-            }
-    AtomicReaderNoUtxos ->
-        err400
-            { errBody =
-                "No wallet UTxOs at address"
-            }
-    AtomicReaderKvMissing _ ->
-        err500
-            { errBody =
-                "Indexer corruption: missing KV \
-                \entry for indexed UTxO"
-            }
+    (mSnap, inputs) <-
+        liftIO
+            $ runIndexerTx ctx
+            $ do
+                snap <- readSnapshot
+                ins <- readWalletInputsAt addr
+                pure (snap, ins)
+    case mSnap of
+        Nothing ->
+            throwError
+                err503
+                    { errBody =
+                        "Indexer not ready: \
+                        \snapshot unavailable"
+                    }
+        Just snap
+            | null inputs ->
+                throwError
+                    err400
+                        { errBody =
+                            "No wallet UTxOs \
+                            \at address"
+                        }
+            | otherwise -> do
+                bundle <-
+                    liftIO
+                        $ Tx.bootToken
+                            (txBuilder ctx)
+                            snap
+                            inputs
+                            addr
+                pure (mkBootTxResponse bundle)
 
 txInsertHandler
     :: Context IO
