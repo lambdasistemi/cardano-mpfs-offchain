@@ -38,18 +38,24 @@ module Cardano.MPFS.TxBuilder.Real
     , spendingIndex
     ) where
 
+import Cardano.Ledger.Address (Addr)
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.State (State (..))
 import Cardano.MPFS.Trie (TrieManager (..))
 import Cardano.MPFS.TxBuilder
-    ( TxBuilder (..)
+    ( BootProof (..)
+    , BundleSnapshot
+    , ProofEnvelope (..)
+    , ResolvedWalletInput
+    , TxBuilder (..)
     , UtxoProofFn
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig
     )
 import Cardano.MPFS.TxBuilder.Real.Boot
-    ( bootTokenImpl
+    ( BootCore (..)
+    , bootTokenCore
     )
 import Cardano.MPFS.TxBuilder.Real.End
     ( endTokenImpl
@@ -83,6 +89,10 @@ import Cardano.MPFS.TxBuilder.Real.Sweep
 import Cardano.MPFS.TxBuilder.Real.Update
     ( updateTokenImpl
     )
+import Cardano.Node.Client.TxBuild
+    ( InterpretIO (..)
+    , build
+    )
 
 -- | Create a real 'TxBuilder IO' wired to a
 -- 'Provider', 'State', and 'TrieManager'.
@@ -100,7 +110,7 @@ mkRealTxBuilder
     -> TxBuilder IO
 mkRealTxBuilder cfg prov st tm proofFn =
     TxBuilder
-        { bootToken = bootTokenImpl cfg prov
+        { bootToken = runBootBuilder cfg prov
         , requestInsert =
             requestInsertImpl cfg prov st proofFn
         , requestDelete =
@@ -115,3 +125,71 @@ mkRealTxBuilder cfg prov st tm proofFn =
             rejectRequestsImpl cfg prov st proofFn
         , endToken = endTokenImpl cfg prov proofFn
         }
+
+-- | IO orchestrator for @POST \/tx\/boot@. Builds a
+-- pure 'BootCore' via 'bootTokenCore', fetches the
+-- protocol parameters from the 'Provider', then runs
+-- the DSL 'build' loop with the provider's script
+-- evaluator. The 'Boot' module itself stays pure;
+-- this is where IO meets the cage protocol.
+runBootBuilder
+    :: CageConfig
+    -> Provider IO
+    -> BundleSnapshot
+    -> [ResolvedWalletInput]
+    -> Addr
+    -> IO (ProofEnvelope BootProof)
+runBootBuilder cfg prov snap inputs addr =
+    case bootTokenCore cfg snap inputs addr of
+        Left e ->
+            error
+                $ "bootToken: malformed inputs: "
+                    <> show e
+        Right spec -> do
+            pp <- queryProtocolParams prov
+            let evalAdapter tx =
+                    fmap
+                        ( fmap
+                            ( either
+                                (Left . show)
+                                Right
+                            )
+                        )
+                        (evaluateTx prov tx)
+            result <-
+                build
+                    pp
+                    noCtxInterpretIO
+                    evalAdapter
+                    (bcInputs spec)
+                    (bcAddr spec)
+                    (bcProgram spec)
+            case result of
+                Left e ->
+                    error
+                        $ "bootToken: DSL build \
+                          \failed: "
+                            <> show e
+                Right tx ->
+                    pure
+                        ProofEnvelope
+                            { envTx = tx
+                            , envSnapshot =
+                                bcSnapshot spec
+                            , envProof =
+                                BootProof
+                                    { bootFunding =
+                                        bcFunding
+                                            spec
+                                    }
+                            }
+
+-- | No-op interpreter for the empty domain-query
+-- context: boot has no @ctx@-driven values.
+noCtxInterpretIO :: InterpretIO q
+noCtxInterpretIO =
+    InterpretIO
+        $ const
+        $ error
+            "bootToken: TxBuild program issued a \
+            \ctx query but no interpreter is wired"

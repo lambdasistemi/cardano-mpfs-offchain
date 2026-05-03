@@ -2,34 +2,41 @@
 
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Boot
--- Description : Boot token minting transaction
+-- Description : Boot token: pure description of POST /tx/boot
 -- License     : Apache-2.0
 --
--- Top-level orchestrator for @POST \/tx\/boot@.
+-- Pure description of @POST \/tx\/boot@. The module
+-- exports 'bootTokenCore', which takes the cage
+-- configuration, the bundle snapshot, the indexer-
+-- resolved wallet inputs, and the owner address, and
+-- returns either a 'BootCore' (if the inputs decode
+-- and are non-empty) or a 'BootCoreError'.
 --
--- The transaction is described as a small program in
--- the 'Cardano.Node.Client.TxBuild' DSL: spend the
--- seed input, attach the cage script, mint +1 token,
--- pay the cage state to the script address, and add
--- collateral. The DSL handles ExUnits patching,
--- script-integrity hashing, fee balancing, and
--- change-output construction; this module only
--- describes the domain content.
+-- A 'BootCore' carries everything needed to drive
+-- the 'Cardano.Node.Client.TxBuild' DSL's 'build'
+-- loop:
 --
--- The two domain helpers that remain
--- (asset-name derivation, on-chain state datum) live
--- in "Cardano.MPFS.TxBuilder.Real.Boot.Transaction".
--- Pre-resolved input decoding lives in
--- "Cardano.MPFS.TxBuilder.Real.Boot.Inputs".
+-- * the 'TxBuild' program describing the mint;
+-- * the @[(TxIn, TxOut)]@ list 'build' uses for fee
+--   and change-output computation;
+-- * the change/owner address;
+-- * the @WitnessedInput@s the proof-bearing response
+--   carries verbatim;
+-- * the snapshot that anchors the proofs.
+--
+-- The actual @IO@ step that runs 'build' lives in
+-- "Cardano.MPFS.TxBuilder.Real" — that's where the
+-- 'Provider' (and therefore the protocol parameters
+-- and the script evaluator) is held.
 --
 -- __Invariant__: this module MUST NOT call
--- 'Cardano.MPFS.Provider.queryUTxOs'. Wallet UTxO
--- discovery is the responsibility of the caller (the
--- HTTP layer reads the indexer atomically and
--- supplies 'ResolvedWalletInput' values). See spec
--- @specs\/249-atomic-boot-handler@.
+-- 'Cardano.MPFS.Provider.queryUTxOs'. In fact this
+-- module is pure: it imports neither 'Provider' nor
+-- 'IO'.
 module Cardano.MPFS.TxBuilder.Real.Boot
-    ( bootTokenImpl
+    ( BootCore (..)
+    , BootCoreError (..)
+    , bootTokenCore
     ) where
 
 import Data.Functor.Const (Const)
@@ -37,6 +44,8 @@ import Data.Map.Strict qualified as Map
 import Data.Void (Void)
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Api.Tx.Out (TxOut)
+import Cardano.Ledger.Binary (DecoderError)
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Mary.Value
     ( MaryValue (..)
@@ -46,12 +55,14 @@ import Cardano.Ledger.Mary.Value
 import Cardano.MPFS.Core.OnChain
     ( MintRedeemer (..)
     )
-import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Core.Types
+    ( ConwayEra
+    , TxIn
+    )
 import Cardano.MPFS.TxBuilder
-    ( BootProof (..)
-    , BundleSnapshot
-    , ProofEnvelope (..)
+    ( BundleSnapshot
     , ResolvedWalletInput
+    , WitnessedInput
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
@@ -74,126 +85,109 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     )
 
 import Cardano.Node.Client.TxBuild
-    ( InterpretIO (..)
-    , TxBuild
+    ( TxBuild
     , attachScript
-    , build
     , collateral
     , mint
     , payTo'
     , spend
     )
 
--- | Build a boot-token minting transaction.
---
--- Picks the seed input from the @[ResolvedWalletInput]@
--- list (sourced atomically from the local indexer by
--- the HTTP layer), describes the cage-protocol mint as
--- a 'TxBuild' program, then hands it to the DSL's
--- 'build' loop which handles ExUnits patching,
--- integrity-hash computation, fee balancing, and
--- change-output construction.
---
--- The @prov@ argument is consulted only for protocol
--- parameters and tx evaluation. Its @queryUTxOs@ field
--- is __forbidden on this path__ and not invoked.
-bootTokenImpl
+-- | Reasons why building a 'BootCore' might fail
+-- before any IO runs.
+data BootCoreError
+    = -- | The indexer-resolved bytes for some input
+      -- failed to decode as a Conway 'TxOut'. Signals
+      -- indexer corruption upstream.
+      BootCoreDecodeFailed DecoderError
+    | -- | The HTTP layer should have rejected this
+      -- before reaching us; surface a loud error if
+      -- it slips through.
+      BootCoreEmptyInputs
+    deriving (Show)
+
+-- | All the data the IO layer needs to drive the
+-- DSL's 'build' loop and emit a proof-bearing
+-- 'ProofEnvelope BootProof'.
+data BootCore = BootCore
+    { bcProgram :: TxBuild (Const ()) Void ()
+    -- ^ The 'TxBuild' program. Pure — describes what
+    -- the transaction does without running scripts
+    -- or balancing fees.
+    , bcInputs :: [(TxIn, TxOut ConwayEra)]
+    -- ^ Ledger-typed view of the picked wallet
+    -- inputs. Fed to 'build' for change-output and
+    -- fee computation.
+    , bcAddr :: Addr
+    -- ^ Owner / change address.
+    , bcFunding :: [WitnessedInput]
+    -- ^ The witnessed-input rows that travel
+    -- verbatim into 'BootProof.bootFunding'.
+    , bcSnapshot :: BundleSnapshot
+    -- ^ Snapshot anchoring the proofs.
+    }
+
+-- | Build a pure 'BootCore' from the boot-handler's
+-- inputs. Returns 'Left' if the inputs are malformed
+-- (the HTTP layer should already have rejected those
+-- cases, but we surface them rather than 'error' on
+-- structural problems).
+bootTokenCore
     :: CageConfig
-    -- ^ Cage script config
-    -> Provider IO
-    -- ^ Provider — used for protocol params + evaluate
-    -- only. @queryUTxOs@ MUST NOT be called.
     -> BundleSnapshot
-    -- ^ Snapshot this bundle will be anchored to
     -> [ResolvedWalletInput]
-    -- ^ Pre-resolved wallet inputs from the indexer
     -> Addr
-    -- ^ Owner address (receives change, owns the token)
-    -> IO (ProofEnvelope BootProof)
-bootTokenImpl cfg prov snap inputs addr = do
-    pp <- queryProtocolParams prov
+    -> Either BootCoreError BootCore
+bootTokenCore cfg snap inputs addr =
     case decodeAll inputs of
         Left err ->
-            error
-                $ "bootToken: failed to decode \
-                  \indexer-resolved TxOut bytes: "
-                    <> show err
+            Left (BootCoreDecodeFailed err)
         Right [] ->
-            error
-                "bootToken: empty input list — \
-                \HTTP layer should have rejected \
-                \with NoUtxos"
-        Right (seedRow : restRows) -> do
-            let pickedRows = case restRows of
-                    [] -> [seedRow]
-                    (u : _) -> [seedRow, u]
-                pickedLedgerPairs =
-                    map ledgerPair pickedRows
-                seedRef = rowRef seedRow
-                collatRef =
-                    fst (last pickedLedgerPairs)
-                an = bootAssetName seedRef
-                policyId = cagePolicyIdFromCfg cfg
-                script = mkCageScript cfg
-                scriptAddr =
-                    cageAddrFromCfg cfg (network cfg)
-                mintAssets = Map.singleton an 1
-                mintMA =
-                    MultiAsset
-                        $ Map.singleton policyId mintAssets
-                stateValue =
-                    MaryValue (Coin 2_000_000) mintMA
-                redeemer = Minting (txInToRef seedRef)
-                program :: TxBuild (Const ()) Void ()
-                program = do
-                    _ <- spend seedRef
-                    attachScript script
-                    mint policyId mintAssets redeemer
-                    _ <-
-                        payTo'
-                            scriptAddr
-                            stateValue
-                            (bootStateDatum cfg addr)
-                    collateral collatRef
-                evalAdapter tx =
-                    fmap
-                        (fmap (either (Left . show) Right))
-                        (evaluateTx prov tx)
-            result <-
-                build
-                    pp
-                    noCtxInterpretIO
-                    evalAdapter
-                    pickedLedgerPairs
-                    addr
-                    program
-            case result of
-                Left e ->
-                    error
-                        $ "bootToken: DSL build \
-                          \failed: "
-                            <> show e
-                Right balanced ->
-                    pure
-                        ProofEnvelope
-                            { envTx = balanced
-                            , envSnapshot = snap
-                            , envProof =
-                                BootProof
-                                    { bootFunding =
-                                        map
-                                            rowToWitness
-                                            pickedRows
-                                    }
-                            }
-
--- | No-op interpreter for the empty domain-query
--- context: boot has no @ctx@-driven values, so any
--- @ctx@ call is a programming error.
-noCtxInterpretIO :: InterpretIO q
-noCtxInterpretIO =
-    InterpretIO
-        $ const
-        $ error
-            "bootToken: TxBuild program issued a \
-            \ctx query but no interpreter is wired"
+            Left BootCoreEmptyInputs
+        Right (seedRow : restRows) ->
+            Right (mkCore seedRow restRows)
+  where
+    mkCore seedRow restRows =
+        let pickedRows = case restRows of
+                [] -> [seedRow]
+                (u : _) -> [seedRow, u]
+            pickedLedgerPairs =
+                map ledgerPair pickedRows
+            seedRef = rowRef seedRow
+            collatRef =
+                fst (last pickedLedgerPairs)
+            an = bootAssetName seedRef
+            policyId = cagePolicyIdFromCfg cfg
+            script = mkCageScript cfg
+            scriptAddr =
+                cageAddrFromCfg cfg (network cfg)
+            mintAssets = Map.singleton an 1
+            mintMA =
+                MultiAsset
+                    $ Map.singleton
+                        policyId
+                        mintAssets
+            stateValue =
+                MaryValue
+                    (Coin 2_000_000)
+                    mintMA
+            redeemer = Minting (txInToRef seedRef)
+            program :: TxBuild (Const ()) Void ()
+            program = do
+                _ <- spend seedRef
+                attachScript script
+                mint policyId mintAssets redeemer
+                _ <-
+                    payTo'
+                        scriptAddr
+                        stateValue
+                        (bootStateDatum cfg addr)
+                collateral collatRef
+        in  BootCore
+                { bcProgram = program
+                , bcInputs = pickedLedgerPairs
+                , bcAddr = addr
+                , bcFunding =
+                    map rowToWitness pickedRows
+                , bcSnapshot = snap
+                }
