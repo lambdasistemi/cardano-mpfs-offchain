@@ -4,6 +4,36 @@ description: "Task list for 259-fact-provider-pivot implementation"
 
 # Tasks: Fact-provider pivot
 
+> ⚠ **Pending structural revision after Q0-1 correction (2026-05-04)**
+>
+> The decision in `research.md` Q0-1 has been corrected: cage DSL
+> helpers live in **`cardano-mpfs-client`** (in-repo, alongside the
+> verifier), NOT in upstream `cardano-node-clients`. See `plan.md`,
+> `research.md`, `data-model.md`, `contracts/cage-dsl.md` — those are
+> authoritative.
+>
+> Consequences for this file (not yet folded in line-by-line):
+> - **Phase 2 collapses into Phase 3.** Cage helpers and server cutover
+>   live in the same monorepo PR (different cabal packages, same
+>   commit). Tasks T004..T016 (the "land cage helpers in
+>   cardano-node-clients" PR) become in-package work inside the
+>   server-cutover PR.
+> - **T017 (pin bump)** goes away — no upstream pin to bump. The cage
+>   helpers ship in the same repo as the server.
+> - **Three-repo lockstep → two-repo lockstep**. FR-011's discipline
+>   becomes a `cardano-mpfs-offchain` ↔ `lambdasistemi/moog` cutover
+>   only.
+> - **Vertical-slice issue topology**: per-transaction-type GitHub
+>   issues (boot, request-insert, request-delete, request-update,
+>   retract, end, update, reject — eight issues, children of #257)
+>   are the authoritative work units. This task list remains the
+>   in-PR breakdown; each issue links here for the matching task IDs.
+>
+> When opening Phase 3's PR, fold these structural changes in line by
+> line. Until then, treat any reference below to "land in
+> cardano-node-clients" / "Phase 2 PR on cardano-node-clients" as
+> "land in `cardano-mpfs-client` / merged in the same Phase 3 commit".
+
 **Input**: Design documents in `/specs/259-fact-provider-pivot/`
 **Prerequisites**: spec.md, plan.md, research.md, data-model.md,
 contracts/{facts-api.md, cage-dsl.md, verifier.md}, quickstart.md
@@ -13,7 +43,7 @@ contracts/{facts-api.md, cage-dsl.md, verifier.md}, quickstart.md
 property + e2e coverage, the pivot would land unverified.
 
 **Organization**: Tasks are grouped by phase, where each phase
-corresponds to a coordinated PR landing in one of the three
+corresponds to a coordinated PR landing in one of the
 repositories. Tasks within a phase are tagged by user story
 (US1..US4) where applicable.
 

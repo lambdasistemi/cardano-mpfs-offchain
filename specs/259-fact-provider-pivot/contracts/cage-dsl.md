@@ -1,9 +1,12 @@
 # Client-Library Contract: Cage-protocol DSL helpers
 
 The cage-protocol-aware transaction builders that wallets call after
-verifying a facts bundle. Hosted in `cardano-node-clients` under
-`Cardano.Node.Client.TxBuild.Cage.{Boot,Request,Retract,End,Update,
-Reject}`.
+verifying a facts bundle. Hosted in `cardano-mpfs-client` (the
+in-repo client library, alongside the verifier) under
+`Cardano.MPFS.Client.Cage.{Boot,Request,Retract,End,Update,Reject}`.
+Each helper composes the generic `Cardano.Node.Client.TxBuild`
+operational-monad primitives (`spend`, `payTo'`, `attachScript`,
+`mint`, `collateral`) imported from upstream `cardano-node-clients`.
 
 ## Signatures
 
@@ -125,14 +128,15 @@ evaluator. The DSL's `interpret` field is `noCtxInterpretIO`
 unwrapped to a pure `noCtxInterpret` (cage helpers don't need any
 domain-query context).
 
-This is what enables eventual cross-target compilation per
-cardano-node-clients#123 — pure functions cross-compile cleanly
-once the dep closure (already cross-compiled by
-`cardano-ledger-inspector`) is set up.
+This is what enables eventual cross-target compilation per Principle
+IX — issue #258 in this repo, depending on the upstream
+`cardano-node-clients#123` WASM packaging effort. Pure functions
+cross-compile cleanly once the dep closure (already cross-compiled
+by `cardano-ledger-inspector`) is set up.
 
 ## Forbidden patterns
 
-These patterns MUST NOT appear in `Cardano.Node.Client.TxBuild.Cage.*`:
+These patterns MUST NOT appear in `Cardano.MPFS.Client.Cage.*`:
 
 - Any `IO` in a function signature.
 - Any import of `Cardano.MPFS.Indexer.*` or other server-side

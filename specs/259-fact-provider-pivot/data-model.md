@@ -5,7 +5,10 @@
 Eight per-endpoint `XFacts` records (server-side wire shapes), eight
 `VerifiedXFacts` newtype wrappers (verifier output), one client-side
 `WalletPolicy`, eight cage-protocol DSL helpers (in
-`cardano-node-clients`). All other entities reused unchanged.
+`cardano-mpfs-client`, the in-repo client library; the helpers
+compose `Cardano.Node.Client.TxBuild` primitives imported from
+upstream `cardano-node-clients`). All other entities reused
+unchanged.
 
 ## New entities (server side)
 
@@ -158,37 +161,46 @@ data WalletPolicy = WalletPolicy
 ```
 
 Documented per FR-009. Wallets that don't override get sensible
-mainnet defaults from `cardano-node-clients`.
+mainnet defaults from a dedicated `Cardano.MPFS.Client.WalletPolicy`
+module (no upstream dependency on `cardano-node-clients` for
+defaults).
 
-## New entities (cage DSL host, in `cardano-node-clients`)
+## New entities (cage DSL host, in `cardano-mpfs-client`)
 
 ### Eight cage-protocol helpers
 
 ```haskell
--- Cardano.Node.Client.TxBuild.Cage.Boot
+-- Cardano.MPFS.Client.Cage.Boot
 bootCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedBootFacts
     -> Either BuildError (Tx ConwayEra)
 
--- Cardano.Node.Client.TxBuild.Cage.Request (three exports)
+-- Cardano.MPFS.Client.Cage.Request (three exports)
 requestInsertCageTx :: CageConfig -> WalletPolicy -> RequestPayload -> VerifiedRequestFacts -> Either BuildError (Tx ConwayEra)
 requestDeleteCageTx :: CageConfig -> WalletPolicy -> RequestPayload -> VerifiedRequestFacts -> Either BuildError (Tx ConwayEra)
 requestUpdateCageTx :: CageConfig -> WalletPolicy -> RequestPayload -> VerifiedRequestFacts -> Either BuildError (Tx ConwayEra)
 
--- Cardano.Node.Client.TxBuild.Cage.Retract
+-- Cardano.MPFS.Client.Cage.Retract
 retractCageTx :: CageConfig -> WalletPolicy -> VerifiedRetractFacts -> Either BuildError (Tx ConwayEra)
 
--- Cardano.Node.Client.TxBuild.Cage.End
+-- Cardano.MPFS.Client.Cage.End
 endCageTx     :: CageConfig -> WalletPolicy -> VerifiedEndFacts     -> Either BuildError (Tx ConwayEra)
 
--- Cardano.Node.Client.TxBuild.Cage.Update
+-- Cardano.MPFS.Client.Cage.Update
 updateCageTx  :: CageConfig -> WalletPolicy -> VerifiedUpdateFacts  -> Either BuildError (Tx ConwayEra)
 
--- Cardano.Node.Client.TxBuild.Cage.Reject
+-- Cardano.MPFS.Client.Cage.Reject
 rejectCageTx  :: CageConfig -> WalletPolicy -> VerifiedRejectFacts  -> Either BuildError (Tx ConwayEra)
 ```
+
+Each helper composes the generic `Cardano.Node.Client.TxBuild`
+operational-monad primitives (`spend`, `payTo'`, `attachScript`,
+`mint`, `collateral`) imported from upstream `cardano-node-clients`.
+The MPFS-specific cage protocol logic (datums, redeemers, asset-name
+derivation, MPF fold) is supplied by helper-private modules under
+`Cardano.MPFS.Client.Cage.Internal`.
 
 `BuildError` enumerates: `EmptyFunding`, `PolicyViolation
 PolicyViolationDetail`, `MalformedDatum`, `DSLBuildFailed
@@ -229,8 +241,13 @@ TxBuildError`.
 ### `Cardano.MPFS.TxBuilder.Real.*` (server)
 
 **Entire tree removed.** Content moves to
-`cardano-node-clients/lib/Cardano/Node/Client/TxBuild/Cage/*`.
-The post-pivot server has no transaction-building code at all.
+`cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/*` (in-repo
+move; same monorepo, different cabal package). The post-pivot
+server has no transaction-building code at all. `Real.Boot` is
+already a pure cage builder on `main` (`bootTokenCore` returns
+`BootCore { bcProgram :: TxBuild ... }`) and is the easiest
+relocation; the other five operations get the same purify-then-
+relocate treatment per stgit patch.
 
 ### `Cardano.MPFS.Client.Verify.*` (verifier)
 
@@ -262,7 +279,7 @@ The post-pivot server has no transaction-building code at all.
 | Each handler is one `runIndexerTx ctx $ do { … }` block; new tier-2/tier-3 primitives sit inside the same block.                                                          | FR-005       |
 | Server source after the pivot contains zero `transaction/{address}/...` path entries; swagger.json reflects only the new shape.                                           | FR-006, SC-002 |
 | `Cardano.MPFS.Client.Verify.*` after the pivot imports neither `Cardano.Ledger.Api.Tx` nor any transaction-grammar type.                                                   | FR-007, SC-003 |
-| Cage-protocol DSL helpers in `cardano-node-clients` produce byte-equal `Tx ConwayEra` to the legacy server-side `*Core` modules for equivalent inputs (Principle V check). | FR-008, SC-001 |
+| Cage-protocol DSL helpers in `cardano-mpfs-client` produce byte-equal `Tx ConwayEra` to the legacy server-side `Real.*` modules for equivalent inputs (Principle V check). | FR-008, SC-001 |
 | Each facts response carries `protocol_parameters` as `{cbor: <hex>, verified: false}`; spec and integrator docs name the wallet-policy mitigation.                        | FR-009       |
 | MOOG's main after the pivot imports no module named `MPFS.API`; every legacy callsite migrated.                                                                            | FR-010, SC-002 |
 | Both repository defaults move in the same release window; neither broken between landings.                                                                                  | FR-011, SC-005 |
