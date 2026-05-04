@@ -1,20 +1,34 @@
 <!-- Sync Impact Report
-Version: 1.0.0 → 1.1.0
-Added:
-  - Principle VIII. Pure Offline Verification
-  - Principle IX. One Verifier, Many Targets
-  - Principle X. Lean as Source of Truth
-Rationale: The proof-bearing API (#208) is only useful if the client can
-actually run the verifier. That imposes three architectural constraints
-on the project that were implicit before and are now normative: the
-verifier must be pure, it must be written once and compiled to every
-client runtime, and its shape must be formally specified in Lean before
-it is implemented.
-Templates requiring updates: none — these principles scope the
-cardano-mpfs-client boundary, not the service boundary.
-Follow-up: before slice 4 lands, prove GHC-WASM / GHC-JS backends can
-compile the current cardano-mpfs-client deps; pin or swap any dep that
-fails.
+Version: 1.1.0 → 2.0.0
+Amended:
+  - Principle IV. External Signing → Client-Side Transaction Construction
+Rationale: Returning unsigned transactions makes the server a tx-shape
+authority and forces the client verifier to validate that authority's
+output, which is anti-pattern (two answers to one question). The pivot
+(issue #257, spec 259-fact-provider-pivot) makes the server a
+fact-provider only — it serves snapshot + indexer-resolved UTxOs with
+CSMT inclusion proofs + MPF facts where applicable + protocol parameters
+— and the client builds the unsigned transaction locally using the
+shared cage-protocol DSL, then signs with its own keys. Principle IV
+is renamed accordingly. The no-keys-on-server invariant is preserved
+(it follows trivially from a server that never produces transactions).
+This is a MAJOR bump because the principle's normative direction is
+reversed for the API shape: the server now MUST NOT return unsigned
+transactions, where v1.x said it MUST return them.
+Waiver — Principle IX (One Verifier, Many Targets): the cross-target
+build infrastructure (GHC-WASM + GHC-JS CI matrix, npm publish, byte-
+identity QuickCheck across backends) is not yet wired up in this
+repository. It is tracked separately at
+https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/258.
+Spec 259-fact-provider-pivot ships under this explicit waiver; the
+verifier surface defined by the pivot is shaped to be cross-target
+compatible (no Cardano.Ledger.Api.Tx imports, no IO, pure folds), so
+when #258 lands the existing verifier code is admissible without
+rework.
+Templates requiring updates: spec/plan/tasks under
+specs/259-fact-provider-pivot/ already reflect this amendment.
+Follow-up: spec 259-fact-provider-pivot Phase 3 verifies this v2.0.0
+amendment is on main before opening its server-cutover PR (T037).
 -->
 
 # Cardano MPFS Offchain Constitution
@@ -40,10 +54,20 @@ One block MUST equal one RocksDB write batch across all column families.
 No partial application of a block is permitted. Crash-safety follows
 from this invariant: either the full block is persisted or nothing is.
 
-### IV. External Signing
+### IV. Client-Side Transaction Construction
 
-The API MUST return unsigned CBOR transactions. Signing happens
-client-side. The server MUST NOT hold or accept private keys.
+The MPFS server MUST NOT return unsigned transactions. The server
+serves only proof-bearing material — snapshot, indexer-resolved
+UTxOs with CSMT inclusion proofs, MPF facts where applicable, and
+protocol parameters — anchored to a single indexer snapshot.
+Clients verify the proofs against an independently-obtained
+trusted root, build the unsigned transaction locally using the
+shared cage-protocol DSL, and sign with their own keys.
+
+The MPFS server MUST NOT hold or accept private keys. The
+no-keys-on-server invariant follows trivially from the above:
+since the server never produces transactions, it has no signing
+code paths.
 
 ### V. Aiken Compatibility
 
@@ -158,4 +182,4 @@ require a version bump, rationale, and propagation check across dependent
 templates. Complexity beyond what a principle allows MUST be justified in
 the plan's Complexity Tracking table.
 
-**Version**: 1.1.0 | **Ratified**: 2026-03-27 | **Last Amended**: 2026-04-20
+**Version**: 2.0.0 | **Ratified**: 2026-03-27 | **Last Amended**: 2026-05-04

@@ -59,7 +59,10 @@ just update-swagger        # Regenerate docs/assets/swagger.json
   representations.
 - Service boundaries use records of functions, not typeclasses.
 - Block processing must be atomic across RocksDB column families.
-- The server builds unsigned transactions only; signing stays client-side.
+- The server is a fact-provider: it serves only proof-bearing material
+  (snapshot + UTxOs with CSMT proofs + MPF facts + protocol parameters)
+  anchored to a single indexer snapshot. The server MUST NOT return
+  unsigned transactions; the client builds and signs them locally.
 - Proof encoding, trie hashing, and datum/redeemer construction must stay
   compatible with the Aiken validators in `cardano-mpfs-onchain`.
 - Client verifiers are pure offline functions. No `IO`, networking,
