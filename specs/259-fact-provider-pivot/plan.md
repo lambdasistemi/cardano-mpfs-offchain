@@ -9,12 +9,18 @@ Replace the MPFS server's `GET /transaction/{address}/{op}` endpoints
 that return unsigned transactions with `POST /facts/{op}` endpoints
 that return only the proof-bearing data the matching cage-protocol
 operation needs at one indexer snapshot. Native clients (MOOG today)
-build the unsigned transaction locally using the cage-protocol DSL
-relocated to `cardano-node-clients`. Hard cutover across three
-repositories — `cardano-mpfs-offchain` (server + verifier library),
-`cardano-node-clients` (DSL host), `lambdasistemi/moog` (CLI client) —
-landed in lockstep so neither default branch is broken between
-landings.
+build the unsigned transaction locally using cage-protocol DSL
+helpers hosted in `cardano-mpfs-client` (the in-repo client library);
+the helpers compose the generic `Cardano.Node.Client.TxBuild`
+operational-monad primitives imported from upstream
+`cardano-node-clients`. The MPFS-specific cage protocol logic
+(datums, redeemers, asset-name derivation, MPF fold) stays in this
+repo; only the generic DSL primitives stay upstream.
+
+Hard cutover across two repositories — `cardano-mpfs-offchain` (this
+repo: server + `cardano-mpfs-client` cage helpers + verifier library)
+and `lambdasistemi/moog` (CLI client) — landed in lockstep so
+neither default branch is broken between landings.
 
 The verifier surface in `cardano-mpfs-client` reduces to pure
 proof-validity functions over facts bundles. The strict-template tx
@@ -26,14 +32,12 @@ explicit "unverified" status; wallets enforce a documented
 
 ## Technical Context
 
-**Language/Version**: Haskell GHC 9.10.1 across all three
-repositories.
+**Language/Version**: Haskell GHC 9.10.1 across both repositories.
 
 **Primary Dependencies**:
 
-- Server (`cardano-mpfs-offchain`):
-  - `cardano-mpfs-offchain` lib (this repo) — server, indexer,
-    verifier client.
+- Server (`cardano-mpfs-offchain` package, in-repo):
+  - `cardano-mpfs-offchain` lib — server, indexer, HTTP API.
   - `Cardano.MPFS.Indexer.Reads` — IndexerTx primitives from #249
     (PR #253). New primitives required by tier-2/tier-3 endpoints
     (`readStateUtxoAt`, `readRequestUtxosAt`,
@@ -41,16 +45,20 @@ repositories.
   - `cardano-utxo-csmt`, `chain-follower`, `haskell-mts` —
     indexer infrastructure unchanged.
   - `servant-server` — HTTP layer.
-- DSL host (`cardano-node-clients`):
-  - `Cardano.Node.Client.TxBuild` — operational-monad DSL,
-    44/44 tests passing on native.
+- Cage helpers + verifier (`cardano-mpfs-client` package, in-repo):
+  - `Cardano.Node.Client.TxBuild` — generic operational-monad DSL
+    imported from upstream `cardano-node-clients` (44/44 tests
+    passing on native; same pinned commit currently used by
+    `cardano-mpfs-offchain`, no bump for this pivot).
   - `cardano-ledger-conway`, `cardano-ledger-api`, `plutus-ledger-api`,
     `cardano-crypto-class` — already cross-target via
     `cardano-ledger-inspector`'s machinery (parked for the WASM
     artifact in cardano-node-clients#123).
 - Client (`lambdasistemi/moog`):
-  - `cardano-node-clients` (new dep at the wallet seam) — for the
-    cage-protocol DSL.
+  - `cardano-mpfs-client` — for the cage-protocol DSL helpers AND
+    the verifier (single in-repo client library).
+  - `cardano-mpfs-api` — for the wire types of the new
+    `POST /facts/*` endpoints.
   - HTTP client for the new `MPFS.Facts` module.
 
 **Storage**: RocksDB on the server, unchanged. No schema change. The
@@ -80,7 +88,9 @@ the server. MOOG already runs as a native Linux/macOS Haskell
 binary; the client-side DSL stays native here.
 
 **Project Type**: Multi-repository web service + CLI client.
-Three repositories move in lockstep.
+Two repositories move in lockstep (`cardano-mpfs-offchain` monorepo,
+which carries the server + cage helpers + verifier in three sibling
+cabal packages, plus `lambdasistemi/moog`).
 
 **Performance Goals**:
 
@@ -94,7 +104,7 @@ Three repositories move in lockstep.
 
 **Constraints**:
 
-- Hard cutover across three repos in the same release window
+- Hard cutover across both repos in the same release window
   (FR-011); no coexistence period.
 - Wire contracts of the new endpoints must accept the same
   parameters MOOG supplies today (FR-001). No new client-side input
@@ -109,23 +119,24 @@ Three repositories move in lockstep.
 
 **Scale/Scope**:
 
-- Server (`cardano-mpfs-offchain`):
+- Server (`cardano-mpfs-offchain` package):
   - ~10 modules touched (HTTP/Server, HTTP/API, HTTP/Types,
     Indexer/Reads, Application, the existing TxBuilder/Real/* tree
-    is gutted — its content moves to cardano-node-clients).
-- DSL host (`cardano-node-clients`):
-  - 1 new module family (`Cardano.Node.Client.TxBuild.Cage.{Boot,
+    is gutted — its content moves to in-repo `cardano-mpfs-client`).
+- Cage helpers + verifier (`cardano-mpfs-client` package, in-repo):
+  - 1 new module family (`Cardano.MPFS.Client.Cage.{Boot,
     Request,Retract,End,Update,Reject}`) — pure cage-protocol
-    builder helpers ported from the server-side `Real.*Core`
-    modules. Each is ~50–150 lines.
+    builder helpers ported from the server-side `Real.*` modules
+    (`Real.Boot.bootTokenCore` is already pure and is the
+    reference shape; the other 5 ops get the same purify-then-
+    relocate treatment). Each helper is ~50–150 lines.
+  - Verifier rewrite: new per-endpoint `verifyXFacts` functions;
+    old `verifyXTxResponse` / `verifyConservation` etc. removed.
 - Client (`lambdasistemi/moog`):
   - New `MPFS.Facts` module replacing `MPFS.API`.
   - Every callsite that used the legacy `MPFS.API` migrated.
   - ~10 callsites across `Cli.hs`, `Effects.hs`, `Oracle/*`,
     `User/*`.
-- Verifier (`cardano-mpfs-client`):
-  - New per-endpoint `verifyXFacts` functions; cross-target tested.
-  - Old `verifyXTxResponse` / `verifyConservation` etc. removed.
 
 ## Constitution Check
 
@@ -137,10 +148,10 @@ plus an explicit constitutional amendment.
 
 ### Principle I — Ledger-Native Types
 
-**Gate**: PASS. The cage-protocol DSL helpers in `cardano-node-clients`
-operate on `Tx ConwayEra` and friends. The server's facts response
-carries indexer-resolved bytes that decode to ledger-native types
-client-side. No shadow types.
+**Gate**: PASS. The cage-protocol DSL helpers in
+`cardano-mpfs-client` operate on `Tx ConwayEra` and friends. The
+server's facts response carries indexer-resolved bytes that decode
+to ledger-native types client-side. No shadow types.
 
 ### Principle II — Records of Functions
 
@@ -219,13 +230,13 @@ this gate fails review, the pivot does not land.
 ### Principle V — Aiken Compatibility
 
 **Gate**: PASS. The cage-protocol DSL helpers in
-`cardano-node-clients` produce byte-equal `Tx ConwayEra` values
-for equivalent inputs to today's server-side `*Core` modules. A
-property test in the DSL host's test suite asserts: for the same
-seed input, the boot tx body's CBOR is byte-equal between
-`Cardano.Node.Client.TxBuild.Cage.Boot.bootTokenCore` (post-pivot)
-and the pre-pivot `Cardano.MPFS.TxBuilder.Real.Boot.bootTokenCore`
-(captured from the merge-base). Same for the seven other
+`cardano-mpfs-client` produce byte-equal `Tx ConwayEra` values
+for equivalent inputs to today's server-side `Real.*` modules. A
+property test in the `cardano-mpfs-client` test suite asserts: for
+the same seed input, the boot tx body's CBOR is byte-equal between
+`Cardano.MPFS.Client.Cage.Boot.bootCageTx` (post-pivot) and the
+pre-pivot `Cardano.MPFS.TxBuilder.Real.Boot.bootTokenCore` (captured
+from the merge-base as a golden vector). Same for the seven other
 endpoints' equivalents.
 
 ### Principle VI — Test Locally First
@@ -241,8 +252,10 @@ acceptance test for SC-001).
 ### Principle VII — Nix Reproducibility
 
 **Gate**: PASS. No new system dependencies on the server side.
-`cardano-node-clients` adopts no new system deps for the DSL
-helpers; the existing native build is unchanged.
+`cardano-mpfs-client` adopts no new system deps for the cage DSL
+helpers (it already imports `Cardano.Node.Client.TxBuild` from
+upstream `cardano-node-clients`); the existing native build is
+unchanged.
 
 ### Principle VIII — Pure Offline Verification
 
@@ -257,10 +270,12 @@ the tx-shape grammar that was leaking into the verifier.
 **Gate**: PASS. The post-pivot verifier is strictly smaller than the
 pre-pivot verifier (no tx-shape grammar). Cross-target compilation
 under GHC-native + GHC-WASM + GHC-JS is at least as feasible. The
-WASM artifact for the *cage-protocol DSL* (which Principle IX would
-require if the DSL is to live cross-target) is deferred to
-cardano-node-clients#123 — MOOG validates the architecture natively
-first.
+WASM artifact for the *cage-protocol DSL helpers* (which Principle
+IX would require if the helpers are to live cross-target — they're
+in `cardano-mpfs-client`, the package Principle IX scopes) is
+deferred to issue #258 (this repo) and depends on the upstream
+`cardano-node-clients#123` WASM packaging effort. MOOG validates
+the architecture natively first.
 
 ### Principle X — Lean as Source of Truth
 
@@ -284,42 +299,44 @@ specs/259-fact-provider-pivot/
 ├── quickstart.md        # Phase 1 — run all eight operations end-to-end
 ├── contracts/
 │   ├── facts-api.md         # Phase 1 — server's POST /facts/* shape
-│   ├── cage-dsl.md          # Phase 1 — DSL helpers in cardano-node-clients
+│   ├── cage-dsl.md          # Phase 1 — DSL helpers in cardano-mpfs-client
 │   └── verifier.md          # Phase 1 — verifier in cardano-mpfs-client
 ├── checklists/
 │   └── requirements.md  # Spec quality checklist (already complete)
 └── tasks.md             # Phase 2 — generated by /speckit.tasks
 ```
 
-### Source Code (across three repositories)
+### Source Code (across two repositories)
 
 ```text
-cardano-mpfs-offchain/                    # this repo
-├── lib/Cardano/MPFS/
-│   ├── HTTP/API.hs                       # CHANGED — replace transaction/* paths
-│   ├── HTTP/Server.hs                    # CHANGED — eight new fact handlers
-│   ├── HTTP/Types.hs                     # CHANGED — new XFacts response types
-│   ├── Indexer/Reads.hs                  # CHANGED — new primitives
-│   └── Application.hs                    # CHANGED — drop TxBuilder field from Context
-├── lib/Cardano/MPFS/TxBuilder/Real/      # REMOVED — moves to cardano-node-clients
-└── docs/assets/swagger.json              # REGENERATED
-
-cardano-mpfs-client/                      # same repo
-└── lib/Cardano/MPFS/Client/
-    ├── Verify.hs                         # CHANGED — purely proof-validity
-    ├── Verify/Conservation.hs            # REMOVED — was for tx-shape; obsolete
-    ├── Verify/Replay.hs                  # CHANGED — facts-bundle replay only
-    └── Facts.hs                          # NEW — XFacts types + JSON
-
-cardano-node-clients/                     # separate repo
-└── lib/Cardano/Node/Client/TxBuild/
-    └── Cage/                             # NEW — cage-protocol DSL helpers
-        ├── Boot.hs                       # NEW — bootTokenCore (ported from server)
-        ├── Request.hs                    # NEW — requestInsert/Delete/UpdateCore
-        ├── Retract.hs                    # NEW — retractCore
-        ├── End.hs                        # NEW — endCore
-        ├── Update.hs                     # NEW — updateCore + MPF fold
-        └── Reject.hs                     # NEW — rejectCore + MPF fold
+cardano-mpfs-offchain/                    # this monorepo
+│
+├── cardano-mpfs-offchain/                # server package
+│   ├── lib/Cardano/MPFS/
+│   │   ├── HTTP/API.hs                   # CHANGED — replace transaction/* paths
+│   │   ├── HTTP/Server.hs                # CHANGED — eight new fact handlers
+│   │   ├── HTTP/Types.hs                 # CHANGED — new XFacts response types
+│   │   ├── Indexer/Reads.hs              # CHANGED — new primitives
+│   │   └── Application.hs                # CHANGED — drop TxBuilder field from Context
+│   ├── lib/Cardano/MPFS/TxBuilder/Real/  # REMOVED — moves to cardano-mpfs-client
+│   └── docs/assets/swagger.json          # REGENERATED
+│
+├── cardano-mpfs-client/                  # client library package
+│   └── lib/Cardano/MPFS/Client/
+│       ├── Verify.hs                     # CHANGED — purely proof-validity
+│       ├── Verify/Conservation.hs        # REMOVED — was for tx-shape; obsolete
+│       ├── Verify/Replay.hs              # CHANGED — facts-bundle replay only
+│       ├── Facts.hs                      # NEW — XFacts types + JSON
+│       ├── WalletPolicy.hs               # NEW — hard-cap policy + defaults
+│       └── Cage/                         # NEW — cage-protocol DSL helpers
+│           ├── Boot.hs                   # NEW — bootCageTx (ported from server)
+│           ├── Request.hs                # NEW — request{Insert,Delete,Update}CageTx
+│           ├── Retract.hs                # NEW — retractCageTx
+│           ├── End.hs                    # NEW — endCageTx
+│           ├── Update.hs                 # NEW — updateCageTx + MPF fold
+│           └── Reject.hs                 # NEW — rejectCageTx + MPF fold
+│
+└── cardano-mpfs-api/                     # wire-types package (unchanged structure)
 
 lambdasistemi/moog/                       # separate repo
 ├── src/MPFS/
@@ -335,28 +352,28 @@ lambdasistemi/moog/                       # separate repo
     └── …
 ```
 
-**Structure Decision**: Three repositories move together. The
-sequencing is:
+**Structure Decision**: Two repositories move together. Cage helpers
+land in the same monorepo PR as the server cutover (different cabal
+packages, same git commit). The sequencing is:
 
-1. **`cardano-node-clients`** lands first (port the cage-protocol
-   DSL helpers from the server). PR is independent — adds new
-   modules, breaks nothing.
-2. **`cardano-mpfs-offchain`** lands next (replace endpoints +
-   verifier; depends on cardano-node-clients's new modules being
-   on main). Hard cutover commit removes the legacy server
-   surface and the legacy verifier.
-3. **`lambdasistemi/moog`** lands last (migrates client to the
-   new shape; depends on the new server endpoints being on main).
+1. **`cardano-mpfs-offchain` monorepo PR** lands first (cage helpers
+   added to in-repo `cardano-mpfs-client` + facts-API + verifier
+   rewrite + server cutover). Hard cutover commit removes the
+   legacy server surface and the legacy verifier in one merge.
+2. **`lambdasistemi/moog` PR** lands last (migrates client to the
+   new shape; depends on the new server endpoints + the new cage
+   helpers being on main, both pulled via the bumped
+   `cardano-mpfs-offchain` source-repository-package pin).
 
-The MOOG repo's main is broken between (2) and (3) — that is the
+The MOOG repo's main is broken between (1) and (2) — that is the
 narrow cutover window. A one-commit "bump cardano-mpfs-offchain
 pin to the cutover commit" PR follows the cardano-mpfs-offchain
 merge, and the MOOG migration PR rebases on top.
 
-A safer alternative — land all three in a single coordinated
-multi-repo merge — is rejected because the repositories don't share
-a CI pipeline and a synchronised merge is fragile. The narrow CI-
-gated window above is operationally acceptable; FR-011's lockstep
+A safer alternative — land both in a single coordinated multi-repo
+merge — is rejected because the repositories don't share a CI
+pipeline and a synchronised merge is fragile. The narrow CI-gated
+window above is operationally acceptable; FR-011's lockstep
 constraint is satisfied by ensuring no production deploy uses the
 broken-MOOG window.
 
@@ -364,12 +381,18 @@ broken-MOOG window.
 
 See `research.md` for the resolved design questions:
 
-- **Q0-1 — DSL helpers home**: confirmed `cardano-node-clients`
-  (Shape B from the spike). The repo already hosts the
-  operational-monad DSL with 44 tests; cage-protocol helpers are a
-  natural extension. Rejected: hosting in `cardano-mpfs-offchain`
-  (binds DSL evolution to server release) or in
-  `cardano-ledger-inspector` (muddies that repo's narrow scope).
+- **Q0-1 — DSL helpers home**: confirmed in-repo `cardano-mpfs-client`
+  (the existing client-library package, alongside the verifier).
+  The helpers compose the generic `Cardano.Node.Client.TxBuild`
+  operational-monad primitives imported from upstream
+  `cardano-node-clients`; only the generic primitives stay upstream,
+  the MPFS-specific cage protocol logic stays in this repo.
+  Rejected: pushing helpers upstream into `cardano-node-clients`
+  (would pollute a generic library with downstream MPFS protocol
+  semantics); hosting in `cardano-mpfs-offchain` server package
+  (would put RocksDB/chain-follower into wallet's transitive
+  closure); a new in-repo `cardano-mpfs-builder` package (one more
+  cabal target without enough payload to justify it).
 - **Q0-2 — Cage helpers signature shape**: each helper is a pure
   function `cfg + verifiedFacts + walletPolicy → Tx ConwayEra`.
   Rejected: returning a `TxBuild` program for the caller to run
@@ -385,7 +408,8 @@ See `research.md` for the resolved design questions:
   (inside `Cage.Update`'s helper) — which is correct because the
   fold result is the new state UTxO's `stateRoot` field. The
   fold logic moves from `cardano-mpfs-offchain/lib/.../Real/Update.hs`
-  to `cardano-node-clients/lib/.../Cage/Update.hs`.
+  to `cardano-mpfs-client/lib/.../Cage/Update.hs` (in-repo, same
+  monorepo, different cabal package).
 - **Q0-5 — Protocol-parameter shape on the wire**: the response
   carries the full Conway `PParams` object (CBOR-encoded for
   fidelity) plus a JSON envelope flagging it `"verified": false`.
@@ -398,10 +422,12 @@ See `research.md` for the resolved design questions:
   Rejected: a single polymorphic verifier (the per-endpoint shapes
   differ enough — single-UTxO vs batch — that one signature would
   be awkward).
-- **Q0-7 — Cross-repo sequencing**: confirmed the three-step
-  sequence above. The narrow CI-gated window between server
-  cutover and MOOG migration is acceptable; production deploys
-  must not use commits in that window.
+- **Q0-7 — Cross-repo sequencing**: confirmed the two-step sequence
+  above (cardano-mpfs-offchain monorepo PR — server + cage helpers
+  + verifier in one commit — then `lambdasistemi/moog` migration).
+  The narrow CI-gated window between server cutover and MOOG
+  migration is acceptable; production deploys must not use commits
+  in that window.
 
 **Output**: `research.md`.
 
@@ -433,9 +459,9 @@ Three contract documents:
   (mirroring swagger), and the protocol-parameters envelope. This
   is the public surface external integrators consume.
 - `contracts/cage-dsl.md` — client-library contract: the eight
-  cage-protocol DSL helpers in `cardano-node-clients`, their
+  cage-protocol DSL helpers in `cardano-mpfs-client`, their
   signatures, the `WalletPolicy` enforcement points, the
-  byte-equality invariant against the legacy `*Core` server
+  byte-equality invariant against the legacy `Real.*` server
   modules.
 - `contracts/verifier.md` — `cardano-mpfs-client` verifier
   contract: the per-endpoint `verifyXFacts` functions, the
@@ -481,4 +507,4 @@ merge.
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | Principle IV literal wording amended | The pivot's value comes from removing the tx-shape verifier surface, which requires the server to stop returning unsigned txs as a wire shape | Keeping Principle IV's literal wording would block a load-bearing architectural improvement — the spirit (no keys on server) is preserved by the amended wording |
-| Three-repo lockstep landing | `cardano-mpfs-offchain` and `lambdasistemi/moog` are independent repositories with independent CI; the cage DSL relocation also touches `cardano-node-clients` | A single coordinated merge across three repos is operationally fragile; the narrow CI-gated cutover window above is the safer alternative under FR-011's lockstep requirement |
+| Two-repo lockstep landing | `cardano-mpfs-offchain` (monorepo: server + cage helpers + verifier in three sibling cabal packages) and `lambdasistemi/moog` are independent repositories with independent CI | A single coordinated merge across both repos is operationally fragile; the narrow CI-gated cutover window above is the safer alternative under FR-011's lockstep requirement |

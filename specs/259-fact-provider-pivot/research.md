@@ -8,31 +8,55 @@ referenced rather than re-derived here.
 ## Q0-1 — DSL helpers home
 
 **Decision**: Cage-protocol DSL helpers (boot, request × 3, retract,
-end, update, reject) live in `cardano-node-clients` under
-`Cardano.Node.Client.TxBuild.Cage.{Boot,Request,Retract,End,Update,Reject}`.
-This is "Shape B" from the spike result.
+end, update, reject) live in `cardano-mpfs-client` (the in-repo
+client library that already ships the verifier) under
+`Cardano.MPFS.Client.Cage.{Boot,Request,Retract,End,Update,Reject}`.
+The helpers compose the generic `Cardano.Node.Client.TxBuild`
+operational-monad primitives (`spend`, `payTo'`, `attachScript`,
+`mint`, `collateral`) imported from upstream `cardano-node-clients`.
+The MPFS-specific cage protocol logic (datums, redeemers, asset-name
+derivation, MPF fold) is MPFS-domain and belongs here, not upstream.
 
 **Rationale**:
 
-- `cardano-node-clients` already hosts the operational-monad TxBuild
-  DSL with 44/44 tests passing. The cage helpers are a natural
-  extension — same DSL, additional cage-specific combinators.
-- The repo evolves on a Cardano-protocol cadence (matching ledger
-  versions, etc.); cage-protocol helpers track the same axis.
-- WASM artifact for browser wallets (cardano-node-clients#123) is
-  filed against this repo already.
+- `cardano-mpfs-client` is the existing in-repo client library;
+  MOOG and any future client already pull it for the verifier.
+  Adding cage builders gives clients one package for the full
+  "verify the facts, build the tx" journey.
+- Cage helpers are MPFS-protocol semantics (cage NFT mint logic,
+  state datum, request datum, MPF inclusion fold). That is
+  domain-specific to MPFS and does not belong upstream in
+  `cardano-node-clients` — that repo's scope is the generic
+  operational-monad TxBuild DSL, with no MPFS knowledge.
+- Cross-target portability (Principle IX: GHC-native + GHC-WASM +
+  GHC-JS) is already mandated for `cardano-mpfs-client`. The cage
+  helpers must satisfy the same constraint (browser wallets build
+  txs locally), so co-locating them keeps the cross-target
+  discipline in one cabal package.
+- The `Real.Boot` module on `main` is already a pure cage builder
+  of this shape (`bootTokenCore` returns `BootCore { bcProgram ::
+  TxBuild ... }`); the relocation is rename + repackage from
+  `cardano-mpfs-offchain/lib/.../Real/Boot.hs` to
+  `cardano-mpfs-client/lib/.../Cage/Boot.hs`, not a rewrite.
 
 **Alternatives considered**:
 
 - *Keep helpers in `cardano-mpfs-offchain`*: rejected. The helpers
   must live in a place a non-server client can consume. The server
-  repo's deps (RocksDB, chain-follower, indexer) don't belong in a
-  wallet's transitive closure.
+  package's deps (RocksDB, chain-follower, indexer) don't belong in
+  a wallet's transitive closure.
+- *Push helpers upstream into `cardano-node-clients`*: rejected.
+  The cage protocol is MPFS-specific; upstream `cardano-node-clients`
+  is generic and must stay generic. Pushing cage logic upstream would
+  pollute it with downstream protocol semantics and force every
+  consumer of the DSL to drag MPFS code along.
 - *Host helpers in `cardano-ledger-inspector`*: rejected. That
   repo's narrow scope is "Conway tx operations the WASI artifact
   exposes". Adding cage-protocol shape muddies it.
-- *New repo `cardano-mpfs-builder`*: rejected. One more repo to
-  coordinate without enough payload to justify it. The DSL repo
+- *New in-repo package `cardano-mpfs-builder`*: rejected. One more
+  cabal package to maintain without enough payload to justify it.
+  `cardano-mpfs-client` already exists and already ships a
+  cross-target client library; the cage helpers fit there.
   is the right home.
 
 ## Q0-2 — Cage helpers signature shape
@@ -243,19 +267,23 @@ and refuse to operate on bare `*Facts`.
 
 ## Q0-7 — Cross-repo sequencing
 
-**Decision**: Land in this order:
+**Decision**: Land in this order across two repos:
 
-1. `cardano-node-clients` PR (cage DSL helpers added; tests in
-   the existing 44-test suite). PR is independent — adds modules,
-   breaks nothing on main. Merged when CI green and reviewed.
-2. `cardano-mpfs-offchain` PR (server cutover + verifier rewrite +
-   constitution amendment). Depends on (1) being on main; pulls
-   the new modules via existing `source-repository-package`
-   pinning. Hard cutover commit removes the legacy server
-   surface and the legacy verifier in one merge.
-3. `lambdasistemi/moog` PR (client migration). Depends on (2)
-   being on main; pulls the new endpoints. The MOOG main is
-   broken between (2) and (3) — that is the narrow window.
+1. `cardano-mpfs-offchain` PR (cage DSL helpers added to
+   `cardano-mpfs-client` + server cutover + verifier rewrite). The
+   cage helpers and the server cutover land in the same PR because
+   they live in the same monorepo (cage helpers in
+   `cardano-mpfs-client`, server cutover in `cardano-mpfs-offchain`,
+   both packages in this repo). Hard cutover commit removes the
+   legacy server surface and the legacy verifier in one merge.
+2. `lambdasistemi/moog` PR (client migration). Depends on (1) being
+   on main; pulls the new endpoints + cage helpers via the bumped
+   `cardano-mpfs-offchain` pin. MOOG main is broken between (1)
+   and (2) — that is the narrow cutover window.
+
+The original three-repo sequencing rejected here was an artefact of
+the wrong Q0-1 decision (helpers upstream in `cardano-node-clients`).
+With helpers in `cardano-mpfs-client`, only two repos move.
 
 **Rationale**:
 
@@ -270,10 +298,9 @@ and refuse to operate on bare `*Facts`.
 
 **Alternatives considered**:
 
-- *Synchronised merge across three repos*: rejected as
-  operationally fragile. Three separate CI pipelines + three
-  independent reviews + a coordinator is more failure-prone than
-  the staged sequence.
+- *Synchronised merge across two repos*: rejected as operationally
+  fragile. Two separate CI pipelines + two independent reviews + a
+  coordinator is more failure-prone than the staged sequence.
 - *MOOG ships parallel "old + new" implementations and toggles
   via a feature flag*: rejected. The whole pivot is a hard
   cutover; a feature-flag toggle defeats the point.
@@ -282,11 +309,13 @@ and refuse to operate on bare `*Facts`.
 
 - The IndexerTx primitives library introduced in #249 (PR #253) is
   the foundation; this slice extends it with four new primitives.
-- `cardano-node-clients`'s TxBuild DSL is at the pinned commit used
-  by `cardano-mpfs-offchain` today; bumps come along with this
-  slice's PR (1) merge.
+- The upstream `cardano-node-clients` TxBuild DSL is at the pinned
+  commit used by `cardano-mpfs-offchain` today; no bump needed for
+  this pivot (the cage helpers are added to in-repo
+  `cardano-mpfs-client`, which already imports the pinned DSL).
 - `cardano-mpfs-client` exists already; this slice rewrites its
-  internals but keeps the package name.
+  internals (verifier from tx-shape grammar to pure proof folds) and
+  adds the cage helper module tree, but keeps the package name.
 - MOOG's `MPFS.API` module currently exposes `requestInsert`,
   `requestDelete`, `requestUpdate`, `bootToken`, `endToken`,
   `retractChange`, `updateToken`, plus reads (`getToken`,
