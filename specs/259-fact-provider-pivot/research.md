@@ -267,34 +267,40 @@ and refuse to operate on bare `*Facts`.
 
 ## Q0-7 — Cross-repo sequencing
 
-**Decision**: Land in this order across two repos:
+**Decision**: Per-endpoint hard swap, eight slices. Each slice is
+one paired (cardano-mpfs-offchain PR + lambdasistemi/moog PR)
+landing in lockstep for one op only.
 
-1. `cardano-mpfs-offchain` PR (cage DSL helpers added to
-   `cardano-mpfs-client` + server cutover + verifier rewrite). The
-   cage helpers and the server cutover land in the same PR because
-   they live in the same monorepo (cage helpers in
-   `cardano-mpfs-client`, server cutover in `cardano-mpfs-offchain`,
-   both packages in this repo). Hard cutover commit removes the
-   legacy server surface and the legacy verifier in one merge.
-2. `lambdasistemi/moog` PR (client migration). Depends on (1) being
-   on main; pulls the new endpoints + cage helpers via the bumped
-   `cardano-mpfs-offchain` pin. MOOG main is broken between (1)
-   and (2) — that is the narrow cutover window.
+Per slice:
 
-The original three-repo sequencing rejected here was an artefact of
-the wrong Q0-1 decision (helpers upstream in `cardano-node-clients`).
-With helpers in `cardano-mpfs-client`, only two repos move.
+1. `cardano-mpfs-offchain` slice PR (cage helper for one op in
+   `cardano-mpfs-client` + facts-API path for one op + verifier for
+   one op + legacy `/tx/{op}` endpoint and module removal in the
+   same commit). Hard swap, narrow scope.
+2. `lambdasistemi/moog` slice PR (call-site migration for that
+   one op, pin bump). Lockstep with (1) — typically same-day merge.
+
+Eight slices. The earlier draft's single big-bang cutover across
+all endpoints (one offchain PR + one moog PR) was rejected because
+reviewers couldn't land endpoints independently and a regression
+in any one endpoint would force rollback of all eight. The
+original three-repo sequencing rejected even earlier was an
+artefact of the wrong Q0-1 decision (helpers upstream in
+`cardano-node-clients`). With helpers in `cardano-mpfs-client`,
+only two repos move; with per-endpoint slicing, the cutover risk
+shrinks to one op at a time.
 
 **Rationale**:
 
 - Each repo's CI runs independently; the dependency direction is
   unambiguous (clients depend on libraries, not vice versa).
-- Clients (MOOG) cannot land before the server because the
-  client's HTTP-call expectations would not match the server's
-  endpoints.
-- The "broken MOOG main" window must not contain any production
-  deploy; this is an operational discipline, not a technical
-  guarantee.
+- Per slice, moog cannot land before the offchain side because
+  moog's HTTP-call expectations would not match the server for
+  that op.
+- Each per-slice "broken moog main for this op" window must not
+  contain any production deploy; this is an operational
+  discipline, not a technical guarantee — applied eight times
+  rather than once.
 
 **Alternatives considered**:
 
