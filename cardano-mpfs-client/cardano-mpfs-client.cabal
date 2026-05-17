@@ -55,6 +55,7 @@ library
   exposed-modules:
     Cardano.MPFS.Client
     Cardano.MPFS.Client.Bundle
+    Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
     Cardano.MPFS.Client.Snapshot
@@ -109,6 +110,7 @@ test-suite unit-tests
     , warp                 >=3.4  && <3.5
 
   other-modules:
+    Cardano.MPFS.Client.BootFactsSpec
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec

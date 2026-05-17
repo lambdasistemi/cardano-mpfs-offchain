@@ -35,6 +35,8 @@ module Cardano.MPFS.API.Types
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , UnsignedTxResponse (..)
+    , UnverifiedPParams (..)
+    , BootFacts (..)
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -523,6 +525,67 @@ instance FromJSON UnsignedTxResponse where
                 <$> o .: "unsigned_tx_cbor"
                 <*> o .: "snapshot"
                 <*> o .: "inputs"
+
+-- | Protocol parameters carried by a facts-only boot response.
+--
+-- The offchain service can report these bytes to downstream
+-- tooling, but this slice does not verify their ledger-level
+-- meaning. The @verified@ flag is therefore part of the wire
+-- contract and must be @false@ for the dummy/test values used
+-- by the boot facts verifier.
+data UnverifiedPParams = UnverifiedPParams
+    { uppVerified :: Bool
+    -- ^ Whether the protocol parameters have been verified.
+    , uppCbor :: Hex
+    -- ^ CBOR-encoded protocol parameters (@cbor@).
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UnverifiedPParams where
+    toJSON UnverifiedPParams{..} =
+        object
+            [ "verified" .= uppVerified
+            , "cbor" .= uppCbor
+            ]
+
+instance FromJSON UnverifiedPParams where
+    parseJSON =
+        withObject "UnverifiedPParams" $ \o ->
+            UnverifiedPParams
+                <$> o .: "verified"
+                <*> o .: "cbor"
+
+-- | Facts-only boot response.
+--
+-- Unlike 'UnsignedTxResponse', this envelope carries no
+-- transaction CBOR. Its verifier proves only that the
+-- advertised wallet UTxOs are included in the trusted
+-- snapshot root.
+data BootFacts = BootFacts
+    { bfSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled inclusion proofs target.
+    , bfWalletUtxos :: [UtxoEntry]
+    -- ^ Wallet UTxOs with CSMT inclusion proofs.
+    , bfProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON BootFacts where
+    toJSON BootFacts{..} =
+        object
+            [ "snapshot" .= bfSnapshot
+            , "wallet_utxos" .= bfWalletUtxos
+            , "protocol_parameters" .= bfProtocolParameters
+            ]
+
+instance FromJSON BootFacts where
+    parseJSON =
+        withObject "BootFacts" $ \o ->
+            BootFacts
+                <$> o .: "snapshot"
+                <*> o .: "wallet_utxos"
+                <*> o .: "protocol_parameters"
 
 -- ---------------------------------------------------------
 -- Proof-bearing read responses
