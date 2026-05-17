@@ -146,6 +146,15 @@ Context:
 **Commit shape**: One commit closes T014 and T015. This is the live HTTP
 boundary proof for US1.
 
+**Prerequisite live-valid builder fix**: Slice D exposed that the
+client-side boot builder emitted the TxBuild draft's placeholder
+minting redeemer budget instead of a submit-valid budget. The old
+server builder used the node evaluator to patch ExUnits before
+balancing; the facts-only client builder cannot call the server-side
+provider and must make its budget/script-integrity choice explicit.
+
+- [ ] T021 [US1] Fix `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs` so `bootCageTx` emits a submit-valid minting redeemer budget and recomputed script integrity hash, with a focused client regression test proving the boot tx no longer carries placeholder zero ExUnits
+
 - [ ] T014 [P] [US1] RED: add failing e2e proof for `POST /facts/boot` client verification, local build, sign, submit, and indexed boot event in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`
 - [ ] T015 [US1] GREEN: implement e2e helpers and test wiring in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`, `cardano-mpfs-offchain/e2e-test/main.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
 
