@@ -179,7 +179,7 @@ are absent at PR head.
 write path.
 
 - [X] T016 (commit: c6cb386) [US2] Regenerate `docs/assets/swagger.json` with `nix develop --quiet -c just update-swagger` and verify `POST /facts/boot` is present while the legacy boot tx route is absent
-- [ ] T017 [US2] Add or update grep-based regression proof in `gate.sh` after Slice C lands so legacy boot route removal stays enforced
+- [X] T017 (commit: 4a5f1c6) [US2] Add or update grep-based regression proof in `gate.sh` after Slice C lands so legacy boot route removal stays enforced
 
 **Commit shape**: T016 may ride with Slice C if Swagger changes are part
 of the hard swap. T017 is an orchestrator-owned `chore:` gate extension
@@ -195,7 +195,7 @@ transaction body.
 **Independent Test**: Tests in Slice A pass, and source grep confirms no
 transaction grammar imports in the boot verifier surface.
 
-- [ ] T018 [US3] Add the verifier forbidden-import grep to `gate.sh` after Slice A lands
+- [X] T018 (commit: 4a5f1c6) [US3] Add the verifier forbidden-import grep to `gate.sh` after Slice A lands
 - [ ] T019 [US3] Remove or quarantine legacy boot tx-shape verifier exports from `cardano-mpfs-client/lib/Cardano/MPFS/Client.hs` and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` once downstream boot usage is migrated
 
 **Commit shape**: T018 is an orchestrator-owned `chore:` gate extension.
