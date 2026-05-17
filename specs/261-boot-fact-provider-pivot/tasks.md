@@ -48,7 +48,7 @@ written first and observed failing before implementation.
 
 - [ ] T003 [P] [US1] RED: add failing BootFacts JSON and `verifyBootFacts` tests for happy path, snapshot tamper, trusted-root mismatch, and proof tamper in `cardano-mpfs-client/test/Cardano/MPFS/Client/BootFactsSpec.hs`
 - [ ] T004 [US1] GREEN: add `BootFacts`, `UnverifiedPParams`, `VerifiedBootFacts`, and `verifyBootFacts` in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs`
-- [ ] T005 [US1] Wire new client modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and ensure the boot verifier surface has no transaction grammar imports
+- [ ] T005 [US1] Wire new client modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and ensure the new boot facts verifier code has no `Cardano.Ledger.Api.Tx` imports or transaction-body inspection
 
 **Subagent brief for Slice A**:
 
@@ -66,7 +66,7 @@ Context:
   - cardano-mpfs-client/test/Cardano/MPFS/Client/BootFactsSpec.hs
 - Forbidden scope: specs/, gate.sh, README, PR metadata, non-boot endpoints, server handler implementation.
 - RED proof: add the BootFacts/verifyBootFacts tests first and run the focused test so it fails because the implementation is missing.
-- GREEN proof: focused client tests, grep proof for no transaction grammar imports in the boot facts verifier surface, then ./gate.sh.
+- GREEN proof: focused client tests, grep proof that the new boot facts verifier code has no `Cardano.Ledger.Api.Tx` imports or transaction-body inspection, then ./gate.sh.
 - Commit subject: feat(client): add boot facts verifier
 - Commit body must include: Tasks: T003, T004, T005
 ```
