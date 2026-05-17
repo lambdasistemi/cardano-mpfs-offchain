@@ -34,27 +34,45 @@ library
   default-language: GHC2021
   hs-source-dirs:   lib
   build-depends:
-    , aeson                >=2.1  && <2.3
-    , base                 >=4.18 && <5
-    , base16-bytestring    >=1.0  && <1.1
-    , bytestring           >=0.11 && <0.13
+    , aeson                   >=2.1  && <2.3
+    , base                    >=4.18 && <5
+    , base16-bytestring       >=1.0  && <1.1
+    , bytestring              >=0.11 && <0.13
+    , cardano-crypto-class
+    , cardano-ledger-allegra
+    , cardano-ledger-alonzo
+    , cardano-ledger-api
+    , cardano-ledger-babbage
+    , cardano-ledger-binary
+    , cardano-ledger-core
+    , cardano-ledger-mary
     , cardano-mpfs-api
-    , cborg                >=0.2  && <0.3
-    , hspec                >=2.11 && <2.12
-    , http-client          >=0.7  && <0.8
-    , http-types           >=0.12 && <0.13
+    , cardano-mpfs-cage
+    , cardano-node-clients
+    , cardano-slotting
+    , cborg                   >=0.2  && <0.3
+    , containers              >=0.6  && <0.8
+    , hspec                   >=2.11 && <2.12
+    , http-client             >=0.7  && <0.8
+    , http-types              >=0.12 && <0.13
+    , microlens
     , mts:csmt-core
     , mts:csmt-verify
     , mts:mpf-write
-    , operational          >=0.2  && <0.3
-    , servant              >=0.20 && <0.21
-    , servant-client       >=0.20 && <0.21
-    , servant-client-core  >=0.20 && <0.21
-    , text                 >=2.0  && <2.2
+    , operational             >=0.2  && <0.3
+    , plutus-tx
+    , servant                 >=0.20 && <0.21
+    , servant-client          >=0.20 && <0.21
+    , servant-client-core     >=0.20 && <0.21
+    , text                    >=2.0  && <2.2
 
   exposed-modules:
     Cardano.MPFS.Client
     Cardano.MPFS.Client.Bundle
+    Cardano.MPFS.Client.Cage.Boot
+    Cardano.MPFS.Client.Cage.BuildError
+    Cardano.MPFS.Client.Cage.Config
+    Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
@@ -94,24 +112,34 @@ test-suite unit-tests
     , base
     , base16-bytestring
     , bytestring
+    , cardano-crypto-class
+    , cardano-ledger-api
+    , cardano-ledger-babbage
+    , cardano-ledger-binary
+    , cardano-ledger-core
     , cardano-mpfs-api
+    , cardano-mpfs-cage
     , cardano-mpfs-client
-    , cborg                >=0.2  && <0.3
-    , hspec                >=2.11 && <2.12
-    , http-client          >=0.7  && <0.8
-    , http-types           >=0.12 && <0.13
+    , cardano-slotting
+    , cborg                   >=0.2  && <0.3
+    , directory
+    , hspec                   >=2.11 && <2.12
+    , http-client             >=0.7  && <0.8
+    , http-types              >=0.12 && <0.13
+    , microlens
     , mts:csmt-core
     , mts:csmt-test-lib
     , mts:csmt-write
     , mts:mpf-test-lib
     , mts:mpf-write
     , text
-    , wai                  >=3.2  && <3.3
-    , warp                 >=3.4  && <3.5
+    , wai                     >=3.2  && <3.3
+    , warp                    >=3.4  && <3.5
 
   other-modules:
     Cardano.MPFS.Client.BootFactsSpec
     Cardano.MPFS.Client.BundleSpec
+    Cardano.MPFS.Client.Cage.BootSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
     Cardano.MPFS.Client.SnapshotSpec
