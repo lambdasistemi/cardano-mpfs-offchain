@@ -1,5 +1,28 @@
 {
     "definitions": {
+        "BootFacts": {
+            "description": "Facts-only boot response. Carries wallet UTxO witnesses and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
         "BootRequest": {
             "description": "Boot a new token",
             "properties": {
@@ -718,26 +741,19 @@
             ],
             "type": "object"
         },
-        "UnsignedTxResponse": {
-            "description": "Uniform proof-bearing response for write endpoints. Carries the unsigned transaction CBOR plus a snapshot and a flat list of spent and reference inputs, each with its CSMT inclusion proof.",
+        "UnverifiedPParams": {
+            "description": "CBOR-encoded protocol parameters reported as unverified facts.",
             "properties": {
-                "inputs": {
-                    "items": {
-                        "$ref": "#/definitions/UtxoEntry"
-                    },
-                    "type": "array"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "unsigned_tx_cbor": {
+                "cbor": {
                     "$ref": "#/definitions/Hex"
+                },
+                "verified": {
+                    "type": "boolean"
                 }
             },
             "required": [
-                "unsigned_tx_cbor",
-                "snapshot",
-                "inputs"
+                "verified",
+                "cbor"
             ],
             "type": "object"
         },
@@ -959,6 +975,37 @@
         "version": "0.0.0"
     },
     "paths": {
+        "/facts/boot": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/BootRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/BootFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/metrics": {
             "get": {
                 "produces": [
@@ -1160,37 +1207,6 @@
                     },
                     "400": {
                         "description": "Invalid `id`"
-                    }
-                }
-            }
-        },
-        "/tx/boot": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/BootRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/UnsignedTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
                     }
                 }
             }

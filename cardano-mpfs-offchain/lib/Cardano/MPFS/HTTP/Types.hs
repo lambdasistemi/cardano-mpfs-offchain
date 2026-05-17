@@ -32,6 +32,11 @@ module Cardano.MPFS.HTTP.Types
     , TxInJSON (..)
     , txInToJSON
     , WitnessedUtxo (..)
+    , UtxoRef (..)
+    , UtxoEntry (..)
+    , UnverifiedPParams (..)
+    , BootFacts (..)
+    , resolvedWalletInputToUtxoEntry
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -73,7 +78,6 @@ module Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , UpdateTxResponse (..)
     , UnsignedTxResponse (..)
-    , mkBootTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
     , mkRejectTxResponse
@@ -99,7 +103,8 @@ import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 
 import Cardano.MPFS.API.Types
-    ( BootProofJSON (..)
+    ( BootFacts (..)
+    , BootProofJSON (..)
     , BootRequest (..)
     , BootTxResponse (..)
     , ChainPointJSON (..)
@@ -131,6 +136,7 @@ import Cardano.MPFS.API.Types
     , TrieFactJSON (..)
     , TxInJSON (..)
     , UnsignedTxResponse (..)
+    , UnverifiedPParams (..)
     , UpdateProofJSON (..)
     , UpdateRequest (..)
     , UpdateTxResponse (..)
@@ -156,12 +162,12 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.TxBuilder
-    ( BootProof (..)
-    , BundleSnapshot (..)
+    ( BundleSnapshot (..)
     , EndProof (..)
     , ProofEnvelope (..)
     , RejectProof (..)
     , RequestProof (..)
+    , ResolvedWalletInput
     , RetractProof (..)
     , TrieFact (..)
     , UpdateProof (..)
@@ -280,6 +286,18 @@ witnessedInputToUtxoEntry
             , ueInclusionProof = Hex prf
             }
 
+-- | Convert an indexer-resolved wallet input to a
+-- post-split 'UtxoEntry'.
+resolvedWalletInputToUtxoEntry
+    :: ResolvedWalletInput -> UtxoEntry
+resolvedWalletInputToUtxoEntry (tin, out, prf) =
+    witnessedInputToUtxoEntry
+        WitnessedInput
+            { witnessedRef = tin
+            , witnessedTxOut = out
+            , witnessedCsmtProof = prf
+            }
+
 -- | Convert an internal 'TrieFact' to JSON.
 trieFactToJSON :: TrieFact -> TrieFactJSON
 trieFactToJSON
@@ -316,29 +334,6 @@ bundleSnapshotToJSON
 -- | Serialize a Conway-era 'Tx' to hex CBOR.
 serializeTxHex :: Tx ConwayEra -> Hex
 serializeTxHex = Hex . serialize' (natVersion @11)
-
--- | Package a 'ProofEnvelope BootProof' as the
--- post-split uniform write response (#243).
---
--- Boot has no consumed protocol UTxOs — only the
--- booter's funding inputs — so the @inputs@ list is
--- exactly the funding witnesses, each carrying its
--- CSMT inclusion proof against the snapshot's
--- @utxo_root@.
-mkBootTxResponse
-    :: ProofEnvelope BootProof -> UnsignedTxResponse
-mkBootTxResponse
-    ProofEnvelope
-        { envTx = tx
-        , envSnapshot = snap
-        , envProof = BootProof{bootFunding = funding}
-        } =
-        UnsignedTxResponse
-            { utrUnsignedTxCbor = serializeTxHex tx
-            , utrSnapshot = bundleSnapshotToJSON snap
-            , utrInputs =
-                map witnessedInputToUtxoEntry funding
-            }
 
 -- | Package a 'ProofEnvelope RequestProof' as the JSON response shared
 -- by the three request endpoints.

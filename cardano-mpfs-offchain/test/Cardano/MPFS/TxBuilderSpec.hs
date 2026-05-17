@@ -16,7 +16,6 @@ import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
 import System.Directory (doesFileExist)
-import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Test.Hspec
@@ -24,7 +23,6 @@ import Test.Hspec
     , describe
     , expectationFailure
     , it
-    , runIO
     , shouldBe
     , shouldSatisfy
     )
@@ -84,10 +82,6 @@ import Cardano.Ledger.BaseTypes
     , Network (..)
     , StrictMaybe (..)
     )
-import Cardano.Ledger.Binary
-    ( natVersion
-    , serialize'
-    )
 import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
@@ -104,10 +98,6 @@ import Cardano.Ledger.Mary.Value
     )
 import Cardano.Ledger.TxIn (TxIn)
 
-import Cardano.MPFS.Core.Blueprint
-    ( extractCompiledCode
-    , loadBlueprint
-    )
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
     , OnChainOperation (..)
@@ -161,7 +151,6 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real
     ( computeRefund
-    , computeScriptHash
     , extractCageDatum
     , mkInlineDatum
     , mkRealTxBuilder
@@ -171,8 +160,7 @@ import Cardano.MPFS.TxBuilder.Real
     , toPlcData
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-    ( cagePolicyIdFromCfg
-    , requestAddrFromCfg
+    ( requestAddrFromCfg
     )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -522,7 +510,6 @@ spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     retractRequestSpec
     updateTokenSpec
     endTokenSpec
-    bootTokenSpec
     rejectRequestsSpec
     requestLockedAdaProps
     refundComputationProps
@@ -531,7 +518,6 @@ spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     updateTxProps
     retractTxProps
     endTxProps
-    bootTxProps
 
 -- ---------------------------------------------------------
 -- Cage identity
@@ -815,102 +801,6 @@ endTokenSpec =
                     tx ^. bodyTxL . inputsTxBodyL
             Set.member stateIn ins
                 `shouldBe` True
-
--- ---------------------------------------------------------
--- bootToken (blueprint-dependent)
--- ---------------------------------------------------------
-
-bootTokenSpec :: Spec
-bootTokenSpec =
-    describe "bootToken" $ do
-        mPath <-
-            runIO $ lookupEnv "MPFS_BLUEPRINT"
-        case mPath of
-            Nothing ->
-                it
-                    "skipped (MPFS_BLUEPRINT not set)"
-                    (pure () :: IO ())
-            Just path -> do
-                ebp <- runIO $ loadBlueprint path
-                case ebp of
-                    Left err ->
-                        it
-                            ( "loads blueprint: "
-                                <> err
-                            )
-                            ( error
-                                "blueprint parse failed"
-                                :: IO ()
-                            )
-                    Right bp -> do
-                        let mCode =
-                                extractCompiledCode
-                                    "state."
-                                    bp
-                        it "extractCompiledCode succeeds"
-                            $ mCode
-                            `shouldSatisfy` isJust
-                        for_
-                            mCode
-                            bootTokenWithScript
-
--- | bootToken tests that require real script bytes.
-bootTokenWithScript :: SBS.ShortByteString -> Spec
-bootTokenWithScript scriptBytes = do
-    let cfg =
-            CageConfig
-                { cageScriptBytes = scriptBytes
-                , requestScriptBytes = SBS.empty
-                , cfgScriptHash =
-                    computeScriptHash scriptBytes
-                , defaultProcessTime = 300_000
-                , defaultRetractTime = 600_000
-                , defaultTip = Coin 1_000_000
-                , network = Testnet
-                }
-
-    it "builds a balanced tx" $ do
-        tx <- runBootToken cfg
-        let outList = toOutList tx
-        length outList
-            `shouldSatisfy` (>= 1)
-
-    it "mints exactly one token" $ do
-        tx <- runBootToken cfg
-        let MultiAsset ma =
-                tx ^. bodyTxL . mintTxBodyL
-            mPolicy =
-                Map.lookup
-                    (cagePolicyIdFromCfg cfg)
-                    ma
-        mPolicy `shouldSatisfy` isJust
-        let assets = fromJust mPolicy
-        -- exactly one asset minted
-        Map.size assets `shouldBe` 1
-        -- quantity is +1
-        case Map.elems assets of
-            [qty] -> qty `shouldBe` 1
-            _ -> expectationFailure "expected 1 asset"
-
-    it "has a script witness" $ do
-        tx <- runBootToken cfg
-        let scripts =
-                tx ^. witsTxL . scriptTxWitsL
-        Map.size scripts `shouldBe` 1
-
-    it "has a minting redeemer" $ do
-        tx <- runBootToken cfg
-        let (Redeemers rdmrs) =
-                tx ^. witsTxL . rdmrsTxWitsL
-        Map.size rdmrs `shouldBe` 1
-
-    it "cage output has 2 ADA" $ do
-        tx <- runBootToken cfg
-        case toOutList tx of
-            (cageOut : _) -> do
-                let outCoin = cageOut ^. coinTxOutL
-                outCoin `shouldBe` Coin 2_000_000
-            [] -> expectationFailure "no outputs"
 
 -- ---------------------------------------------------------
 -- rejectRequests
@@ -1684,129 +1574,6 @@ endTxProps =
             Map.size scripts `shouldBe` 1
 
 -- ---------------------------------------------------------
--- Group G: Boot tx properties (IO, needs MPFS_BLUEPRINT)
--- ---------------------------------------------------------
-
-bootTxProps :: Spec
-bootTxProps =
-    describe "boot tx (realistic PParams)" $ do
-        mPath <-
-            runIO $ lookupEnv "MPFS_BLUEPRINT"
-        case mPath of
-            Nothing ->
-                it
-                    "skipped (MPFS_BLUEPRINT not set)"
-                    (pure () :: IO ())
-            Just path -> do
-                ebp <- runIO $ loadBlueprint path
-                case ebp of
-                    Left err ->
-                        it
-                            ( "blueprint failed: "
-                                <> err
-                            )
-                            ( error
-                                "blueprint parse failed"
-                                :: IO ()
-                            )
-                    Right bp ->
-                        for_
-                            ( extractCompiledCode
-                                "state."
-                                bp
-                            )
-                            bootTxPropsWithScript
-
-bootTxPropsWithScript
-    :: SBS.ShortByteString -> Spec
-bootTxPropsWithScript scriptBytes = do
-    let cfg =
-            CageConfig
-                { cageScriptBytes = scriptBytes
-                , requestScriptBytes = SBS.empty
-                , cfgScriptHash =
-                    computeScriptHash scriptBytes
-                , defaultProcessTime = 300_000
-                , defaultRetractTime = 600_000
-                , defaultTip = Coin 1_000_000
-                , network = Testnet
-                }
-
-    it "all outputs satisfy minUTxO" $ do
-        tx <-
-            runRealisticBootToken cfg
-        for_ (toOutList tx) $ \o -> do
-            let c = o ^. coinTxOutL
-                minC =
-                    getMinCoinTxOut
-                        realisticPP
-                        o
-            c `shouldSatisfy` (>= minC)
-
-    it "mints exactly 1 token" $ do
-        tx <-
-            runRealisticBootToken cfg
-        let MultiAsset ma =
-                tx ^. bodyTxL . mintTxBodyL
-            mPolicy =
-                Map.lookup
-                    ( PolicyID
-                        $ cfgScriptHash cfg
-                    )
-                    ma
-        mPolicy `shouldSatisfy` isJust
-        let assets = fromJust mPolicy
-        Map.size assets `shouldBe` 1
-        case Map.elems assets of
-            [qty] -> qty `shouldBe` 1
-            _ ->
-                expectationFailure "expected 1 asset"
-
-    it "cage output has state datum" $ do
-        tx <-
-            runRealisticBootToken cfg
-        case toOutList tx of
-            (cageOut : _) ->
-                case extractCageDatum cageOut of
-                    Just (StateDatum _) -> pure ()
-                    _ ->
-                        expectationFailure
-                            "not a StateDatum"
-            [] -> expectationFailure "no outputs"
-
-    it "state datum owner matches" $ do
-        tx <-
-            runRealisticBootToken cfg
-        case toOutList tx of
-            (cageOut : _) ->
-                case extractCageDatum cageOut of
-                    Just (StateDatum s) ->
-                        let BuiltinByteString bs =
-                                stateOwner s
-                            KeyHash h = testKh
-                        in  bs
-                                `shouldBe` hashToBytes
-                                    h
-                    _ ->
-                        expectationFailure
-                            "not a StateDatum"
-            [] -> expectationFailure "no outputs"
-
-    it "exactly 1 minting redeemer" $ do
-        tx <-
-            runRealisticBootToken cfg
-        let (Redeemers rdmrs) =
-                tx ^. witsTxL . rdmrsTxWitsL
-        Map.size rdmrs `shouldBe` 1
-
-    it "exactly 1 script witness" $ do
-        tx <-
-            runRealisticBootToken cfg
-        let scripts =
-                tx ^. witsTxL . scriptTxWitsL
-        Map.size scripts `shouldBe` 1
-
--- ---------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------
 
@@ -2032,54 +1799,6 @@ runEndTokenWith = do
                 dummyProofFn
     bundle <- endToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn)
-
--- | Run bootToken with a given CageConfig.
-runBootToken :: CageConfig -> IO (Tx ConwayEra)
-runBootToken cfg = do
-    txIn1 <- generate genTxIn
-    txIn2 <- generate genTxIn
-    let feeAddr = testAddr testKh
-        utxo1 =
-            mkBasicTxOut
-                feeAddr
-                (inject (Coin 50_000_000))
-        utxo2 =
-            mkBasicTxOut
-                feeAddr
-                (inject (Coin 50_000_000))
-        prov =
-            mkTestProvider
-                [(txIn1, utxo1), (txIn2, utxo2)]
-    st <- mkMockState
-    let builder =
-            mkRealTxBuilder
-                cfg
-                prov
-                st
-                dummyTrieManager
-                dummyProofFn
-    let bootInputs =
-            [
-                ( txIn1
-                , serialize'
-                    (natVersion @11)
-                    utxo1
-                , BS.empty
-                )
-            ,
-                ( txIn2
-                , serialize'
-                    (natVersion @11)
-                    utxo2
-                , BS.empty
-                )
-            ]
-    envTx
-        <$> bootToken
-            builder
-            testSnap
-            bootInputs
-            feeAddr
 
 -- | Token ID used across tests.
 testTid :: TokenId
@@ -2415,55 +2134,6 @@ runRealisticEndWith = do
                 dummyProofFn
     bundle <- endToken builder testSnap testTid feeAddr
     pure (envTx bundle, stateIn)
-
--- | Run bootToken with realistic PParams.
-runRealisticBootToken
-    :: CageConfig -> IO (Tx ConwayEra)
-runRealisticBootToken cfg = do
-    txIn1 <- generate genTxIn
-    txIn2 <- generate genTxIn
-    let feeAddr = testAddr testKh
-        utxo1 =
-            mkBasicTxOut
-                feeAddr
-                (inject (Coin 50_000_000))
-        utxo2 =
-            mkBasicTxOut
-                feeAddr
-                (inject (Coin 50_000_000))
-        prov =
-            mkRealisticProvider
-                [(txIn1, utxo1), (txIn2, utxo2)]
-    st <- mkMockState
-    let builder =
-            mkRealTxBuilder
-                cfg
-                prov
-                st
-                dummyTrieManager
-                dummyProofFn
-    let bootInputs =
-            [
-                ( txIn1
-                , serialize'
-                    (natVersion @11)
-                    utxo1
-                , BS.empty
-                )
-            ,
-                ( txIn2
-                , serialize'
-                    (natVersion @11)
-                    utxo2
-                , BS.empty
-                )
-            ]
-    envTx
-        <$> bootToken
-            builder
-            testSnap
-            bootInputs
-            feeAddr
 
 -- | Run rejectRequests with mock expired request.
 -- The request has submittedAt=0, processTime=300s,

@@ -1954,6 +1954,59 @@ instance ToSchema UnsignedTxResponse where
                    \and reference inputs, each with its \
                    \CSMT inclusion proof."
 
+instance ToSchema UnverifiedPParams where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        boolSchema <-
+            declareSchemaRef (Proxy @Bool)
+        pure
+            $ Swagger.NamedSchema
+                (Just "UnverifiedPParams")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("verified", boolSchema)
+                    , ("cbor", hexSchema)
+                    ]
+            & required .~ ["verified", "cbor"]
+            & description
+                ?~ "CBOR-encoded protocol parameters \
+                   \reported as unverified facts."
+
+instance ToSchema BootFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        walletSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "BootFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("wallet_utxos", walletSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "wallet_utxos"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only boot response. Carries \
+                   \wallet UTxO witnesses and \
+                   \unverified protocol parameters, \
+                   \with no unsigned transaction CBOR."
+
 instance ToSchema FactWitness where
     declareNamedSchema _ = do
         stateSchema <-
