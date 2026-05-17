@@ -46,9 +46,9 @@ event.
 **Commit shape**: One commit closes T003, T004, and T005. Tests are
 written first and observed failing before implementation.
 
-- [ ] T003 [P] [US1] RED: add failing BootFacts JSON and `verifyBootFacts` tests for happy path, snapshot tamper, trusted-root mismatch, and proof tamper in `cardano-mpfs-client/test/Cardano/MPFS/Client/BootFactsSpec.hs`
-- [ ] T004 [US1] GREEN: add `BootFacts`, `UnverifiedPParams`, `VerifiedBootFacts`, and `verifyBootFacts` in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs`
-- [ ] T005 [US1] Wire new client modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and ensure the new boot facts verifier code has no `Cardano.Ledger.Api.Tx` imports or transaction-body inspection
+- [X] T003 (commit: 01c5371) [P] [US1] RED: add failing BootFacts JSON and `verifyBootFacts` tests for happy path, snapshot tamper, trusted-root mismatch, and proof tamper in `cardano-mpfs-client/test/Cardano/MPFS/Client/BootFactsSpec.hs`
+- [X] T004 (commit: 01c5371) [US1] GREEN: add `BootFacts`, `UnverifiedPParams`, `VerifiedBootFacts`, and `verifyBootFacts` in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs`
+- [X] T005 (commit: 01c5371) [US1] Wire new client modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and ensure the new boot facts verifier code has no `Cardano.Ledger.Api.Tx` imports or transaction-body inspection
 
 **Subagent brief for Slice A**:
 
