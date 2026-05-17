@@ -17,6 +17,7 @@ import Data.IORef
     , writeIORef
     )
 import Data.Text (Text)
+import Data.Text qualified as T
 import Network.HTTP.Client
     ( defaultManagerSettings
     , newManager
@@ -41,7 +42,7 @@ import Cardano.MPFS.API.Encoding qualified as Wire
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
     ( BaseUrl (..)
-    , BootTxParams (..)
+    , BootFactsParams (..)
     , ClientError (..)
     , EndParams (..)
     , Hex (..)
@@ -54,7 +55,8 @@ import Cardano.MPFS.Client
     , Scheme (..)
     , UpdateParams (..)
     , VerifierMode (..)
-    , bootTx
+    , VerifyError (..)
+    , bootFacts
     , endTx
     , rejectTx
     , requestDeleteTx
@@ -87,26 +89,26 @@ spec = do
         it "runs the verifier when configured with RunVerifier"
             $ withJsonServer
                 status200
-                (Aeson.encode honestUnsignedBootResponse)
+                (Aeson.encode honestBootFacts)
             $ \_ base -> do
                 client <- mkClient base RunVerifier
                 result <-
-                    bootTx
+                    bootFacts
                         client
                         honestBootTrustedRoot
-                        bootParams
-                result `shouldBeRight` honestUnsignedBootResponse
+                        bootFactsParams
+                result `shouldBeRight` honestBootFacts
 
         it "returns VerifyFailed when the verifier rejects" $ do
             -- Forge: server emits a snapshot whose utxo_root
             -- doesn't match the externally-supplied trusted
             -- root. Verifier emits TrustedRootMismatch.
-            let forged :: Wire.UnsignedTxResponse
+            let forged :: Wire.BootFacts
                 forged =
-                    honestUnsignedBootResponse
-                        { Wire.utrSnapshot =
-                            ( Wire.utrSnapshot
-                                honestUnsignedBootResponse
+                    honestBootFacts
+                        { Wire.bfSnapshot =
+                            ( Wire.bfSnapshot
+                                honestBootFacts
                             )
                                 { Wire.vsUtxoRoot =
                                     Wire.Hex
@@ -116,26 +118,30 @@ spec = do
             withJsonServer status200 (Aeson.encode forged) $ \_ base -> do
                 client <- mkClient base RunVerifier
                 result <-
-                    bootTx
+                    bootFacts
                         client
                         honestBootTrustedRoot
-                        bootParams
-                result `shouldSatisfy` isVerifyFailed
+                        bootFactsParams
+                result `shouldSatisfy` isTrustedRootMismatch
 
         it "can skip verification for inspection tooling" $ do
-            let forged :: Wire.UnsignedTxResponse
+            let forged :: Wire.BootFacts
                 forged =
-                    honestUnsignedBootResponse
-                        { Wire.utrUnsignedTxCbor =
-                            Wire.Hex (BS.singleton 0x00)
+                    honestBootFacts
+                        { Wire.bfSnapshot =
+                            (Wire.bfSnapshot honestBootFacts)
+                                { Wire.vsUtxoRoot =
+                                    Wire.Hex
+                                        (BS.replicate 32 0xAB)
+                                }
                         }
             withJsonServer status200 (Aeson.encode forged) $ \_ base -> do
                 client <- mkClient base SkipVerifier
                 result <-
-                    bootTx
+                    bootFacts
                         client
                         honestBootTrustedRoot
-                        bootParams
+                        bootFactsParams
                 result `shouldBeRight` forged
 
         it "surfaces non-success HTTP statuses"
@@ -143,10 +149,10 @@ spec = do
             $ \_ base -> do
                 client <- mkClient base SkipVerifier
                 result <-
-                    bootTx
+                    bootFacts
                         client
                         honestBootTrustedRoot
-                        bootParams
+                        bootFactsParams
                 result
                     `shouldSatisfy` \case
                         Left (StatusError 500 "server failed") -> True
@@ -157,10 +163,10 @@ spec = do
             $ \_ base -> do
                 client <- mkClient base SkipVerifier
                 result <-
-                    bootTx
+                    bootFacts
                         client
                         honestBootTrustedRoot
-                        bootParams
+                        bootFactsParams
                 result
                     `shouldSatisfy` \case
                         Left (DecodeError _) -> True
@@ -172,10 +178,10 @@ spec = do
                     (BaseUrl Http "127.0.0.1" 1 "")
                     SkipVerifier
             result <-
-                bootTx
+                bootFacts
                     client
                     honestBootTrustedRoot
-                    bootParams
+                    bootFactsParams
             result
                 `shouldSatisfy` \case
                     Left (TransportError _) -> True
@@ -191,12 +197,12 @@ data EndpointCase = EndpointCase
 writeEndpointCases :: [EndpointCase]
 writeEndpointCases =
     [ EndpointCase
-        ["tx", "boot"]
-        (Aeson.toJSON bootParams)
-        (Aeson.encode honestUnsignedBootResponse)
+        ["facts", "boot"]
+        (Aeson.toJSON bootFactsParams)
+        (Aeson.encode honestBootFacts)
         ( \http ->
             voidRight
-                (bootTx http honestBootTrustedRoot bootParams)
+                (bootFacts http honestBootTrustedRoot bootFactsParams)
         )
     , EndpointCase
         ["tx", "request", "insert"]
@@ -235,8 +241,22 @@ writeEndpointCases =
         (voidRight . (`endTx` endParams))
     ]
 
-bootParams :: BootTxParams
-bootParams = BootTxParams sampleAddress
+bootFactsParams :: BootFactsParams
+bootFactsParams = BootFactsParams sampleAddress
+
+honestBootFacts :: Wire.BootFacts
+honestBootFacts =
+    Wire.BootFacts
+        { Wire.bfSnapshot =
+            Wire.utrSnapshot honestUnsignedBootResponse
+        , Wire.bfWalletUtxos =
+            Wire.utrInputs honestUnsignedBootResponse
+        , Wire.bfProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
 
 insertParams :: RequestInsertParams
 insertParams =
@@ -343,9 +363,13 @@ isRight = \case
     Right () -> True
     Left _ -> False
 
-isVerifyFailed :: Either ClientError a -> Bool
-isVerifyFailed = \case
-    Left (VerifyFailed _) -> True
+isTrustedRootMismatch :: Either ClientError a -> Bool
+isTrustedRootMismatch = \case
+    Left
+        ( VerifyFailed
+                (TrustedRootMismatch path)
+            ) ->
+            path == T.pack "boot.snapshot.utxo_root"
     _ -> False
 
 shouldBeRight :: (Eq a, Show a) => Either ClientError a -> a -> IO ()

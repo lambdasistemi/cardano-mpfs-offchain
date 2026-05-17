@@ -17,7 +17,7 @@ module Cardano.MPFS.Client.Http
     , ClientError (..)
 
       -- * Request parameters
-    , BootTxParams (..)
+    , BootFactsParams (..)
     , RequestInsertParams (..)
     , RequestDeleteParams (..)
     , RequestUpdateParams (..)
@@ -27,7 +27,7 @@ module Cardano.MPFS.Client.Http
     , EndParams (..)
 
       -- * Write endpoints
-    , bootTx
+    , bootFacts
     , requestInsertTx
     , requestDeleteTx
     , requestUpdateTx
@@ -69,7 +69,10 @@ import Servant.Client.Core.Response
     , responseStatusCode
     )
 
-import Cardano.MPFS.API (TxWriteAPI)
+import Cardano.MPFS.API
+    ( FactsBootAPI
+    , TxWriteAPI
+    )
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client.Bundle
     ( EndTxResponse
@@ -82,14 +85,12 @@ import Cardano.MPFS.Client.Snapshot (Hex)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
     ( VerifyError
+    , verifyBootFacts
     , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
-    )
-import Cardano.MPFS.Client.Verify.Write
-    ( verifyUnsignedTxResponse
     )
 
 -- | Whether HTTP wrappers run the offline verifier before returning a
@@ -115,15 +116,15 @@ data ClientError
     | VerifyFailed VerifyError
     deriving stock (Show)
 
--- | @POST /tx/boot@ request body.
-newtype BootTxParams = BootTxParams
-    { bootAddress :: Hex
+-- | @POST /facts/boot@ request body.
+newtype BootFactsParams = BootFactsParams
+    { bootFactsAddress :: Hex
     }
     deriving stock (Eq, Show)
 
-instance ToJSON BootTxParams where
-    toJSON BootTxParams{..} =
-        object ["address" .= bootAddress]
+instance ToJSON BootFactsParams where
+    toJSON BootFactsParams{..} =
+        object ["address" .= bootFactsAddress]
 
 -- | @POST /tx/request/insert@ request body.
 data RequestInsertParams = RequestInsertParams
@@ -237,21 +238,21 @@ instance ToJSON EndParams where
             , "address" .= endAddress
             ]
 
--- | Build a boot transaction. The post-split #243 shape: caller
--- supplies an externally-trusted CSMT root; the verifier checks
--- @snapshot.utxo_root@ matches that root and replays each
--- bundled input's inclusion proof against it.
-bootTx
+-- | Fetch boot facts. The post-split #243 shape: caller supplies
+-- an externally-trusted CSMT root; the verifier checks
+-- @snapshot.utxo_root@ matches that root and replays each bundled
+-- wallet UTxO inclusion proof against it.
+bootFacts
     :: MpfsHttp
     -> TrustedRoot
-    -> BootTxParams
-    -> IO (Either ClientError Wire.UnsignedTxResponse)
-bootTx http trustedRoot params =
+    -> BootFactsParams
+    -> IO (Either ClientError Wire.BootFacts)
+bootFacts http trustedRoot params =
     runWriteEndpoint
         http
         params
-        txBootClient
-        (verifyUnsignedTxResponse "boot" trustedRoot)
+        factsBootClient
+        (verifyBootFacts trustedRoot)
 
 -- | Build an insert-request transaction.
 requestInsertTx
@@ -322,7 +323,7 @@ runWriteEndpoint
     => MpfsHttp
     -> params
     -> (wireRequest -> ClientM wireResponse)
-    -> (response -> Either VerifyError ())
+    -> (response -> Either VerifyError verified)
     -> IO (Either ClientError response)
 runWriteEndpoint MpfsHttp{..} params endpoint verifyResponse =
     case decodeRequest params of
@@ -349,7 +350,7 @@ decodeRequest params =
 decodeResponse
     :: (ToJSON wireResponse, FromJSON response)
     => VerifierMode
-    -> (response -> Either VerifyError ())
+    -> (response -> Either VerifyError verified)
     -> wireResponse
     -> Either ClientError response
 decodeResponse mode verifyResponse wireResponse = do
@@ -361,7 +362,7 @@ decodeResponse mode verifyResponse wireResponse = do
         RunVerifier ->
             case verifyResponse decoded of
                 Left err -> Left (VerifyFailed err)
-                Right () -> Right decoded
+                Right _ -> Right decoded
 
 fromServantError :: Servant.ClientError -> ClientError
 fromServantError err =
@@ -375,8 +376,8 @@ fromServantError err =
         _ ->
             TransportError err
 
-txBootClient
-    :: Wire.BootRequest -> ClientM Wire.UnsignedTxResponse
+factsBootClient
+    :: Wire.BootRequest -> ClientM Wire.BootFacts
 txInsertClient
     :: Wire.InsertRequest -> ClientM Wire.RequestTxResponse
 txDeleteClient
@@ -393,8 +394,10 @@ txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 txEndClient
     :: Wire.EndRequest -> ClientM Wire.EndTxResponse
-txBootClient
-    :<|> txInsertClient
+factsBootClient =
+    client (Proxy :: Proxy FactsBootAPI)
+
+txInsertClient
     :<|> txDeleteClient
     :<|> txRequestUpdateClient
     :<|> txRejectClient
