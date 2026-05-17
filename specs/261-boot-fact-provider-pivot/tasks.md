@@ -153,7 +153,7 @@ server builder used the node evaluator to patch ExUnits before
 balancing; the facts-only client builder cannot call the server-side
 provider and must make its budget/script-integrity choice explicit.
 
-- [ ] T021 [US1] Fix `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs` so `bootCageTx` emits a submit-valid minting redeemer budget and recomputed script integrity hash, with a focused client regression test proving the boot tx no longer carries placeholder zero ExUnits
+- [X] T021 (commit: f3b9a3e) [US1] Fix `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs` so `bootCageTx` emits a submit-valid minting redeemer budget and recomputed script integrity hash, with a focused client regression test proving the boot tx no longer carries placeholder zero ExUnits
 
 - [ ] T014 [P] [US1] RED: add failing e2e proof for `POST /facts/boot` client verification, local build, sign, submit, and indexed boot event in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`
 - [ ] T015 [US1] GREEN: implement e2e helpers and test wiring in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`, `cardano-mpfs-offchain/e2e-test/main.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
@@ -222,8 +222,8 @@ ready for the same release window.
 the child completion record can list both merge SHAs and cutover window.
 
 - [ ] T020 [US4] Open or update paired `lambdasistemi/moog` boot PR that migrates boot from legacy tx response to facts verification plus local build/sign/submit
-- [ ] T021 [US4] Update PR #272 body with offchain verification evidence, paired MOOG PR link, and explicit non-claims for non-boot endpoints
-- [ ] T022 [US4] Keep PR #272 draft until the paired MOOG PR is ready and the release-window plan is recorded
+- [ ] T022 [US4] Update PR #272 body with offchain verification evidence, paired MOOG PR link, and explicit non-claims for non-boot endpoints
+- [ ] T023 [US4] Keep PR #272 draft until the paired MOOG PR is ready and the release-window plan is recorded
 
 **Paired MOOG implementation notes**:
 
@@ -240,11 +240,11 @@ the child completion record can list both merge SHAs and cutover window.
 **Purpose**: Align docs, task stamps, gate, and PR metadata before ready
 for review.
 
-- [ ] T023 Run `./gate.sh` at HEAD and record the exact passing evidence in PR #272
-- [ ] T024 Confirm every closed task in this file is stamped `[X] T### (commit: <short-sha>)`
-- [ ] T025 Run the resolve-ticket finalization audit over commits on PR #272
-- [ ] T026 Drop `gate.sh` in the final `chore:` commit only after every task is complete and the paired MOOG readiness condition is satisfied
-- [ ] T027 Mark PR #272 ready for external review
+- [ ] T024 Run `./gate.sh` at HEAD and record the exact passing evidence in PR #272
+- [ ] T025 Confirm every closed task in this file is stamped `[X] T### (commit: <short-sha>)`
+- [ ] T026 Run the resolve-ticket finalization audit over commits on PR #272
+- [ ] T027 Drop `gate.sh` in the final `chore:` commit only after every task is complete and the paired MOOG readiness condition is satisfied
+- [ ] T028 Mark PR #272 ready for external review
 
 ---
 
