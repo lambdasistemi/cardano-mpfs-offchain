@@ -76,10 +76,10 @@ Context:
 **Commit shape**: One commit closes T006, T007, T008, and T009. Capture
 the legacy vector before deleting the legacy server builder in Slice C.
 
-- [ ] T006 [US1] Capture the legacy boot CBOR vector at `specs/261-boot-fact-provider-pivot/test-vectors/legacy-boot.cbor` from the pre-deletion boot builder path
-- [ ] T007 [P] [US1] RED: add failing `bootCageTx` byte-equivalence and wallet-policy tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/BootSpec.hs`
-- [ ] T008 [US1] GREEN: add `WalletPolicy`, `BuildError`, and `bootCageTx` in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Policy.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/BuildError.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs`
-- [ ] T009 [US1] Wire cage modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and reuse the existing boot datum/asset-name logic without adding server/indexer imports to client cage modules
+- [X] T006 (commit: c3911e5) [US1] Capture the legacy boot CBOR vector at `specs/261-boot-fact-provider-pivot/test-vectors/legacy-boot.cbor` from the pre-deletion boot builder path
+- [X] T007 (commit: c3911e5) [P] [US1] RED: add failing `bootCageTx` byte-equivalence and wallet-policy tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/BootSpec.hs`
+- [X] T008 (commit: c3911e5) [US1] GREEN: add `WalletPolicy`, `BuildError`, and `bootCageTx` in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Policy.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/BuildError.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs`
+- [X] T009 (commit: c3911e5) [US1] Wire cage modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal` and reuse the existing boot datum/asset-name logic without adding server/indexer imports to client cage modules
 
 **Subagent brief for Slice B**:
 
