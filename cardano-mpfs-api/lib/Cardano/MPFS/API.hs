@@ -33,8 +33,10 @@ module Cardano.MPFS.API
       -- * Confirmation
     , TxAwaitAPI
 
+      -- * Facts endpoints
+    , FactsBootAPI
+
       -- * Transaction endpoints
-    , TxBootAPI
     , TxInsertAPI
     , TxDeleteAPI
     , TxRequestUpdateAPI
@@ -63,7 +65,8 @@ import Servant.API
 
 import Cardano.MPFS.API.Encoding (Hex)
 import Cardano.MPFS.API.Types
-    ( BootRequest
+    ( BootFacts
+    , BootRequest
     , DeleteRequest
     , EndRequest
     , EndTxResponse
@@ -82,7 +85,6 @@ import Cardano.MPFS.API.Types
     , SweepTxResponse
     , TokenIdJSON
     , TokenResponse
-    , UnsignedTxResponse
     , UpdateRequest
     , UpdateTxResponse
     , UpdateValueRequest
@@ -174,18 +176,14 @@ type TxAwaitAPI =
         :> QueryParam "timeout" Word64
         :> Get '[JSON] NoContent
 
--- | @POST \/tx\/boot@ — build a boot transaction,
--- returning the unsigned CBOR together with the
--- verification snapshot and the flat list of
--- inputs (each with its CSMT inclusion proof).
---
--- Boot is a top-level write (no signer role): the
--- booter is becoming the cage's oracle.
-type TxBootAPI =
-    "tx"
+-- | @POST \/facts\/boot@ — return indexed facts
+-- required by wallet-side boot transaction
+-- construction.
+type FactsBootAPI =
+    "facts"
         :> "boot"
         :> ReqBody '[JSON] BootRequest
-        :> Post '[JSON] UnsignedTxResponse
+        :> Post '[JSON] BootFacts
 
 -- | @POST \/tx\/request\/insert@ — build an insert
 -- request transaction.
@@ -259,8 +257,7 @@ type TxEndAPI =
 -- deriving a Servant client without depending on the
 -- server package.
 type TxWriteAPI =
-    TxBootAPI
-        :<|> TxInsertAPI
+    TxInsertAPI
         :<|> TxDeleteAPI
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI
@@ -294,7 +291,7 @@ type API =
         :<|> UtxoProofAPI
         :<|> UtxoRootAPI
         :<|> TxAwaitAPI
-        :<|> TxBootAPI
+        :<|> FactsBootAPI
         :<|> TxInsertAPI
         :<|> TxDeleteAPI
         :<|> TxRequestUpdateAPI

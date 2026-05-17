@@ -13,6 +13,7 @@
 module Cardano.MPFS.HTTP.Server
     ( -- * Application
       mkApp
+    , mkBootFacts
     ) where
 
 import Control.Applicative ((<|>))
@@ -48,6 +49,7 @@ import Cardano.Ledger.Binary
     ( DecoderError
     , decodeFull'
     , natVersion
+    , serialize'
     )
 import Cardano.Ledger.Hashes
     ( extractHash
@@ -66,6 +68,7 @@ import Cardano.MPFS.Core.Types
     , ConwayEra
     , LocatedRequest (..)
     , LocatedTokenState (..)
+    , PParams
     , Root (..)
     , SlotNo (..)
     , TokenId
@@ -77,7 +80,8 @@ import Cardano.MPFS.HTTP.Swagger
     , swaggerServer
     )
 import Cardano.MPFS.HTTP.Types
-    ( BootRequest (..)
+    ( BootFacts (..)
+    , BootRequest (..)
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
@@ -98,7 +102,7 @@ import Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
-    , UnsignedTxResponse
+    , UnverifiedPParams (..)
     , UpdateRequest (..)
     , UpdateTxResponse
     , UpdateValueRequest (..)
@@ -106,7 +110,7 @@ import Cardano.MPFS.HTTP.Types
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
-    , mkBootTxResponse
+    , bundleSnapshotToJSON
     , mkEndTxResponse
     , mkRejectTxResponse
     , mkRequestTxResponse
@@ -115,6 +119,7 @@ import Cardano.MPFS.HTTP.Types
     , mkUpdateTxResponse
     , parseAddr
     , requestToJSON
+    , resolvedWalletInputToUtxoEntry
     , tokenIdFromJSON
     , tokenIdToJSON
     , tokenStateToJSON
@@ -124,6 +129,7 @@ import Cardano.MPFS.Indexer.Reads
     ( readSnapshot
     , readWalletInputsAt
     )
+import Cardano.MPFS.Provider (Provider (..))
 import Cardano.UTxOCSMT.Application.Metrics
     ( Metrics (..)
     , renderPrometheus
@@ -132,7 +138,10 @@ import Cardano.UTxOCSMT.Application.Metrics
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Submitter qualified as Sub
 import Cardano.MPFS.Trie qualified as Trie
-import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , ResolvedWalletInput
+    )
 import Cardano.MPFS.TxBuilder qualified as Tx
 import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
 
@@ -157,7 +166,7 @@ mkApp ctx =
             :<|> utxoProofHandler ctx
             :<|> utxoRootHandler ctx
             :<|> txAwaitHandler ctx
-            :<|> txBootHandler ctx
+            :<|> factsBootHandler ctx
             :<|> txInsertHandler ctx
             :<|> txDeleteHandler ctx
             :<|> txUpdateValueHandler ctx
@@ -596,16 +605,15 @@ requireAddr h =
                         BL.pack msg
                     }
 
--- | @POST \/tx\/boot@. Reads snapshot and wallet
+-- | @POST \/facts\/boot@. Reads snapshot and wallet
 -- inputs at the owner address inside ONE indexer
--- transaction (composed from primitives in
--- "Cardano.MPFS.Indexer.Reads"), then hands the
--- result to the boot tx-builder.
-txBootHandler
+-- transaction, then returns facts for wallet-side
+-- boot transaction construction.
+factsBootHandler
     :: Context IO
     -> BootRequest
-    -> Handler UnsignedTxResponse
-txBootHandler ctx (BootRequest addrHex) = do
+    -> Handler BootFacts
+factsBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
     (mSnap, inputs) <-
         liftIO
@@ -631,14 +639,36 @@ txBootHandler ctx (BootRequest addrHex) = do
                             \at address"
                         }
             | otherwise -> do
-                bundle <-
+                pp <-
                     liftIO
-                        $ Tx.bootToken
-                            (txBuilder ctx)
-                            snap
-                            inputs
-                            addr
-                pure (mkBootTxResponse bundle)
+                        $ queryProtocolParams
+                            (provider ctx)
+                pure (mkBootFacts snap inputs pp)
+
+-- | Build the facts-only boot response from an indexed
+-- snapshot, resolved wallet inputs, and protocol
+-- parameters queried from the node.
+mkBootFacts
+    :: BundleSnapshot
+    -> [ResolvedWalletInput]
+    -> PParams ConwayEra
+    -> BootFacts
+mkBootFacts snap inputs pparams =
+    BootFacts
+        { bfSnapshot = bundleSnapshotToJSON snap
+        , bfWalletUtxos =
+            map resolvedWalletInputToUtxoEntry inputs
+        , bfProtocolParameters =
+            UnverifiedPParams
+                { uppVerified = False
+                , uppCbor =
+                    Hex
+                        ( serialize'
+                            (natVersion @11)
+                            pparams
+                        )
+                }
+        }
 
 txInsertHandler
     :: Context IO

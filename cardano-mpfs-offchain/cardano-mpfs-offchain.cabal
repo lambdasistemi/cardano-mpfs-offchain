@@ -126,9 +126,6 @@ library
     Cardano.MPFS.TxBuilder
     Cardano.MPFS.TxBuilder.Config
     Cardano.MPFS.TxBuilder.Real
-    Cardano.MPFS.TxBuilder.Real.Boot
-    Cardano.MPFS.TxBuilder.Real.Boot.Inputs
-    Cardano.MPFS.TxBuilder.Real.Boot.Transaction
     Cardano.MPFS.TxBuilder.Real.End
     Cardano.MPFS.TxBuilder.Real.Internal
     Cardano.MPFS.TxBuilder.Real.Reject
@@ -261,7 +258,6 @@ test-suite unit-tests
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
-    , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
@@ -293,11 +289,13 @@ test-suite unit-tests
     , temporary
     , text
     , vector
+    , wai
     , wai-extra
 
   other-modules:
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
+    Cardano.MPFS.HTTP.BootFactsSpec
     Cardano.MPFS.HTTP.RequestsSpec
     Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.HTTP.TokenSpec
