@@ -155,8 +155,8 @@ provider and must make its budget/script-integrity choice explicit.
 
 - [X] T021 (commit: f3b9a3e) [US1] Fix `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Boot.hs` so `bootCageTx` emits a submit-valid minting redeemer budget and recomputed script integrity hash, with a focused client regression test proving the boot tx no longer carries placeholder zero ExUnits
 
-- [ ] T014 [P] [US1] RED: add failing e2e proof for `POST /facts/boot` client verification, local build, sign, submit, and indexed boot event in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`
-- [ ] T015 [US1] GREEN: implement e2e helpers and test wiring in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`, `cardano-mpfs-offchain/e2e-test/main.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
+- [X] T014 (commit: 0317885) [P] [US1] RED: add failing e2e proof for `POST /facts/boot` client verification, local build, sign, submit, and indexed boot event in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`
+- [X] T015 (commit: 0317885) [US1] GREEN: implement e2e helpers and test wiring in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`, `cardano-mpfs-offchain/e2e-test/main.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
 
 **Subagent brief for Slice D**:
 
