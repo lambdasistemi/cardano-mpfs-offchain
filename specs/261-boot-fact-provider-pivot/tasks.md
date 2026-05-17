@@ -221,17 +221,27 @@ ready for the same release window.
 **Independent Test**: PR metadata names the paired MOOG requirement, and
 the child completion record can list both merge SHAs and cutover window.
 
-- [ ] T020 [US4] Open or update paired `lambdasistemi/moog` boot PR that migrates boot from legacy tx response to facts verification plus local build/sign/submit
-- [ ] T022 [US4] Update PR #272 body with offchain verification evidence, paired MOOG PR link, and explicit non-claims for non-boot endpoints
+- [X] T020 (MOOG PR: cardano-foundation/moog#95, commit: 34a5851) [US4] Open or update paired `cardano-foundation/moog` boot PR that migrates boot from legacy tx response to facts verification plus local build/sign/submit
+- [X] T022 (PR #272 metadata updated with MOOG PR #95 evidence) [US4] Update PR #272 body with offchain verification evidence, paired MOOG PR link, and explicit non-claims for non-boot endpoints
 - [ ] T023 [US4] Keep PR #272 draft until the paired MOOG PR is ready and the release-window plan is recorded
 
 **Paired MOOG implementation notes**:
 
-- Expected MOOG files include `/code/moog/src/MPFS/API.hs`,
-  `/code/moog/src/Oracle/Token/Cli.hs`, `/code/moog/src/Cli.hs`,
-  `/code/moog/src/Core/Context.hs`, `/code/moog/test/MockMPFS.hs`,
-  and the package pin in `/code/moog/cabal.project`.
+- Paired MOOG draft PR: https://github.com/cardano-foundation/moog/pull/95
+- Paired MOOG implementation commit:
+  `34a5851 feat(mpfs): boot token from verified facts`.
+- MOOG local proof: focused
+  `nix develop --quiet -c just unit "addressBytesForBoot"` passed with
+  1 example, 0 failures; `./gate.sh` passed with build, 123 unit
+  examples, format checks, and HLint.
+- Expected MOOG files include `/code/moog-boot-facts-pivot/src/MPFS/API.hs`,
+  `/code/moog-boot-facts-pivot/src/MPFS/Boot.hs`,
+  `/code/moog-boot-facts-pivot/test/MPFS/BootSpec.hs`, `moog.cabal`,
+  `cabal.project`, `cabal.project.freeze`, and `flake.nix`.
 - MOOG code changes land in the MOOG PR, not in this offchain PR.
+- Remaining cross-repo non-claim: a live MOOG boot/sign/submit run
+  against the paired offchain branch has not been performed from the
+  MOOG PR yet, and release-window coordination is not recorded.
 
 ---
 
