@@ -109,10 +109,10 @@ Context:
 legacy boot tx route is removed in the same commit that exposes
 `POST /facts/boot`.
 
-- [ ] T010 [P] [US1] RED: add failing API/handler tests proving `POST /facts/boot` exists, returns facts without tx CBOR, handles 400/503 cases, and the legacy boot tx route is absent in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/BootFactsSpec.hs`
-- [ ] T011 [US1] GREEN: add `factsBootHandler` using one `runIndexerTx ctx` block in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
-- [ ] T012 [US1] Replace only the boot write route in `cardano-mpfs-api/lib/Cardano/MPFS/API.hs` and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs`, leaving non-boot write routes unchanged
-- [ ] T013 [US1] Remove server-side boot tx construction from `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot/Inputs.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot/Transaction.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
+- [X] T010 (commit: c6cb386) [P] [US1] RED: add failing API/handler tests proving `POST /facts/boot` exists, returns facts without tx CBOR, handles 400/503 cases, and the legacy boot tx route is absent in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/BootFactsSpec.hs`
+- [X] T011 (commit: c6cb386) [US1] GREEN: add `factsBootHandler` using one `runIndexerTx ctx` block in `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
+- [X] T012 (commit: c6cb386) [US1] Replace only the boot write route in `cardano-mpfs-api/lib/Cardano/MPFS/API.hs` and `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs`, leaving non-boot write routes unchanged
+- [X] T013 (commit: c6cb386) [US1] Remove server-side boot tx construction from `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot/Inputs.hs`, `cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot/Transaction.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
 
 **Subagent brief for Slice C**:
 
@@ -178,7 +178,7 @@ are absent at PR head.
 **Independent Test**: Swagger and source grep find no live legacy boot
 write path.
 
-- [ ] T016 [US2] Regenerate `docs/assets/swagger.json` with `nix develop --quiet -c just update-swagger` and verify `POST /facts/boot` is present while the legacy boot tx route is absent
+- [X] T016 (commit: c6cb386) [US2] Regenerate `docs/assets/swagger.json` with `nix develop --quiet -c just update-swagger` and verify `POST /facts/boot` is present while the legacy boot tx route is absent
 - [ ] T017 [US2] Add or update grep-based regression proof in `gate.sh` after Slice C lands so legacy boot route removal stays enforced
 
 **Commit shape**: T016 may ride with Slice C if Swagger changes are part
