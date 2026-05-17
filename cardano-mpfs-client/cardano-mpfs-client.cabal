@@ -113,6 +113,7 @@ test-suite unit-tests
     , base16-bytestring
     , bytestring
     , cardano-crypto-class
+    , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
     , cardano-ledger-binary
@@ -120,8 +121,10 @@ test-suite unit-tests
     , cardano-mpfs-api
     , cardano-mpfs-cage
     , cardano-mpfs-client
+    , cardano-node-clients
     , cardano-slotting
     , cborg                   >=0.2  && <0.3
+    , containers              >=0.6  && <0.8
     , directory
     , hspec                   >=2.11 && <2.12
     , http-client             >=0.7  && <0.8

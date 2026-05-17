@@ -30,6 +30,9 @@ import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
     )
+import Cardano.Ledger.Alonzo.TxBody
+    ( scriptIntegrityHashTxBodyL
+    )
 import Cardano.Ledger.Api.PParams
     ( ppCoinsPerUTxOByteL
     , ppPricesL
@@ -37,6 +40,7 @@ import Cardano.Ledger.Api.PParams
 import Cardano.Ledger.Api.Tx
     ( Tx
     , bodyTxL
+    , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
@@ -46,6 +50,10 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , addrTxOutL
+    )
+import Cardano.Ledger.Api.Tx.Wits
+    ( Redeemers (..)
+    , rdmrsTxWitsL
     )
 import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
@@ -71,6 +79,9 @@ import Cardano.Ledger.Mary.Value
     ( AssetName (..)
     , MaryValue (..)
     , MultiAsset (..)
+    )
+import Cardano.Ledger.Plutus.Language
+    ( Language (..)
     )
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
@@ -111,6 +122,8 @@ import Cardano.MPFS.Client.Facts
 import Cardano.Node.Client.Balance
     ( BalanceResult (..)
     , balanceTx
+    , computeScriptIntegrity
+    , evalBudgetExUnits
     )
 import Cardano.Node.Client.TxBuild
     ( Interpret (..)
@@ -237,7 +250,7 @@ buildBootTx
     -> Addr
     -> Either BuildError (Tx ConwayEra)
 buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
-    case balanceTx pp ledgerPairs ownerAddr withAllInputs of
+    case balanceTx pp ledgerPairs ownerAddr withSubmitBudget of
         Left err ->
             Left (DSLBuildFailed $ T.pack $ show err)
         Right BalanceResult{balancedTx} ->
@@ -257,10 +270,36 @@ buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
                 .~ Set.union
                     allInputs
                     (draft ^. bodyTxL . inputsTxBodyL)
+    withSubmitBudget =
+        patchRedeemerBudgets pp withAllInputs
     ledgerPairs =
         [ (rowRef row, rowOut row)
         | row <- rows
         ]
+
+patchRedeemerBudgets
+    :: PParams ConwayEra
+    -> Tx ConwayEra
+    -> Tx ConwayEra
+patchRedeemerBudgets pp tx =
+    tx
+        & witsTxL . rdmrsTxWitsL
+            .~ budgetedRedeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                PlutusV3
+                pp
+                budgetedRedeemers
+  where
+    Redeemers rdmrs =
+        tx ^. witsTxL . rdmrsTxWitsL
+    budgetedRedeemers =
+        Redeemers
+            $ fmap
+                ( \(dat, _) ->
+                    (dat, evalBudgetExUnits)
+                )
+                rdmrs
 
 bootProgram
     :: CageConfig
