@@ -14,8 +14,9 @@ import Control.Monad (filterM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
-import Lens.Micro ((&), (.~))
+import Lens.Micro ((&), (.~), (^.))
 import System.Directory (doesFileExist)
 import System.Environment (getEnv)
 import Test.Hspec
@@ -24,6 +25,8 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldNotBe
+    , shouldSatisfy
     )
 
 import CSMT.Core.CBOR (renderProof)
@@ -45,11 +48,22 @@ import Cardano.Crypto.Hash
     , hashFromStringAsHex
     )
 import Cardano.Ledger.Address (Addr (..))
+import Cardano.Ledger.Alonzo.TxBody
+    ( scriptIntegrityHashTxBodyL
+    )
 import Cardano.Ledger.Api.PParams
     ( emptyPParams
     , ppCoinsPerUTxOByteL
     )
+import Cardano.Ledger.Api.Tx
+    ( bodyTxL
+    , witsTxL
+    )
 import Cardano.Ledger.Api.Tx.Out (TxOut, mkBasicTxOut)
+import Cardano.Ledger.Api.Tx.Wits
+    ( Redeemers (..)
+    , rdmrsTxWitsL
+    )
 import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
@@ -66,7 +80,11 @@ import Cardano.Ledger.Keys
     ( KeyHash (..)
     , KeyRole (..)
     )
-import Cardano.Ledger.Plutus.ExUnits (Prices (..))
+import Cardano.Ledger.Plutus.ExUnits
+    ( ExUnits (..)
+    , Prices (..)
+    )
+import Cardano.Ledger.Plutus.Language (Language (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( BootFacts (..)
@@ -100,6 +118,10 @@ import Cardano.MPFS.Client.Facts
     , verifyBootFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.Node.Client.Balance
+    ( computeScriptIntegrity
+    , evalBudgetExUnits
+    )
 import Cardano.Slotting.Slot (SlotNo (..))
 
 spec :: Spec
@@ -152,7 +174,7 @@ spec = describe "bootCageTx" $ do
                     )
                 )
 
-    it "serializes byte-identically to the legacy boot vector" $ do
+    it "does not reuse the placeholder-budget legacy boot vector" $ do
         cfg <- testCageConfig
         facts <- deterministicBootFacts
         verified <- verifiedBootFacts facts
@@ -165,7 +187,34 @@ spec = describe "bootCageTx" $ do
                 Right tx -> pure tx
         expected <-
             BS.readFile =<< legacyBootVectorPath
-        serialize' (natVersion @11) tx `shouldBe` expected
+        serialize' (natVersion @11) tx `shouldNotBe` expected
+
+    it "sets a submit-valid minting budget and script integrity" $ do
+        cfg <- testCageConfig
+        facts <- deterministicBootFacts
+        verified <- verifiedBootFacts facts
+        tx <-
+            case bootCageTx cfg permissiveWalletPolicy verified of
+                Left err ->
+                    expectationFailure
+                        ("bootCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        let redeemers@(Redeemers rdmrs) =
+                tx ^. witsTxL . rdmrsTxWitsL
+            budgets =
+                snd <$> Map.elems rdmrs
+            integrity =
+                tx ^. bodyTxL . scriptIntegrityHashTxBodyL
+            expectedIntegrity =
+                computeScriptIntegrity
+                    PlutusV3
+                    realisticPParams
+                    redeemers
+        Map.size rdmrs `shouldBe` 1
+        budgets `shouldBe` [evalBudgetExUnits]
+        budgets `shouldSatisfy` all nonZeroExUnits
+        integrity `shouldBe` expectedIntegrity
 
 permissiveWalletPolicy :: WalletPolicy
 permissiveWalletPolicy =
@@ -175,6 +224,10 @@ permissiveWalletPolicy =
         , wpMaxMinUtxoCoinPerByte = Coin 10_000
         , wpMaxValidityWindow = SlotNo maxBound
         }
+
+nonZeroExUnits :: ExUnits -> Bool
+nonZeroExUnits (ExUnits mem steps) =
+    mem > 0 && steps > 0
 
 verifiedBootFacts :: BootFacts -> IO VerifiedBootFacts
 verifiedBootFacts facts =
