@@ -2,6 +2,7 @@ module Main (main) where
 
 import Test.Hspec (hspec)
 
+import Cardano.MPFS.E2E.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.E2E.CageFlowSpec qualified as CageFlowSpec
 import Cardano.MPFS.E2E.CageSpec qualified as CageSpec
 import Cardano.MPFS.E2E.ChainSyncSpec qualified as ChainSyncSpec
@@ -21,5 +22,6 @@ main = hspec $ do
     IndexerSpec.spec
     ChainSyncSpec.spec
     HTTPLifecycleSpec.spec
+    BootFactsSpec.spec
     ProofsSpec.spec
     CrashRecoverySpec.spec

@@ -358,6 +358,7 @@ test-suite e2e-tests
     , wai-extra
 
   other-modules:
+    Cardano.MPFS.E2E.BootFactsSpec
     Cardano.MPFS.E2E.CageFlowSpec
     Cardano.MPFS.E2E.CageSpec
     Cardano.MPFS.E2E.ChainSyncSpec
