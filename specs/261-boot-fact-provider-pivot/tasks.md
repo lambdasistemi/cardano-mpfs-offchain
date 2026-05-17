@@ -196,7 +196,7 @@ transaction body.
 transaction grammar imports in the boot verifier surface.
 
 - [X] T018 (commit: 4a5f1c6) [US3] Add the verifier forbidden-import grep to `gate.sh` after Slice A lands
-- [ ] T019 [US3] Migrate the client HTTP boot transport from legacy `/tx/boot` unsigned-tx responses to `/facts/boot`, and remove or quarantine legacy boot tx-shape verifier exports from `cardano-mpfs-client/lib/Cardano/MPFS/Client/Http.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` once downstream boot usage is migrated
+- [X] T019 (commit: 0b63f7c) [US3] Migrate the client HTTP boot transport from legacy `/tx/boot` unsigned-tx responses to `/facts/boot`, and remove or quarantine legacy boot tx-shape verifier exports from `cardano-mpfs-client/lib/Cardano/MPFS/Client/Http.hs`, `cardano-mpfs-client/lib/Cardano/MPFS/Client.hs`, and `cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs` once downstream boot usage is migrated
 
 **Commit shape**: T018 is an orchestrator-owned `chore:` gate extension.
 T019 rides with Slice A or Slice C depending on when the compiler proves
