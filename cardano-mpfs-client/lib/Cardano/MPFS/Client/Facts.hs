@@ -8,6 +8,7 @@ module Cardano.MPFS.Client.Facts
     ( BootFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
+    , verifiedBootFacts
     , verifyBootFacts
     ) where
 
@@ -33,6 +34,11 @@ import Cardano.MPFS.Client.Verify.Replay
 -- not exported, so public callers cannot bypass 'verifyBootFacts'.
 newtype VerifiedBootFacts = VerifiedBootFacts BootFacts
     deriving stock (Eq, Show)
+
+-- | Extract the verified facts after 'verifyBootFacts' has
+-- established the trusted-root and CSMT proof checks.
+verifiedBootFacts :: VerifiedBootFacts -> BootFacts
+verifiedBootFacts (VerifiedBootFacts facts) = facts
 
 -- | Verify a facts-only boot response against an externally-supplied
 -- trusted UTxO-CSMT root.
