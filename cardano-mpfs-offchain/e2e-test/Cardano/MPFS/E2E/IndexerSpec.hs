@@ -62,6 +62,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
+    , withBootFactsTxBuilder
     )
 import Cardano.MPFS.Indexer.Event
     ( CageEvent (..)
@@ -989,10 +990,12 @@ withE2E scripts action = do
                                 nullTracer
                             }
                 withApplication appCfg $ \ctx -> do
+                    let ctx' =
+                            withBootFactsTxBuilder cfg ctx
                     _ <-
                         queryProtocolParams
-                            (provider ctx)
-                    action cfg ctx
+                            (provider ctx')
+                    action cfg ctx'
 
 -- ---------------------------------------------------------
 -- Helpers

@@ -157,6 +157,7 @@ provider and must make its budget/script-integrity choice explicit.
 
 - [X] T014 (commit: 0317885) [P] [US1] RED: add failing e2e proof for `POST /facts/boot` client verification, local build, sign, submit, and indexed boot event in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`
 - [X] T015 (commit: 0317885) [US1] GREEN: implement e2e helpers and test wiring in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/BootFactsSpec.hs`, `cardano-mpfs-offchain/e2e-test/main.hs`, and `cardano-mpfs-offchain/cardano-mpfs-offchain.cabal`
+- [X] T030 (e2e CI repair: full `just e2e` passed, 23 examples, 0 failures) [US1] Migrate stale full-suite e2e boot setup from the removed server-side `bootToken` stub to the facts/verify/`bootCageTx` helper path in `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/Helpers/Boot.hs` and every full-suite e2e context that still boots through `txBuilder`
 
 **Subagent brief for Slice D**:
 

@@ -33,6 +33,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
+    , withBootFactsTxBuilder
     )
 import Cardano.MPFS.State
     ( State (..)
@@ -267,13 +268,14 @@ withMpfsSynced socketPath cfg dbPath callback = do
             tracer
             dbPath
     withApplication appCfg $ \ctx -> do
+        let ctx' = withBootFactsTxBuilder cfg ctx
         _ <-
             timeout 60_000_000
                 $ atomically
                 $ readTMVar syncedVar
         -- Let a few more blocks process
         threadDelay 5_000_000
-        callback ctx
+        callback ctx'
 
 -- | Kill the MPFS app during a target phase.
 killMpfsDuring

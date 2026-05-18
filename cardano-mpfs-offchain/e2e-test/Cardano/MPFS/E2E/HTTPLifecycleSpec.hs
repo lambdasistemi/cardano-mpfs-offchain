@@ -89,6 +89,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
+    , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
@@ -429,11 +430,13 @@ withE2E scripts action = do
                                 nullTracer
                             }
                 withApplication appCfg $ \ctx -> do
+                    let ctx' =
+                            withBootFactsTxBuilder cfg ctx
                     _ <-
                         queryProtocolParams
-                            (provider ctx)
+                            (provider ctx')
                     threadDelay 10_000_000
-                    action cfg ctx
+                    action cfg ctx'
 
 -- -------------------------------------------------
 -- Config
