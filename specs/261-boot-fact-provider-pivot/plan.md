@@ -74,8 +74,8 @@ within the existing boot tx test budget.
   through `verifyBootFacts`.
 - `bootCageTx` enforces `WalletPolicy` before signing can occur.
 - `docs/assets/swagger.json` reflects the boot hard swap.
-- The PR stays draft until the paired MOOG boot migration is ready for
-  the same release window.
+- The PR stays draft until the paired MOOG-v2 boundary track records a
+  canary-backed boot proof or an explicit replacement decision.
 
 **Scale/Scope**:
 
@@ -87,8 +87,9 @@ within the existing boot tx test budget.
 - `cardano-mpfs-offchain`: add facts boot handler, remove legacy boot
   handler route, remove boot from server-side real tx builder exports,
   regenerate Swagger, and add e2e proof.
-- `lambdasistemi/moog`: paired PR migrates boot call sites from legacy
-  tx response to facts verification plus local build/sign/submit.
+- `cardano-foundation/moog`: paired PR #95 is a boundary spike for boot
+  facts and local construction. Follow-up issue #96 owns the MPFS-v2
+  canary and slice-by-slice MOOG migration decision.
 
 ## Constitution Check
 
@@ -240,8 +241,9 @@ See [data-model.md](./data-model.md),
 3. **Server hard swap**: RED API/handler tests proving `/facts/boot`
    exists and legacy boot tx route is absent; GREEN server route,
    handler, Swagger, and deletion of server-side boot tx route.
-4. **E2E/docs/release window**: RED e2e boot facts flow against the live
-   HTTP boundary; GREEN flow plus docs/PR metadata for paired MOOG.
+4. **E2E/docs/boundary metadata**: RED e2e boot facts flow against the
+   live HTTP boundary; GREEN flow plus docs/PR metadata for the paired
+   MOOG-v2 boundary track.
 
 Each implementation slice must be one bisect-safe commit with tests and
 code together.
@@ -253,7 +255,11 @@ to indexer to client-verification to local-build boundary. The final
 offchain slice must include an e2e proof that calls the HTTP
 `POST /facts/boot` route, verifies the response client-side, builds the
 transaction locally, signs/submits it, and observes indexing. The paired
-MOOG PR must run the same operator flow from the CLI.
+MOOG work must now prove the same lower-level operator flow through the
+MPFS-v2 canary before non-boot MOOG behavior is treated as a port.
+
+See [moog-boundaries.md](./moog-boundaries.md) for the cross-repo
+boundary map and follow-up track.
 
 ### Gate Representation
 

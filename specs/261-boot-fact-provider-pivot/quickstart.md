@@ -5,7 +5,9 @@
 - Branch: `261-boot-fact-provider-pivot`
 - Nix shell available.
 - Offchain devnet can be started by existing e2e tests.
-- Paired MOOG PR is prepared before this PR is marked ready.
+- Paired MOOG readiness is tracked through the boundary issue
+  https://github.com/cardano-foundation/moog/issues/96 before this PR
+  is marked ready.
 
 ## Baseline Gate
 
@@ -58,5 +60,6 @@ nix develop --quiet -c just e2e "facts boot"
 - Verifier rejects tampered facts before build.
 - `bootCageTx` rejects policy violations before signing.
 - Swagger is regenerated.
-- PR body names the paired MOOG migration and remains draft until that
-  migration is ready.
+- PR body names the paired MOOG boundary issue and remains draft until
+  the canary-backed MOOG-v2 path is ready or an explicit replacement
+  decision is recorded.
