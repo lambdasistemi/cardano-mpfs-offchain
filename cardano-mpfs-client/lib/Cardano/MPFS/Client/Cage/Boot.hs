@@ -85,12 +85,12 @@ import Cardano.Ledger.Plutus.Language
     )
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
-import Cardano.MPFS.API.Types
-    ( BootFacts (..)
-    , UnverifiedPParams (..)
+import Cardano.MPFS.API.Types.Common
+    ( UnverifiedPParams (..)
     , UtxoEntry (..)
     , UtxoRef (..)
     )
+import Cardano.MPFS.API.Types.Facts (BootFacts (..))
 import Cardano.MPFS.Cage.AssetName (deriveAssetName)
 import Cardano.MPFS.Cage.Ledger
     ( ConwayEra

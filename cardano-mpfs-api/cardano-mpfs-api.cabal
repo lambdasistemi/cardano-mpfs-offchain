@@ -45,3 +45,5 @@ library
     Cardano.MPFS.API
     Cardano.MPFS.API.Encoding
     Cardano.MPFS.API.Types
+    Cardano.MPFS.API.Types.Common
+    Cardano.MPFS.API.Types.Facts

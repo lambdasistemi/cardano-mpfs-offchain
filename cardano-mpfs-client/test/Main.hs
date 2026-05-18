@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Cardano.MPFS.Client.APITypeSplitSpec qualified as APITypeSplitSpec
 import Cardano.MPFS.Client.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.Client.BundleSpec qualified as BundleSpec
 import Cardano.MPFS.Client.Cage.BootSpec qualified as BootSpec
@@ -11,6 +12,7 @@ import Test.Hspec (hspec)
 
 main :: IO ()
 main = hspec $ do
+    APITypeSplitSpec.spec
     SnapshotSpec.spec
     BundleSpec.spec
     BootFactsSpec.spec

@@ -16,10 +16,12 @@ import Data.ByteString qualified as BS
 import Data.Text qualified as T
 
 import Cardano.MPFS.API.Encoding (Hex (..))
-import Cardano.MPFS.API.Types
-    ( BootFacts (..)
-    , UnverifiedPParams (..)
+import Cardano.MPFS.API.Types.Common
+    ( UnverifiedPParams (..)
     , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.API.Types.Facts
+    ( BootFacts (..)
     )
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
