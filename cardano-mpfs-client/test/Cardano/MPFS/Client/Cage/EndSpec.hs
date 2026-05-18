@@ -76,6 +76,7 @@ import Cardano.Ledger.Alonzo.TxBody
 import Cardano.Ledger.Api.PParams
     ( emptyPParams
     , ppCoinsPerUTxOByteL
+    , ppMaxTxExUnitsL
     )
 import Cardano.Ledger.Api.Scripts.Data
     ( Data (..)
@@ -274,6 +275,8 @@ spec = describe "endCageTx" $ do
                 tx ^. witsTxL . rdmrsTxWitsL
             budgets =
                 snd <$> Map.elems rdmrs
+            maxTxBudget =
+                realisticPParams ^. ppMaxTxExUnitsL
             integrity =
                 tx ^. bodyTxL . scriptIntegrityHashTxBodyL
             expectedIntegrity =
@@ -293,8 +296,12 @@ spec = describe "endCageTx" $ do
         tx ^. bodyTxL . reqSignerHashesTxBodyL
             `shouldBe` Set.singleton expectedOwnerWitness
         Map.size rdmrs `shouldBe` 2
-        budgets `shouldBe` [evalBudgetExUnits, evalBudgetExUnits]
         budgets `shouldSatisfy` all nonZeroExUnits
+        budgets
+            `shouldSatisfy` all
+                (`withinExUnits` evalBudgetExUnits)
+        sumExUnits budgets
+            `shouldSatisfy` (`withinExUnits` maxTxBudget)
         integrity `shouldBe` expectedIntegrity
 
 data EndFixture = EndFixture
@@ -527,6 +534,18 @@ nonZeroExUnits :: ExUnits -> Bool
 nonZeroExUnits (ExUnits mem steps) =
     mem > 0 && steps > 0
 
+sumExUnits :: [ExUnits] -> ExUnits
+sumExUnits =
+    foldr addExUnits (ExUnits 0 0)
+
+addExUnits :: ExUnits -> ExUnits -> ExUnits
+addExUnits (ExUnits memA stepsA) (ExUnits memB stepsB) =
+    ExUnits (memA + memB) (stepsA + stepsB)
+
+withinExUnits :: ExUnits -> ExUnits -> Bool
+withinExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
+    mem <= maxMem && steps <= maxSteps
+
 testCageConfig :: IO CageConfig
 testCageConfig = do
     blueprintPath <- getEnv "MPFS_BLUEPRINT"
@@ -567,6 +586,8 @@ realisticPParams =
     emptyPParams
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (Coin 4_310)
+        & ppMaxTxExUnitsL
+            .~ ExUnits 140_000_000 10_000_000_000
 
 stateTxId, walletTxId :: ByteString
 stateTxId = BS.replicate 32 0xA0
