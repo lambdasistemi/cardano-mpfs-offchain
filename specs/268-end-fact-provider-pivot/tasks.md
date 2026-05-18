@@ -24,10 +24,10 @@
 
 ## Phase 4: End cage builder
 
-- [ ] T012 RED: add `endCageTx` focused tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs`.
-- [ ] T013 GREEN: reuse the dedicated client cage identity helper when implementing `Cardano.MPFS.Client.Cage.End.endCageTx`; do not grow `Cardano.MPFS.Client.Cage.Config`.
-- [ ] T014 GREEN: implement `Cardano.MPFS.Client.Cage.End.endCageTx`.
-- [ ] T015 Wire the end cage module/test into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
+- [X] T012 (commit: a3ac47c) RED: add `endCageTx` focused tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs`.
+- [X] T013 (commit: a3ac47c) GREEN: reuse the dedicated client cage identity helper when implementing `Cardano.MPFS.Client.Cage.End.endCageTx`; do not grow `Cardano.MPFS.Client.Cage.Config`.
+- [X] T014 (commit: a3ac47c) GREEN: implement `Cardano.MPFS.Client.Cage.End.endCageTx`.
+- [X] T015 (commit: a3ac47c) Wire the end cage module/test into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
 
 ## Phase 5: Server hard swap
 
