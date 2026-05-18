@@ -35,6 +35,7 @@ import Cardano.Ledger.Alonzo.TxBody
     )
 import Cardano.Ledger.Api.PParams
     ( ppCoinsPerUTxOByteL
+    , ppMaxTxExUnitsL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -94,6 +95,9 @@ import Cardano.Ledger.Keys
     )
 import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
+    )
+import Cardano.Ledger.Plutus.ExUnits
+    ( ExUnits (..)
     )
 import Cardano.Ledger.Plutus.Language
     ( Language (..)
@@ -356,6 +360,8 @@ buildEndTx
             Set.fromList (map rowRef allRows)
         stateIx =
             spendingIndex stateRef allInputs
+        endBudget =
+            endRedeemerBudget pp
         redeemers =
             Redeemers
                 $ Map.fromList
@@ -363,7 +369,7 @@ buildEndTx
                         ( ConwaySpending (AsIx stateIx)
                         ,
                             ( toLedgerData End
-                            , evalBudgetExUnits
+                            , endBudget
                             )
                         )
                     ,
@@ -371,7 +377,7 @@ buildEndTx
                         ,
                             ( toLedgerData
                                 (Burning $ onChainTokenId token)
-                            , evalBudgetExUnits
+                            , endBudget
                             )
                         )
                     ]
@@ -402,6 +408,20 @@ toLedgerData :: (ToData a) => a -> Data ConwayEra
 toLedgerData value =
     let BuiltinData d = toBuiltinData value
     in  Data d
+
+endRedeemerBudget :: PParams ConwayEra -> ExUnits
+endRedeemerBudget pp =
+    capExUnits evalBudgetExUnits
+        $ halfExUnits
+        $ pp ^. ppMaxTxExUnitsL
+
+capExUnits :: ExUnits -> ExUnits -> ExUnits
+capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
+    ExUnits (min mem maxMem) (min steps maxSteps)
+
+halfExUnits :: ExUnits -> ExUnits
+halfExUnits (ExUnits mem steps) =
+    ExUnits (mem `div` 2) (steps `div` 2)
 
 spendingIndex :: TxIn -> Set.Set TxIn -> Word32
 spendingIndex needle inputs =
