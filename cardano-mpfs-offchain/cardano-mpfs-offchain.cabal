@@ -259,12 +259,14 @@ test-suite unit-tests
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
+    , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-strict-containers
+    , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library
     , cborg
     , chain-follower
@@ -277,6 +279,7 @@ test-suite unit-tests
     , lens
     , microlens
     , mts:csmt
+    , mts:csmt-core
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks
@@ -309,6 +312,7 @@ test-suite unit-tests
     Cardano.MPFS.Indexer.FollowerSpec
     Cardano.MPFS.Indexer.InverseSpec
     Cardano.MPFS.Indexer.PersistentSpec
+    Cardano.MPFS.Indexer.ReadsSpec
     Cardano.MPFS.Indexer.RollbackSpec
     Cardano.MPFS.Indexer.TxFixtures
     Cardano.MPFS.Indexer.UnifiedSpec

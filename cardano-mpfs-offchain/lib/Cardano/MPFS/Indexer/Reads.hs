@@ -37,10 +37,14 @@ module Cardano.MPFS.Indexer.Reads
     , readRequestSetAt
     , readWalletInputsAt
     , ResolvedUtxoSet
+
+      -- * UTxO key helpers
+    , addressScopedLeafKey
     ) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
+import Data.List (stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
 
@@ -65,7 +69,10 @@ import Cardano.Ledger.Mary.Value
     )
 
 import CSMT.Core.CBOR (renderCompletenessProof)
-import CSMT.Core.Types (Indirect (..))
+import CSMT.Core.Types
+    ( Indirect (..)
+    , Key
+    )
 import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
@@ -242,10 +249,16 @@ readWalletInputsAt addr =
                     hashAddressKey (serialiseAddr addr)
             indirects <-
                 collectValues CSMTCol [] addrKey
-            catMaybes <$> traverse (loadOne fkv) indirects
+            catMaybes <$> traverse (loadOne fkv addrKey) indirects
   where
-    loadOne fkv Indirect{jump} = do
-        let lazyKey = review (isoK fkv) jump
+    loadOne fkv addrKey leaf = do
+        let lazyKey =
+                case addressScopedLeafKey fkv addrKey leaf of
+                    Right key -> key
+                    Left e ->
+                        error
+                            $ "readWalletInputsAt: "
+                                <> e
             txInDecoded =
                 case decodeFull
                     (natVersion @11)
@@ -335,7 +348,7 @@ readRequestSetAt addr =
                     hashAddressKey (serialiseAddr addr)
             indirects <-
                 collectValues CSMTCol [] addrKey
-            entries <- traverse (loadOne fkv) indirects
+            entries <- traverse (loadOne fkv addrKey) indirects
             mProof <- generateProof CSMTCol [] addrKey
             let proofBytes = case mProof of
                     Just proof ->
@@ -350,8 +363,14 @@ readRequestSetAt addr =
                             \subtree"
             pure (entries, proofBytes)
   where
-    loadOne fkv Indirect{jump} = do
-        let lazyKey = review (isoK fkv) jump
+    loadOne fkv addrKey leaf = do
+        let lazyKey =
+                case addressScopedLeafKey fkv addrKey leaf of
+                    Right key -> key
+                    Left e ->
+                        error
+                            $ "readRequestSetAt: "
+                                <> e
             txInDecoded =
                 case decodeFull
                     (natVersion @11)
@@ -378,6 +397,20 @@ readRequestSetAt addr =
                         <> ")"
             Just txOutBytes ->
                 pure (txInDecoded, BSL.toStrict txOutBytes)
+
+addressScopedLeafKey
+    :: FromKV key value hash
+    -> Key
+    -> Indirect leaf
+    -> Either String key
+addressScopedLeafKey fkv addressKey Indirect{jump} =
+    case stripPrefix addressKey jump of
+        Just key ->
+            Right $ review (isoK fkv) key
+        Nothing ->
+            Left
+                "indexer CSMT column produced a leaf whose key \
+                \did not start with queried address prefix"
 
 decodeTxOut
     :: ByteString -> Either DecoderError (TxOut ConwayEra)
