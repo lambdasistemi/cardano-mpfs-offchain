@@ -140,6 +140,7 @@ test-suite unit-tests
     , warp                    >=3.4  && <3.5
 
   other-modules:
+    Cardano.MPFS.Client.APITypeSplitSpec
     Cardano.MPFS.Client.BootFactsSpec
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Cage.BootSpec

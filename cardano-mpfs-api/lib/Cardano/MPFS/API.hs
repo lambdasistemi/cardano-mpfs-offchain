@@ -65,8 +65,7 @@ import Servant.API
 
 import Cardano.MPFS.API.Encoding (Hex)
 import Cardano.MPFS.API.Types
-    ( BootFacts
-    , BootRequest
+    ( BootRequest
     , DeleteRequest
     , EndRequest
     , EndTxResponse
@@ -83,12 +82,13 @@ import Cardano.MPFS.API.Types
     , SubmitRequest
     , SweepRequest
     , SweepTxResponse
-    , TokenIdJSON
     , TokenResponse
     , UpdateRequest
     , UpdateTxResponse
     , UpdateValueRequest
     )
+import Cardano.MPFS.API.Types.Common (TokenIdJSON)
+import Cardano.MPFS.API.Types.Facts (BootFacts)
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse

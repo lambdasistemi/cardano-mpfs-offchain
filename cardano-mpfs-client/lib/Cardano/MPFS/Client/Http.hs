@@ -74,6 +74,7 @@ import Cardano.MPFS.API
     , TxWriteAPI
     )
 import Cardano.MPFS.API.Types qualified as Wire
+import Cardano.MPFS.API.Types.Facts qualified as FactsWire
 import Cardano.MPFS.Client.Bundle
     ( EndTxResponse
     , RejectTxResponse
@@ -246,7 +247,7 @@ bootFacts
     :: MpfsHttp
     -> TrustedRoot
     -> BootFactsParams
-    -> IO (Either ClientError Wire.BootFacts)
+    -> IO (Either ClientError FactsWire.BootFacts)
 bootFacts http trustedRoot params =
     runWriteEndpoint
         http
@@ -377,7 +378,7 @@ fromServantError err =
             TransportError err
 
 factsBootClient
-    :: Wire.BootRequest -> ClientM Wire.BootFacts
+    :: Wire.BootRequest -> ClientM FactsWire.BootFacts
 txInsertClient
     :: Wire.InsertRequest -> ClientM Wire.RequestTxResponse
 txDeleteClient
