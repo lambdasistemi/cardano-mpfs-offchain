@@ -44,6 +44,7 @@ library
     , cardano-ledger-api
     , cardano-ledger-babbage
     , cardano-ledger-binary
+    , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-api
@@ -72,6 +73,7 @@ library
     Cardano.MPFS.Client.Cage.Boot
     Cardano.MPFS.Client.Cage.BuildError
     Cardano.MPFS.Client.Cage.Config
+    Cardano.MPFS.Client.Cage.End
     Cardano.MPFS.Client.Cage.Identity
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Facts
@@ -119,6 +121,7 @@ test-suite unit-tests
     , cardano-ledger-babbage
     , cardano-ledger-binary
     , cardano-ledger-core
+    , cardano-ledger-mary
     , cardano-mpfs-api
     , cardano-mpfs-cage
     , cardano-mpfs-client
@@ -136,6 +139,7 @@ test-suite unit-tests
     , mts:csmt-write
     , mts:mpf-test-lib
     , mts:mpf-write
+    , plutus-tx
     , text
     , wai                     >=3.2  && <3.3
     , warp                    >=3.4  && <3.5
@@ -145,6 +149,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.BootFactsSpec
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Cage.BootSpec
+    Cardano.MPFS.Client.Cage.EndSpec
     Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
