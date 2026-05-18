@@ -31,9 +31,9 @@
 
 ## Phase 5: Server hard swap
 
-- [ ] T016 RED: add `POST /facts/end` HTTP tests in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs`.
-- [ ] T017 GREEN: add end state and request-set `IndexerTx` reads in `Cardano.MPFS.Indexer.Reads`.
-- [ ] T018 GREEN: add `factsEndHandler` and `mkEndFacts` in `Cardano.MPFS.HTTP.Server` plus a focused facts conversion module; do not grow `Cardano.MPFS.HTTP.Types`.
+- [X] T016 RED: add `POST /facts/end` HTTP tests in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs`.
+- [X] T017 GREEN: add end state and request-set `IndexerTx` reads in `Cardano.MPFS.Indexer.Reads`.
+- [X] T018 GREEN: add `factsEndHandler` and `mkEndFacts` in `Cardano.MPFS.HTTP.Server` plus a focused facts conversion module; do not grow `Cardano.MPFS.HTTP.Types`.
 - [ ] T019 Remove `TxEndAPI`, `txEndHandler`, and the legacy end transaction route from API/server wiring.
 - [ ] T020 Regenerate `docs/assets/swagger.json`.
 

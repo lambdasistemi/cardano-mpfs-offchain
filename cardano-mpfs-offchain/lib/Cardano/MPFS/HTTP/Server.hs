@@ -14,6 +14,7 @@ module Cardano.MPFS.HTTP.Server
     ( -- * Application
       mkApp
     , mkBootFacts
+    , mkEndFacts
     ) where
 
 import Control.Applicative ((<|>))
@@ -61,6 +62,7 @@ import Cardano.Ledger.TxIn
     , mkTxInPartial
     )
 
+import Cardano.MPFS.API.Types.Facts (EndFacts)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( Addr
@@ -125,8 +127,11 @@ import Cardano.MPFS.HTTP.Types
     , tokenStateToJSON
     , txInToJSON
     )
+import Cardano.MPFS.HTTP.Types.Facts (mkEndFacts)
 import Cardano.MPFS.Indexer.Reads
-    ( readSnapshot
+    ( readRequestSetAt
+    , readSnapshot
+    , readStateUtxoAt
     , readWalletInputsAt
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -143,7 +148,13 @@ import Cardano.MPFS.TxBuilder
     , ResolvedWalletInput
     )
 import Cardano.MPFS.TxBuilder qualified as Tx
+import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
+import Cardano.MPFS.TxBuilder.Real.Internal
+    ( cageAddrFromCfg
+    , cagePolicyIdFromCfg
+    , requestAddrFromCfg
+    )
 
 -- | Combined API with Swagger UI.
 type FullAPI = SwaggerAPI :<|> API
@@ -167,6 +178,7 @@ mkApp ctx =
             :<|> utxoRootHandler ctx
             :<|> txAwaitHandler ctx
             :<|> factsBootHandler ctx
+            :<|> factsEndHandler ctx
             :<|> txInsertHandler ctx
             :<|> txDeleteHandler ctx
             :<|> txUpdateValueHandler ctx
@@ -669,6 +681,102 @@ mkBootFacts snap inputs pparams =
                         )
                 }
         }
+
+-- | @POST \/facts\/end@. Reads snapshot, owner funding
+-- inputs, state UTxO, and the request-set completeness
+-- witness inside ONE indexer transaction, then returns
+-- facts for wallet-side end transaction construction.
+factsEndHandler
+    :: Context IO
+    -> EndRequest
+    -> Handler EndFacts
+factsEndHandler
+    ctx
+    EndRequest
+        { erToken = tokenId
+        , erAddr = addrHex
+        } = do
+        let tid = tokenIdFromJSON tokenId
+            cfg = cfgCage ctx
+            cageAddr = cageAddrFromCfg cfg (network cfg)
+            requestAddr = requestAddrFromCfg cfg tid (network cfg)
+            policyId = cagePolicyIdFromCfg cfg
+        addr <- requireAddr addrHex
+        (mSnap, funding, mStateUtxo, requestSet) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    ins <- readWalletInputsAt addr
+                    stateUtxo <-
+                        readStateUtxoAt
+                            cageAddr
+                            policyId
+                            tid
+                    reqSet <- readRequestSetAt requestAddr
+                    pure (snap, ins, stateUtxo, reqSet)
+        case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just snap -> do
+                stateUtxo <- case mStateUtxo of
+                    Nothing ->
+                        throwError
+                            err404
+                                { errBody =
+                                    "State UTxO not \
+                                    \found for token"
+                                }
+                    Just row -> pure row
+                if null funding
+                    then
+                        throwError
+                            err400
+                                { errBody =
+                                    "No wallet UTxOs \
+                                    \at address"
+                                }
+                    else case requestSet of
+                        ([], _) -> do
+                            pp <-
+                                liftIO
+                                    $ queryProtocolParams
+                                        (provider ctx)
+                            pure
+                                $ mkEndFacts
+                                    snap
+                                    tid
+                                    stateUtxo
+                                    funding
+                                    requestSet
+                                    pp
+                        (entries, _) ->
+                            throwError
+                                ServerError
+                                    { errHTTPCode = 409
+                                    , errReasonPhrase =
+                                        "Conflict"
+                                    , errBody =
+                                        "Cannot end token: \
+                                        \pending request \
+                                        \UTxOs exist at \
+                                        \the request \
+                                        \address"
+                                    , errHeaders =
+                                        [
+                                            ( "X-MPFS-Request-Set-Size"
+                                            , TE.encodeUtf8
+                                                $ T.pack
+                                                $ show
+                                                $ length entries
+                                            )
+                                        ]
+                                    }
 
 txInsertHandler
     :: Context IO

@@ -99,6 +99,7 @@ library
     Cardano.MPFS.HTTP.Server
     Cardano.MPFS.HTTP.Swagger
     Cardano.MPFS.HTTP.Types
+    Cardano.MPFS.HTTP.Types.Facts
     Cardano.MPFS.Indexer.Backend
     Cardano.MPFS.Indexer.CageFollower
     Cardano.MPFS.Indexer.Codecs
@@ -296,6 +297,7 @@ test-suite unit-tests
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
     Cardano.MPFS.HTTP.BootFactsSpec
+    Cardano.MPFS.HTTP.EndFactsSpec
     Cardano.MPFS.HTTP.RequestsSpec
     Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.HTTP.TokenSpec
