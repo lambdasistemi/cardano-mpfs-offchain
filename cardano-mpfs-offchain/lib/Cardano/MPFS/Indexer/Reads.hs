@@ -33,21 +33,38 @@ module Cardano.MPFS.Indexer.Reads
     , readCheckpoint
     , readMerkleRoot
     , readSnapshot
+    , readStateUtxoAt
+    , readRequestSetAt
     , readWalletInputsAt
+    , ResolvedUtxoSet
     ) where
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
+import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
 
-import Control.Lens (review)
-
-import Cardano.Ledger.Address (Addr, serialiseAddr)
-import Cardano.Ledger.Binary
-    ( decodeFull
-    , natVersion
+import Control.Lens
+    ( review
+    , (^.)
     )
 
+import Cardano.Ledger.Address (Addr, serialiseAddr)
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , valueTxOutL
+    )
+import Cardano.Ledger.Binary
+    ( DecoderError
+    , decodeFull
+    , natVersion
+    )
+import Cardano.Ledger.Mary.Value
+    ( MaryValue (..)
+    , MultiAsset (..)
+    )
+
+import CSMT.Core.CBOR (renderCompletenessProof)
 import CSMT.Core.Types (Indirect (..))
 import CSMT.Hashes
     ( generateInclusionProof
@@ -55,7 +72,11 @@ import CSMT.Hashes
     )
 import CSMT.Hashes.Types (Hash)
 import CSMT.Interface (FromKV (..))
-import CSMT.Proof.Completeness (collectValues)
+import CSMT.Proof.Completeness
+    ( CompletenessProof
+    , collectValues
+    , generateProof
+    )
 
 import Database.KV.Transaction
     ( mapColumns
@@ -82,13 +103,23 @@ import ChainFollower.Rollbacks.Types (RollbackPoint (..))
 
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , ConwayEra
+    , PolicyID
     , SlotNo (..)
+    , TokenId (..)
+    , TxIn
     )
 import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
     , ResolvedWalletInput
     )
+
+-- | Request-address UTxO set witness read from the indexer:
+-- each entry carries only @(TxIn, TxOut CBOR)@ because the
+-- enclosing completeness proof attests the whole address subtree.
+type ResolvedUtxoSet =
+    ([(TxIn, ByteString)], ByteString)
 
 -- | An action over the unified-columns database
 -- transaction. The @cf@ and @op@ existentials are
@@ -266,3 +297,98 @@ readWalletInputsAt addr =
                         , BSL.toStrict txOutBytes
                         , proofBytes
                         )
+
+-- | Read the current state UTxO for a token at the state
+-- validator address and return it with a CSMT inclusion proof.
+readStateUtxoAt
+    :: Addr
+    -> PolicyID
+    -> TokenId
+    -> IndexerTx (Maybe ResolvedWalletInput)
+readStateUtxoAt stateAddr policyId tid =
+    findState <$> readWalletInputsAt stateAddr
+  where
+    findState [] = Nothing
+    findState (row@(_, txOutBytes, _) : rest)
+        | carriesToken txOutBytes = Just row
+        | otherwise = findState rest
+    carriesToken txOutBytes =
+        case decodeTxOut txOutBytes of
+            Right txOut -> txOutCarriesToken policyId tid txOut
+            Left err ->
+                error
+                    $ "readStateUtxoAt: indexer KV column \
+                      \produced a state-address leaf whose \
+                      \value did not decode as a TxOut: "
+                        <> show err
+
+-- | Walk the UTxO-CSMT subtree at a request address and
+-- produce the enumerated UTxOs plus a production
+-- prefix-completeness proof for that exact subtree.
+readRequestSetAt :: Addr -> IndexerTx ResolvedUtxoSet
+readRequestSetAt addr =
+    IndexerTx
+        $ mapColumns InUtxo
+        $ do
+            let fkv = fromKV context
+                addrKey =
+                    hashAddressKey (serialiseAddr addr)
+            indirects <-
+                collectValues CSMTCol [] addrKey
+            entries <- traverse (loadOne fkv) indirects
+            mProof <- generateProof CSMTCol [] addrKey
+            let proofBytes = case mProof of
+                    Just proof ->
+                        renderCompletenessProof
+                            (proof :: CompletenessProof Hash)
+                    Nothing ->
+                        error
+                            "readRequestSetAt: indexer \
+                            \corruption — \
+                            \generateProof returned \
+                            \Nothing for request-address \
+                            \subtree"
+            pure (entries, proofBytes)
+  where
+    loadOne fkv Indirect{jump} = do
+        let lazyKey = review (isoK fkv) jump
+            txInDecoded =
+                case decodeFull
+                    (natVersion @11)
+                    lazyKey of
+                    Right t -> t
+                    Left e ->
+                        error
+                            $ "readRequestSetAt: \
+                              \indexer KV column \
+                              \produced a leaf whose \
+                              \key did not decode as \
+                              \a TxIn: "
+                                <> show e
+        mTxOut <- query KVCol lazyKey
+        case mTxOut of
+            Nothing ->
+                error
+                    $ "readRequestSetAt: indexer \
+                      \corruption — CSMT contains a \
+                      \leaf at this address whose KV \
+                      \column has no TxOut bytes \
+                      \(input: "
+                        <> show txInDecoded
+                        <> ")"
+            Just txOutBytes ->
+                pure (txInDecoded, BSL.toStrict txOutBytes)
+
+decodeTxOut
+    :: ByteString -> Either DecoderError (TxOut ConwayEra)
+decodeTxOut =
+    decodeFull (natVersion @11) . BSL.fromStrict
+
+txOutCarriesToken
+    :: PolicyID -> TokenId -> TxOut ConwayEra -> Bool
+txOutCarriesToken policyId (TokenId assetName) txOut =
+    case txOut ^. valueTxOutL of
+        MaryValue _ (MultiAsset ma) ->
+            case Map.lookup policyId ma of
+                Just assets -> Map.member assetName assets
+                Nothing -> False

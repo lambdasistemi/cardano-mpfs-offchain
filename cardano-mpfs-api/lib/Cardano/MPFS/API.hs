@@ -35,6 +35,7 @@ module Cardano.MPFS.API
 
       -- * Facts endpoints
     , FactsBootAPI
+    , FactsEndAPI
 
       -- * Transaction endpoints
     , TxInsertAPI
@@ -88,7 +89,10 @@ import Cardano.MPFS.API.Types
     , UpdateValueRequest
     )
 import Cardano.MPFS.API.Types.Common (TokenIdJSON)
-import Cardano.MPFS.API.Types.Facts (BootFacts)
+import Cardano.MPFS.API.Types.Facts
+    ( BootFacts
+    , EndFacts
+    )
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
@@ -184,6 +188,15 @@ type FactsBootAPI =
         :> "boot"
         :> ReqBody '[JSON] BootRequest
         :> Post '[JSON] BootFacts
+
+-- | @POST \/facts\/end@ — return indexed facts
+-- required by wallet-side end transaction
+-- construction.
+type FactsEndAPI =
+    "facts"
+        :> "end"
+        :> ReqBody '[JSON] EndRequest
+        :> Post '[JSON] EndFacts
 
 -- | @POST \/tx\/request\/insert@ — build an insert
 -- request transaction.
@@ -292,6 +305,7 @@ type API =
         :<|> UtxoRootAPI
         :<|> TxAwaitAPI
         :<|> FactsBootAPI
+        :<|> FactsEndAPI
         :<|> TxInsertAPI
         :<|> TxDeleteAPI
         :<|> TxRequestUpdateAPI

@@ -78,6 +78,41 @@
             ],
             "type": "object"
         },
+        "EndFacts": {
+            "description": "Facts-only end response. Carries state and wallet UTxO witnesses plus a request-set completeness proof, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_set": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "state_utxo",
+                "wallet_utxos",
+                "request_set",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
         "EndProofJSON": {
             "description": "Proof payload for POST /tx/end",
             "properties": {
@@ -878,6 +913,22 @@
             ],
             "type": "object"
         },
+        "UtxoEntryRefOnly": {
+            "description": "UTxO ref and CBOR body, without a per-entry inclusion proof. Used inside a UtxoSetWitness.",
+            "properties": {
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor"
+            ],
+            "type": "object"
+        },
         "UtxoRef": {
             "description": "UTxO reference",
             "properties": {
@@ -894,6 +945,25 @@
             "required": [
                 "tx_id",
                 "tx_ix"
+            ],
+            "type": "object"
+        },
+        "UtxoSetWitness": {
+            "description": "Enumerated UTxOs at a known script-hash prefix, with a single CSMT prefix-completeness proof attesting the set is exactly the leaves under that prefix.",
+            "properties": {
+                "completeness_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntryRefOnly"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "entries",
+                "completeness_proof"
             ],
             "type": "object"
         },
@@ -998,6 +1068,37 @@
                         "description": "",
                         "schema": {
                             "$ref": "#/definitions/BootFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/end": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/EndRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/EndFacts"
                         }
                     },
                     "400": {
