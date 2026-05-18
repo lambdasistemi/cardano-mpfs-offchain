@@ -15,7 +15,9 @@ module Cardano.MPFS.Client.Verify
     ( VerifyError (..)
     , verifyVerificationSnapshot
     , VerifiedBootFacts
+    , VerifiedEndFacts
     , verifyBootFacts
+    , verifyEndFacts
 
       -- * Per-endpoint verifiers
     , verifyBootTxResponse
@@ -51,7 +53,9 @@ import Cardano.MPFS.Client.Bundle
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedBootFacts
+    , VerifiedEndFacts
     , verifyBootFacts
+    , verifyEndFacts
     )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)

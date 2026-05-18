@@ -72,6 +72,7 @@ library
     Cardano.MPFS.Client.Cage.Boot
     Cardano.MPFS.Client.Cage.BuildError
     Cardano.MPFS.Client.Cage.Config
+    Cardano.MPFS.Client.Cage.Identity
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
@@ -144,6 +145,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.BootFactsSpec
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Cage.BootSpec
+    Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
     Cardano.MPFS.Client.SnapshotSpec

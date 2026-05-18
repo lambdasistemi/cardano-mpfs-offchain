@@ -50,9 +50,12 @@ module Cardano.MPFS.Client
     , UpdateProof (..)
     , BootTxResponse (..)
     , BootFacts (..)
+    , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
+    , VerifiedEndFacts
     , verifiedBootFacts
+    , verifiedEndFacts
     , RequestTxResponse (..)
     , RetractTxResponse (..)
     , RejectTxResponse (..)
@@ -63,6 +66,7 @@ module Cardano.MPFS.Client
     , VerifyError (..)
     , verifyVerificationSnapshot
     , verifyBootFacts
+    , verifyEndFacts
     , verifyBootTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -129,9 +133,12 @@ import Cardano.MPFS.Client.Bundle
     )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)
+    , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
+    , VerifiedEndFacts
     , verifiedBootFacts
+    , verifiedEndFacts
     )
 import Cardano.MPFS.Client.Http
     ( BaseUrl (..)
@@ -166,6 +173,7 @@ import Cardano.MPFS.Client.Verify
     ( VerifyError (..)
     , verifyBootFacts
     , verifyBootTxResponse
+    , verifyEndFacts
     , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse

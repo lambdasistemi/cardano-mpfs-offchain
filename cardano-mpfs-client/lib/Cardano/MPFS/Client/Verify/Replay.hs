@@ -16,6 +16,7 @@
 -- structural → binding → root.
 module Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
+    , encodeTxIn
     , replayWitnessedUtxo
     , replayUtxoEntry
     , replayTrieFact
