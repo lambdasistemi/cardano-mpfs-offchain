@@ -35,7 +35,8 @@ The constructor is not exported. `endCageTx` consumes `VerifiedEndFacts`.
 
 ## Request-Set Prefix
 
-The verifier derives:
+The verifier derives this through
+`Cardano.MPFS.Client.Cage.Identity`:
 
 ```text
 requestAddr = requestAddrFromCfg cageConfig token network
