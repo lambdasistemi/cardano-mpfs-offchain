@@ -11,9 +11,9 @@
 
 ## Phase 2: API type split
 
-- [ ] T005 RED: add a compile/import smoke proving new facts DTOs can be imported from `Cardano.MPFS.API.Types.Facts` without adding constructors to `Cardano.MPFS.API.Types`.
-- [ ] T006 GREEN: split common wire primitives into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Common.hs` and per-operation facts into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs`; keep `Cardano.MPFS.API.Types` as a temporary compatibility re-export.
-- [ ] T007 Wire the new API modules into `cardano-mpfs-api/cardano-mpfs-api.cabal` and update imports in server/client code opportunistically, without changing behavior.
+- [X] T005 (commit: 7c1091b) RED: add a compile/import smoke proving new facts DTOs can be imported from `Cardano.MPFS.API.Types.Facts` without adding constructors to `Cardano.MPFS.API.Types`.
+- [X] T006 (commit: 7c1091b) GREEN: split common wire primitives into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Common.hs` and per-operation facts into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs`; keep `Cardano.MPFS.API.Types` as a temporary compatibility re-export.
+- [X] T007 (commit: 7c1091b) Wire the new API modules into `cardano-mpfs-api/cardano-mpfs-api.cabal` and update imports in server/client code opportunistically, without changing behavior.
 
 ## Phase 3: End facts verifier
 
