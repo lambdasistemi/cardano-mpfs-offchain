@@ -41,4 +41,4 @@
 
 - [ ] T021 Extend `gate.sh` with stable end hard-swap and verifier source checks.
 - [ ] T022 Run focused tests and `./gate.sh`.
-- [ ] T023 Open/update draft PR for issue #268 with MOOG boundary status and verification evidence.
+- [X] T023 (MOOG PR #99, live transcript recorded) Open/update draft PR for issue #268 with MOOG boundary status and verification evidence.
