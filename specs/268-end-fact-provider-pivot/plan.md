@@ -6,7 +6,7 @@
 
 Ship the end slice of the fact-provider pivot. The server adds `POST /facts/end`, returning only proof-bearing facts for the token state UTxO, owner funding UTxOs, an empty per-cage request-set completeness witness, and unverified protocol parameters. The client verifies those facts against a trusted UTxO root and locally builds the burn transaction with `endCageTx`. The legacy server-built `POST /tx/end` path is removed.
 
-MOOG coordination follows the boot decision: this PR records boundary status and links the MPFS-v2 canary/replacement track; it does not require a production migration of the old MOOG caller.
+MOOG coordination follows the boot decision: this PR records boundary status and links the MPFS-v2 canary/replacement track; it does not make MOOG production migration part of this offchain PR.
 
 ## Technical Context
 

@@ -2,7 +2,7 @@
 
 ## Boot Decision Applied To End
 
-Boot issue #261 changed the MOOG boundary. The paired MOOG work is a boundary spike and canary track, not evidence that the old production requester/oracle/agent caller has been migrated. End issue #268 therefore records boundary status and links cardano-foundation/moog#96 instead of requiring a legacy MOOG caller migration.
+Boot issue #261 changed the MOOG boundary. The paired MOOG work is a boundary spike and canary track, not production migration evidence. End issue #268 therefore records boundary status and links cardano-foundation/moog#96 instead of making MOOG production migration part of this offchain PR.
 
 ## Completeness Proof
 
