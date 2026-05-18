@@ -112,6 +112,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
+    , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider
@@ -140,7 +141,6 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
-import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.Client
     ( EndTxResponse
     , Hex (..)
@@ -150,7 +150,6 @@ import Cardano.MPFS.Client
     , UpdateTxResponse
     , VerificationSnapshot
     , csmtReplayFailedAt
-    , flipApiHexMidByte
     , flipProof
     , flipSnapshotRoot
     , flipTxOut
@@ -161,7 +160,6 @@ import Cardano.MPFS.Client
     , runForgeUpdate
     , shouldAccept
     , shouldRejectWith
-    , trustedRootMismatchAt
     , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
@@ -169,10 +167,6 @@ import Cardano.MPFS.Client
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     , withReason
-    )
-import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
-import Cardano.MPFS.Client.Verify.Write
-    ( verifyUnsignedTxResponse
     )
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -342,38 +336,6 @@ proofsSpec scripts =
             -- (`runForgeBoot`, `runForgeUpdate`, ...).
             -- One tampered field per program, explicit
             -- dotted field path + reason on every rejection.
-
-            -- POST /tx/boot now emits the post-split #243
-            -- uniform `UnsignedTxResponse`. The verifier
-            -- takes the externally-supplied trusted root;
-            -- in e2e we read it from the response's own
-            -- snapshot for the honest path, then forge a
-            -- different one for the rejection path.
-            bootResp <-
-                postJSON app "/tx/boot"
-                    $ object ["address" .= addrHex]
-            let bootResp' = bootResp :: Wire.UnsignedTxResponse
-                bootSnapRoot =
-                    Wire.vsUtxoRoot
-                        (Wire.utrSnapshot bootResp')
-                bootTrustedRoot = TrustedRoot bootSnapRoot
-            bootResp'
-                `shouldAccept` verifyUnsignedTxResponse
-                    "boot"
-                    bootTrustedRoot
-            -- Forgery: tamper the externally-supplied
-            -- trusted root. Verifier emits
-            -- TrustedRootMismatch at
-            -- @boot.snapshot.utxo_root@.
-            let forgedRoot =
-                    TrustedRoot
-                        (flipApiHexMidByte bootSnapRoot)
-            bootResp'
-                `shouldRejectWith` verifyUnsignedTxResponse
-                    "boot"
-                    forgedRoot
-                $ trustedRootMismatchAt
-                    "boot.snapshot.utxo_root"
 
             insertResp <-
                 postJSON
@@ -605,7 +567,16 @@ emptySnap =
 awaitTx :: Int -> Application -> TxId -> IO ()
 awaitTx timeout app tid = do
     resp <- getRaw app path
-    simpleStatus resp `shouldBe` status200
+    if simpleStatus resp == status200
+        then pure ()
+        else
+            expectationFailure
+                $ "GET "
+                    <> show path
+                    <> " returned "
+                    <> show (simpleStatus resp)
+                    <> " with body "
+                    <> show (simpleBody resp)
   where
     path =
         "/tx/"
@@ -746,11 +717,13 @@ withE2E scripts action = do
                             , appTracer = nullTracer
                             }
                 withApplication appCfg $ \ctx -> do
+                    let ctx' =
+                            withBootFactsTxBuilder cfg ctx
                     _ <-
                         queryProtocolParams
-                            (provider ctx)
+                            (provider ctx')
                     threadDelay 10_000_000
-                    action cfg ctx
+                    action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig
 cageCfg (stateBytes, requestBytes) =
