@@ -19,13 +19,13 @@
 
 - [ ] T008 RED: add `EndFacts` JSON and `verifyEndFacts` tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/EndFactsSpec.hs`.
 - [ ] T009 GREEN: add `EndFacts` wire type in `Cardano.MPFS.API.Types.Facts`.
-- [ ] T010 GREEN: implement `VerifiedEndFacts`, `verifyEndFacts`, and request-set completeness replay in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, `Cardano/MPFS/Client/Verify.hs`, and `Cardano/MPFS/Client/Verify/Completeness.hs`.
+- [ ] T010 GREEN: implement `VerifiedEndFacts`, `verifyEndFacts`, request-set completeness replay, and the narrowly-scoped request-address helper needed by the verifier in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, `Cardano/MPFS/Client/Verify.hs`, `Cardano/MPFS/Client/Verify/Completeness.hs`, and `Cardano/MPFS/Client/Cage/Identity.hs`.
 - [ ] T011 Wire new modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
 
 ## Phase 4: End cage builder
 
 - [ ] T012 RED: add `endCageTx` focused tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs`.
-- [ ] T013 GREEN: add request-address helpers to a dedicated client cage identity module instead of growing `Cardano.MPFS.Client.Cage.Config`.
+- [ ] T013 GREEN: reuse the dedicated client cage identity helper when implementing `Cardano.MPFS.Client.Cage.End.endCageTx`; do not grow `Cardano.MPFS.Client.Cage.Config`.
 - [ ] T014 GREEN: implement `Cardano.MPFS.Client.Cage.End.endCageTx`.
 - [ ] T015 Wire the end cage module/test into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
 

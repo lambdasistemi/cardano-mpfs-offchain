@@ -35,15 +35,17 @@ MOOG coordination follows the boot decision: this PR records boundary status and
 1. Spec and task artifacts with corrected MOOG boundary language.
 2. Break the API package wire DTOs out of the monolithic `API.Types`
    surface before adding the end facts shape.
-3. Wire type, verifier, and request-set completeness primitive.
-4. Client-side `endCageTx` and focused builder tests.
+3. Wire type, verifier, request-address identity helper, and
+   request-set completeness primitive.
+4. Client-side `endCageTx` and focused builder tests that reuse the
+   identity helper.
 5. Server hard swap: `POST /facts/end`, indexer reads, route removal, Swagger.
 6. Gate extension, PR metadata, and final verification.
 
 ## Design Decisions
 
 - `EndFacts` carries the token id so `verifyEndFacts` and `endCageTx` are self-contained.
-- `verifyEndFacts` takes `CageConfig` because the request-set completeness prefix is locally derived from `(request validator bytes, state policy id, token id, network)`.
+- `verifyEndFacts` takes `CageConfig` because the request-set completeness prefix is locally derived from `(request validator bytes, state policy id, token id, network)` through a dedicated client cage identity helper.
 - End requires `request_set.entries == []`. A valid completeness proof over non-empty entries is still rejected for this operation.
 - `readStateUtxoAt` scans the state-validator address prefix in the UTxO CSMT and filters for the cage policy id plus token asset name.
 - `readRequestSetAt` generates a completeness proof for the per-cage request address prefix. It is used by the end handler to prove emptiness.
@@ -62,7 +64,7 @@ cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs
-cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Config.hs
+cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Identity.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/End.hs
 cardano-mpfs-client/test/Cardano/MPFS/Client/EndFactsSpec.hs
 cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs
