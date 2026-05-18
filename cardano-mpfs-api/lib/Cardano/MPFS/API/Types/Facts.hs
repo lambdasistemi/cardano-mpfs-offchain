@@ -11,6 +11,7 @@
 module Cardano.MPFS.API.Types.Facts
     ( -- * Facts responses
       BootFacts (..)
+    , EndFacts (..)
 
       -- * Common facts/proof primitives
     , ChainPointJSON (..)
@@ -115,3 +116,90 @@ instance ToSchema BootFacts where
                    \wallet UTxO witnesses and \
                    \unverified protocol parameters, \
                    \with no unsigned transaction CBOR."
+
+-- | Facts-only end response.
+--
+-- Carries the current token state UTxO, wallet funding UTxOs,
+-- and a request-set completeness witness. The verifier proves
+-- these facts against the trusted snapshot before a client-side
+-- transaction builder may consume them.
+data EndFacts = EndFacts
+    { efSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , efToken :: TokenIdJSON
+    -- ^ Cage token being ended.
+    , efStateUtxo :: UtxoEntry
+    -- ^ State UTxO with a CSMT inclusion proof.
+    , efWalletUtxos :: [UtxoEntry]
+    -- ^ Wallet UTxOs with CSMT inclusion proofs.
+    , efRequestSet :: UtxoSetWitness
+    -- ^ Request-address completeness witness.
+    , efProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON EndFacts where
+    toJSON EndFacts{..} =
+        object
+            [ "snapshot" .= efSnapshot
+            , "token" .= efToken
+            , "state_utxo" .= efStateUtxo
+            , "wallet_utxos" .= efWalletUtxos
+            , "request_set" .= efRequestSet
+            , "protocol_parameters" .= efProtocolParameters
+            ]
+
+instance FromJSON EndFacts where
+    parseJSON =
+        withObject "EndFacts" $ \o ->
+            EndFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "state_utxo"
+                <*> o .: "wallet_utxos"
+                <*> o .: "request_set"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema EndFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        stateSchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        walletSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        requestSetSchema <-
+            declareSchemaRef (Proxy @UtxoSetWitness)
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "EndFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("state_utxo", stateSchema)
+                    , ("wallet_utxos", walletSchema)
+                    , ("request_set", requestSetSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "state_utxo"
+                   , "wallet_utxos"
+                   , "request_set"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only end response. Carries state and \
+                   \wallet UTxO witnesses plus a request-set \
+                   \completeness proof, with no unsigned \
+                   \transaction CBOR."

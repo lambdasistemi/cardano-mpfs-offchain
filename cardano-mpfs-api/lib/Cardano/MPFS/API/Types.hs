@@ -37,6 +37,7 @@ module Cardano.MPFS.API.Types
     , UnsignedTxResponse (..)
     , UnverifiedPParams (..)
     , BootFacts (..)
+    , EndFacts (..)
 
       -- * Proof-bearing read responses
     , WitnessedTokenState (..)
@@ -110,7 +111,10 @@ import Cardano.MPFS.API.Types.Common
     , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     )
-import Cardano.MPFS.API.Types.Facts (BootFacts (..))
+import Cardano.MPFS.API.Types.Facts
+    ( BootFacts (..)
+    , EndFacts (..)
+    )
 
 -- | Response for @GET \/status@.
 data StatusResponse = StatusResponse
