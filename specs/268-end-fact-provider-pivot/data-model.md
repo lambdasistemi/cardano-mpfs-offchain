@@ -2,6 +2,10 @@
 
 ## EndFacts
 
+**Location**: `Cardano.MPFS.API.Types.Facts`. Do not add this record to
+the already-large `Cardano.MPFS.API.Types` module except through a
+temporary compatibility re-export.
+
 ```haskell
 data EndFacts = EndFacts
     { efSnapshot :: VerificationSnapshot

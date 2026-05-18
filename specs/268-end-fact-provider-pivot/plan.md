@@ -33,10 +33,12 @@ MOOG coordination follows the boot decision: this PR records boundary status and
 ## Work Breakdown
 
 1. Spec and task artifacts with corrected MOOG boundary language.
-2. Wire type, verifier, and request-set completeness primitive.
-3. Client-side `endCageTx` and focused builder tests.
-4. Server hard swap: `POST /facts/end`, indexer reads, route removal, Swagger.
-5. Gate extension, PR metadata, and final verification.
+2. Break the API package wire DTOs out of the monolithic `API.Types`
+   surface before adding the end facts shape.
+3. Wire type, verifier, and request-set completeness primitive.
+4. Client-side `endCageTx` and focused builder tests.
+5. Server hard swap: `POST /facts/end`, indexer reads, route removal, Swagger.
+6. Gate extension, PR metadata, and final verification.
 
 ## Design Decisions
 
@@ -45,12 +47,18 @@ MOOG coordination follows the boot decision: this PR records boundary status and
 - End requires `request_set.entries == []`. A valid completeness proof over non-empty entries is still rejected for this operation.
 - `readStateUtxoAt` scans the state-validator address prefix in the UTxO CSMT and filters for the cage policy id plus token asset name.
 - `readRequestSetAt` generates a completeness proof for the per-cage request address prefix. It is used by the end handler to prove emptiness.
+- New facts DTOs must not grow `Cardano.MPFS.API.Types`. The first
+  implementation slice splits shared primitives and per-operation facts
+  into smaller modules, with `API.Types` kept as a compatibility
+  re-export only if downstream imports require it.
 
 ## Files
 
 ```text
 cardano-mpfs-api/lib/Cardano/MPFS/API.hs
-cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs
+cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs              # compatibility only
+cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Common.hs
+cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify.hs
 cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs
@@ -60,7 +68,8 @@ cardano-mpfs-client/test/Cardano/MPFS/Client/EndFactsSpec.hs
 cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs
 cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Reads.hs
 cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs
-cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs
+cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types.hs        # compatibility only
+cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Types/Facts.hs
 cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs
 docs/assets/swagger.json
 gate.sh
