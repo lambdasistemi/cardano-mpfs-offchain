@@ -215,19 +215,23 @@ legacy boot tx verifier exports are unused.
 
 ## Phase 5: User Story 4 - Paired MOOG cutover is controlled (Priority: P2)
 
-**Goal**: The offchain PR remains draft until the paired MOOG boot PR is
-ready for the same release window.
+**Goal**: The offchain PR remains draft until the paired MOOG-v2
+boundary track records a canary-backed boot proof or an explicit
+replacement decision.
 
 **Independent Test**: PR metadata names the paired MOOG requirement, and
-the child completion record can list both merge SHAs and cutover window.
+the child completion record can list both merge SHAs and cutover window,
+or the recorded replacement decision.
 
 - [X] T020 (MOOG PR: cardano-foundation/moog#95, commit: 34a5851) [US4] Open or update paired `cardano-foundation/moog` boot PR that migrates boot from legacy tx response to facts verification plus local build/sign/submit
 - [X] T022 (PR #272 metadata updated with MOOG PR #95 evidence) [US4] Update PR #272 body with offchain verification evidence, paired MOOG PR link, and explicit non-claims for non-boot endpoints
-- [ ] T023 [US4] Keep PR #272 draft until the paired MOOG PR is ready and the release-window plan is recorded
+- [X] T029 (boundary issue: cardano-foundation/moog#96) [US4] Record the MOOG/MPFS-v2 boundary decision and migration track in `moog-boundaries.md`, PR metadata, and the paired MOOG issue
+- [ ] T023 [US4] Keep PR #272 draft until the paired MOOG-v2 boundary track has a canary-backed boot proof or an explicit replacement decision and release-window plan
 
 **Paired MOOG implementation notes**:
 
 - Paired MOOG draft PR: https://github.com/cardano-foundation/moog/pull/95
+- Paired MOOG boundary issue: https://github.com/cardano-foundation/moog/issues/96
 - Paired MOOG implementation commit:
   `34a5851 feat(mpfs): boot token from verified facts`.
 - MOOG local proof: focused
@@ -241,7 +245,9 @@ the child completion record can list both merge SHAs and cutover window.
 - MOOG code changes land in the MOOG PR, not in this offchain PR.
 - Remaining cross-repo non-claim: a live MOOG boot/sign/submit run
   against the paired offchain branch has not been performed from the
-  MOOG PR yet, and release-window coordination is not recorded.
+  MOOG PR yet, the old MOOG state-machine assumptions have not been
+  validated against the new validators, and release-window coordination
+  is not recorded.
 
 ---
 
@@ -253,7 +259,7 @@ for review.
 - [ ] T024 Run `./gate.sh` at HEAD and record the exact passing evidence in PR #272
 - [ ] T025 Confirm every closed task in this file is stamped `[X] T### (commit: <short-sha>)`
 - [ ] T026 Run the resolve-ticket finalization audit over commits on PR #272
-- [ ] T027 Drop `gate.sh` in the final `chore:` commit only after every task is complete and the paired MOOG readiness condition is satisfied
+- [ ] T027 Drop `gate.sh` in the final `chore:` commit only after every task is complete and the paired MOOG-v2 boundary condition is satisfied
 - [ ] T028 Mark PR #272 ready for external review
 
 ---
@@ -268,7 +274,7 @@ for review.
 4. Slice C blocks Slice D because the e2e proof needs the live
    `POST /facts/boot` endpoint.
 5. Swagger and grep gate tasks follow Slice C.
-6. Paired MOOG readiness blocks finalization.
+6. Paired MOOG-v2 boundary readiness blocks finalization.
 
 ## Parallel Opportunities
 
@@ -279,7 +285,8 @@ for review.
 - T010 route tests can be drafted while the server handler shape is
   inspected, but both close in one commit.
 - MOOG PR preparation can run after the offchain client contract is
-  stable, but final MOOG pinning waits for the offchain merge SHA.
+  stable, but final MOOG pinning waits for the canary-backed boundary
+  proof and the offchain merge SHA.
 
 ## Implementation Strategy
 
@@ -288,6 +295,6 @@ for review.
 3. Finish Slice C and review/stamp it.
 4. Extend `gate.sh` with stable grep/focused proof commands.
 5. Finish Slice D and review/stamp it.
-6. Prepare paired MOOG PR and keep both PRs draft until release-window
-   readiness is recorded.
+6. Prepare paired MOOG-v2 boundary proof and keep the offchain PR draft
+   until release-window readiness is recorded.
 7. Finalization audit, drop `gate.sh`, mark ready.

@@ -66,6 +66,14 @@ The offchain boot slice and the matching MOOG migration are prepared as a paired
 
 **Independent Test**: The offchain PR body names the paired MOOG requirement, and the child completion record lists the offchain and MOOG merge SHAs plus the cutover-window timestamps.
 
+**Boundary update, 2026-05-18**: The paired MOOG PR is now treated as a
+boundary spike, not production readiness evidence. The new MPFS on-chain
+validators change enough of the state-machine surface that the remaining
+cross-repo proof is tracked by
+https://github.com/cardano-foundation/moog/issues/96. This PR stays
+draft until that track produces a canary-backed boot proof or records an
+explicit MOOG-v2 replacement decision.
+
 **Acceptance Scenarios**:
 
 1. **Given** the offchain PR is ready for review, **When** reviewers inspect its metadata, **Then** it names issue #261, parent #257, and the paired MOOG migration requirement.
@@ -100,7 +108,7 @@ The offchain boot slice and the matching MOOG migration are prepared as a paired
 - **FR-014**: The implementation MUST capture the legacy boot transaction CBOR vector before deleting the legacy boot builder path.
 - **FR-015**: Tests MUST cover boot facts verification happy path, snapshot tamper, trusted-root mismatch, and proof tamper.
 - **FR-016**: End-to-end proof MUST exercise the real boot flow through `POST /facts/boot`, client verification, local build, signing, submission, on-chain acceptance, and indexing.
-- **FR-017**: The offchain PR MUST stay draft until the paired MOOG boot migration can land in the same release window.
+- **FR-017**: The offchain PR MUST stay draft until the paired MOOG-v2 boundary track produces a canary-backed boot proof or records an explicit replacement decision.
 
 ### Key Entities
 
@@ -120,7 +128,7 @@ The offchain boot slice and the matching MOOG migration are prepared as a paired
 - **SC-003**: Boot facts verifier tests pass for happy path, snapshot tamper, trusted-root mismatch, and proof tamper.
 - **SC-004**: Source search of the boot verifier surface finds zero transaction grammar imports.
 - **SC-005**: Source and Swagger searches find no live legacy boot transaction endpoint after the slice.
-- **SC-006**: The paired MOOG boot migration succeeds against the offchain slice before the slice is marked complete.
+- **SC-006**: The paired MOOG-v2 boundary track succeeds against the offchain slice before the slice is marked complete, or records an explicit decision to replace rather than port the old MOOG domain model.
 
 ## Assumptions
 
@@ -128,5 +136,7 @@ The offchain boot slice and the matching MOOG migration are prepared as a paired
 - The merged pivot artifacts in `specs/259-fact-provider-pivot/` are the architectural source for shared facts, verifier, cage-helper, and release-window contracts.
 - Existing indexer snapshot and wallet UTxO read primitives are sufficient for boot; no new state-UTxO or MPF fact read is required in this slice.
 - Protocol parameters are unverified by the server response; wallet policy caps are the mitigation for malicious or extreme values.
-- The paired MOOG PR is required for slice completion, but this repository's PR owns the offchain server, client library, docs, and verification assets.
+- The paired MOOG-v2 boundary track is required for slice completion,
+  but this repository's PR owns the offchain server, client library,
+  docs, and verification assets.
 - The boot slice does not close parent issue #257.
