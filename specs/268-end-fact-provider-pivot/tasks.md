@@ -9,30 +9,36 @@
 - [x] T003 Run baseline `./gate.sh` before edits.
 - [x] T004 Add issue #268 spec, plan, contracts, quickstart, checklist, and tasks artifacts.
 
-## Phase 2: End facts verifier
+## Phase 2: API type split
 
-- [ ] T005 RED: add `EndFacts` JSON and `verifyEndFacts` tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/EndFactsSpec.hs`.
-- [ ] T006 GREEN: add `EndFacts` wire type in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types.hs`.
-- [ ] T007 GREEN: implement `VerifiedEndFacts`, `verifyEndFacts`, and request-set completeness replay in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, `Cardano/MPFS/Client/Verify.hs`, and `Cardano/MPFS/Client/Verify/Completeness.hs`.
-- [ ] T008 Wire new modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
+- [ ] T005 RED: add a compile/import smoke proving new facts DTOs can be imported from `Cardano.MPFS.API.Types.Facts` without adding constructors to `Cardano.MPFS.API.Types`.
+- [ ] T006 GREEN: split common wire primitives into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Common.hs` and per-operation facts into `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs`; keep `Cardano.MPFS.API.Types` as a temporary compatibility re-export.
+- [ ] T007 Wire the new API modules into `cardano-mpfs-api/cardano-mpfs-api.cabal` and update imports in server/client code opportunistically, without changing behavior.
 
-## Phase 3: End cage builder
+## Phase 3: End facts verifier
 
-- [ ] T009 RED: add `endCageTx` focused tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs`.
-- [ ] T010 GREEN: add request-address helpers to `Cardano.MPFS.Client.Cage.Config`.
-- [ ] T011 GREEN: implement `Cardano.MPFS.Client.Cage.End.endCageTx`.
-- [ ] T012 Wire the end cage module/test into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
+- [ ] T008 RED: add `EndFacts` JSON and `verifyEndFacts` tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/EndFactsSpec.hs`.
+- [ ] T009 GREEN: add `EndFacts` wire type in `Cardano.MPFS.API.Types.Facts`.
+- [ ] T010 GREEN: implement `VerifiedEndFacts`, `verifyEndFacts`, and request-set completeness replay in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, `Cardano/MPFS/Client/Verify.hs`, and `Cardano/MPFS/Client/Verify/Completeness.hs`.
+- [ ] T011 Wire new modules/tests into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
 
-## Phase 4: Server hard swap
+## Phase 4: End cage builder
 
-- [ ] T013 RED: add `POST /facts/end` HTTP tests in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs`.
-- [ ] T014 GREEN: add end state and request-set `IndexerTx` reads in `Cardano.MPFS.Indexer.Reads`.
-- [ ] T015 GREEN: add `factsEndHandler` and `mkEndFacts` in `Cardano.MPFS.HTTP.Server` / `Types`.
-- [ ] T016 Remove `TxEndAPI`, `txEndHandler`, and the legacy end transaction route from API/server wiring.
-- [ ] T017 Regenerate `docs/assets/swagger.json`.
+- [ ] T012 RED: add `endCageTx` focused tests in `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/EndSpec.hs`.
+- [ ] T013 GREEN: add request-address helpers to a dedicated client cage identity module instead of growing `Cardano.MPFS.Client.Cage.Config`.
+- [ ] T014 GREEN: implement `Cardano.MPFS.Client.Cage.End.endCageTx`.
+- [ ] T015 Wire the end cage module/test into `cardano-mpfs-client/cardano-mpfs-client.cabal`.
 
-## Phase 5: Gate and PR
+## Phase 5: Server hard swap
 
-- [ ] T018 Extend `gate.sh` with stable end hard-swap and verifier source checks.
-- [ ] T019 Run focused tests and `./gate.sh`.
-- [ ] T020 Open/update draft PR for issue #268 with MOOG boundary status and verification evidence.
+- [ ] T016 RED: add `POST /facts/end` HTTP tests in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs`.
+- [ ] T017 GREEN: add end state and request-set `IndexerTx` reads in `Cardano.MPFS.Indexer.Reads`.
+- [ ] T018 GREEN: add `factsEndHandler` and `mkEndFacts` in `Cardano.MPFS.HTTP.Server` plus a focused facts conversion module; do not grow `Cardano.MPFS.HTTP.Types`.
+- [ ] T019 Remove `TxEndAPI`, `txEndHandler`, and the legacy end transaction route from API/server wiring.
+- [ ] T020 Regenerate `docs/assets/swagger.json`.
+
+## Phase 6: Gate and PR
+
+- [ ] T021 Extend `gate.sh` with stable end hard-swap and verifier source checks.
+- [ ] T022 Run focused tests and `./gate.sh`.
+- [ ] T023 Open/update draft PR for issue #268 with MOOG boundary status and verification evidence.
