@@ -35,9 +35,9 @@ The end verifier checks snapshot/root equality, state and funding CSMT inclusion
 
 ### User Story 4 - MOOG boundary status is recorded (Priority: P2)
 
-The boot slice established that paired MOOG work is not a normal legacy caller migration. MOOG PR #95 is boundary-spike evidence, and cardano-foundation/moog#96 owns the staged MPFS-v2 canary or replacement decision. This issue records the boundary status instead of requiring a legacy MOOG caller migration.
+The boot slice established that paired MOOG work is a boundary track. MOOG PR #95 is boundary-spike evidence, and cardano-foundation/moog#96 owns the staged MPFS-v2 canary or replacement decision. This issue records the boundary status instead of making MOOG production migration part of this offchain PR.
 
-**Independent Test**: Issue #268 and the PR body state the MOOG boundary status and do not claim a production old-MOOG requester/oracle/agent migration.
+**Independent Test**: Issue #268 and the PR body state the MOOG boundary status and do not claim MOOG production readiness.
 
 ## Requirements
 
@@ -52,7 +52,7 @@ The boot slice established that paired MOOG work is not a normal legacy caller m
 - **FR-009**: `verifyEndFacts` MUST reject trusted-root mismatch, malformed roots, state/funding CSMT proof failures, request-set completeness failures, and non-empty request sets.
 - **FR-010**: `endCageTx` MUST enforce `WalletPolicy` before returning a transaction for signing.
 - **FR-011**: `docs/assets/swagger.json` MUST document `POST /facts/end` and MUST NOT document `POST /tx/end`.
-- **FR-012**: The PR metadata MUST record the MOOG boundary status and MUST NOT require a legacy MOOG caller migration.
+- **FR-012**: The PR metadata MUST record the MOOG boundary status and MUST NOT make MOOG production migration part of this offchain PR.
 
 ## Key Entities
 
@@ -69,7 +69,7 @@ The boot slice established that paired MOOG work is not a normal legacy caller m
 - **SC-002**: `endCageTx` focused tests pass for burn shape, owner signer, wallet policy rejection, and non-placeholder script budgets.
 - **SC-003**: HTTP tests prove `POST /facts/end` exists, returns no tx CBOR, assembles facts atomically, and removes `POST /tx/end`.
 - **SC-004**: Swagger and gate searches enforce the hard swap.
-- **SC-005**: Issue and PR metadata record the MOOG-v2 boundary status without a legacy caller migration claim.
+- **SC-005**: Issue and PR metadata record the MOOG-v2 boundary status without a MOOG production-readiness claim.
 
 ## Assumptions
 
