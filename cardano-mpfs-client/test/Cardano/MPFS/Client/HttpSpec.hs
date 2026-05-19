@@ -44,7 +44,6 @@ import Cardano.MPFS.Client
     ( BaseUrl (..)
     , BootFactsParams (..)
     , ClientError (..)
-    , EndParams (..)
     , Hex (..)
     , MpfsHttp (..)
     , RejectParams (..)
@@ -57,7 +56,6 @@ import Cardano.MPFS.Client
     , VerifierMode (..)
     , VerifyError (..)
     , bootFacts
-    , endTx
     , rejectTx
     , requestDeleteTx
     , requestInsertTx
@@ -67,7 +65,6 @@ import Cardano.MPFS.Client
     )
 import Cardano.MPFS.Client.Fixtures
     ( honestBootTrustedRoot
-    , honestEndResponse
     , honestRejectResponse
     , honestRequestResponse
     , honestRetractResponse
@@ -234,11 +231,6 @@ writeEndpointCases =
         (Aeson.toJSON updateParams)
         (Aeson.encode honestUpdateResponse)
         (voidRight . (`updateTx` updateParams))
-    , EndpointCase
-        ["tx", "end"]
-        (Aeson.toJSON endParams)
-        (Aeson.encode honestEndResponse)
-        (voidRight . (`endTx` endParams))
     ]
 
 bootFactsParams :: BootFactsParams
@@ -283,9 +275,6 @@ rejectParams = RejectParams sampleToken sampleAddress
 
 updateParams :: UpdateParams
 updateParams = UpdateParams sampleToken sampleAddress
-
-endParams :: EndParams
-endParams = EndParams sampleToken sampleAddress
 
 sampleAddress
     , sampleToken

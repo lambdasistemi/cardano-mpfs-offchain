@@ -73,8 +73,7 @@ for non_boot_route in \
   TxRejectAPI \
   TxUpdateAPI \
   TxRetractAPI \
-  TxSweepAPI \
-  TxEndAPI
+  TxSweepAPI
 do
   check_present \
     "non-boot write route alias is missing: $non_boot_route" \
@@ -84,9 +83,32 @@ do
 done
 
 check_absent \
+  "legacy end tx API/server route returned" \
+  'TxEndAPI|txEndHandler|"tx" :> "end"' \
+  cardano-mpfs-api/lib/Cardano/MPFS/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs
+
+check_absent \
+  "legacy end tx Swagger route returned" \
+  '"/tx/end"' \
+  docs/assets/swagger.json
+
+check_present \
+  "facts end Swagger path is missing" \
+  '"/facts/end"' \
+  docs/assets/swagger.json
+
+check_absent \
   "boot facts verifier imports transaction grammar" \
   'Cardano\.Ledger\.Api\.Tx|TxView|verifyTxInputBinding|unsigned_tx_cbor|Tx ConwayEra' \
   cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs \
   cardano-mpfs-client/test/Cardano/MPFS/Client/BootFactsSpec.hs
+
+check_absent \
+  "end facts verifier imports transaction grammar" \
+  'Cardano\.Ledger\.Api\.Tx|TxView|verifyTxInputBinding|unsigned_tx_cbor|Tx ConwayEra' \
+  cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs \
+  cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs
 
 nix develop --quiet -c just ci

@@ -60,7 +60,7 @@ spec = describe "POST /facts/end" $ do
         resp <- postJson ctx "/facts/end" badEndRequest
         simpleStatus resp `shouldBe` status400
 
-    it "documents facts route while keeping legacy tx route"
+    it "documents facts route and drops legacy tx route"
         $ case eitherDecode renderSwaggerJSON of
             Right (Object swagger) ->
                 case KM.lookup "paths" swagger of
@@ -68,7 +68,7 @@ spec = describe "POST /facts/end" $ do
                         KM.member "/facts/end" paths
                             `shouldBe` True
                         KM.member "/tx/end" paths
-                            `shouldBe` True
+                            `shouldBe` False
                     _ ->
                         expectationFailure
                             "Swagger paths are not an object"

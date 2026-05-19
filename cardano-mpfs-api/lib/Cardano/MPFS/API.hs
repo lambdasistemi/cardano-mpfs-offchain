@@ -45,7 +45,6 @@ module Cardano.MPFS.API
     , TxUpdateAPI
     , TxRetractAPI
     , TxSweepAPI
-    , TxEndAPI
     , TxWriteAPI
     , TxSubmitAPI
     ) where
@@ -69,7 +68,6 @@ import Cardano.MPFS.API.Types
     ( BootRequest
     , DeleteRequest
     , EndRequest
-    , EndTxResponse
     , FactResponse
     , InsertRequest
     , ProofResponse
@@ -258,13 +256,6 @@ type TxSweepAPI =
         :> ReqBody '[JSON] SweepRequest
         :> Post '[JSON] SweepTxResponse
 
--- | @POST \/tx\/end@ — build an end transaction.
-type TxEndAPI =
-    "tx"
-        :> "end"
-        :> ReqBody '[JSON] EndRequest
-        :> Post '[JSON] EndTxResponse
-
 -- | MPFS write endpoints that construct unsigned
 -- transactions. This subset is used by native clients
 -- deriving a Servant client without depending on the
@@ -277,7 +268,6 @@ type TxWriteAPI =
         :<|> TxUpdateAPI
         :<|> TxRetractAPI
         :<|> TxSweepAPI
-        :<|> TxEndAPI
 
 -- | @POST \/tx\/submit@ — submit a signed
 -- transaction.
@@ -313,5 +303,4 @@ type API =
         :<|> TxUpdateAPI
         :<|> TxRetractAPI
         :<|> TxSweepAPI
-        :<|> TxEndAPI
         :<|> TxSubmitAPI

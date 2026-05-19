@@ -45,7 +45,6 @@ module Cardano.MPFS.HTTP.API
     , TxUpdateAPI
     , TxRetractAPI
     , TxSweepAPI
-    , TxEndAPI
     , TxWriteAPI
     , TxSubmitAPI
     ) where
@@ -72,7 +71,6 @@ import Cardano.MPFS.API
     , TokensAPI
     , TxAwaitAPI
     , TxDeleteAPI
-    , TxEndAPI
     , TxInsertAPI
     , TxRejectAPI
     , TxRequestUpdateAPI

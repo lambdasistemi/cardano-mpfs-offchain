@@ -87,7 +87,6 @@ import Cardano.MPFS.HTTP.Types
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
-    , EndTxResponse
     , FactResponse (..)
     , FactWitness (..)
     , InsertRequest (..)
@@ -113,7 +112,6 @@ import Cardano.MPFS.HTTP.Types
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
     , bundleSnapshotToJSON
-    , mkEndTxResponse
     , mkRejectTxResponse
     , mkRequestTxResponse
     , mkRetractTxResponse
@@ -186,7 +184,6 @@ mkApp ctx =
             :<|> txUpdateHandler ctx
             :<|> txRetractHandler ctx
             :<|> txSweepHandler ctx
-            :<|> txEndHandler ctx
             :<|> txSubmitHandler ctx
 
 -- ---------------------------------------------------------
@@ -947,28 +944,6 @@ txSweepHandler
                     txIn
                     addr
         pure (mkSweepTxResponse tx)
-
-txEndHandler
-    :: Context IO
-    -> EndRequest
-    -> Handler EndTxResponse
-txEndHandler
-    ctx
-    EndRequest
-        { erToken = tokenId
-        , erAddr = addrHex
-        } = do
-        let tid = tokenIdFromJSON tokenId
-        addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.endToken
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    addr
-        pure (mkEndTxResponse bundle)
 
 txSubmitHandler
     :: Context IO -> SubmitRequest -> Handler Hex
