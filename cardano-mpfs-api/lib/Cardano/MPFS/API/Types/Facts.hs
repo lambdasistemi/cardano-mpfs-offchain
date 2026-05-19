@@ -11,6 +11,7 @@
 module Cardano.MPFS.API.Types.Facts
     ( -- * Facts responses
       BootFacts (..)
+    , RequestInsertFacts (..)
     , EndFacts (..)
 
       -- * Common facts/proof primitives
@@ -44,6 +45,7 @@ import Data.Swagger
 import Data.Swagger qualified as Swagger
 import GHC.IsList (IsList (..))
 
+import Cardano.MPFS.API.Encoding (Hex)
 import Cardano.MPFS.API.Types.Common
     ( ChainPointJSON (..)
     , TokenIdJSON (..)
@@ -116,6 +118,106 @@ instance ToSchema BootFacts where
                    \wallet UTxO witnesses and \
                    \unverified protocol parameters, \
                    \with no unsigned transaction CBOR."
+
+-- | Facts-only request-insert response.
+--
+-- Carries the request payload, server-selected submission
+-- timestamp, wallet funding UTxOs, and protocol parameters. The
+-- verifier proves only the UTxO witnesses against the trusted
+-- snapshot; protocol parameters and timestamp remain wallet policy
+-- inputs for local transaction construction.
+data RequestInsertFacts = RequestInsertFacts
+    { rifSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , rifToken :: TokenIdJSON
+    -- ^ Cage token being modified.
+    , rifKey :: Hex
+    -- ^ Trie key to insert.
+    , rifValue :: Hex
+    -- ^ Trie value to insert.
+    , rifAddress :: Hex
+    -- ^ Serialized requester address.
+    , rifSubmittedAt :: Integer
+    -- ^ POSIXTime in milliseconds for the request datum.
+    , rifWalletUtxos :: [UtxoEntry]
+    -- ^ Wallet UTxOs with CSMT inclusion proofs.
+    , rifProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestInsertFacts where
+    toJSON RequestInsertFacts{..} =
+        object
+            [ "snapshot" .= rifSnapshot
+            , "token" .= rifToken
+            , "key" .= rifKey
+            , "value" .= rifValue
+            , "address" .= rifAddress
+            , "submitted_at" .= rifSubmittedAt
+            , "wallet_utxos" .= rifWalletUtxos
+            , "protocol_parameters" .= rifProtocolParameters
+            ]
+
+instance FromJSON RequestInsertFacts where
+    parseJSON =
+        withObject "RequestInsertFacts" $ \o ->
+            RequestInsertFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "key"
+                <*> o .: "value"
+                <*> o .: "address"
+                <*> o .: "submitted_at"
+                <*> o .: "wallet_utxos"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema RequestInsertFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        integerSchema <-
+            declareSchemaRef (Proxy @Integer)
+        walletSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "RequestInsertFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("key", hexSchema)
+                    , ("value", hexSchema)
+                    , ("address", hexSchema)
+                    , ("submitted_at", integerSchema)
+                    , ("wallet_utxos", walletSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "key"
+                   , "value"
+                   , "address"
+                   , "submitted_at"
+                   , "wallet_utxos"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only request-insert response. Carries \
+                   \request payload, submission timestamp, wallet \
+                   \UTxO witnesses, and unverified protocol \
+                   \parameters, with no unsigned transaction CBOR."
 
 -- | Facts-only end response.
 --

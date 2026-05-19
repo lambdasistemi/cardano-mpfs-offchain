@@ -301,6 +301,7 @@ test-suite unit-tests
     Cardano.MPFS.Generators
     Cardano.MPFS.HTTP.BootFactsSpec
     Cardano.MPFS.HTTP.EndFactsSpec
+    Cardano.MPFS.HTTP.RequestInsertFactsSpec
     Cardano.MPFS.HTTP.RequestsSpec
     Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.HTTP.TokenSpec

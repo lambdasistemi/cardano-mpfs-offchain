@@ -152,7 +152,6 @@ import Cardano.MPFS.Client
     ( EndFacts (..)
     , Hex (..)
     , RejectTxResponse (..)
-    , RequestTxResponse
     , RetractTxResponse
     , UpdateTxResponse
     , VerificationSnapshot (..)
@@ -162,14 +161,12 @@ import Cardano.MPFS.Client
     , flipSnapshotRoot
     , flipTxOut
     , runForgeReject
-    , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
     , shouldAccept
     , shouldRejectWith
     , verifyEndFacts
     , verifyRejectTxResponse
-    , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
@@ -346,27 +343,6 @@ proofsSpec scripts =
             -- (`runForgeBoot`, `runForgeUpdate`, ...).
             -- One tampered field per program, explicit
             -- dotted field path + reason on every rejection.
-
-            insertResp <-
-                postJSON
-                    app
-                    "/tx/request/insert"
-                    $ object
-                        [ "token" .= Hex (TE.decodeUtf8 tidHex)
-                        , "key" .= Hex (TE.decodeUtf8 (B16.encode "baz"))
-                        , "value"
-                            .= Hex (TE.decodeUtf8 (B16.encode "qux"))
-                        , "address" .= addrHex
-                        ]
-            (insertResp :: RequestTxResponse)
-                `shouldAccept` verifyRequestTxResponse
-            runForgeRequest
-                (flipTxOut "funding[0]")
-                insertResp
-                `shouldRejectWith` verifyRequestTxResponse
-                $ csmtReplayFailedAt
-                    "request.funding[0].utxo_proof"
-                    `withReason` "value binding mismatch"
 
             updateResp <-
                 postJSON app "/tx/update"

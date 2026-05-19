@@ -8,7 +8,8 @@
 -- Keeps facts-only response assembly out of the legacy
 -- @Cardano.MPFS.HTTP.Types@ compatibility surface.
 module Cardano.MPFS.HTTP.Types.Facts
-    ( mkEndFacts
+    ( mkRequestInsertFacts
+    , mkEndFacts
     ) where
 
 import Data.ByteString (ByteString)
@@ -29,7 +30,10 @@ import Cardano.MPFS.API.Types.Common
     , UtxoRef (..)
     , UtxoSetWitness (..)
     )
-import Cardano.MPFS.API.Types.Facts (EndFacts (..))
+import Cardano.MPFS.API.Types.Facts
+    ( EndFacts (..)
+    , RequestInsertFacts (..)
+    )
 import Cardano.MPFS.Core.Types
     ( ConwayEra
     , PParams
@@ -45,6 +49,42 @@ import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
     , ResolvedWalletInput
     )
+
+-- | Build the facts-only request-insert response from one
+-- atomic indexer snapshot, requester funding UTxOs, the
+-- request payload, a submission timestamp, and node protocol
+-- parameters.
+mkRequestInsertFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> Integer
+    -> [ResolvedWalletInput]
+    -> PParams ConwayEra
+    -> RequestInsertFacts
+mkRequestInsertFacts
+    snap
+    tid
+    key
+    value
+    address
+    submittedAt
+    walletUtxos
+    pparams =
+        RequestInsertFacts
+            { rifSnapshot = bundleSnapshotToJSON snap
+            , rifToken = tokenIdToJSON tid
+            , rifKey = Hex key
+            , rifValue = Hex value
+            , rifAddress = Hex address
+            , rifSubmittedAt = submittedAt
+            , rifWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , rifProtocolParameters =
+                pparamsToJSON pparams
+            }
 
 -- | Build the facts-only end response from one atomic
 -- indexer snapshot, the state UTxO, owner funding UTxOs,
@@ -67,16 +107,19 @@ mkEndFacts snap tid stateUtxo walletUtxos requestSet pparams =
         , efWalletUtxos =
             map resolvedWalletInputToUtxoEntry walletUtxos
         , efRequestSet = requestSetToJSON requestSet
-        , efProtocolParameters =
-            UnverifiedPParams
-                { uppVerified = False
-                , uppCbor =
-                    Hex
-                        ( serialize'
-                            (natVersion @11)
-                            pparams
-                        )
-                }
+        , efProtocolParameters = pparamsToJSON pparams
+        }
+
+pparamsToJSON :: PParams ConwayEra -> UnverifiedPParams
+pparamsToJSON pparams =
+    UnverifiedPParams
+        { uppVerified = False
+        , uppCbor =
+            Hex
+                ( serialize'
+                    (natVersion @11)
+                    pparams
+                )
         }
 
 requestSetToJSON :: ResolvedUtxoSet -> UtxoSetWitness

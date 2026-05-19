@@ -37,6 +37,7 @@ module Cardano.MPFS.API.Types
     , UnsignedTxResponse (..)
     , UnverifiedPParams (..)
     , BootFacts (..)
+    , RequestInsertFacts (..)
     , EndFacts (..)
 
       -- * Proof-bearing read responses
@@ -114,6 +115,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , RequestInsertFacts (..)
     )
 
 -- | Response for @GET \/status@.
@@ -542,7 +544,7 @@ instance FromJSON BootRequest where
     parseJSON = withObject "BootRequest" $ \o ->
         BootRequest <$> o .: "address"
 
--- | @POST \/tx\/request\/insert@ request body.
+-- | Request body for inserting a key-value pair.
 data InsertRequest = InsertRequest
     { irToken :: TokenIdJSON
     , irKey :: Hex

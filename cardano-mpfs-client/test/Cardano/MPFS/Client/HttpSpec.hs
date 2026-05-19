@@ -58,7 +58,7 @@ import Cardano.MPFS.Client
     , bootFacts
     , rejectTx
     , requestDeleteTx
-    , requestInsertTx
+    , requestInsertFacts
     , requestUpdateTx
     , retractTx
     , updateTx
@@ -202,10 +202,17 @@ writeEndpointCases =
                 (bootFacts http honestBootTrustedRoot bootFactsParams)
         )
     , EndpointCase
-        ["tx", "request", "insert"]
+        ["facts", "request", "insert"]
         (Aeson.toJSON insertParams)
-        (Aeson.encode honestRequestResponse)
-        (voidRight . (`requestInsertTx` insertParams))
+        (Aeson.encode honestRequestInsertFacts)
+        ( \http ->
+            voidRight
+                ( requestInsertFacts
+                    http
+                    honestBootTrustedRoot
+                    insertParams
+                )
+        )
     , EndpointCase
         ["tx", "request", "delete"]
         (Aeson.toJSON deleteParams)
@@ -244,6 +251,25 @@ honestBootFacts =
         , Wire.bfWalletUtxos =
             Wire.utrInputs honestUnsignedBootResponse
         , Wire.bfProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
+
+honestRequestInsertFacts :: Wire.RequestInsertFacts
+honestRequestInsertFacts =
+    Wire.RequestInsertFacts
+        { Wire.rifSnapshot =
+            Wire.utrSnapshot honestUnsignedBootResponse
+        , Wire.rifToken = Wire.TokenIdJSON "00"
+        , Wire.rifKey = Wire.Hex "11"
+        , Wire.rifValue = Wire.Hex "22"
+        , Wire.rifAddress = Wire.Hex "aabbcc"
+        , Wire.rifSubmittedAt = 1_700_000_000_000
+        , Wire.rifWalletUtxos =
+            Wire.utrInputs honestUnsignedBootResponse
+        , Wire.rifProtocolParameters =
             Wire.UnverifiedPParams
                 { Wire.uppVerified = False
                 , Wire.uppCbor = Wire.Hex "\x82\x01\x02"

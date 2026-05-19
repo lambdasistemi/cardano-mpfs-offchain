@@ -29,7 +29,7 @@ module Cardano.MPFS.Client
     , RejectParams (..)
     , UpdateParams (..)
     , bootFacts
-    , requestInsertTx
+    , requestInsertFacts
     , requestDeleteTx
     , requestUpdateTx
     , retractTx
@@ -48,11 +48,14 @@ module Cardano.MPFS.Client
     , UpdateProof (..)
     , BootTxResponse (..)
     , BootFacts (..)
+    , RequestInsertFacts (..)
     , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
+    , VerifiedRequestInsertFacts
     , VerifiedEndFacts
     , verifiedBootFacts
+    , verifiedRequestInsertFacts
     , verifiedEndFacts
     , RequestTxResponse (..)
     , RetractTxResponse (..)
@@ -64,6 +67,7 @@ module Cardano.MPFS.Client
     , VerifyError (..)
     , verifyVerificationSnapshot
     , verifyBootFacts
+    , verifyRequestInsertFacts
     , verifyEndFacts
     , verifyBootTxResponse
     , verifyRequestTxResponse
@@ -110,6 +114,13 @@ module Cardano.MPFS.Client
     , runForgeEnd
     , runForgeUpdate
     , runForgeUpdateTrie
+
+      -- * Local cage builders
+    , CageConfig (..)
+    , WalletPolicy (..)
+    , PolicyViolationDetail (..)
+    , BuildError (..)
+    , requestInsertCageTx
     ) where
 
 import Cardano.MPFS.Client.Bundle
@@ -129,14 +140,30 @@ import Cardano.MPFS.Client.Bundle
     , UpdateTxResponse (..)
     , WitnessedUtxo (..)
     )
+import Cardano.MPFS.Client.Cage.BuildError
+    ( BuildError (..)
+    )
+import Cardano.MPFS.Client.Cage.Config
+    ( CageConfig (..)
+    )
+import Cardano.MPFS.Client.Cage.Policy
+    ( PolicyViolationDetail (..)
+    , WalletPolicy (..)
+    )
+import Cardano.MPFS.Client.Cage.Request
+    ( requestInsertCageTx
+    )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , RequestInsertFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedEndFacts
+    , VerifiedRequestInsertFacts
     , verifiedBootFacts
     , verifiedEndFacts
+    , verifiedRequestInsertFacts
     )
 import Cardano.MPFS.Client.Http
     ( BaseUrl (..)
@@ -154,7 +181,7 @@ import Cardano.MPFS.Client.Http
     , bootFacts
     , rejectTx
     , requestDeleteTx
-    , requestInsertTx
+    , requestInsertFacts
     , requestUpdateTx
     , retractTx
     , updateTx
@@ -172,6 +199,7 @@ import Cardano.MPFS.Client.Verify
     , verifyEndFacts
     , verifyEndTxResponse
     , verifyRejectTxResponse
+    , verifyRequestInsertFacts
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse

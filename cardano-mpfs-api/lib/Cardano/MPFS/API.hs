@@ -35,10 +35,10 @@ module Cardano.MPFS.API
 
       -- * Facts endpoints
     , FactsBootAPI
+    , FactsRequestInsertAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
-    , TxInsertAPI
     , TxDeleteAPI
     , TxRequestUpdateAPI
     , TxRejectAPI
@@ -90,6 +90,7 @@ import Cardano.MPFS.API.Types.Common (TokenIdJSON)
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts
     , EndFacts
+    , RequestInsertFacts
     )
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
@@ -187,6 +188,16 @@ type FactsBootAPI =
         :> ReqBody '[JSON] BootRequest
         :> Post '[JSON] BootFacts
 
+-- | @POST \/facts\/request\/insert@ — return indexed facts
+-- required by wallet-side request-insert transaction
+-- construction.
+type FactsRequestInsertAPI =
+    "facts"
+        :> "request"
+        :> "insert"
+        :> ReqBody '[JSON] InsertRequest
+        :> Post '[JSON] RequestInsertFacts
+
 -- | @POST \/facts\/end@ — return indexed facts
 -- required by wallet-side end transaction
 -- construction.
@@ -195,15 +206,6 @@ type FactsEndAPI =
         :> "end"
         :> ReqBody '[JSON] EndRequest
         :> Post '[JSON] EndFacts
-
--- | @POST \/tx\/request\/insert@ — build an insert
--- request transaction.
-type TxInsertAPI =
-    "tx"
-        :> "request"
-        :> "insert"
-        :> ReqBody '[JSON] InsertRequest
-        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/request\/delete@ — build a delete
 -- request transaction.
@@ -261,8 +263,7 @@ type TxSweepAPI =
 -- deriving a Servant client without depending on the
 -- server package.
 type TxWriteAPI =
-    TxInsertAPI
-        :<|> TxDeleteAPI
+    TxDeleteAPI
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI
@@ -295,8 +296,8 @@ type API =
         :<|> UtxoRootAPI
         :<|> TxAwaitAPI
         :<|> FactsBootAPI
+        :<|> FactsRequestInsertAPI
         :<|> FactsEndAPI
-        :<|> TxInsertAPI
         :<|> TxDeleteAPI
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI

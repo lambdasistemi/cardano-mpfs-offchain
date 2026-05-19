@@ -16,6 +16,7 @@ import Cardano.MPFS.Trie.PureManager
 import Cardano.MPFS.BalanceSpec qualified as BalanceSpec
 import Cardano.MPFS.HTTP.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.HTTP.EndFactsSpec qualified as EndFactsSpec
+import Cardano.MPFS.HTTP.RequestInsertFactsSpec qualified as RequestInsertFactsSpec
 import Cardano.MPFS.HTTP.RequestsSpec qualified as RequestsSpec
 import Cardano.MPFS.HTTP.StatusSpec qualified as StatusSpec
 import Cardano.MPFS.HTTP.TokenSpec qualified as TokenSpec
@@ -69,6 +70,7 @@ main =
                 UnifiedSpec.spec
                 RollbackSpec.spec
                 BootFactsSpec.spec
+                RequestInsertFactsSpec.spec
                 EndFactsSpec.spec
                 RequestsSpec.spec
                 StatusSpec.spec

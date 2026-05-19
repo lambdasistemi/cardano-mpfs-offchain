@@ -414,6 +414,49 @@
             ],
             "type": "object"
         },
+        "RequestInsertFacts": {
+            "description": "Facts-only request-insert response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "key",
+                "value",
+                "address",
+                "submitted_at",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
         "RequestJSON": {
             "description": "Pending request",
             "properties": {
@@ -1068,6 +1111,37 @@
                 }
             }
         },
+        "/facts/request/insert": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/InsertRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestInsertFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/metrics": {
             "get": {
                 "produces": [
@@ -1316,37 +1390,6 @@
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/DeleteRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/RequestTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
-                    }
-                }
-            }
-        },
-        "/tx/request/insert": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/InsertRequest"
                         }
                     }
                 ],

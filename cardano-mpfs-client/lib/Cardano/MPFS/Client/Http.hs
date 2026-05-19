@@ -27,7 +27,7 @@ module Cardano.MPFS.Client.Http
 
       -- * Write endpoints
     , bootFacts
-    , requestInsertTx
+    , requestInsertFacts
     , requestDeleteTx
     , requestUpdateTx
     , retractTx
@@ -69,6 +69,7 @@ import Servant.Client.Core.Response
 
 import Cardano.MPFS.API
     ( FactsBootAPI
+    , FactsRequestInsertAPI
     , TxWriteAPI
     )
 import Cardano.MPFS.API.Types qualified as Wire
@@ -85,6 +86,7 @@ import Cardano.MPFS.Client.Verify
     ( VerifyError
     , verifyBootFacts
     , verifyRejectTxResponse
+    , verifyRequestInsertFacts
     , verifyRequestTxResponse
     , verifyRetractTxResponse
     , verifyUpdateTxResponse
@@ -123,7 +125,7 @@ instance ToJSON BootFactsParams where
     toJSON BootFactsParams{..} =
         object ["address" .= bootFactsAddress]
 
--- | @POST /tx/request/insert@ request body.
+-- | @POST /facts/request/insert@ request body.
 data RequestInsertParams = RequestInsertParams
     { requestInsertToken :: Hex
     , requestInsertKey :: Hex
@@ -237,13 +239,19 @@ bootFacts http trustedRoot params =
         factsBootClient
         (verifyBootFacts trustedRoot)
 
--- | Build an insert-request transaction.
-requestInsertTx
+-- | Fetch request-insert facts and verify the bundled wallet UTxO
+-- witnesses against the externally-trusted CSMT root.
+requestInsertFacts
     :: MpfsHttp
+    -> TrustedRoot
     -> RequestInsertParams
-    -> IO (Either ClientError RequestTxResponse)
-requestInsertTx http params =
-    runWriteEndpoint http params txInsertClient verifyRequestTxResponse
+    -> IO (Either ClientError FactsWire.RequestInsertFacts)
+requestInsertFacts http trustedRoot params =
+    runWriteEndpoint
+        http
+        params
+        factsRequestInsertClient
+        (verifyRequestInsertFacts trustedRoot)
 
 -- | Build a delete-request transaction.
 requestDeleteTx
@@ -353,8 +361,8 @@ fromServantError err =
 
 factsBootClient
     :: Wire.BootRequest -> ClientM FactsWire.BootFacts
-txInsertClient
-    :: Wire.InsertRequest -> ClientM Wire.RequestTxResponse
+factsRequestInsertClient
+    :: Wire.InsertRequest -> ClientM FactsWire.RequestInsertFacts
 txDeleteClient
     :: Wire.DeleteRequest -> ClientM Wire.RequestTxResponse
 txRequestUpdateClient
@@ -370,8 +378,10 @@ txSweepClient
 factsBootClient =
     client (Proxy :: Proxy FactsBootAPI)
 
-txInsertClient
-    :<|> txDeleteClient
+factsRequestInsertClient =
+    client (Proxy :: Proxy FactsRequestInsertAPI)
+
+txDeleteClient
     :<|> txRequestUpdateClient
     :<|> txRejectClient
     :<|> txUpdateClient
