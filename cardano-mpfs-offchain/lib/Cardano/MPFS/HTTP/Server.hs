@@ -14,6 +14,7 @@ module Cardano.MPFS.HTTP.Server
     ( -- * Application
       mkApp
     , mkBootFacts
+    , mkRequestInsertFacts
     , mkEndFacts
     ) where
 
@@ -62,7 +63,10 @@ import Cardano.Ledger.TxIn
     , mkTxInPartial
     )
 
-import Cardano.MPFS.API.Types.Facts (EndFacts)
+import Cardano.MPFS.API.Types.Facts
+    ( EndFacts
+    , RequestInsertFacts
+    )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( Addr
@@ -125,7 +129,10 @@ import Cardano.MPFS.HTTP.Types
     , tokenStateToJSON
     , txInToJSON
     )
-import Cardano.MPFS.HTTP.Types.Facts (mkEndFacts)
+import Cardano.MPFS.HTTP.Types.Facts
+    ( mkEndFacts
+    , mkRequestInsertFacts
+    )
 import Cardano.MPFS.Indexer.Reads
     ( readRequestSetAt
     , readSnapshot
@@ -151,6 +158,7 @@ import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
     , cagePolicyIdFromCfg
+    , currentPosixMs
     , requestAddrFromCfg
     )
 
@@ -176,8 +184,8 @@ mkApp ctx =
             :<|> utxoRootHandler ctx
             :<|> txAwaitHandler ctx
             :<|> factsBootHandler ctx
+            :<|> factsRequestInsertHandler ctx
             :<|> factsEndHandler ctx
-            :<|> txInsertHandler ctx
             :<|> txDeleteHandler ctx
             :<|> txUpdateValueHandler ctx
             :<|> txRejectHandler ctx
@@ -679,6 +687,64 @@ mkBootFacts snap inputs pparams =
                 }
         }
 
+-- | @POST \/facts\/request\/insert@. Reads snapshot and wallet
+-- inputs at the requester address inside ONE indexer transaction,
+-- then returns facts for wallet-side request transaction
+-- construction.
+factsRequestInsertHandler
+    :: Context IO
+    -> InsertRequest
+    -> Handler RequestInsertFacts
+factsRequestInsertHandler
+    ctx
+    InsertRequest
+        { irToken = tokenId
+        , irKey = Hex k
+        , irValue = Hex v
+        , irAddr = addrHex@(Hex addrBytes)
+        } = do
+        let tid = tokenIdFromJSON tokenId
+        addr <- requireAddr addrHex
+        (mSnap, inputs) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    ins <- readWalletInputsAt addr
+                    pure (snap, ins)
+        case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just snap
+                | null inputs ->
+                    throwError
+                        err400
+                            { errBody =
+                                "No wallet UTxOs \
+                                \at address"
+                            }
+                | otherwise -> do
+                    pp <-
+                        liftIO
+                            $ queryProtocolParams
+                                (provider ctx)
+                    submittedAt <- liftIO currentPosixMs
+                    pure
+                        $ mkRequestInsertFacts
+                            snap
+                            tid
+                            k
+                            v
+                            addrBytes
+                            submittedAt
+                            inputs
+                            pp
+
 -- | @POST \/facts\/end@. Reads snapshot, owner funding
 -- inputs, state UTxO, and the request-set completeness
 -- witness inside ONE indexer transaction, then returns
@@ -774,32 +840,6 @@ factsEndHandler
                                             )
                                         ]
                                     }
-
-txInsertHandler
-    :: Context IO
-    -> InsertRequest
-    -> Handler RequestTxResponse
-txInsertHandler
-    ctx
-    InsertRequest
-        { irToken = tokenId
-        , irKey = Hex k
-        , irValue = Hex v
-        , irAddr = addrHex
-        } = do
-        let tid = tokenIdFromJSON tokenId
-        addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.requestInsert
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    k
-                    v
-                    addr
-        pure (mkRequestTxResponse bundle)
 
 txDeleteHandler
     :: Context IO

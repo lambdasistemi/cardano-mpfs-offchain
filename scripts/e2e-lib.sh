@@ -24,7 +24,7 @@ log() { echo "=== $*" >&2; }
 step() { echo "--- $*" >&2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# Call the MPFS API. Usage: api POST /tx/request/insert '{"json":"body"}'
+# Call the MPFS API. Usage: api GET /status
 api() {
     local method="$1" path="$2"
     shift 2

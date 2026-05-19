@@ -67,7 +67,6 @@ do
 done
 
 for non_boot_route in \
-  TxInsertAPI \
   TxDeleteAPI \
   TxRequestUpdateAPI \
   TxRejectAPI \

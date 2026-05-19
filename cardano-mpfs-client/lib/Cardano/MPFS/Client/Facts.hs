@@ -6,13 +6,17 @@
 -- post-verification witness returned by facts-only verifiers.
 module Cardano.MPFS.Client.Facts
     ( BootFacts (..)
+    , RequestInsertFacts (..)
     , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
+    , VerifiedRequestInsertFacts
     , VerifiedEndFacts
     , verifiedBootFacts
+    , verifiedRequestInsertFacts
     , verifiedEndFacts
     , verifyBootFacts
+    , verifyRequestInsertFacts
     , verifyEndFacts
     ) where
 
@@ -29,6 +33,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , RequestInsertFacts (..)
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig
@@ -53,6 +58,12 @@ import Cardano.MPFS.Client.Verify.Replay
 newtype VerifiedBootFacts = VerifiedBootFacts BootFacts
     deriving stock (Eq, Show)
 
+-- | Opaque witness that request-insert facts have been checked
+-- against the caller-supplied trusted root.
+newtype VerifiedRequestInsertFacts
+    = VerifiedRequestInsertFacts RequestInsertFacts
+    deriving stock (Eq, Show)
+
 -- | Opaque witness that end facts have been checked against the
 -- caller-supplied trusted root and locally-derived request prefix.
 newtype VerifiedEndFacts = VerifiedEndFacts EndFacts
@@ -62,6 +73,13 @@ newtype VerifiedEndFacts = VerifiedEndFacts EndFacts
 -- established the trusted-root and CSMT proof checks.
 verifiedBootFacts :: VerifiedBootFacts -> BootFacts
 verifiedBootFacts (VerifiedBootFacts facts) = facts
+
+-- | Extract the verified facts after 'verifyRequestInsertFacts'
+-- has established the trusted-root and CSMT proof checks.
+verifiedRequestInsertFacts
+    :: VerifiedRequestInsertFacts -> RequestInsertFacts
+verifiedRequestInsertFacts (VerifiedRequestInsertFacts facts) =
+    facts
 
 -- | Extract the verified facts after 'verifyEndFacts' has
 -- established the trusted-root, inclusion proof, and
@@ -97,6 +115,42 @@ verifyBootFacts
                 ( \(ix, entry) ->
                     replayUtxoEntry
                         ( "boot.wallet_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+
+-- | Verify a facts-only request-insert response against an
+-- externally-supplied trusted UTxO-CSMT root.
+verifyRequestInsertFacts
+    :: TrustedRoot
+    -> RequestInsertFacts
+    -> Either VerifyError VerifiedRequestInsertFacts
+verifyRequestInsertFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@RequestInsertFacts{..} = do
+        checkLength "request_insert.trusted_root" trustedBs
+        let snapshotPath = "request_insert.snapshot.utxo_root"
+            Hex snapshotBs = vsUtxoRoot rifSnapshot
+        checkLength snapshotPath snapshotBs
+        if snapshotBs == trustedBs
+            then Right ()
+            else Left (TrustedRootMismatch snapshotPath)
+        replayWalletUtxos trustedBs rifWalletUtxos
+        Right (VerifiedRequestInsertFacts facts)
+      where
+        checkLength field bs
+            | BS.length bs == 32 = Right ()
+            | otherwise =
+                Left (WrongHexLength field 32 (BS.length bs))
+        replayWalletUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "request_insert.wallet_utxos["
                             <> T.pack (show (ix :: Int))
                             <> "]"
                         )
