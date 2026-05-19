@@ -7,4 +7,4 @@
 - [x] T005 Remove legacy `POST /tx/request/insert` from shared API, offchain server, client wrapper, and tests while preserving delete/update request routes.
 - [x] T006 Regenerate Swagger and prove `/facts/request/insert` exists while `/tx/request/insert` is absent.
 - [x] T007 Record MOOG boundary status for request-insert in issue #264 and parent epic #257.
-- [ ] T008 Run `./gate.sh`, review the branch, then drop `gate.sh` only at final ready-for-review time.
+- [x] T008 Run `./gate.sh`, review the branch, then drop `gate.sh` only at final ready-for-review time.
