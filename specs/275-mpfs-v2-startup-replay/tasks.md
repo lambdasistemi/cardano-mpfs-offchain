@@ -19,7 +19,11 @@ The single implementation slice folds RED proof, GREEN implementation, and gate 
 These are orchestrator-owned and do **not** need subagent dispatch.
 
 - [ ] **T020** — Extend `gate.sh` with the slice-1 checks listed in `plan.md` ("Gate.sh extensions"). Commit: `chore(gate): assert phase events + /ready route + no startup armageddon`.
-- [ ] **T030** — Update the PR description with the 2026-05-19 production evidence (FR-009) and the `autoheal` non-substitution (FR-010). No code change.
+- [ ] **T030** — Update the PR description with the 2026-05-19 production evidence (FR-009) and the `autoheal` non-substitution (FR-010). No code change. The evidence section MUST quote all three timestamps explicitly and tie each to the contract clause it would have violated:
+  - `13:56:28.599Z` — first boot, no replay, follower started from origin and never reached the stability window in the 15-min window before SIGTERM. **Maps to FR-002 + FR-005**: the boundary events for restoration→replay→following were never observable because the run terminated before any boundary fired. With the fix, readiness would have stayed `NotReady` for the whole 15 minutes, surfacing the catch-up state honestly instead of letting `/status` look healthy.
+  - `14:11:04Z` — post-SIGKILL boot, replay ran for ~10 min (`remaining=1307033`), then `Serving on`. **Maps to FR-003**: readiness was effectively the existence of `Serving on`, which the operator could not poll without log access. With the fix, an HTTP probe on `/ready` returns 503 for the full 10-min window, so external automation cannot mark the service healthy mid-replay.
+  - `14:33:37Z` — post-clean-restart boot, no `replay_start` lines, `/status` returned `checkpoint_slot=3715222` while tip was `123518063`. **Maps to FR-005 + FR-011**: the recovery decision ("no journal to replay, but rollback-history is stale") was silent in the log stream, `/status` reported the stale checkpoint as if healthy, and the fix-shape contract requires a `TraceReady` event AND a `/ready` 200 only after the decision is recorded. Crucially, the fix must NOT respond by going armageddon — it must reconcile or fail closed.
+  - The non-goal section MUST name `autoheal=true` on `/mpfs-v2` as out of scope as a substitute for the readiness/recovery contract.
 - [ ] **T040** — Drop `gate.sh` in a final commit. `git rm gate.sh && git commit -m "chore: drop gate.sh"`. Then `gh pr ready`.
 
 ## Subagent Brief — Slice 1

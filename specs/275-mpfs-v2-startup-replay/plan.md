@@ -30,9 +30,7 @@ Options considered:
 - **B. `/status` returns 503 during recovery, 200 once ready.** Matches operator mental model (the 2026-05-19 incident was caused by `/status` 200 lying). But breaks any external client that assumes `/status` is always 200 — including the existing `BootFactsSpec.waitForTrustedRoot` polling helper that asserts `status200`.
 - **C. Typed `ready: bool` field on `/status` payload.** Backwards-compatible at HTTP-status level; but useless for probes that only read the status code.
 
-**Recommendation: A + C combined.** Introduce `GET /ready` (200 / 503) for HTTP-level probes, and add `ready :: Bool` to `StatusResponse`. `/status` keeps returning 200; existing tests/clients unaffected. The contract gate uses `/ready`; the operator UX uses `/status`.
-
-Open question for plan review: do we *also* want `/status` to return 503 during recovery (B + C)? That would be more conservative but requires updating `BootFactsSpec.waitForTrustedRoot` and any external client that asserts `/status` 200. Default in this plan: **no**, keep `/status` always 200, use `/ready` for the gate.
+**Decision: A + C combined.** Introduce `GET /ready` (200 / 503) for HTTP-level probes, and add `ready :: Bool` to `StatusResponse`. `/status` keeps returning 200; existing tests/clients (including `BootFactsSpec.waitForTrustedRoot`) unaffected. The contract gate uses `/ready`; the operator UX uses `/status`.
 
 ### New `AppTrace` events
 
@@ -40,7 +38,7 @@ Add three variants to `Cardano.MPFS.Trace.AppTrace`:
 
 - `TraceRunner RunnerEvent` — lifts the upstream `ChainFollower.Runner.RunnerEvent slot` (`BlockRestored`, `BlockFollowed`, `PhaseTransition`) into `AppTrace`. JSON tags: `runner_block_restored`, `runner_block_followed`, `runner_phase_transition`. This is the load-bearing event; the readiness state machine listens to `PhaseTransition`.
 - `TraceStartupClassification { isFresh :: Bool, initialRollbackCount :: Int }` — emitted once in `withApplication` after the `initialCount` is computed, before phase 1 begins. JSON: `{ "event": "startup_classification", "fresh_db": …, "initial_rollback_count": … }`.
-- `TraceReady` — emitted when the readiness TVar flips to `Ready`. JSON: `{ "event": "ready" }`. Operator and test can scan for this single event to know recovery is done.
+- `TraceReady` — emitted when the readiness TVar flips to `Ready`. JSON: `{ "event": "ready" }`. Operator and test can scan for this single event to know recovery is done. This event is the single observable "recovery decision recorded" marker required by spec FR-005: it fires after a `PhaseTransition` on the long restoration path AND after the synchronous `toFollowing` returns on the persistent-DB `initialCount > 0` path (no-op-recovery shape).
 
 Existing events (`TraceArmageddon`, `TraceReplay ReplayStart`/`ReplayStop`, `TraceBlock`, `TraceBlockReceived`, `TraceChainTip`, `TraceSkipProgress`) stay unchanged.
 
@@ -140,9 +138,11 @@ After slice 1 lands, `gate.sh` is extended with:
 - `check_present "TraceRunner JSON tag missing" '"runner_phase_transition"' cardano-mpfs-offchain/lib/Cardano/MPFS/Trace.hs`
 - `check_present "/ready route missing" '"/ready"' docs/assets/swagger.json`
 - `check_present "ready field missing on StatusResponse" '"ready"' docs/assets/swagger.json`
-- `check_absent "armageddon called from startup-recovery code path" 'armageddonCleanup|setup ' cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs`
-
-(Last check is a guard against accidentally calling armageddon from the recovery branch added by this PR. The existing call at line 386 — "isNothing rollback initial entry" — is left alone; the gate's pattern is narrow enough to flag a new call site.)
+- A **count assertion** on `setup` calls in `Application.hs`: today there are exactly **two** (line 386 empty-rollbacks bootstrap, line 493 `csmtArmageddon` passed into the chain follower). Gate shape:
+  ```bash
+  test "$(grep -cE '^[[:space:]]+\$?[[:space:]]*setup$' cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs)" = 2
+  ```
+  This catches an accidental third call site introduced by this PR. Both existing call sites are line-broken (`$ setup\n…` and `let csmtArmageddon = setup\n…`); a substring pattern with a trailing space would miss them, so the count form is the robust one. Verified against current `main` (`ffc8dfe`).
 
 ## Live-boundary smoke
 
