@@ -62,6 +62,7 @@ library
     , contra-tracer
     , contra-tracer-contrib
     , dependent-map
+    , http-types
     , lens
     , microlens
     , mts
@@ -290,6 +291,7 @@ test-suite unit-tests
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
     , rocksdb-kv-transactions:kv-transactions
+    , stm
     , temporary
     , text
     , vector
@@ -333,6 +335,7 @@ test-suite e2e-tests
   main-is:          main.hs
   build-depends:
     , aeson
+    , async
     , base
     , base16-bytestring
     , bytestring
@@ -375,4 +378,7 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.IndexerSpec
     Cardano.MPFS.E2E.ProofsSpec
     Cardano.MPFS.E2E.ProviderSpec
+    Cardano.MPFS.E2E.StartupReadinessSpec
     Cardano.MPFS.E2E.SubmitterSpec
+
+  ghc-options:      -threaded -with-rtsopts=-N

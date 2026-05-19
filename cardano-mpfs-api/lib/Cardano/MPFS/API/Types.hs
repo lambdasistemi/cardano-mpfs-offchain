@@ -14,6 +14,9 @@ module Cardano.MPFS.API.Types
     ( -- * Status
       StatusResponse (..)
 
+      -- * Readiness probe (#275)
+    , ReadyResponse (..)
+
       -- * Proof-bearing snapshot
     , ChainPointJSON (..)
     , VerificationSnapshot (..)
@@ -134,6 +137,14 @@ data StatusResponse = StatusResponse
     -- the CSMT is not yet available. Matches the root
     -- returned by @GET \/utxo\/root@ and the
     -- @utxo_root@ baked into proof-bearing responses.
+    , statusReady :: Bool
+    -- ^ Whether the indexer has crossed the
+    -- restoration→following boundary (or completed
+    -- synchronous journal replay on a persistent-DB
+    -- start). Same gate as @GET \/ready@, exposed on
+    -- the @\/status@ payload as a typed @ready@ field
+    -- for clients that read the body rather than the
+    -- HTTP status code. See spec #275.
     }
     deriving (Eq, Show)
 
@@ -146,6 +157,7 @@ instance ToJSON StatusResponse where
             , "checkpoint_block_id"
                 .= checkpointBlockId
             , "utxo_root" .= currentUtxoRoot
+            , "ready" .= statusReady
             ]
 
 instance FromJSON StatusResponse where
@@ -156,6 +168,24 @@ instance FromJSON StatusResponse where
             <*> o .: "checkpoint_slot"
             <*> o .: "checkpoint_block_id"
             <*> o .: "utxo_root"
+            <*> o .: "ready"
+
+-- | Response for @GET \/ready@. Carries a single
+-- boolean @ready@ field; the HTTP status code carries
+-- the same information for status-code-only probes
+-- (200 = ready, 503 = not ready). See spec #275.
+newtype ReadyResponse = ReadyResponse
+    { rrReady :: Bool
+    }
+    deriving (Eq, Show)
+
+instance ToJSON ReadyResponse where
+    toJSON ReadyResponse{..} =
+        object ["ready" .= rrReady]
+
+instance FromJSON ReadyResponse where
+    parseJSON = withObject "ReadyResponse" $ \o ->
+        ReadyResponse <$> o .: "ready"
 
 -- | JSON representation of on-chain token state.
 data TokenStateJSON = TokenStateJSON
@@ -1107,6 +1137,8 @@ instance ToSchema StatusResponse where
             declareSchemaRef (Proxy @(Maybe Word64))
         maybeHex <-
             declareSchemaRef (Proxy @(Maybe Hex))
+        boolSchema <-
+            declareSchemaRef (Proxy @Bool)
         pure
             $ Swagger.NamedSchema
                 (Just "StatusResponse")
@@ -1126,6 +1158,7 @@ instance ToSchema StatusResponse where
                         , maybeHex
                         )
                     , ("utxo_root", maybeHex)
+                    , ("ready", boolSchema)
                     ]
             & required
                 .~ [ "tip_slot"
@@ -1133,10 +1166,32 @@ instance ToSchema StatusResponse where
                    , "checkpoint_slot"
                    , "checkpoint_block_id"
                    , "utxo_root"
+                   , "ready"
                    ]
             & description
                 ?~ "Indexer chain tip, checkpoint, \
-                   \and current UTxO-CSMT root"
+                   \current UTxO-CSMT root, and \
+                   \readiness gate"
+
+instance ToSchema ReadyResponse where
+    declareNamedSchema _ = do
+        boolSchema <-
+            declareSchemaRef (Proxy @Bool)
+        pure
+            $ Swagger.NamedSchema
+                (Just "ReadyResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [("ready", boolSchema)]
+            & required .~ ["ready"]
+            & description
+                ?~ "Readiness probe response. The \
+                   \HTTP status code carries the same \
+                   \signal (200 = ready, \
+                   \503 = not ready)."
 
 instance ToSchema TokenStateJSON where
     declareNamedSchema _ = do

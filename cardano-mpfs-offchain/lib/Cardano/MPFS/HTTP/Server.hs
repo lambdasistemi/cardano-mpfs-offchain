@@ -19,6 +19,7 @@ module Cardano.MPFS.HTTP.Server
     ) where
 
 import Control.Applicative ((<|>))
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Base16 qualified as B16
 import Data.Proxy (Proxy (..))
@@ -26,6 +27,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
+import Network.HTTP.Types (hContentType)
 import Servant
     ( Application
     , Handler
@@ -67,7 +69,7 @@ import Cardano.MPFS.API.Types.Facts
     ( EndFacts
     , RequestInsertFacts
     )
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context (Context (..), Readiness (..))
 import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
@@ -95,6 +97,7 @@ import Cardano.MPFS.HTTP.Types
     , FactWitness (..)
     , InsertRequest (..)
     , ProofResponse (..)
+    , ReadyResponse (..)
     , RejectRequest (..)
     , RejectTxResponse
     , RequestTxResponse
@@ -173,6 +176,7 @@ mkApp ctx =
             :<|> metricsPrometheusHandler ctx
             :<|> metricsHandler ctx
             :<|> statusHandler ctx
+            :<|> readyHandler ctx
             :<|> tokensHandler ctx
             :<|> tokenHandler ctx
             :<|> tokenRootHandler ctx
@@ -229,6 +233,8 @@ statusHandler ctx = do
             $ St.getCheckpoint
                 (St.checkpoints (state ctx))
     mRoot <- liftIO $ utxoRoot ctx
+    ready <-
+        liftIO $ readTVarIO (readiness ctx)
     pure
         StatusResponse
             { tipSlot =
@@ -246,7 +252,31 @@ statusHandler ctx = do
             , checkpointBlockId =
                 fmap (Hex . unBlockId . snd) mcp
             , currentUtxoRoot = fmap Hex mRoot
+            , statusReady = ready == Ready
             }
+
+-- | @GET \/ready@ — readiness probe (#275). Returns
+-- @200 {"ready":true}@ once the indexer has crossed
+-- the restoration→following boundary, and
+-- @503 {"ready":false}@ otherwise.
+readyHandler
+    :: Context IO -> Handler ReadyResponse
+readyHandler ctx = do
+    r <- liftIO $ readTVarIO (readiness ctx)
+    case r of
+        Ready -> pure (ReadyResponse True)
+        NotReady ->
+            throwError
+                err503
+                    { errBody =
+                        "{\"ready\":false}"
+                    , errHeaders =
+                        [
+                            ( hContentType
+                            , "application/json"
+                            )
+                        ]
+                    }
 
 tokensHandler
     :: Context IO -> Handler [TokenIdJSON]

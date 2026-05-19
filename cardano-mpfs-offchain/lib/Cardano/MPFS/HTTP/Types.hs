@@ -13,6 +13,9 @@ module Cardano.MPFS.HTTP.Types
     ( -- * Status
       StatusResponse (..)
 
+      -- * Readiness probe (#275)
+    , ReadyResponse (..)
+
       -- * Proof-bearing snapshot
     , ChainPointJSON (..)
     , VerificationSnapshot (..)
@@ -116,6 +119,7 @@ import Cardano.MPFS.API.Types
     , FactWitness (..)
     , InsertRequest (..)
     , ProofResponse (..)
+    , ReadyResponse (..)
     , RejectProofJSON (..)
     , RejectRequest (..)
     , RejectTxResponse (..)

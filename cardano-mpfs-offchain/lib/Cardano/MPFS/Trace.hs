@@ -28,8 +28,10 @@ import Data.Aeson
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.Time (getCurrentTime)
-import Ouroboros.Network.Block (SlotNo)
+import Ouroboros.Network.Block (SlotNo, unSlotNo)
 import System.IO (hFlush, stderr)
+
+import ChainFollower.Runner (RunnerEvent (..))
 
 import Cardano.UTxOCSMT.Application.Database.Implementation.Armageddon
     ( ArmageddonTrace (..)
@@ -52,6 +54,29 @@ data AppTrace
       TraceBlockReceived SlotNo
     | -- | Journal replay event
       TraceReplay ReplayEvent
+    | -- | Phase-boundary event surfaced by the
+      -- upstream chain-follower 'Runner'. Carries the
+      -- slot the event fired at. The
+      -- 'PhaseTransition' variant is the
+      -- restoration→following boundary the readiness
+      -- contract gates on (#275).
+      TraceRunner (RunnerEvent SlotNo)
+    | -- | One-shot startup classification emitted in
+      -- @withApplication@ after the on-disk rollback
+      -- count is read and before the cage follower is
+      -- started. @fresh_db@ is true iff no rollback
+      -- points exist; @initial_rollback_count@ is the
+      -- raw count.
+      TraceStartupClassification
+        Bool
+        -- ^ @fresh_db@
+        Int
+        -- ^ @initial_rollback_count@
+    | -- | Emitted exactly once when the readiness
+      -- TVar flips from @NotReady@ to @Ready@. Marks
+      -- the recovery-decision boundary required by
+      -- spec FR-005.
+      TraceReady
     deriving (Show)
 
 instance ToJSON AppTrace where
@@ -101,6 +126,35 @@ instance ToJSON AppTrace where
         object
             [ "event"
                 .= ("replay_stop" :: String)
+            ]
+    toJSON (TraceRunner (BlockRestored slot)) =
+        object
+            [ "event"
+                .= ("runner_block_restored" :: String)
+            , "slot" .= unSlotNo slot
+            ]
+    toJSON (TraceRunner (BlockFollowed slot)) =
+        object
+            [ "event"
+                .= ("runner_block_followed" :: String)
+            , "slot" .= unSlotNo slot
+            ]
+    toJSON (TraceRunner (PhaseTransition slot)) =
+        object
+            [ "event"
+                .= ("runner_phase_transition" :: String)
+            , "slot" .= unSlotNo slot
+            ]
+    toJSON (TraceStartupClassification fresh n) =
+        object
+            [ "event"
+                .= ("startup_classification" :: String)
+            , "fresh_db" .= fresh
+            , "initial_rollback_count" .= n
+            ]
+    toJSON TraceReady =
+        object
+            [ "event" .= ("ready" :: String)
             ]
 
 -- | JSON-lines tracer writing to stderr with

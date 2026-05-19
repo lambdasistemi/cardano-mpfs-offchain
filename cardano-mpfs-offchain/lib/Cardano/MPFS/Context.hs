@@ -15,8 +15,12 @@
 module Cardano.MPFS.Context
     ( -- * Context
       Context (..)
+
+      -- * Readiness gate (#275)
+    , Readiness (..)
     ) where
 
+import Control.Concurrent.STM (TVar)
 import Data.ByteString (ByteString)
 
 import Cardano.MPFS.Core.Types (TxIn)
@@ -28,6 +32,15 @@ import Cardano.MPFS.Trie (TrieManager)
 import Cardano.MPFS.TxBuilder (TxBuilder)
 import Cardano.MPFS.TxBuilder.Config (CageConfig)
 import Cardano.UTxOCSMT.Application.Metrics (Metrics)
+
+-- | Externally observable readiness state of the
+-- HTTP service. 'NotReady' at process start; flipped
+-- to 'Ready' exactly once when the indexer has
+-- crossed the restoration→following boundary (or
+-- finished synchronous journal replay on a
+-- persistent-DB start). See spec #275.
+data Readiness = NotReady | Ready
+    deriving (Eq, Show)
 
 -- | Top-level context bundling all service
 -- interfaces. Parametric in the effect @m@.
@@ -77,4 +90,13 @@ data Context m = Context
     -- @specs\/249-atomic-boot-handler@.
     , readMetrics :: m (Maybe Metrics)
     -- ^ Current metrics snapshot (if available)
+    , readiness :: ~(TVar Readiness)
+    -- ^ HTTP readiness gate (#275). 'NotReady' until
+    -- the cage follower has crossed the
+    -- restoration→following boundary (or completed
+    -- synchronous journal replay on a persistent-DB
+    -- start). Read by the @GET \/ready@ handler and
+    -- by @\/status.ready@. Marked lazy with @~@ so
+    -- mock contexts that never serve HTTP can leave
+    -- this as @error "…"@ under @StrictData@.
     }

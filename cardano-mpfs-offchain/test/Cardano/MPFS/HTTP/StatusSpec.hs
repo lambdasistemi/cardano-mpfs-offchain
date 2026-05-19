@@ -9,6 +9,7 @@ module Cardano.MPFS.HTTP.StatusSpec
     , mkTestContext
     ) where
 
+import Control.Concurrent.STM (newTVarIO)
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
@@ -28,7 +29,10 @@ import Test.Hspec
     , shouldBe
     )
 
-import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context
+    ( Context (..)
+    , Readiness (..)
+    )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Mock.State (mkMockState)
 import Cardano.MPFS.Mock.Submitter (mkMockSubmitter)
@@ -44,6 +48,7 @@ mkTestContext :: IO (Context IO)
 mkTestContext = do
     tm <- mkPureTrieManager
     st <- mkMockState
+    readinessTVar <- newTVarIO NotReady
     pure
         Context
             { provider =
@@ -84,6 +89,7 @@ mkTestContext = do
                         \tests do not exercise \
                         \tx-build paths)"
             , readMetrics = pure Nothing
+            , readiness = readinessTVar
             }
 
 getStatus :: Context IO -> IO SResponse

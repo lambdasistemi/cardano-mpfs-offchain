@@ -59,4 +59,9 @@ mkMockContext = do
                         \not implemented (mock context \
                         \does not exercise tx-build paths)"
             , readMetrics = pure Nothing
+            , readiness =
+                error
+                    "mkMockContext: readiness \
+                    \not implemented (mock context \
+                    \does not serve /ready)"
             }

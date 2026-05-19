@@ -18,6 +18,7 @@ module Cardano.MPFS.API
 
       -- * Query endpoints
     , StatusAPI
+    , ReadyAPI
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
@@ -71,6 +72,7 @@ import Cardano.MPFS.API.Types
     , FactResponse
     , InsertRequest
     , ProofResponse
+    , ReadyResponse
     , RejectRequest
     , RejectTxResponse
     , RequestTxResponse
@@ -95,6 +97,14 @@ import Cardano.MPFS.API.Types.Facts
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
+
+-- | @GET \/ready@ — readiness probe. Returns @200@
+-- with @{"ready":true}@ once the indexer has crossed
+-- the restoration→following boundary (or completed
+-- synchronous journal replay on a persistent-DB
+-- start), and @503@ with @{"ready":false}@ otherwise.
+-- See spec #275.
+type ReadyAPI = "ready" :> Get '[JSON] ReadyResponse
 
 -- | @GET \/tokens@ — list all known token IDs.
 type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
@@ -285,6 +295,7 @@ api = Proxy
 -- | Complete MPFS HTTP API.
 type API =
     StatusAPI
+        :<|> ReadyAPI
         :<|> TokensAPI
         :<|> TokenAPI
         :<|> TokenRootAPI

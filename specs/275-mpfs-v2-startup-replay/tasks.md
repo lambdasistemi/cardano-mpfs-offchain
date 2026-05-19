@@ -8,7 +8,7 @@ The single implementation slice folds RED proof, GREEN implementation, and gate 
 
 ## Slice 1 — Phase-boundary trace events, `/ready` signal, devnet regression test
 
-- [ ] **T010** — Implement the slice. One bisect-safe commit. See "Subagent Brief — Slice 1" below.
+- [X] **T010** — Implement the slice. One bisect-safe commit. See "Subagent Brief — Slice 1" below. Landed in this commit; devnet StartupReadinessSpec passes 21s (1 example, 0 failures), full e2e suite 24 examples 0 failures, `./gate.sh` green, `setup` count assertion still 2 in Application.hs, no new armageddon call sites.
   - **RED**: in the same commit, add `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/StartupReadinessSpec.hs` covering US1 scenarios 1–4 + the armageddon-absence assertion. The RED proof is captured in the subagent's `WIP.md`: run the test FIRST against the unmodified code (expect failure: `/ready` does not exist), then implement the contract until the test passes.
   - **GREEN**: subagent reports the passing `nix develop --quiet -c cabal test cardano-mpfs-offchain:e2e-test --test-options="--match \"Startup readiness\""` + the full e2e suite + `./gate.sh`.
   - **Commit subject**: `fix(mpfs-v2): hold HTTP-ready until restoration→following phase transition`.

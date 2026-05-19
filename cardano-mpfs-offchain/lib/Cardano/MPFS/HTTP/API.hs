@@ -18,6 +18,7 @@ module Cardano.MPFS.HTTP.API
 
       -- * Query endpoints
     , StatusAPI
+    , ReadyAPI
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
@@ -63,6 +64,7 @@ import Cardano.MPFS.API
     ( FactsBootAPI
     , FactsEndAPI
     , FactsRequestInsertAPI
+    , ReadyAPI
     , StatusAPI
     , TokenAPI
     , TokenFactAPI

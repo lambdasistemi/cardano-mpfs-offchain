@@ -60,6 +60,8 @@ import Control.Concurrent.STM
     ( atomically
     , modifyTVar'
     , newTVarIO
+    , readTVar
+    , writeTVar
     )
 import Control.Exception (finally, throwIO)
 import Control.Monad (when)
@@ -155,7 +157,7 @@ import Cardano.UTxOCSMT.Ouroboros.Types
 import ChainFollower.Backend (Init (..), Restoring (..))
 import ChainFollower.Rollbacks.Store qualified as CFStore
 import ChainFollower.Rollbacks.Types (RollbackPoint (..))
-import ChainFollower.Runner (Phase (..))
+import ChainFollower.Runner (Phase (..), RunnerEvent (..))
 import Control.Lens (iso)
 import Data.Tracer.Fold (foldTracer)
 import Data.Tracer.Timestamp (utcTimestampTracer)
@@ -171,6 +173,7 @@ import Cardano.Ledger.Binary
 
 import CSMT.Hashes.Types (Hash)
 import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Context qualified as MPFSCtx
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , SlotNo (..)
@@ -309,6 +312,43 @@ withApplication cfg action = do
         stabilityWindow =
             genesisStabilityWindow genesis
 
+    readinessTVar <- newTVarIO MPFSCtx.NotReady
+    readyEmitted <- newTVarIO False
+    let
+        -- Atomically flip the readiness TVar to
+        -- 'Ready' on the first request. Returns
+        -- 'True' if this is the transition (in which
+        -- case the caller emits 'TraceReady'), 'False'
+        -- on subsequent calls.
+        flipReady :: IO Bool
+        flipReady = atomically $ do
+            already <- readTVar readyEmitted
+            if already
+                then pure False
+                else do
+                    writeTVar
+                        readinessTVar
+                        MPFSCtx.Ready
+                    writeTVar readyEmitted True
+                    pure True
+        emitReady :: IO ()
+        emitReady = do
+            transitioned <- flipReady
+            when transitioned
+                $ traceWith (appTracer cfg) TraceReady
+        -- Wrapping tracer: listens for the upstream
+        -- phase-transition event and flips the
+        -- readiness gate exactly once. All events
+        -- still flow through to the existing
+        -- 'appTracer'.
+        gateTracer :: Tracer IO AppTrace
+        gateTracer = Tracer $ \event -> do
+            case event of
+                TraceRunner (PhaseTransition _) ->
+                    emitReady
+                _ -> pure ()
+            traceWith (appTracer cfg) event
+
     withDBCF
         (dbPath cfg)
         dbConfig
@@ -433,6 +473,17 @@ withApplication cfg action = do
                         run
                             $ CFStore.countPoints
                                 InRollbacks
+                    -- Emit the startup classification
+                    -- exactly once before the chain
+                    -- follower thread is started, so
+                    -- operators and tests can observe
+                    -- which path this run is on (#275).
+                    traceWith
+                        (appTracer cfg)
+                        ( TraceStartupClassification
+                            (initialCount == 0)
+                            initialCount
+                        )
                     history <-
                         run
                             $ CFStore.queryHistory
@@ -458,6 +509,15 @@ withApplication cfg action = do
                             then do
                                 following <-
                                     toFollowing restoring
+                                -- Persistent-DB start: the
+                                -- synchronous journal replay
+                                -- inside 'toFollowing' has
+                                -- finished, no
+                                -- 'PhaseTransition' will fire
+                                -- on this process lifetime,
+                                -- so flip readiness here
+                                -- (#275, FR-005).
+                                emitReady
                                 pure
                                     $ InFollowing
                                         initialCount
@@ -504,8 +564,21 @@ withApplication cfg action = do
                                             $ modifyTVar'
                                                 commitNotify'
                                                 (+ 1)
+                                    -- Runner-event tracer:
+                                    -- lift upstream
+                                    -- 'RunnerEvent' into
+                                    -- 'AppTrace' and route
+                                    -- through 'gateTracer'
+                                    -- so the readiness gate
+                                    -- can fire on
+                                    -- 'PhaseTransition'.
+                                    runnerTracer =
+                                        contramap
+                                            TraceRunner
+                                            gateTracer
                                     cageIntersector =
                                         mkCageIntersector
+                                            runnerTracer
                                             (fromIntegral stabilityWindow)
                                             run
                                             backendInit
@@ -642,6 +715,7 @@ withApplication cfg action = do
                                         run body
                                 , readMetrics =
                                     readIORef metricsRef
+                                , readiness = readinessTVar
                                 }
                     action ctx
                         `finally` do

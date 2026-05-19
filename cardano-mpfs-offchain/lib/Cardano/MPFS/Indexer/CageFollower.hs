@@ -40,10 +40,11 @@ import ChainFollower.Backend (Init (..))
 import ChainFollower.Rollbacks.Store qualified as Store
 import ChainFollower.Runner
     ( Phase (..)
+    , RunnerEvent
     , processBlock
     , rollbackTo
     )
-import Control.Tracer (nullTracer)
+import Control.Tracer (Tracer)
 
 import Database.KV.Transaction
     ( Transaction
@@ -88,7 +89,11 @@ pointToSlot
 -- | Build an 'Intersector' for the cage follower.
 -- Phase is threaded through continuations (no IORef).
 mkCageIntersector
-    :: Int
+    :: Tracer IO (RunnerEvent SlotNo)
+    -- ^ Runner-event tracer (block boundaries, phase
+    -- transitions). Threaded into 'processBlock' so
+    -- the upstream events are observable.
+    -> Int
     -- ^ Security parameter (stability window)
     -> ( forall a
           . Transaction
@@ -120,6 +125,7 @@ mkCageIntersector
     -- ^ Current phase
     -> Intersector Point SlotNo Fetched
 mkCageIntersector
+    runnerTracer
     securityParam
     run
     backendInit
@@ -130,6 +136,7 @@ mkCageIntersector
             { intersectFound = \_point ->
                 pure
                     $ mkCageFollower
+                        runnerTracer
                         securityParam
                         run
                         backendInit
@@ -139,6 +146,7 @@ mkCageIntersector
             , intersectNotFound =
                 pure
                     ( mkCageIntersector
+                        runnerTracer
                         securityParam
                         run
                         backendInit
@@ -156,7 +164,10 @@ mkCageIntersector
 -- Following) happen inside the same transaction as
 -- block processing.
 mkCageFollower
-    :: Int
+    :: Tracer IO (RunnerEvent SlotNo)
+    -- ^ Runner-event tracer (block boundaries, phase
+    -- transitions).
+    -> Int
     -- ^ Security parameter (stability window)
     -> ( forall a
           . Transaction
@@ -188,6 +199,7 @@ mkCageFollower
     -- ^ Current phase
     -> Follower Point SlotNo Fetched
 mkCageFollower
+    runnerTracer
     securityParam
     run
     backendInit
@@ -210,7 +222,7 @@ mkCageFollower
                         >= unSlotNo tipSlot
             phase' <-
                 processBlock
-                    nullTracer
+                    runnerTracer
                     withinWindow
                     run
                     InRollbacks
@@ -252,6 +264,7 @@ mkCageFollower
                                 pure
                                     $ Reset
                                     $ mkCageIntersector
+                                        runnerTracer
                                         securityParam
                                         run
                                         backendInit

@@ -352,6 +352,18 @@
             ],
             "type": "object"
         },
+        "ReadyResponse": {
+            "description": "Readiness probe response. The HTTP status code carries the same signal (200 = ready, 503 = not ready).",
+            "properties": {
+                "ready": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "ready"
+            ],
+            "type": "object"
+        },
         "RejectProofJSON": {
             "description": "Proof payload for POST /tx/reject",
             "properties": {
@@ -606,7 +618,7 @@
             "type": "object"
         },
         "StatusResponse": {
-            "description": "Indexer chain tip, checkpoint, and current UTxO-CSMT root",
+            "description": "Indexer chain tip, checkpoint, current UTxO-CSMT root, and readiness gate",
             "properties": {
                 "checkpoint_block_id": {
                     "$ref": "#/definitions/Hex"
@@ -616,6 +628,9 @@
                     "maximum": 1.8446744073709551615e19,
                     "minimum": 0,
                     "type": "integer"
+                },
+                "ready": {
+                    "type": "boolean"
                 },
                 "tip_block_id": {
                     "$ref": "#/definitions/Hex"
@@ -635,7 +650,8 @@
                 "tip_block_id",
                 "checkpoint_slot",
                 "checkpoint_block_id",
-                "utxo_root"
+                "utxo_root",
+                "ready"
             ],
             "type": "object"
         },
@@ -1167,6 +1183,21 @@
                         "description": "",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/ready": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/ReadyResponse"
                         }
                     }
                 }

@@ -11,6 +11,7 @@ import Cardano.MPFS.E2E.HTTPLifecycleSpec qualified as HTTPLifecycleSpec
 import Cardano.MPFS.E2E.IndexerSpec qualified as IndexerSpec
 import Cardano.MPFS.E2E.ProofsSpec qualified as ProofsSpec
 import Cardano.MPFS.E2E.ProviderSpec qualified as ProviderSpec
+import Cardano.MPFS.E2E.StartupReadinessSpec qualified as StartupReadinessSpec
 import Cardano.MPFS.E2E.SubmitterSpec qualified as SubmitterSpec
 
 main :: IO ()
@@ -25,3 +26,4 @@ main = hspec $ do
     BootFactsSpec.spec
     ProofsSpec.spec
     CrashRecoverySpec.spec
+    StartupReadinessSpec.spec
