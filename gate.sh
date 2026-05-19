@@ -100,6 +100,30 @@ check_present \
   docs/assets/swagger.json
 
 check_absent \
+  "legacy request-insert tx API/server route returned" \
+  'TxInsertAPI|txInsertHandler|"tx" :> "request" :> "insert"|"tx/request/insert"|requestInsertTx' \
+  cardano-mpfs-api/lib/Cardano/MPFS/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs \
+  cardano-mpfs-client/lib/Cardano/MPFS/Client/Http.hs \
+  cardano-mpfs-client/test/Cardano/MPFS/Client/HttpSpec.hs
+
+check_absent \
+  "legacy request-insert Swagger route returned" \
+  '"/tx/request/insert"' \
+  docs/assets/swagger.json
+
+check_present \
+  "facts request-insert Swagger path is missing" \
+  '"/facts/request/insert"' \
+  docs/assets/swagger.json
+
+check_present \
+  "RequestInsertFacts Swagger schema is missing" \
+  '"RequestInsertFacts"' \
+  docs/assets/swagger.json
+
+check_absent \
   "boot facts verifier imports transaction grammar" \
   'Cardano\.Ledger\.Api\.Tx|TxView|verifyTxInputBinding|unsigned_tx_cbor|Tx ConwayEra' \
   cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs \
@@ -110,5 +134,10 @@ check_absent \
   'Cardano\.Ledger\.Api\.Tx|TxView|verifyTxInputBinding|unsigned_tx_cbor|Tx ConwayEra' \
   cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs \
   cardano-mpfs-client/lib/Cardano/MPFS/Client/Verify/Completeness.hs
+
+check_absent \
+  "request-insert facts verifier imports transaction grammar" \
+  'Cardano\.Ledger\.Api\.Tx|TxView|verifyTxInputBinding|unsigned_tx_cbor|Tx ConwayEra' \
+  cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs
 
 nix develop --quiet -c just ci
