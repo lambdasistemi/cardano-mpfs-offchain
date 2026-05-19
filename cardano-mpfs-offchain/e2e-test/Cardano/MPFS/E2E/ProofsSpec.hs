@@ -27,6 +27,7 @@ module Cardano.MPFS.E2E.ProofsSpec
     ) where
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (void)
 import Data.Aeson
     ( FromJSON (..)
     , Value
@@ -43,6 +44,7 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -85,11 +87,13 @@ import Cardano.Ledger.Address (Addr, serialiseAddr)
 import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
 import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
+import Cardano.Ledger.Binary (decodeFull, natVersion)
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
     , MultiAsset (..)
     )
+import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
@@ -141,26 +145,29 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
+import Cardano.MPFS.API.Encoding qualified as Api
+import Cardano.MPFS.API.Types.Common (UtxoEntry (..))
+import Cardano.MPFS.API.Types.Common qualified as Common
 import Cardano.MPFS.Client
-    ( EndTxResponse
+    ( EndFacts (..)
     , Hex (..)
-    , RejectTxResponse
+    , RejectTxResponse (..)
     , RequestTxResponse
     , RetractTxResponse
     , UpdateTxResponse
-    , VerificationSnapshot
+    , VerificationSnapshot (..)
+    , VerifiedEndFacts
     , csmtReplayFailedAt
     , flipProof
     , flipSnapshotRoot
     , flipTxOut
-    , runForgeEnd
     , runForgeReject
     , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
     , shouldAccept
     , shouldRejectWith
-    , verifyEndTxResponse
+    , verifyEndFacts
     , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -168,6 +175,10 @@ import Cardano.MPFS.Client
     , verifyVerificationSnapshot
     , withReason
     )
+import Cardano.MPFS.Client.Cage.Config qualified as Client
+import Cardano.MPFS.Client.Cage.End (endCageTx)
+import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
 spec :: Spec
@@ -316,12 +327,11 @@ proofsSpec scripts =
 
             assertRequestsEnvelope requestsObj
 
-            -- Drive every write endpoint over HTTP and
-            -- verify its response with the offline
-            -- Client.Verify DSL. We do not submit the
-            -- returned unsigned txs — the goal is to
-            -- confirm the server emits well-formed
-            -- proof envelopes at the current state.
+            -- Drive every remaining server-built write
+            -- endpoint over HTTP and verify its response
+            -- with the offline Client.Verify DSL. The end
+            -- path is facts-only after #268, so the final
+            -- step verifies facts and builds the tx wallet-side.
             let addrHex = hexAddr genesisAddr
                 retractUtxoRef =
                     txInUrlRef reqTxIn
@@ -409,18 +419,31 @@ proofsSpec scripts =
                 $ csmtReplayFailedAt
                     "reject.request_ins[0].utxo_proof"
 
-            endResp <-
-                postJSON app "/tx/end"
+            _ <-
+                submitResponseTx awaitTimeout app ctx (tx rejectResp)
+
+            endFacts <-
+                postJSON app "/facts/end"
                     $ object
                         [ "token" .= Hex (TE.decodeUtf8 tidHex)
                         , "address" .= addrHex
                         ]
-            (endResp :: EndTxResponse)
-                `shouldAccept` verifyEndTxResponse
-            runForgeEnd (flipProof "state") endResp
-                `shouldRejectWith` verifyEndTxResponse
+            let trusted = endFactsTrustedRoot endFacts
+                verifyEndFactsUnit =
+                    void
+                        . verifyEndFacts
+                            (toClientCageConfig cfg)
+                            trusted
+            (endFacts :: EndFacts)
+                `shouldAccept` verifyEndFactsUnit
+            tamperEndStateProof endFacts
+                `shouldRejectWith` verifyEndFactsUnit
                 $ csmtReplayFailedAt
-                    "end.state.utxo_proof"
+                    "end.state_utxo.inclusion_proof"
+                    `withReason` "malformed proof CBOR"
+            verifiedEndFacts <-
+                expectEndFactsVerified cfg trusted endFacts
+            void (buildEndTx cfg verifiedEndFacts)
 
 -- -------------------------------------------------
 -- Assertions on response shape
@@ -502,6 +525,81 @@ assertRequestsEnvelope v = do
             assertWitnessedUtxo wreq
             _ <- lookupObj wreq "request"
             pure ()
+
+-- | The trusted root for facts-only end verification is
+-- supplied externally by the caller. In this e2e harness,
+-- the app itself is that trusted source, so we pin it to
+-- the snapshot returned by the same facts response.
+endFactsTrustedRoot :: EndFacts -> TrustedRoot
+endFactsTrustedRoot EndFacts{efSnapshot} =
+    TrustedRoot (Common.vsUtxoRoot efSnapshot)
+
+tamperEndStateProof :: EndFacts -> EndFacts
+tamperEndStateProof facts@EndFacts{efStateUtxo} =
+    facts
+        { efStateUtxo =
+            efStateUtxo
+                { ueInclusionProof = Api.Hex "\x00"
+                }
+        }
+
+expectEndFactsVerified
+    :: CageConfig
+    -> TrustedRoot
+    -> EndFacts
+    -> IO VerifiedEndFacts
+expectEndFactsVerified cfg trusted facts =
+    case verifyEndFacts (toClientCageConfig cfg) trusted facts of
+        Right verified -> pure verified
+        Left err ->
+            expectationFailure
+                ("verifyEndFacts failed: " <> show err)
+                *> error "unreachable"
+
+buildEndTx
+    :: CageConfig
+    -> VerifiedEndFacts
+    -> IO (Tx ConwayEra)
+buildEndTx cfg verified =
+    case endCageTx
+        (toClientCageConfig cfg)
+        permissiveWalletPolicy
+        verified of
+        Right tx -> pure tx
+        Left err ->
+            expectationFailure
+                ("endCageTx failed: " <> show err)
+                *> error "unreachable"
+
+submitResponseTx
+    :: Int
+    -> Application
+    -> Context IO
+    -> Hex
+    -> IO (Tx ConwayEra)
+submitResponseTx timeout app ctx txHex = do
+    unsigned <- decodeResponseTx txHex
+    let signed =
+            addKeyWitness genesisSignKey unsigned
+    result <- submitTx (submitter ctx) signed
+    assertSubmitted result
+    awaitTx timeout app (txIdTx signed)
+    pure signed
+
+decodeResponseTx :: Hex -> IO (Tx ConwayEra)
+decodeResponseTx (Hex txText) =
+    case B16.decode (TE.encodeUtf8 txText) of
+        Left err ->
+            expectationFailure
+                ("response tx hex decode failed: " <> err)
+                *> error "unreachable"
+        Right txBytes ->
+            case decodeFull (natVersion @11) (BSL.fromStrict txBytes) of
+                Left err ->
+                    expectationFailure
+                        ("response tx CBOR decode failed: " <> show err)
+                        *> error "unreachable"
+                Right txValue -> pure txValue
 
 -- -------------------------------------------------
 -- JSON plumbing
@@ -684,6 +782,27 @@ extractTokenId cfg tx =
                 error
                     "extractTokenId: \
                     \unexpected mint"
+
+permissiveWalletPolicy :: WalletPolicy
+permissiveWalletPolicy =
+    WalletPolicy
+        { wpMaxFee = Coin 10_000_000
+        , wpMaxExUnitPrices = Prices maxBound maxBound
+        , wpMaxMinUtxoCoinPerByte = Coin 10_000
+        , wpMaxValidityWindow = SlotNo maxBound
+        }
+
+toClientCageConfig :: CageConfig -> Client.CageConfig
+toClientCageConfig cfg =
+    Client.CageConfig
+        { Client.cageScriptBytes = cageScriptBytes cfg
+        , Client.requestScriptBytes = requestScriptBytes cfg
+        , Client.cfgScriptHash = cfgScriptHash cfg
+        , Client.defaultProcessTime = defaultProcessTime cfg
+        , Client.defaultRetractTime = defaultRetractTime cfg
+        , Client.defaultTip = defaultTip cfg
+        , Client.network = network cfg
+        }
 
 -- -------------------------------------------------
 -- Bracket
