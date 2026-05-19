@@ -113,25 +113,6 @@
             ],
             "type": "object"
         },
-        "EndProofJSON": {
-            "description": "Proof payload for POST /tx/end",
-            "properties": {
-                "funding": {
-                    "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
-                    },
-                    "type": "array"
-                },
-                "state": {
-                    "$ref": "#/definitions/WitnessedUtxo"
-                }
-            },
-            "required": [
-                "state",
-                "funding"
-            ],
-            "type": "object"
-        },
         "EndRequest": {
             "description": "End a token",
             "properties": {
@@ -145,26 +126,6 @@
             "required": [
                 "token",
                 "address"
-            ],
-            "type": "object"
-        },
-        "EndTxResponse": {
-            "description": "Proof-bearing response for POST /tx/end",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/EndProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
-                "snapshot",
-                "proof"
             ],
             "type": "object"
         },
@@ -1308,37 +1269,6 @@
                     },
                     "400": {
                         "description": "Invalid `id`"
-                    }
-                }
-            }
-        },
-        "/tx/end": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/EndRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/EndTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
                     }
                 }
             }

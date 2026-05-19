@@ -34,11 +34,11 @@
 - [X] T016 RED: add `POST /facts/end` HTTP tests in `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/EndFactsSpec.hs`.
 - [X] T017 GREEN: add end state and request-set `IndexerTx` reads in `Cardano.MPFS.Indexer.Reads`.
 - [X] T018 GREEN: add `factsEndHandler` and `mkEndFacts` in `Cardano.MPFS.HTTP.Server` plus a focused facts conversion module; do not grow `Cardano.MPFS.HTTP.Types`.
-- [ ] T019 Remove `TxEndAPI`, `txEndHandler`, and the legacy end transaction route from API/server wiring.
-- [ ] T020 Regenerate `docs/assets/swagger.json`.
+- [X] T019 Remove `TxEndAPI`, `txEndHandler`, and the legacy end transaction route from API/server wiring.
+- [X] T020 Regenerate `docs/assets/swagger.json`.
 
 ## Phase 6: Gate and PR
 
-- [ ] T021 Extend `gate.sh` with stable end hard-swap and verifier source checks.
-- [ ] T022 Run focused tests and `./gate.sh`.
+- [X] T021 Extend `gate.sh` with stable end hard-swap and verifier source checks.
+- [X] T022 Run focused tests and `./gate.sh`.
 - [X] T023 (MOOG PR #99, live transcript recorded) Open/update draft PR for issue #268 with MOOG boundary status and verification evidence.

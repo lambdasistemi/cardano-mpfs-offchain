@@ -69,12 +69,12 @@ transactions; the client signs and submits via `POST /tx/submit`.
 | GET | `/tokens/:id/proofs/:key` | Merkle proof |
 | GET | `/tokens/:id/requests` | Pending requests |
 | GET | `/tx/:txId?timeout=30` | Block until tx is indexed |
-| POST | `/tx/boot` | Build boot transaction |
+| POST | `/facts/boot` | Return boot facts for wallet-side transaction construction |
+| POST | `/facts/end` | Return end facts for wallet-side transaction construction |
 | POST | `/tx/request/insert` | Build insert request |
 | POST | `/tx/request/delete` | Build delete request |
 | POST | `/tx/update` | Build update transaction |
 | POST | `/tx/retract` | Build retract transaction |
-| POST | `/tx/end` | Build end transaction |
 | POST | `/tx/submit` | Submit signed transaction |
 
 Swagger UI is served at `/swagger-ui`.

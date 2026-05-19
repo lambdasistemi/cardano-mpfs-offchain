@@ -24,7 +24,6 @@ module Cardano.MPFS.Client.Http
     , RetractParams (..)
     , RejectParams (..)
     , UpdateParams (..)
-    , EndParams (..)
 
       -- * Write endpoints
     , bootFacts
@@ -36,7 +35,6 @@ module Cardano.MPFS.Client.Http
     , updateTx
     , sweepTx
     , SweepParams (..)
-    , endTx
     ) where
 
 import Data.Aeson
@@ -76,8 +74,7 @@ import Cardano.MPFS.API
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.API.Types.Facts qualified as FactsWire
 import Cardano.MPFS.Client.Bundle
-    ( EndTxResponse
-    , RejectTxResponse
+    ( RejectTxResponse
     , RequestTxResponse
     , RetractTxResponse
     , UpdateTxResponse
@@ -87,7 +84,6 @@ import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
     ( VerifyError
     , verifyBootFacts
-    , verifyEndTxResponse
     , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -225,20 +221,6 @@ instance ToJSON UpdateParams where
             , "address" .= updateAddress
             ]
 
--- | @POST /tx/end@ request body.
-data EndParams = EndParams
-    { endToken :: Hex
-    , endAddress :: Hex
-    }
-    deriving stock (Eq, Show)
-
-instance ToJSON EndParams where
-    toJSON EndParams{..} =
-        object
-            [ "token" .= endToken
-            , "address" .= endAddress
-            ]
-
 -- | Fetch boot facts. The post-split #243 shape: caller supplies
 -- an externally-trusted CSMT root; the verifier checks
 -- @snapshot.utxo_root@ matches that root and replays each bundled
@@ -306,14 +288,6 @@ updateTx
     -> IO (Either ClientError UpdateTxResponse)
 updateTx http params =
     runWriteEndpoint http params txUpdateClient verifyUpdateTxResponse
-
--- | Build an end transaction.
-endTx
-    :: MpfsHttp
-    -> EndParams
-    -> IO (Either ClientError EndTxResponse)
-endTx http params =
-    runWriteEndpoint http params txEndClient verifyEndTxResponse
 
 runWriteEndpoint
     :: ( ToJSON params
@@ -393,8 +367,6 @@ txRetractClient
     :: Wire.RetractRequest -> ClientM Wire.RetractTxResponse
 txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
-txEndClient
-    :: Wire.EndRequest -> ClientM Wire.EndTxResponse
 factsBootClient =
     client (Proxy :: Proxy FactsBootAPI)
 
@@ -404,8 +376,7 @@ txInsertClient
     :<|> txRejectClient
     :<|> txUpdateClient
     :<|> txRetractClient
-    :<|> txSweepClient
-    :<|> txEndClient =
+    :<|> txSweepClient =
         client (Proxy :: Proxy TxWriteAPI)
 
 -- | @POST /tx/sweep@ request body.
