@@ -55,7 +55,10 @@ let
   project = pkgs.haskell-nix.cabalProject' mkProject;
 
   haddock = import ./haddock.nix { inherit pkgs project; };
-  unit-tests = project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
+  offchain-unit-tests =
+    project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
+  client-unit-tests =
+    project.hsPkgs.cardano-mpfs-client.components.tests.unit-tests;
   e2e-tests = project.hsPkgs.cardano-mpfs-offchain.components.tests.e2e-tests;
   format-runner = pkgs.writeShellApplication {
     name = "format";
@@ -94,7 +97,14 @@ let
     name = "unit-tests";
     text = ''
       export MPFS_BLUEPRINT="${mpfs-blueprint}"
-      exec ${unit-tests}/bin/unit-tests "$@"
+      exec ${offchain-unit-tests}/bin/unit-tests "$@"
+    '';
+  };
+  client-unit-tests-runner = pkgs.writeShellApplication {
+    name = "client-unit-tests";
+    text = ''
+      export MPFS_BLUEPRINT="${mpfs-blueprint}"
+      exec ${client-unit-tests}/bin/unit-tests "$@"
     '';
   };
   e2e-tests-runner = pkgs.writeShellApplication {
@@ -123,12 +133,14 @@ in {
   packages.mpfs-devnet-server =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;
   packages.devnet-genesis = devnet-genesis;
-  packages.offchain-tests = unit-tests;
+  packages.offchain-tests = offchain-unit-tests;
+  packages.client-tests = client-unit-tests;
   packages.e2e-tests = e2e-tests;
   packages.format = format-runner;
   packages.format-check = format-check-runner;
   packages.hlint = hlint-runner;
   packages.unit-tests-runner = unit-tests-runner;
+  packages.client-unit-tests-runner = client-unit-tests-runner;
   packages.e2e-tests-runner = e2e-tests-runner;
   packages.haddock = haddock;
   packages.cardano-mpfs-swagger =
@@ -163,5 +175,9 @@ in {
   apps.unit-tests = {
     type = "app";
     program = "${unit-tests-runner}/bin/unit-tests";
+  };
+  apps.client-unit-tests = {
+    type = "app";
+    program = "${client-unit-tests-runner}/bin/client-unit-tests";
   };
 }

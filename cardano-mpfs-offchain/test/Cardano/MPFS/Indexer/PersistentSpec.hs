@@ -33,7 +33,10 @@ import Test.Hspec
     , shouldReturn
     , shouldSatisfy
     )
-import Test.Hspec.QuickCheck (prop)
+import Test.Hspec.QuickCheck
+    ( modifyMaxSuccess
+    , prop
+    )
 import Test.QuickCheck
     ( forAll
     , ioProperty
@@ -132,25 +135,34 @@ withTestStateAt dir action =
 -- Spec
 -- ---------------------------------------------------------
 
+-- The pure StateSpec keeps the default 100-case property coverage. These
+-- properties exercise the same laws through RocksDB, and each generated case
+-- opens and closes a fresh database, so keep the integration multiplier bounded.
+persistentPropertyCases :: Int
+persistentPropertyCases = 10
+
 -- | Persistent State test suite.
 spec :: Spec
-spec = describe "Persistent State" $ do
-    describe "Tokens" tokensSpec
-    describe "Requests" requestsSpec
-    describe "Checkpoints" checkpointsSpec
-    describe "persistence-specific" $ do
-        it
-            "tokens survive reopen"
-            tokensSurviveReopen
-        it
-            "requests survive reopen"
-            requestsSurviveReopen
-        it
-            "checkpoint survives reopen"
-            checkpointSurvivesReopen
-        it
-            "remove persists across reopen"
-            removePersistsAcrossReopen
+spec =
+    modifyMaxSuccess (const persistentPropertyCases)
+        $ describe "Persistent State"
+        $ do
+            describe "Tokens" tokensSpec
+            describe "Requests" requestsSpec
+            describe "Checkpoints" checkpointsSpec
+            describe "persistence-specific" $ do
+                it
+                    "tokens survive reopen"
+                    tokensSurviveReopen
+                it
+                    "requests survive reopen"
+                    requestsSurviveReopen
+                it
+                    "checkpoint survives reopen"
+                    checkpointSurvivesReopen
+                it
+                    "remove persists across reopen"
+                    removePersistsAcrossReopen
 
 -- ---------------------------------------------------------
 -- Token properties
