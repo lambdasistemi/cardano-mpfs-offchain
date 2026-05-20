@@ -48,6 +48,9 @@ import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Lens.Micro ((^.))
 import Network.HTTP.Types
     ( hContentType
@@ -92,7 +95,7 @@ import Cardano.Ledger.Api.Tx
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
-import Cardano.Ledger.BaseTypes (Network (..))
+import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
@@ -100,7 +103,7 @@ import Cardano.Ledger.Mary.Value
     , MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
-import Cardano.Ledger.TxIn (TxId (..))
+import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -115,6 +118,8 @@ import Cardano.MPFS.API.Types
     , InsertRequest (..)
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RetractFacts
+    , RetractRequest (..)
     , StatusResponse (..)
     )
 import Cardano.MPFS.API.Types.Common (TokenIdJSON (..))
@@ -130,11 +135,13 @@ import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
     )
+import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Facts
     ( verifyBootFacts
     , verifyEndFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
+    , verifyRetractFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
@@ -231,6 +238,16 @@ matrixSpec scripts =
                 matrixInsertValue
             processPendingRequests ctx app tokenId
             factAbsent app tokenId matrixInsertKey
+            -- Retract row: re-insert a fresh request to
+            -- have something to retract, then exercise the
+            -- /facts/retract flow.
+            runRetractRow
+                cfg
+                ctx
+                app
+                tokenId
+                matrixRetractKey
+                matrixRetractValue
             -- End requires an empty request set, but
             -- driving boot+insert+process+delete+process
             -- on a single token exhausts the wallet's
@@ -249,6 +266,14 @@ matrixInsertKey = "matrix-key"
 
 matrixInsertValue :: ByteString
 matrixInsertValue = "matrix-value"
+
+-- | Key/value pair the matrix uses for the retract row's
+-- throwaway insert.
+matrixRetractKey :: ByteString
+matrixRetractKey = "matrix-retract-key"
+
+matrixRetractValue :: ByteString
+matrixRetractValue = "matrix-retract-value"
 
 -- ---------------------------------------------------------
 -- Row helpers
@@ -398,6 +423,103 @@ processPendingRequests ctx app tokenId = do
     awaitTx app (txIdTx signed)
     pendingRequestsEmpty app tokenId
 
+-- | Retract row: insert a fresh pending request, wait for
+-- Phase 2 validity, then run
+-- @POST \/facts\/retract \-> verifyRetractFacts \->
+-- retractCageTx \-> submit \-> pending request consumed@.
+-- This row exercises the full retract facts flow on the
+-- local cluster end to end.
+runRetractRow
+    :: CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> IO ()
+runRetractRow cfg ctx app tokenId key value = do
+    -- 1. Insert a fresh pending request to retract.
+    trusted <- waitForTrustedRoot app
+    insertFacts <-
+        postRequestInsertFacts
+            app
+            tokenId
+            key
+            value
+            genesisAddr
+    insertVerified <-
+        case verifyRequestInsertFacts trusted insertFacts of
+            Left err ->
+                expectationFailure
+                    ( "retract row: verifyRequestInsertFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    insertTx <-
+        case requestInsertCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            insertVerified of
+            Left err ->
+                expectationFailure
+                    ( "retract row: requestInsertCageTx \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signedInsert =
+            addKeyWitness genesisSignKey insertTx
+        insertTxId = txIdTx signedInsert
+        reqTxIn = TxIn insertTxId (TxIx 0)
+    insertResult <-
+        submitTx (submitter ctx) signedInsert
+    assertSubmitted "retract row insert" insertResult
+    awaitTx app insertTxId
+    pendingRequestsNonEmpty app tokenId
+    -- 2. Wait for Phase 2 to open. process_time and
+    -- retract_time are both 5s in the matrix config, so
+    -- a real-time 7s wait lands inside the window.
+    threadDelay 7_000_000
+    -- 3. Retract via the facts flow.
+    retractTrusted <- waitForTrustedRoot app
+    retractFacts <-
+        postRetractFacts
+            app
+            reqTxIn
+            genesisAddr
+    retractVerified <-
+        case verifyRetractFacts retractTrusted retractFacts of
+            Left err ->
+                expectationFailure
+                    ( "retract row: verifyRetractFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    retractTx <-
+        case retractCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            retractVerified of
+            Left err ->
+                expectationFailure
+                    ( "retract row: retractCageTx failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signedRetract =
+            addKeyWitness genesisSignKey retractTx
+    retractResult <-
+        submitTx (submitter ctx) signedRetract
+    assertSubmitted "retract row submit" retractResult
+    awaitTx app (txIdTx signedRetract)
+    pendingRequestsEmpty app tokenId
+
 -- | End row: @POST \/facts\/end \-> verifyEndFacts \->
 -- endCageTx \-> submit \-> token removed@.
 runEndRow
@@ -445,6 +567,7 @@ assertLegacyRoutesGone app =
         [ "/tx/boot"
         , "/tx/request/insert"
         , "/tx/request/delete"
+        , "/tx/retract"
         , "/tx/end"
         ]
 
@@ -548,6 +671,27 @@ postEndFacts app tokenId addr =
             }
         "end row"
         "EndFacts"
+
+postRetractFacts
+    :: Application -> TxIn -> Addr -> IO RetractFacts
+postRetractFacts app reqTxIn addr =
+    postFactsRequest
+        app
+        "/facts/retract"
+        RetractRequest
+            { rrUtxo = txInToHashIx reqTxIn
+            , rrAddr = Hex (serialiseAddr addr)
+            }
+        "retract row"
+        "RetractFacts"
+
+-- | Format a 'TxIn' as the @txhash#ix@ string expected by
+-- the retract request body.
+txInToHashIx :: TxIn -> Text
+txInToHashIx (TxIn txId (TxIx ix)) =
+    TE.decodeUtf8 (txIdHex txId)
+        <> "#"
+        <> T.pack (show ix)
 
 postFactsRequest
     :: (ToJSON req, FromJSON res)
