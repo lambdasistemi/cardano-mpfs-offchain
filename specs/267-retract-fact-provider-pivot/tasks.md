@@ -34,3 +34,10 @@
       decision; no retract-specific MOOG canary exists.
 - [x] T010 Run `./gate.sh`, review the branch, then leave `gate.sh`
       in place for parent orchestrator finalization.
+- [ ] T011 Fix the final-head `FactsMatrixSpec` boot row collateral
+      failure seen on GitHub e2e run 26182733086 / seed 104356220:
+      `bootCageTx` must not select an undersized wallet UTxO for
+      collateral when the facts wallet set has multiple entries.
+- [ ] T012 Rerun the focused facts matrix selector for seed
+      104356220, run `./gate.sh`, pass remote PR checks on the fixed
+      head, then repeat finalization audit before dropping `gate.sh`.
