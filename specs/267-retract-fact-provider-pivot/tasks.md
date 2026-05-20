@@ -32,5 +32,5 @@
       issue #267 / parent epic #257 via the PR body). Status: deferred
       to cardano-foundation/moog#96 staged-port or replacement
       decision; no retract-specific MOOG canary exists.
-- [ ] T010 Run `./gate.sh`, review the branch, then leave `gate.sh`
+- [x] T010 Run `./gate.sh`, review the branch, then leave `gate.sh`
       in place for parent orchestrator finalization.
