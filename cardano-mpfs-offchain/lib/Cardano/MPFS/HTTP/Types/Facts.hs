@@ -10,6 +10,7 @@
 module Cardano.MPFS.HTTP.Types.Facts
     ( mkRequestInsertFacts
     , mkRequestDeleteFacts
+    , mkRetractFacts
     , mkEndFacts
     ) where
 
@@ -35,6 +36,7 @@ import Cardano.MPFS.API.Types.Facts
     ( EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RetractFacts (..)
     )
 import Cardano.MPFS.Core.Types
     ( ConwayEra
@@ -121,6 +123,44 @@ mkRequestDeleteFacts
             , rdfWalletUtxos =
                 map resolvedWalletInputToUtxoEntry walletUtxos
             , rdfProtocolParameters =
+                pparamsToJSON pparams
+            }
+
+-- | Build the facts-only retract response from one atomic
+-- indexer snapshot, the named request UTxO, the cage state
+-- UTxO, the requester funding UTxOs, the server-derived Phase
+-- 2 validity slot bounds, and node protocol parameters.
+mkRetractFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ResolvedWalletInput
+    -> ResolvedWalletInput
+    -> [ResolvedWalletInput]
+    -> Integer
+    -> Integer
+    -> PParams ConwayEra
+    -> RetractFacts
+mkRetractFacts
+    snap
+    tid
+    requestUtxo
+    stateUtxo
+    walletUtxos
+    startSlot
+    endSlot
+    pparams =
+        RetractFacts
+            { rfSnapshot = bundleSnapshotToJSON snap
+            , rfToken = tokenIdToJSON tid
+            , rfRequestUtxo =
+                resolvedWalletInputToUtxoEntry requestUtxo
+            , rfStateUtxo =
+                resolvedWalletInputToUtxoEntry stateUtxo
+            , rfWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , rfValidityStartSlot = startSlot
+            , rfValidityEndSlot = endSlot
+            , rfProtocolParameters =
                 pparamsToJSON pparams
             }
 
