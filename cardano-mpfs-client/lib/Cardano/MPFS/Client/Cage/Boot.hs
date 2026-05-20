@@ -14,7 +14,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
+import Data.Ord (Down (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -50,6 +52,7 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , addrTxOutL
+    , coinTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
@@ -148,23 +151,37 @@ bootCageTx cfg policy verified = do
     pp <- decodePParams (bfProtocolParameters facts)
     enforcePParamsPolicy policy pp
     rows <- decodeWalletUtxos (bfWalletUtxos facts)
-    case rows of
+    (pickedRows, seedRow, collateralRow) <- selectBootRows rows
+    let ownerAddr = rowAddress seedRow
+    tx <-
+        buildBootTx
+            cfg
+            pp
+            seedRow
+            collateralRow
+            pickedRows
+            ownerAddr
+    enforceTxPolicy policy tx
+    pure tx
+
+-- | Pick the wallet rows that fund the boot transaction.
+-- Conway requires the collateral row to back the script
+-- fee, which is larger than the smallest funding entry can
+-- guarantee when the wallet holds several UTxOs of mixed
+-- size. Select by largest lovelace balance (matching
+-- 'requestInsertCageTx' and 'retractCageTx'): the largest
+-- row is the collateral, the second-largest is the spent
+-- seed input. When only one row is available it serves
+-- both roles, as before.
+selectBootRows
+    :: [InputRow]
+    -> Either BuildError ([InputRow], InputRow, InputRow)
+selectBootRows rows =
+    case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
         [] -> Left EmptyFunding
-        seedRow : restRows -> do
-            let (pickedRows, collateralRow) = case restRows of
-                    [] -> ([seedRow], seedRow)
-                    u : _ -> ([seedRow, u], u)
-                ownerAddr = rowAddress seedRow
-            tx <-
-                buildBootTx
-                    cfg
-                    pp
-                    seedRow
-                    collateralRow
-                    pickedRows
-                    ownerAddr
-            enforceTxPolicy policy tx
-            pure tx
+        [only] -> Right ([only], only, only)
+        largest : second : _ ->
+            Right ([largest, second], second, largest)
 
 data InputRow = InputRow
     { rowRef :: !TxIn

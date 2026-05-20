@@ -89,7 +89,8 @@ import Cardano.Ledger.Api.Tx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( inputsTxBodyL
+    ( collateralInputsTxBodyL
+    , inputsTxBodyL
     , mintTxBodyL
     , outputsTxBodyL
     )
@@ -247,6 +248,25 @@ spec = describe "endCageTx" $ do
                     )
                 )
 
+    it "selects the largest wallet UTxO as collateral" $ do
+        cfg <- testCageConfig
+        let EndFixture
+                { trustedRoot
+                , facts
+                } = mixedBalanceEndFixture cfg
+            expectedCollateral =
+                txInFromBytes walletTxId 2
+        verified <- expectVerified cfg trustedRoot facts
+        tx <-
+            case endCageTx cfg permissiveWalletPolicy verified of
+                Left err ->
+                    expectationFailure
+                        ("endCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        let collateral = tx ^. bodyTxL . collateralInputsTxBodyL
+        Set.member expectedCollateral collateral `shouldBe` True
+
     it "builds an unsigned burn transaction for the verified facts" $ do
         cfg <- testCageConfig
         let EndFixture
@@ -344,6 +364,132 @@ honestEndFixture cfg =
             , walletInput = txInFromBytes walletTxId 1
             , tokenAsset = asset
             }
+
+-- | End fixture with two wallet UTxOs of clearly different
+-- lovelace balances. The first entry (ix=1) carries 3 ADA;
+-- the second entry (ix=2) carries 50 ADA. The end builder
+-- must pick the larger row as collateral regardless of
+-- CSMT walk order — this pins the Conway
+-- InsufficientCollateral regression that surfaced on the
+-- FactsMatrix end row.
+mixedBalanceEndFixture :: CageConfig -> EndFixture
+mixedBalanceEndFixture cfg =
+    let requestPrefix = requestSetPrefixFromCfg cfg sampleToken
+        token = tokenIdFromJSON sampleToken
+        asset = unTokenId token
+        stateBytes = stateTxOutBytes cfg asset
+        ( root
+            , stateEntry
+            , smallEntry
+            , largeEntry
+            , proofBs
+            ) =
+                csmtEndRowsMixed
+                    requestPrefix
+                    stateBytes
+                    smallWalletTxOutBytes
+                    walletTxOutBytes
+        endFacts =
+            EndFacts
+                { efSnapshot = snapshotWithRoot root
+                , efToken = sampleToken
+                , efStateUtxo = stateEntry
+                , efWalletUtxos = [smallEntry, largeEntry]
+                , efRequestSet =
+                    UtxoSetWitness
+                        { uswEntries = []
+                        , uswCompletenessProof = Hex proofBs
+                        }
+                , efProtocolParameters =
+                    pparamsFacts realisticPParams
+                }
+    in  EndFixture
+            { trustedRoot = TrustedRoot (Hex root)
+            , facts = endFacts
+            , stateInput = txInFromBytes stateTxId 0
+            , walletInput = txInFromBytes walletTxId 2
+            , tokenAsset = asset
+            }
+
+csmtEndRowsMixed
+    :: [Direction]
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> ( ByteString
+       , UtxoEntry
+       , UtxoEntry
+       , UtxoEntry
+       , ByteString
+       )
+csmtEndRowsMixed requestPrefix stateBytes smallBytes largeBytes =
+    evalPureFromEmptyDB $ do
+        let stateKey =
+                byteStringToKey (encodeTxIn stateTxId 0)
+            smallKey =
+                byteStringToKey (encodeTxIn walletTxId 1)
+            largeKey =
+                byteStringToKey (encodeTxIn walletTxId 2)
+            rows =
+                [ (stateKey, stateBytes)
+                , (smallKey, smallBytes)
+                , (largeKey, largeBytes)
+                ]
+        mapM_ (\(key, txOut) -> insertMHash key (mkHash txOut)) rows
+        stateProof <- proofBytes stateKey
+        smallProof <- proofBytes smallKey
+        largeProof <- proofBytes largeKey
+        completenessProof <-
+            runPureTransaction hashCodecs
+                $ generateProof StandaloneCSMTCol [] requestPrefix
+        root <- maybe BS.empty renderHash <$> getRootHashM
+        pure
+            ( root
+            , UtxoEntry
+                { ueRef =
+                    UtxoRef
+                        { urTxId = Hex stateTxId
+                        , urTxIx = 0
+                        }
+                , ueTxOutCbor = Hex stateBytes
+                , ueInclusionProof = Hex stateProof
+                }
+            , UtxoEntry
+                { ueRef =
+                    UtxoRef
+                        { urTxId = Hex walletTxId
+                        , urTxIx = 1
+                        }
+                , ueTxOutCbor = Hex smallBytes
+                , ueInclusionProof = Hex smallProof
+                }
+            , UtxoEntry
+                { ueRef =
+                    UtxoRef
+                        { urTxId = Hex walletTxId
+                        , urTxIx = 2
+                        }
+                , ueTxOutCbor = Hex largeBytes
+                , ueInclusionProof = Hex largeProof
+                }
+            , case completenessProof of
+                Just proof ->
+                    renderCompletenessProof
+                        (proof :: CompletenessProof Hash)
+                Nothing ->
+                    error "expected request-set completeness proof"
+            )
+  where
+    proofBytes key = do
+        mProof <-
+            proofM
+                hashCodecs
+                identityFromKV
+                hashHashing
+                key
+        pure $ case mProof of
+            Just (_, proof) -> renderProof proof
+            Nothing -> BS.empty
 
 csmtEndRows
     :: [Direction]
@@ -499,6 +645,16 @@ walletTxOut =
     mkBasicTxOut
         fundingAddr
         (inject (Coin 50_000_000))
+
+smallWalletTxOutBytes :: ByteString
+smallWalletTxOutBytes =
+    serialize' (natVersion @11) smallWalletTxOut
+
+smallWalletTxOut :: TxOut ConwayEra
+smallWalletTxOut =
+    mkBasicTxOut
+        fundingAddr
+        (inject (Coin 3_000_000))
 
 ownerAddr :: Addr
 ownerAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
