@@ -61,7 +61,7 @@
           in {
             packages = {
               inherit (project.packages)
-                offchain-tests e2e-tests cardano-mpfs-offchain mpfs-serve
+                offchain-tests client-tests e2e-tests cardano-mpfs-offchain mpfs-serve
                 mpfs-devnet-server mpfs-bootstrap-genesis docker-image haddock;
               default = project.packages.cardano-mpfs-offchain;
             };
