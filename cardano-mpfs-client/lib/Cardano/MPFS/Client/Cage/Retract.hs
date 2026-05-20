@@ -247,8 +247,8 @@ decodeWalletUtxos =
 
 decodeWalletUtxo
     :: Int -> UtxoEntry -> Either BuildError InputRow
-decodeWalletUtxo ix entry =
-    decodeUtxo (walletField ix) entry
+decodeWalletUtxo ix =
+    decodeUtxo (walletField ix)
 
 decodeRef :: Text -> UtxoRef -> Either BuildError TxIn
 decodeRef path UtxoRef{urTxId = Hex txIdBytes, urTxIx} = do

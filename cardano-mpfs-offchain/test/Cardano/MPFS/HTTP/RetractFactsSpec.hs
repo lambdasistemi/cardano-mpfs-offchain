@@ -80,13 +80,15 @@ spec = describe "POST /facts/retract" $ do
         resp <- postJson ctx "/facts/retract" badRequest
         simpleStatus resp `shouldBe` status400
 
-    it "documents facts route in swagger"
+    it "documents facts route and drops legacy tx route"
         $ case eitherDecode renderSwaggerJSON of
             Right (Object swagger) ->
                 case KM.lookup "paths" swagger of
-                    Just (Object paths) ->
+                    Just (Object paths) -> do
                         KM.member "/facts/retract" paths
                             `shouldBe` True
+                        KM.member "/tx/retract" paths
+                            `shouldBe` False
                     _ ->
                         expectationFailure
                             "Swagger paths are not an object"

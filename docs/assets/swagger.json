@@ -632,29 +632,6 @@
             ],
             "type": "object"
         },
-        "RetractProofJSON": {
-            "description": "Proof payload for POST /tx/retract",
-            "properties": {
-                "funding": {
-                    "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
-                    },
-                    "type": "array"
-                },
-                "request_in": {
-                    "$ref": "#/definitions/WitnessedUtxo"
-                },
-                "state_ref": {
-                    "$ref": "#/definitions/WitnessedUtxo"
-                }
-            },
-            "required": [
-                "request_in",
-                "state_ref",
-                "funding"
-            ],
-            "type": "object"
-        },
         "RetractRequest": {
             "description": "Retract a pending request. UTxO format: txhash#ix",
             "properties": {
@@ -668,26 +645,6 @@
             "required": [
                 "utxo",
                 "address"
-            ],
-            "type": "object"
-        },
-        "RetractTxResponse": {
-            "description": "Proof-bearing response for POST /tx/retract",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/RetractProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
-                "snapshot",
-                "proof"
             ],
             "type": "object"
         },
@@ -1549,37 +1506,6 @@
                         "description": "",
                         "schema": {
                             "$ref": "#/definitions/RequestTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
-                    }
-                }
-            }
-        },
-        "/tx/retract": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/RetractRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/RetractTxResponse"
                         }
                     },
                     "400": {

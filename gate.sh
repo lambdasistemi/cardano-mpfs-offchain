@@ -29,6 +29,7 @@ for route in \
   '"/facts/boot"' \
   '"/facts/request/insert"' \
   '"/facts/request/delete"' \
+  '"/facts/retract"' \
   '"/facts/end"'
 do
   check_present \
@@ -70,5 +71,14 @@ check_absent \
   cardano-mpfs-api/lib/Cardano/MPFS/API.hs \
   cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs \
   cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs
+
+check_absent \
+  "legacy retract tx route returned" \
+  '"/tx/retract"|TxRetractAPI|txRetractHandler|"tx" :> "retract"' \
+  docs/assets/swagger.json \
+  cardano-mpfs-api/lib/Cardano/MPFS/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs \
+  cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs \
+  cardano-mpfs-client/lib/Cardano/MPFS/Client/Http.hs
 
 nix develop --quiet -c just ci

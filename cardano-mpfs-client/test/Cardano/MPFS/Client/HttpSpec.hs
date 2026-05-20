@@ -50,7 +50,6 @@ import Cardano.MPFS.Client
     , RequestDeleteParams (..)
     , RequestInsertParams (..)
     , RequestUpdateParams (..)
-    , RetractParams (..)
     , Scheme (..)
     , UpdateParams (..)
     , VerifierMode (..)
@@ -60,14 +59,12 @@ import Cardano.MPFS.Client
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateTx
-    , retractTx
     , updateTx
     )
 import Cardano.MPFS.Client.Fixtures
     ( honestBootTrustedRoot
     , honestRejectResponse
     , honestRequestResponse
-    , honestRetractResponse
     , honestUnsignedBootResponse
     , honestUpdateResponse
     )
@@ -231,11 +228,6 @@ writeEndpointCases =
         (Aeson.encode honestRequestResponse)
         (voidRight . (`requestUpdateTx` requestUpdateParams))
     , EndpointCase
-        ["tx", "retract"]
-        (Aeson.toJSON retractParams)
-        (Aeson.encode honestRetractResponse)
-        (voidRight . (`retractTx` retractParams))
-    , EndpointCase
         ["tx", "reject"]
         (Aeson.toJSON rejectParams)
         (Aeson.encode honestRejectResponse)
@@ -318,9 +310,6 @@ requestUpdateParams =
         sampleOldValue
         sampleNewValue
         sampleAddress
-
-retractParams :: RetractParams
-retractParams = RetractParams "abcd#0" sampleAddress
 
 rejectParams :: RejectParams
 rejectParams = RejectParams sampleToken sampleAddress

@@ -107,7 +107,6 @@ import Cardano.MPFS.HTTP.Types
     , RequestTxResponse
     , RequestsResponse (..)
     , RetractRequest (..)
-    , RetractTxResponse
     , StatusResponse (..)
     , SubmitRequest (..)
     , SweepRequest (..)
@@ -125,7 +124,6 @@ import Cardano.MPFS.HTTP.Types
     , bundleSnapshotToJSON
     , mkRejectTxResponse
     , mkRequestTxResponse
-    , mkRetractTxResponse
     , mkSweepTxResponse
     , mkUpdateTxResponse
     , parseAddr
@@ -208,7 +206,6 @@ mkApp ctx =
             :<|> txUpdateValueHandler ctx
             :<|> txRejectHandler ctx
             :<|> txUpdateHandler ctx
-            :<|> txRetractHandler ctx
             :<|> txSweepHandler ctx
             :<|> txSubmitHandler ctx
 
@@ -1199,28 +1196,6 @@ txUpdateHandler
                     tid
                     addr
         pure (mkUpdateTxResponse bundle)
-
-txRetractHandler
-    :: Context IO
-    -> RetractRequest
-    -> Handler RetractTxResponse
-txRetractHandler
-    ctx
-    RetractRequest
-        { rrUtxo = utxoRef
-        , rrAddr = addrHex
-        } = do
-        addr <- requireAddr addrHex
-        txIn <- parseUtxoRef utxoRef
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.retractRequest
-                    (txBuilder ctx)
-                    snap
-                    txIn
-                    addr
-        pure (mkRetractTxResponse bundle)
 
 txSweepHandler
     :: Context IO
