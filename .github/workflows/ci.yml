@@ -23,6 +23,7 @@ jobs:
         run: >-
           nix build --quiet
           .#offchain-tests
+          .#client-tests
           .#e2e-tests
           .#cardano-mpfs-offchain
           .#docker-image
@@ -42,6 +43,9 @@ jobs:
 
       - name: Build and run offchain tests
         run: nix run --quiet .#unit-tests
+
+      - name: Build and run client tests
+        run: nix run --quiet .#client-unit-tests
 
       - name: Build offchain interfaces
         run: nix build .#cardano-mpfs-offchain --quiet

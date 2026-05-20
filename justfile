@@ -34,21 +34,25 @@ unit match="":
     fi
     nix run --quiet .#unit-tests -- "${args[@]}"
 
-# Run offchain interface tests with optional match
+# Run offchain unit tests with optional match
 unit-offchain match="":
+    just unit "{{ match }}"
+
+# Run client unit tests with optional match
+unit-client match="":
     #!/usr/bin/env bash
     set -euo pipefail
     args=()
     if [[ '{{ match }}' != "" ]]; then
         args+=(--match "{{ match }}")
     fi
-    nix run --quiet .#unit-tests -- "${args[@]}"
+    nix run --quiet .#client-unit-tests -- "${args[@]}"
 
 # Non-Docker CI gate (mirrors .github/workflows/ci.yml)
 ci:
     nix build --quiet .#cardano-mpfs-offchain .#checks.x86_64-linux.swagger-up-to-date
     just unit
-    just unit-offchain
+    just unit-client
     just format-check
     just hlint
 
