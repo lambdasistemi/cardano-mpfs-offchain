@@ -78,6 +78,7 @@ library
     Cardano.MPFS.Client.Cage.Identity
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Cage.Request
+    Cardano.MPFS.Client.Cage.Retract
     Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
@@ -118,6 +119,7 @@ test-suite unit-tests
     , base16-bytestring
     , bytestring
     , cardano-crypto-class
+    , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-babbage
@@ -132,6 +134,7 @@ test-suite unit-tests
     , cborg                   >=0.2  && <0.3
     , containers              >=0.6  && <0.8
     , directory
+    , filepath
     , hspec                   >=2.11 && <2.12
     , http-client             >=0.7  && <0.8
     , http-types              >=0.12 && <0.13
@@ -153,6 +156,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.Cage.BootSpec
     Cardano.MPFS.Client.Cage.EndSpec
     Cardano.MPFS.Client.Cage.RequestSpec
+    Cardano.MPFS.Client.Cage.RetractSpec
     Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec

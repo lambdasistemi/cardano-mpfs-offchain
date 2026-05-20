@@ -126,6 +126,7 @@ module Cardano.MPFS.Client
     , BuildError (..)
     , requestInsertCageTx
     , requestDeleteCageTx
+    , retractCageTx
     ) where
 
 import Cardano.MPFS.Client.Bundle
@@ -158,6 +159,9 @@ import Cardano.MPFS.Client.Cage.Policy
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
+    )
+import Cardano.MPFS.Client.Cage.Retract
+    ( retractCageTx
     )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)
