@@ -50,3 +50,17 @@ submitting it, and observing the request UTxO consumed on-chain.
   for retract.
 - Do not retain a legacy retract transaction endpoint.
 - Do not claim production MOOG readiness from legacy caller behavior.
+
+## MOOG Boundary Status
+
+The paired MOOG track is not a legacy caller migration: the MPFS-v2
+boundary canary / replacement decision lives in
+[cardano-foundation/moog#96](https://github.com/cardano-foundation/moog/issues/96).
+Retract is part of slice 2 ("one simplest request lifecycle through
+facts/local build") in that decision tree. No retract-specific MOOG
+canary exists yet; the offchain PR therefore records boundary status
+as **deferred to the MOOG-v2 staged port or replacement surface
+decision in cardano-foundation/moog#96** rather than a legacy caller
+migration. The MOOG boundary status is closed when #96 records
+either a canary/staged-port proof for retract or an explicit defer
+decision; this offchain slice does not block on that resolution.
