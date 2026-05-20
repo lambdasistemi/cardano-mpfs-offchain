@@ -123,7 +123,8 @@ import Cardano.MPFS.API.Types.Common
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.API.Types.Facts
-    ( RequestInsertFacts (..)
+    ( RequestDeleteFacts (..)
+    , RequestInsertFacts (..)
     )
 import Cardano.MPFS.Cage.Blueprint
     ( extractCompiledCode
@@ -148,10 +149,13 @@ import Cardano.MPFS.Client.Cage.Policy
     , WalletPolicy (..)
     )
 import Cardano.MPFS.Client.Cage.Request
-    ( requestInsertCageTx
+    ( requestDeleteCageTx
+    , requestInsertCageTx
     )
 import Cardano.MPFS.Client.Facts
-    ( VerifiedRequestInsertFacts
+    ( VerifiedRequestDeleteFacts
+    , VerifiedRequestInsertFacts
+    , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     )
 import Cardano.MPFS.Client.TrustedRoot
@@ -162,7 +166,12 @@ import Cardano.Slotting.Slot
     )
 
 spec :: Spec
-spec = describe "requestInsertCageTx" $ do
+spec = do
+    insertSpec
+    deleteSpec
+
+insertSpec :: Spec
+insertSpec = describe "requestInsertCageTx" $ do
     it "rejects empty funding before building" $ do
         cfg <- testCageConfig
         let RequestInsertFixture{trustedRoot, facts} =
@@ -240,6 +249,148 @@ spec = describe "requestInsertCageTx" $ do
                 Right tx -> pure tx
         expected <- BS.readFile =<< legacyRequestInsertVectorPath
         serialize' (natVersion @11) tx `shouldBe` expected
+
+deleteSpec :: Spec
+deleteSpec = describe "requestDeleteCageTx" $ do
+    it "rejects empty funding before building" $ do
+        cfg <- testCageConfig
+        let RequestDeleteFixture{deleteTrustedRoot, deleteFacts} =
+                deterministicRequestDeleteFixture []
+        verified <-
+            expectDeleteVerified deleteTrustedRoot deleteFacts
+        requestDeleteCageTx cfg permissiveWalletPolicy verified
+            `shouldBe` Left EmptyFunding
+
+    it "rejects wallet policy caps before signing" $ do
+        cfg <- testCageConfig
+        let RequestDeleteFixture{deleteTrustedRoot, deleteFacts} =
+                deterministicRequestDeleteFixture
+                    [(walletTxId, 1, walletTxOutBytes)]
+            policy =
+                permissiveWalletPolicy
+                    { wpMaxMinUtxoCoinPerByte = Coin 1
+                    }
+        verified <-
+            expectDeleteVerified deleteTrustedRoot deleteFacts
+        requestDeleteCageTx cfg policy verified
+            `shouldBe` Left
+                ( PolicyViolation
+                    ( MinUtxoCoinPerByteTooHigh
+                        (Coin 4_310)
+                        (Coin 1)
+                    )
+                )
+
+    it "builds an unsigned delete request for verified facts" $ do
+        cfg <- testCageConfig
+        let RequestDeleteFixture
+                { deleteTrustedRoot
+                , deleteFacts
+                , deleteWalletInput
+                } =
+                    deterministicRequestDeleteFixture
+                        [(walletTxId, 1, walletTxOutBytes)]
+            requestAddr =
+                requestAddrFromCfg
+                    cfg
+                    (tokenIdFromJSON sampleToken)
+                    Testnet
+        verified <-
+            expectDeleteVerified deleteTrustedRoot deleteFacts
+        tx <-
+            case requestDeleteCageTx
+                cfg
+                permissiveWalletPolicy
+                verified of
+                Left err ->
+                    expectationFailure
+                        ("requestDeleteCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        Set.member
+            deleteWalletInput
+            (tx ^. bodyTxL . inputsTxBodyL)
+            `shouldBe` True
+        tx ^. bodyTxL . mintTxBodyL `shouldBe` mempty
+        Map.size (tx ^. witsTxL . scriptTxWitsL) `shouldBe` 0
+        tx ^. witsTxL . rdmrsTxWitsL `shouldBe` mempty
+        txOutputAddresses tx `shouldSatisfy` elem requestAddr
+
+    it "matches the legacy request-delete CBOR vector" $ do
+        cfg <- testCageConfig
+        let RequestDeleteFixture{deleteTrustedRoot, deleteFacts} =
+                deterministicRequestDeleteFixture
+                    [(walletTxId, 1, walletTxOutBytes)]
+        verified <-
+            expectDeleteVerified deleteTrustedRoot deleteFacts
+        tx <-
+            case requestDeleteCageTx
+                cfg
+                permissiveWalletPolicy
+                verified of
+                Left err ->
+                    expectationFailure
+                        ("requestDeleteCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        expected <- BS.readFile =<< legacyRequestDeleteVectorPath
+        serialize' (natVersion @11) tx `shouldBe` expected
+
+data RequestDeleteFixture = RequestDeleteFixture
+    { deleteTrustedRoot :: TrustedRoot
+    , deleteFacts :: RequestDeleteFacts
+    , deleteWalletInput :: TxIn
+    }
+
+deterministicRequestDeleteFixture
+    :: [(ByteString, Word, ByteString)] -> RequestDeleteFixture
+deterministicRequestDeleteFixture rows =
+    let (root, entries) = csmtEntries rows
+        input = txInFromBytes walletTxId 1
+        facts =
+            RequestDeleteFacts
+                { rdfSnapshot = snapshotWithRoot root
+                , rdfToken = sampleToken
+                , rdfKey = Hex "mykey"
+                , rdfValue = Hex "myvalue"
+                , rdfAddress = Hex (serialiseAddr fundingAddr)
+                , rdfSubmittedAt = submittedAt
+                , rdfWalletUtxos = entries
+                , rdfProtocolParameters =
+                    pparamsFacts realisticPParams
+                }
+    in  RequestDeleteFixture
+            { deleteTrustedRoot = TrustedRoot (Hex root)
+            , deleteFacts = facts
+            , deleteWalletInput = input
+            }
+
+expectDeleteVerified
+    :: TrustedRoot
+    -> RequestDeleteFacts
+    -> IO VerifiedRequestDeleteFacts
+expectDeleteVerified trusted facts =
+    case verifyRequestDeleteFacts trusted facts of
+        Left err ->
+            expectationFailure
+                ("verifyRequestDeleteFacts failed: " <> show err)
+                *> error "unreachable"
+        Right verified ->
+            pure verified
+
+legacyRequestDeleteVectorPath :: IO FilePath
+legacyRequestDeleteVectorPath = do
+    let candidates =
+            [ "specs/265-request-delete-fact-provider-pivot/test-vectors/legacy-request-delete.cbor"
+            , "../specs/265-request-delete-fact-provider-pivot/test-vectors/legacy-request-delete.cbor"
+            ]
+    existing <- filterM doesFileExist candidates
+    case existing of
+        path : _ -> pure path
+        [] ->
+            expectationFailure
+                "legacy request-delete vector not found from test working directory"
+                *> error "unreachable"
 
 data RequestInsertFixture = RequestInsertFixture
     { trustedRoot :: TrustedRoot

@@ -5,6 +5,7 @@
 -- Description : Client-side request cage transaction builders.
 module Cardano.MPFS.Client.Cage.Request
     ( requestInsertCageTx
+    , requestDeleteCageTx
     ) where
 
 import Data.ByteString (ByteString)
@@ -98,7 +99,8 @@ import Cardano.MPFS.API.Types.Common
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts
-    ( RequestInsertFacts (..)
+    ( RequestDeleteFacts (..)
+    , RequestInsertFacts (..)
     )
 import Cardano.MPFS.Cage.Ledger
     ( ConwayEra
@@ -125,7 +127,9 @@ import Cardano.MPFS.Client.Cage.Policy
     , WalletPolicy (..)
     )
 import Cardano.MPFS.Client.Facts
-    ( VerifiedRequestInsertFacts
+    ( VerifiedRequestDeleteFacts
+    , VerifiedRequestInsertFacts
+    , verifiedRequestDeleteFacts
     , verifiedRequestInsertFacts
     )
 import Cardano.Node.Client.Balance
@@ -151,25 +155,82 @@ requestInsertCageTx
     -> WalletPolicy
     -> VerifiedRequestInsertFacts
     -> Either BuildError (Tx ConwayEra)
-requestInsertCageTx cfg policy verified = do
+requestInsertCageTx cfg policy verified =
     let facts = verifiedRequestInsertFacts verified
-    pp <- decodePParams (rifProtocolParameters facts)
-    enforcePParamsPolicy policy pp
-    fundingRows <- decodeWalletUtxos (rifWalletUtxos facts)
-    fundingRow <- selectFundingRow fundingRows
-    requesterAddr <- decodeAddress (rifAddress facts)
-    tx <-
-        buildRequestInsertTx
+    in  buildRequestCageTx
+            "request_insert"
             cfg
-            pp
-            fundingRow
-            requesterAddr
+            policy
+            (rifProtocolParameters facts)
+            (rifWalletUtxos facts)
+            (rifAddress facts)
             (tokenIdFromJSON $ rifToken facts)
             (unHex $ rifKey facts)
-            (unHex $ rifValue facts)
+            (OpInsert (unHex $ rifValue facts))
             (rifSubmittedAt facts)
-    enforceTxPolicy policy tx
-    pure tx
+
+-- | Build an unsigned request-delete transaction from already-verified
+-- request-delete facts. The function decodes ledger facts, enforces
+-- wallet caps, and returns a transaction ready for requester signing.
+requestDeleteCageTx
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestDeleteFacts
+    -> Either BuildError (Tx ConwayEra)
+requestDeleteCageTx cfg policy verified =
+    let facts = verifiedRequestDeleteFacts verified
+    in  buildRequestCageTx
+            "request_delete"
+            cfg
+            policy
+            (rdfProtocolParameters facts)
+            (rdfWalletUtxos facts)
+            (rdfAddress facts)
+            (tokenIdFromJSON $ rdfToken facts)
+            (unHex $ rdfKey facts)
+            (OpDelete (unHex $ rdfValue facts))
+            (rdfSubmittedAt facts)
+
+buildRequestCageTx
+    :: Text
+    -> CageConfig
+    -> WalletPolicy
+    -> UnverifiedPParams
+    -> [UtxoEntry]
+    -> Hex
+    -> TokenId
+    -> ByteString
+    -> OnChainOperation
+    -> Integer
+    -> Either BuildError (Tx ConwayEra)
+buildRequestCageTx
+    label
+    cfg
+    policy
+    ppEnc
+    walletEntries
+    addrHex
+    token
+    key
+    op
+    submittedAt = do
+        pp <- decodePParams ppEnc
+        enforcePParamsPolicy policy pp
+        fundingRows <- decodeWalletUtxos label walletEntries
+        fundingRow <- selectFundingRow fundingRows
+        requesterAddr <- decodeAddress label addrHex
+        tx <-
+            buildRequestTx
+                cfg
+                pp
+                fundingRow
+                requesterAddr
+                token
+                key
+                op
+                submittedAt
+        enforceTxPolicy policy tx
+        pure tx
 
 data InputRow = InputRow
     { rowRef :: !TxIn
@@ -183,13 +244,13 @@ selectFundingRow rows =
         row : _ -> Right row
         [] -> Left EmptyFunding
 
-decodeAddress :: Hex -> Either BuildError Addr
-decodeAddress (Hex addrBytes) =
+decodeAddress :: Text -> Hex -> Either BuildError Addr
+decodeAddress label (Hex addrBytes) =
     case decodeAddrEither addrBytes of
         Left err ->
             Left
                 $ MalformedTxOut
-                $ "request_insert.address: " <> T.pack err
+                $ label <> ".address: " <> T.pack err
         Right addr -> Right addr
 
 decodePParams
@@ -204,16 +265,16 @@ decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
         Right pp -> Right pp
 
 decodeWalletUtxos
-    :: [UtxoEntry] -> Either BuildError [InputRow]
-decodeWalletUtxos =
-    traverse (uncurry decodeWalletUtxo) . zip [0 :: Int ..]
+    :: Text -> [UtxoEntry] -> Either BuildError [InputRow]
+decodeWalletUtxos label =
+    traverse (uncurry (decodeWalletUtxo label)) . zip [0 :: Int ..]
 
 decodeWalletUtxo
-    :: Int -> UtxoEntry -> Either BuildError InputRow
-decodeWalletUtxo ix UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
+    :: Text -> Int -> UtxoEntry -> Either BuildError InputRow
+decodeWalletUtxo label ix UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
     InputRow
-        <$> decodeRef (walletField ix "ref") ueRef
-        <*> decodeTxOut (walletField ix "tx_out_cbor") outBytes
+        <$> decodeRef (walletField label ix "ref") ueRef
+        <*> decodeTxOut (walletField label ix "tx_out_cbor") outBytes
 
 decodeRef :: Text -> UtxoRef -> Either BuildError TxIn
 decodeRef path UtxoRef{urTxId = Hex txIdBytes, urTxIx} = do
@@ -254,31 +315,32 @@ showDecoder :: DecoderError -> Text
 showDecoder =
     T.pack . show
 
-walletField :: Int -> Text -> Text
-walletField ix name =
-    "request_insert.wallet_utxos["
+walletField :: Text -> Int -> Text -> Text
+walletField label ix name =
+    label
+        <> ".wallet_utxos["
         <> T.pack (show ix)
         <> "]."
         <> name
 
-buildRequestInsertTx
+buildRequestTx
     :: CageConfig
     -> PParams ConwayEra
     -> InputRow
     -> Addr
     -> TokenId
     -> ByteString
-    -> ByteString
+    -> OnChainOperation
     -> Integer
     -> Either BuildError (Tx ConwayEra)
-buildRequestInsertTx
+buildRequestTx
     cfg
     pp
     fundingRow
     requesterAddr
     token
     key
-    value
+    op
     submittedAt =
         case balanceTx
             pp
@@ -298,7 +360,7 @@ buildRequestInsertTx
                 token
                 requesterAddr
                 key
-                (OpInsert value)
+                op
                 tip
                 submittedAt
         draftOut =

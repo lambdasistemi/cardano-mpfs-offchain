@@ -71,8 +71,8 @@ transactions; the client signs and submits via `POST /tx/submit`.
 | GET | `/tx/:txId?timeout=30` | Block until tx is indexed |
 | POST | `/facts/boot` | Return boot facts for wallet-side transaction construction |
 | POST | `/facts/request/insert` | Return insert-request facts for wallet-side transaction construction |
+| POST | `/facts/request/delete` | Return delete-request facts for wallet-side transaction construction |
 | POST | `/facts/end` | Return end facts for wallet-side transaction construction |
-| POST | `/tx/request/delete` | Build delete request |
 | POST | `/tx/update` | Build update transaction |
 | POST | `/tx/retract` | Build retract transaction |
 | POST | `/tx/submit` | Submit signed transaction |

@@ -36,10 +36,10 @@ module Cardano.MPFS.API
       -- * Facts endpoints
     , FactsBootAPI
     , FactsRequestInsertAPI
+    , FactsRequestDeleteAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
-    , TxDeleteAPI
     , TxRequestUpdateAPI
     , TxRejectAPI
     , TxUpdateAPI
@@ -90,6 +90,7 @@ import Cardano.MPFS.API.Types.Common (TokenIdJSON)
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts
     , EndFacts
+    , RequestDeleteFacts
     , RequestInsertFacts
     )
 
@@ -198,6 +199,16 @@ type FactsRequestInsertAPI =
         :> ReqBody '[JSON] InsertRequest
         :> Post '[JSON] RequestInsertFacts
 
+-- | @POST \/facts\/request\/delete@ — return indexed facts
+-- required by wallet-side request-delete transaction
+-- construction.
+type FactsRequestDeleteAPI =
+    "facts"
+        :> "request"
+        :> "delete"
+        :> ReqBody '[JSON] DeleteRequest
+        :> Post '[JSON] RequestDeleteFacts
+
 -- | @POST \/facts\/end@ — return indexed facts
 -- required by wallet-side end transaction
 -- construction.
@@ -206,15 +217,6 @@ type FactsEndAPI =
         :> "end"
         :> ReqBody '[JSON] EndRequest
         :> Post '[JSON] EndFacts
-
--- | @POST \/tx\/request\/delete@ — build a delete
--- request transaction.
-type TxDeleteAPI =
-    "tx"
-        :> "request"
-        :> "delete"
-        :> ReqBody '[JSON] DeleteRequest
-        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/request\/update@ — build an
 -- update-value request transaction.
@@ -263,8 +265,7 @@ type TxSweepAPI =
 -- deriving a Servant client without depending on the
 -- server package.
 type TxWriteAPI =
-    TxDeleteAPI
-        :<|> TxRequestUpdateAPI
+    TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI
         :<|> TxRetractAPI
@@ -297,8 +298,8 @@ type API =
         :<|> TxAwaitAPI
         :<|> FactsBootAPI
         :<|> FactsRequestInsertAPI
+        :<|> FactsRequestDeleteAPI
         :<|> FactsEndAPI
-        :<|> TxDeleteAPI
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI

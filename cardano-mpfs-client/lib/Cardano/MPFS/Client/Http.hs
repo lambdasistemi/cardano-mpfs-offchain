@@ -28,7 +28,7 @@ module Cardano.MPFS.Client.Http
       -- * Write endpoints
     , bootFacts
     , requestInsertFacts
-    , requestDeleteTx
+    , requestDeleteFacts
     , requestUpdateTx
     , retractTx
     , rejectTx
@@ -69,6 +69,7 @@ import Servant.Client.Core.Response
 
 import Cardano.MPFS.API
     ( FactsBootAPI
+    , FactsRequestDeleteAPI
     , FactsRequestInsertAPI
     , TxWriteAPI
     )
@@ -86,6 +87,7 @@ import Cardano.MPFS.Client.Verify
     ( VerifyError
     , verifyBootFacts
     , verifyRejectTxResponse
+    , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -143,7 +145,7 @@ instance ToJSON RequestInsertParams where
             , "address" .= requestInsertAddress
             ]
 
--- | @POST /tx/request/delete@ request body.
+-- | @POST /facts/request/delete@ request body.
 data RequestDeleteParams = RequestDeleteParams
     { requestDeleteToken :: Hex
     , requestDeleteKey :: Hex
@@ -253,13 +255,19 @@ requestInsertFacts http trustedRoot params =
         factsRequestInsertClient
         (verifyRequestInsertFacts trustedRoot)
 
--- | Build a delete-request transaction.
-requestDeleteTx
+-- | Fetch request-delete facts and verify the bundled wallet UTxO
+-- witnesses against the externally-trusted CSMT root.
+requestDeleteFacts
     :: MpfsHttp
+    -> TrustedRoot
     -> RequestDeleteParams
-    -> IO (Either ClientError RequestTxResponse)
-requestDeleteTx http params =
-    runWriteEndpoint http params txDeleteClient verifyRequestTxResponse
+    -> IO (Either ClientError FactsWire.RequestDeleteFacts)
+requestDeleteFacts http trustedRoot params =
+    runWriteEndpoint
+        http
+        params
+        factsRequestDeleteClient
+        (verifyRequestDeleteFacts trustedRoot)
 
 -- | Build an update-value request transaction.
 requestUpdateTx
@@ -363,8 +371,8 @@ factsBootClient
     :: Wire.BootRequest -> ClientM FactsWire.BootFacts
 factsRequestInsertClient
     :: Wire.InsertRequest -> ClientM FactsWire.RequestInsertFacts
-txDeleteClient
-    :: Wire.DeleteRequest -> ClientM Wire.RequestTxResponse
+factsRequestDeleteClient
+    :: Wire.DeleteRequest -> ClientM FactsWire.RequestDeleteFacts
 txRequestUpdateClient
     :: Wire.UpdateValueRequest -> ClientM Wire.RequestTxResponse
 txRejectClient
@@ -381,8 +389,10 @@ factsBootClient =
 factsRequestInsertClient =
     client (Proxy :: Proxy FactsRequestInsertAPI)
 
-txDeleteClient
-    :<|> txRequestUpdateClient
+factsRequestDeleteClient =
+    client (Proxy :: Proxy FactsRequestDeleteAPI)
+
+txRequestUpdateClient
     :<|> txRejectClient
     :<|> txUpdateClient
     :<|> txRetractClient

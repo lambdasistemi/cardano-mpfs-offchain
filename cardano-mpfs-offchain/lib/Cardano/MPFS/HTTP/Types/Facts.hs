@@ -9,6 +9,7 @@
 -- @Cardano.MPFS.HTTP.Types@ compatibility surface.
 module Cardano.MPFS.HTTP.Types.Facts
     ( mkRequestInsertFacts
+    , mkRequestDeleteFacts
     , mkEndFacts
     ) where
 
@@ -32,6 +33,7 @@ import Cardano.MPFS.API.Types.Common
     )
 import Cardano.MPFS.API.Types.Facts
     ( EndFacts (..)
+    , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
     )
 import Cardano.MPFS.Core.Types
@@ -83,6 +85,42 @@ mkRequestInsertFacts
             , rifWalletUtxos =
                 map resolvedWalletInputToUtxoEntry walletUtxos
             , rifProtocolParameters =
+                pparamsToJSON pparams
+            }
+
+-- | Build the facts-only request-delete response from one
+-- atomic indexer snapshot, requester funding UTxOs, the
+-- request payload, a submission timestamp, and node protocol
+-- parameters.
+mkRequestDeleteFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> Integer
+    -> [ResolvedWalletInput]
+    -> PParams ConwayEra
+    -> RequestDeleteFacts
+mkRequestDeleteFacts
+    snap
+    tid
+    key
+    value
+    address
+    submittedAt
+    walletUtxos
+    pparams =
+        RequestDeleteFacts
+            { rdfSnapshot = bundleSnapshotToJSON snap
+            , rdfToken = tokenIdToJSON tid
+            , rdfKey = Hex key
+            , rdfValue = Hex value
+            , rdfAddress = Hex address
+            , rdfSubmittedAt = submittedAt
+            , rdfWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , rdfProtocolParameters =
                 pparamsToJSON pparams
             }
 
