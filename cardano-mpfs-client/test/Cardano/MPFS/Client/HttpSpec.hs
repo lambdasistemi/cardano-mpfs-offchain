@@ -57,7 +57,7 @@ import Cardano.MPFS.Client
     , VerifyError (..)
     , bootFacts
     , rejectTx
-    , requestDeleteTx
+    , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateTx
     , retractTx
@@ -214,10 +214,17 @@ writeEndpointCases =
                 )
         )
     , EndpointCase
-        ["tx", "request", "delete"]
+        ["facts", "request", "delete"]
         (Aeson.toJSON deleteParams)
-        (Aeson.encode honestRequestResponse)
-        (voidRight . (`requestDeleteTx` deleteParams))
+        (Aeson.encode honestRequestDeleteFacts)
+        ( \http ->
+            voidRight
+                ( requestDeleteFacts
+                    http
+                    honestBootTrustedRoot
+                    deleteParams
+                )
+        )
     , EndpointCase
         ["tx", "request", "update"]
         (Aeson.toJSON requestUpdateParams)
@@ -270,6 +277,25 @@ honestRequestInsertFacts =
         , Wire.rifWalletUtxos =
             Wire.utrInputs honestUnsignedBootResponse
         , Wire.rifProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
+
+honestRequestDeleteFacts :: Wire.RequestDeleteFacts
+honestRequestDeleteFacts =
+    Wire.RequestDeleteFacts
+        { Wire.rdfSnapshot =
+            Wire.utrSnapshot honestUnsignedBootResponse
+        , Wire.rdfToken = Wire.TokenIdJSON "00"
+        , Wire.rdfKey = Wire.Hex "11"
+        , Wire.rdfValue = Wire.Hex "22"
+        , Wire.rdfAddress = Wire.Hex "aabbcc"
+        , Wire.rdfSubmittedAt = 1_700_000_000_000
+        , Wire.rdfWalletUtxos =
+            Wire.utrInputs honestUnsignedBootResponse
+        , Wire.rdfProtocolParameters =
             Wire.UnverifiedPParams
                 { Wire.uppVerified = False
                 , Wire.uppCbor = Wire.Hex "\x82\x01\x02"

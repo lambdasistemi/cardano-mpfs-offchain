@@ -15,6 +15,7 @@ module Cardano.MPFS.HTTP.Server
       mkApp
     , mkBootFacts
     , mkRequestInsertFacts
+    , mkRequestDeleteFacts
     , mkEndFacts
     ) where
 
@@ -65,6 +66,7 @@ import Cardano.Ledger.TxIn
 
 import Cardano.MPFS.API.Types.Facts
     ( EndFacts
+    , RequestDeleteFacts
     , RequestInsertFacts
     )
 import Cardano.MPFS.Context (Context (..))
@@ -131,6 +133,7 @@ import Cardano.MPFS.HTTP.Types
     )
 import Cardano.MPFS.HTTP.Types.Facts
     ( mkEndFacts
+    , mkRequestDeleteFacts
     , mkRequestInsertFacts
     )
 import Cardano.MPFS.Indexer.Reads
@@ -185,8 +188,8 @@ mkApp ctx =
             :<|> txAwaitHandler ctx
             :<|> factsBootHandler ctx
             :<|> factsRequestInsertHandler ctx
+            :<|> factsRequestDeleteHandler ctx
             :<|> factsEndHandler ctx
-            :<|> txDeleteHandler ctx
             :<|> txUpdateValueHandler ctx
             :<|> txRejectHandler ctx
             :<|> txUpdateHandler ctx
@@ -745,6 +748,64 @@ factsRequestInsertHandler
                             inputs
                             pp
 
+-- | @POST \/facts\/request\/delete@. Reads snapshot and wallet
+-- inputs at the requester address inside ONE indexer transaction,
+-- then returns facts for wallet-side request-delete transaction
+-- construction.
+factsRequestDeleteHandler
+    :: Context IO
+    -> DeleteRequest
+    -> Handler RequestDeleteFacts
+factsRequestDeleteHandler
+    ctx
+    DeleteRequest
+        { drToken = tokenId
+        , drKey = Hex k
+        , drValue = Hex v
+        , drAddr = addrHex@(Hex addrBytes)
+        } = do
+        let tid = tokenIdFromJSON tokenId
+        addr <- requireAddr addrHex
+        (mSnap, inputs) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    ins <- readWalletInputsAt addr
+                    pure (snap, ins)
+        case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just snap
+                | null inputs ->
+                    throwError
+                        err400
+                            { errBody =
+                                "No wallet UTxOs \
+                                \at address"
+                            }
+                | otherwise -> do
+                    pp <-
+                        liftIO
+                            $ queryProtocolParams
+                                (provider ctx)
+                    submittedAt <- liftIO currentPosixMs
+                    pure
+                        $ mkRequestDeleteFacts
+                            snap
+                            tid
+                            k
+                            v
+                            addrBytes
+                            submittedAt
+                            inputs
+                            pp
+
 -- | @POST \/facts\/end@. Reads snapshot, owner funding
 -- inputs, state UTxO, and the request-set completeness
 -- witness inside ONE indexer transaction, then returns
@@ -840,32 +901,6 @@ factsEndHandler
                                             )
                                         ]
                                     }
-
-txDeleteHandler
-    :: Context IO
-    -> DeleteRequest
-    -> Handler RequestTxResponse
-txDeleteHandler
-    ctx
-    DeleteRequest
-        { drToken = tokenId
-        , drKey = Hex k
-        , drValue = Hex v
-        , drAddr = addrHex
-        } = do
-        let tid = tokenIdFromJSON tokenId
-        addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.requestDelete
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    k
-                    v
-                    addr
-        pure (mkRequestTxResponse bundle)
 
 txUpdateValueHandler
     :: Context IO

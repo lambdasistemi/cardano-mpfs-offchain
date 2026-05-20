@@ -38,6 +38,7 @@ module Cardano.MPFS.API.Types
     , UnverifiedPParams (..)
     , BootFacts (..)
     , RequestInsertFacts (..)
+    , RequestDeleteFacts (..)
     , EndFacts (..)
 
       -- * Proof-bearing read responses
@@ -115,6 +116,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
     )
 
