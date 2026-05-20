@@ -39,6 +39,7 @@ module Cardano.MPFS.API.Types
     , BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RetractFacts (..)
     , EndFacts (..)
 
       -- * Proof-bearing read responses
@@ -118,6 +119,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RetractFacts (..)
     )
 
 -- | Response for @GET \/status@.
