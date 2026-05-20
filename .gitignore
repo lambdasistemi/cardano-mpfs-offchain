@@ -1,10 +1,10 @@
 dist-newstyle/
 .llm/
 result
+result-*
 .direnv/
 .hoogle/
 WIP.md
 result-docker
-result
 .claude/
 .orch/
