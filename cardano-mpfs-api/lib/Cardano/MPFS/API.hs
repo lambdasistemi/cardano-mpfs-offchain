@@ -44,7 +44,6 @@ module Cardano.MPFS.API
     , TxRequestUpdateAPI
     , TxRejectAPI
     , TxUpdateAPI
-    , TxRetractAPI
     , TxSweepAPI
     , TxWriteAPI
     , TxSubmitAPI
@@ -77,7 +76,6 @@ import Cardano.MPFS.API.Types
     , RequestTxResponse
     , RequestsResponse
     , RetractRequest
-    , RetractTxResponse
     , StatusResponse
     , SubmitRequest
     , SweepRequest
@@ -254,14 +252,6 @@ type TxUpdateAPI =
         :> ReqBody '[JSON] UpdateRequest
         :> Post '[JSON] UpdateTxResponse
 
--- | @POST \/tx\/retract@ — build a retract
--- transaction.
-type TxRetractAPI =
-    "tx"
-        :> "retract"
-        :> ReqBody '[JSON] RetractRequest
-        :> Post '[JSON] RetractTxResponse
-
 -- | @POST \/tx\/sweep@ — build an owner-only sweep
 -- transaction that spends a non-legitimate UTxO at
 -- the per-cage request address (PR #50).
@@ -279,7 +269,6 @@ type TxWriteAPI =
     TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI
-        :<|> TxRetractAPI
         :<|> TxSweepAPI
 
 -- | @POST \/tx\/submit@ — submit a signed
@@ -315,6 +304,5 @@ type API =
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI
-        :<|> TxRetractAPI
         :<|> TxSweepAPI
         :<|> TxSubmitAPI

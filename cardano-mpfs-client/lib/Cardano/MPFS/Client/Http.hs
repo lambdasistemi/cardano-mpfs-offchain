@@ -21,7 +21,6 @@ module Cardano.MPFS.Client.Http
     , RequestInsertParams (..)
     , RequestDeleteParams (..)
     , RequestUpdateParams (..)
-    , RetractParams (..)
     , RejectParams (..)
     , UpdateParams (..)
 
@@ -30,7 +29,6 @@ module Cardano.MPFS.Client.Http
     , requestInsertFacts
     , requestDeleteFacts
     , requestUpdateTx
-    , retractTx
     , rejectTx
     , updateTx
     , sweepTx
@@ -78,7 +76,6 @@ import Cardano.MPFS.API.Types.Facts qualified as FactsWire
 import Cardano.MPFS.Client.Bundle
     ( RejectTxResponse
     , RequestTxResponse
-    , RetractTxResponse
     , UpdateTxResponse
     )
 import Cardano.MPFS.Client.Snapshot (Hex)
@@ -90,7 +87,6 @@ import Cardano.MPFS.Client.Verify
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestTxResponse
-    , verifyRetractTxResponse
     , verifyUpdateTxResponse
     )
 
@@ -183,20 +179,6 @@ instance ToJSON RequestUpdateParams where
             , "address" .= requestUpdateAddress
             ]
 
--- | @POST /tx/retract@ request body.
-data RetractParams = RetractParams
-    { retractUtxo :: Text
-    , retractAddress :: Hex
-    }
-    deriving stock (Eq, Show)
-
-instance ToJSON RetractParams where
-    toJSON RetractParams{..} =
-        object
-            [ "utxo" .= retractUtxo
-            , "address" .= retractAddress
-            ]
-
 -- | @POST /tx/reject@ request body.
 data RejectParams = RejectParams
     { rejectToken :: Hex
@@ -280,14 +262,6 @@ requestUpdateTx http params =
         params
         txRequestUpdateClient
         verifyRequestTxResponse
-
--- | Build a retract transaction.
-retractTx
-    :: MpfsHttp
-    -> RetractParams
-    -> IO (Either ClientError RetractTxResponse)
-retractTx http params =
-    runWriteEndpoint http params txRetractClient verifyRetractTxResponse
 
 -- | Build a reject transaction.
 rejectTx
@@ -379,8 +353,6 @@ txRejectClient
     :: Wire.RejectRequest -> ClientM Wire.RejectTxResponse
 txUpdateClient
     :: Wire.UpdateRequest -> ClientM Wire.UpdateTxResponse
-txRetractClient
-    :: Wire.RetractRequest -> ClientM Wire.RetractTxResponse
 txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 factsBootClient =
@@ -395,7 +367,6 @@ factsRequestDeleteClient =
 txRequestUpdateClient
     :<|> txRejectClient
     :<|> txUpdateClient
-    :<|> txRetractClient
     :<|> txSweepClient =
         client (Proxy :: Proxy TxWriteAPI)
 
