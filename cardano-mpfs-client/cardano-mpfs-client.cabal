@@ -158,6 +158,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.HttpSpec
     Cardano.MPFS.Client.RequestDeleteFactsSpec
     Cardano.MPFS.Client.RequestInsertFactsSpec
+    Cardano.MPFS.Client.RetractFactsSpec
     Cardano.MPFS.Client.SnapshotSpec
     Cardano.MPFS.Client.Verify.WriteSpec
     Cardano.MPFS.Client.VerifySpec
