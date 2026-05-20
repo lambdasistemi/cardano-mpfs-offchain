@@ -10,7 +10,9 @@ module Cardano.MPFS.Client.Cage.Retract
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
 import Data.Coerce (coerce)
+import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
+import Data.Ord (Down (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -63,6 +65,7 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , addrTxOutL
+    , coinTxOutL
     , datumTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
@@ -187,9 +190,7 @@ retractCageTx cfg policy verified = do
     stateRow <-
         decodeUtxo "retract.state_utxo" (rfStateUtxo facts)
     fundingRows <- decodeWalletUtxos (rfWalletUtxos facts)
-    feeRow <- case fundingRows of
-        [] -> Left EmptyFunding
-        row : _ -> Right row
+    feeRow <- selectFeeRow fundingRows
     ownerBytes <- requestOwnerBytes requestRow
     ownerSigner <- ownerWitnessKeyHash ownerBytes
     let token = tokenIdFromJSON (rfToken facts)
@@ -222,6 +223,17 @@ data InputRow = InputRow
 rowAddress :: InputRow -> Addr
 rowAddress row =
     rowOut row ^. addrTxOutL
+
+-- | Pick the wallet UTxO carrying the largest lovelace
+-- balance. The selected row pays the script fee and the
+-- Conway collateral on retract, which requires a larger
+-- balance than the smallest funding entry can guarantee.
+selectFeeRow :: [InputRow] -> Either BuildError InputRow
+selectFeeRow [] = Left EmptyFunding
+selectFeeRow rows =
+    case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
+        row : _ -> Right row
+        [] -> Left EmptyFunding
 
 decodePParams
     :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)

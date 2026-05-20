@@ -86,7 +86,7 @@ import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (Addr, serialiseAddr)
 import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
-import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
+import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Binary (decodeFull, natVersion)
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
@@ -94,7 +94,7 @@ import Cardano.Ledger.Mary.Value
     , MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
-import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Ledger.TxIn (TxId (..))
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -152,22 +152,18 @@ import Cardano.MPFS.Client
     ( EndFacts (..)
     , Hex (..)
     , RejectTxResponse (..)
-    , RetractTxResponse
     , UpdateTxResponse
     , VerificationSnapshot (..)
     , VerifiedEndFacts
     , csmtReplayFailedAt
     , flipProof
-    , flipSnapshotRoot
     , flipTxOut
     , runForgeReject
-    , runForgeRetract
     , runForgeUpdate
     , shouldAccept
     , shouldRejectWith
     , verifyEndFacts
     , verifyRejectTxResponse
-    , verifyRetractTxResponse
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     , withReason
@@ -270,7 +266,7 @@ proofsSpec scripts =
             -- Add a second pending request so the
             -- /requests endpoint returns a non-empty
             -- witnessed list.
-            reqTx <-
+            _ <-
                 submit
                     $ requestInsert
                         tb
@@ -279,8 +275,6 @@ proofsSpec scripts =
                         "bye"
                         "moon"
                         genesisAddr
-            let reqTxIn =
-                    TxIn (txIdTx reqTx) (TxIx 0)
 
             -- Pull every proof-bearing read.
             tokenObj <- getJSON app ("/tokens/" <> tidHex)
@@ -330,8 +324,6 @@ proofsSpec scripts =
             -- path is facts-only after #268, so the final
             -- step verifies facts and builds the tx wallet-side.
             let addrHex = hexAddr genesisAddr
-                retractUtxoRef =
-                    txInUrlRef reqTxIn
 
             -- Every endpoint pairs a positive `shouldAccept`
             -- against the honest server response with a
@@ -366,19 +358,13 @@ proofsSpec scripts =
             -- observed in time, so `flipTrieRoot` is not a
             -- reliable forgery at this stage.
 
-            retractResp <-
-                postJSON app "/tx/retract"
-                    $ object
-                        [ "utxo" .= retractUtxoRef
-                        , "address" .= addrHex
-                        ]
-            (retractResp :: RetractTxResponse)
-                `shouldAccept` verifyRetractTxResponse
-            runForgeRetract flipSnapshotRoot retractResp
-                `shouldRejectWith` verifyRetractTxResponse
-                $ csmtReplayFailedAt
-                    "retract.request_in.utxo_proof"
-                    `withReason` "root mismatch"
+            -- The retract write path is facts-only after
+            -- #267; the legacy /tx/retract route is gone.
+            -- Retract forgery coverage now lives in the
+            -- client unit suite against the new
+            -- 'RetractFacts' shape, and the live retract
+            -- flow is exercised by the local-cluster facts
+            -- API matrix (#278) extended in this PR.
 
             threadDelay (rejectDeadlineDelay cfg)
 
@@ -711,14 +697,6 @@ postJSON app path body = do
 hexAddr :: Addr -> Hex
 hexAddr =
     Hex . TE.decodeUtf8 . B16.encode . serialiseAddr
-
--- | Render a TxIn as the @txhash#ix@ string expected
--- by the /tx/retract request body.
-txInUrlRef :: TxIn -> Text
-txInUrlRef (TxIn txI (TxIx ix)) =
-    TE.decodeUtf8 (txIdHex txI)
-        <> "#"
-        <> T.pack (show ix)
 
 getRaw :: Application -> ByteString -> IO SResponse
 getRaw app path =
