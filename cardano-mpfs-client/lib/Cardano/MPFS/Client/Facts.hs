@@ -8,19 +8,23 @@ module Cardano.MPFS.Client.Facts
     ( BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RetractFacts (..)
     , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
+    , VerifiedRetractFacts
     , VerifiedEndFacts
     , verifiedBootFacts
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
+    , verifiedRetractFacts
     , verifiedEndFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
+    , verifyRetractFacts
     , verifyEndFacts
     ) where
 
@@ -39,6 +43,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RetractFacts (..)
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig
@@ -75,6 +80,14 @@ newtype VerifiedRequestDeleteFacts
     = VerifiedRequestDeleteFacts RequestDeleteFacts
     deriving stock (Eq, Show)
 
+-- | Opaque witness that retract facts have been checked
+-- against the caller-supplied trusted root. The constructor is
+-- intentionally not exported, so public callers cannot bypass
+-- 'verifyRetractFacts'.
+newtype VerifiedRetractFacts
+    = VerifiedRetractFacts RetractFacts
+    deriving stock (Eq, Show)
+
 -- | Opaque witness that end facts have been checked against the
 -- caller-supplied trusted root and locally-derived request prefix.
 newtype VerifiedEndFacts = VerifiedEndFacts EndFacts
@@ -97,6 +110,14 @@ verifiedRequestInsertFacts (VerifiedRequestInsertFacts facts) =
 verifiedRequestDeleteFacts
     :: VerifiedRequestDeleteFacts -> RequestDeleteFacts
 verifiedRequestDeleteFacts (VerifiedRequestDeleteFacts facts) =
+    facts
+
+-- | Extract the verified facts after 'verifyRetractFacts'
+-- has established the trusted-root and CSMT proof checks for
+-- the named request UTxO, state UTxO, and wallet UTxOs.
+verifiedRetractFacts
+    :: VerifiedRetractFacts -> RetractFacts
+verifiedRetractFacts (VerifiedRetractFacts facts) =
     facts
 
 -- | Extract the verified facts after 'verifyEndFacts' has
@@ -205,6 +226,54 @@ verifyRequestDeleteFacts
                 ( \(ix, entry) ->
                     replayUtxoEntry
                         ( "request_delete.wallet_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+
+-- | Verify a facts-only retract response against an
+-- externally-supplied trusted UTxO-CSMT root. Replays the
+-- inclusion proofs for the named request UTxO, the cage state
+-- UTxO, and every requester wallet UTxO. The validity slot
+-- bounds and protocol parameters are unverified inputs and
+-- propagate as-is through 'VerifiedRetractFacts'.
+verifyRetractFacts
+    :: TrustedRoot
+    -> RetractFacts
+    -> Either VerifyError VerifiedRetractFacts
+verifyRetractFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@RetractFacts{..} = do
+        checkLength "retract.trusted_root" trustedBs
+        let snapshotPath = "retract.snapshot.utxo_root"
+            Hex snapshotBs = vsUtxoRoot rfSnapshot
+        checkLength snapshotPath snapshotBs
+        if snapshotBs == trustedBs
+            then Right ()
+            else Left (TrustedRootMismatch snapshotPath)
+        replayUtxoEntry
+            "retract.request_utxo"
+            trustedBs
+            rfRequestUtxo
+        replayUtxoEntry
+            "retract.state_utxo"
+            trustedBs
+            rfStateUtxo
+        replayWalletUtxos trustedBs rfWalletUtxos
+        Right (VerifiedRetractFacts facts)
+      where
+        checkLength field bs
+            | BS.length bs == 32 = Right ()
+            | otherwise =
+                Left (WrongHexLength field 32 (BS.length bs))
+        replayWalletUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "retract.wallet_utxos["
                             <> T.pack (show (ix :: Int))
                             <> "]"
                         )

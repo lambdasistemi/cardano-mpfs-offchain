@@ -17,10 +17,12 @@ module Cardano.MPFS.Client.Verify
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
+    , VerifiedRetractFacts
     , VerifiedEndFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
+    , verifyRetractFacts
     , verifyEndFacts
 
       -- * Per-endpoint verifiers
@@ -60,10 +62,12 @@ import Cardano.MPFS.Client.Facts
     , VerifiedEndFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
+    , VerifiedRetractFacts
     , verifyBootFacts
     , verifyEndFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
+    , verifyRetractFacts
     )
 import Cardano.MPFS.Client.Snapshot
     ( ChainPoint (..)
