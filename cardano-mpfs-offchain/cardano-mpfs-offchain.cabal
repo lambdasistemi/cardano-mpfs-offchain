@@ -371,6 +371,7 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.CageSpec
     Cardano.MPFS.E2E.ChainSyncSpec
     Cardano.MPFS.E2E.CrashRecoverySpec
+    Cardano.MPFS.E2E.FactsMatrixSpec
     Cardano.MPFS.E2E.Helpers.Boot
     Cardano.MPFS.E2E.HTTPLifecycleSpec
     Cardano.MPFS.E2E.IndexerSpec
