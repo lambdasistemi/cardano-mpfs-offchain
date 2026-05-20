@@ -16,6 +16,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
+import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
 import System.Directory (doesFileExist)
 import System.Environment (getEnv)
@@ -45,6 +46,8 @@ import CSMT.Test.Lib
     )
 import Cardano.Crypto.Hash
     ( Blake2b_224
+    , Blake2b_256
+    , hashFromBytes
     , hashFromStringAsHex
     )
 import Cardano.Ledger.Address (Addr (..))
@@ -59,6 +62,10 @@ import Cardano.Ledger.Api.Tx
     ( bodyTxL
     , witsTxL
     )
+import Cardano.Ledger.Api.Tx.Body
+    ( collateralInputsTxBodyL
+    , inputsTxBodyL
+    )
 import Cardano.Ledger.Api.Tx.Out (TxOut, mkBasicTxOut)
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
@@ -68,6 +75,7 @@ import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
+    , TxIx (..)
     )
 import Cardano.Ledger.Binary (natVersion, serialize')
 import Cardano.Ledger.Coin (Coin (..))
@@ -75,6 +83,9 @@ import Cardano.Ledger.Core (PParams)
 import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
+    )
+import Cardano.Ledger.Hashes
+    ( unsafeMakeSafeHash
     )
 import Cardano.Ledger.Keys
     ( KeyHash (..)
@@ -85,6 +96,10 @@ import Cardano.Ledger.Plutus.ExUnits
     , Prices (..)
     )
 import Cardano.Ledger.Plutus.Language (Language (..))
+import Cardano.Ledger.TxIn
+    ( TxId (..)
+    , TxIn (..)
+    )
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( BootFacts (..)
@@ -189,6 +204,28 @@ spec = describe "bootCageTx" $ do
             BS.readFile =<< legacyBootVectorPath
         serialize' (natVersion @11) tx `shouldNotBe` expected
 
+    it "selects the largest wallet UTxO as collateral" $ do
+        cfg <- testCageConfig
+        facts <- mixedBalanceBootFacts
+        verified <- verifiedBootFacts facts
+        tx <-
+            case bootCageTx cfg permissiveWalletPolicy verified of
+                Left err ->
+                    expectationFailure
+                        ("bootCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        let body = tx ^. bodyTxL
+            collateral = body ^. collateralInputsTxBodyL
+            inputs = body ^. inputsTxBodyL
+            expectedCollateral =
+                txInFor testTxId2Bytes 1
+            expectedSeed =
+                txInFor testTxId1Bytes 0
+        Set.member expectedCollateral collateral `shouldBe` True
+        Set.member expectedSeed inputs `shouldBe` True
+        Set.member expectedCollateral inputs `shouldBe` True
+
     it "sets a submit-valid minting budget and script integrity" $ do
         cfg <- testCageConfig
         facts <- deterministicBootFacts
@@ -260,6 +297,28 @@ deterministicBootFacts = do
     let rows =
             [ (testTxId1Bytes, 0, walletTxOutBytes)
             , (testTxId2Bytes, 1, walletTxOutBytes)
+            ]
+        (root, entries) = csmtEntries rows
+    pure
+        BootFacts
+            { bfSnapshot = snapshotWithRoot root
+            , bfWalletUtxos = entries
+            , bfProtocolParameters =
+                pparamsFacts realisticPParams
+            }
+
+-- | Two wallet UTxOs of clearly different lovelace
+-- balances. testTxId1 is small (3 ADA) and listed first;
+-- testTxId2 is large (50 ADA) and listed second. The boot
+-- builder must pick the larger row as collateral
+-- regardless of CSMT walk order — this fixture pins the
+-- Conway InsufficientCollateral regression that surfaced
+-- on the FactsMatrix boot row.
+mixedBalanceBootFacts :: IO BootFacts
+mixedBalanceBootFacts = do
+    let rows =
+            [ (testTxId1Bytes, 0, smallWalletTxOutBytes)
+            , (testTxId2Bytes, 1, largeWalletTxOutBytes)
             ]
         (root, entries) = csmtEntries rows
     pure
@@ -345,6 +404,27 @@ walletTxOut =
     mkBasicTxOut
         ownerAddr
         (inject (Coin 50_000_000))
+
+smallWalletTxOutBytes :: ByteString
+smallWalletTxOutBytes =
+    serialize' (natVersion @11) smallWalletTxOut
+
+smallWalletTxOut :: TxOut ConwayEra
+smallWalletTxOut =
+    mkBasicTxOut ownerAddr (inject (Coin 3_000_000))
+
+largeWalletTxOutBytes :: ByteString
+largeWalletTxOutBytes = walletTxOutBytes
+
+txInFor :: ByteString -> Word -> TxIn
+txInFor txIdBytes ix =
+    TxIn
+        ( TxId
+            $ unsafeMakeSafeHash
+            $ fromJust
+            $ hashFromBytes @Blake2b_256 txIdBytes
+        )
+        (TxIx (fromIntegral ix))
 
 ownerAddr :: Addr
 ownerAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
