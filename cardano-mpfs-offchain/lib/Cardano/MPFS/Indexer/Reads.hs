@@ -34,6 +34,7 @@ module Cardano.MPFS.Indexer.Reads
     , readMerkleRoot
     , readSnapshot
     , readStateUtxoAt
+    , readNamedRequestUtxo
     , readRequestSetAt
     , readWalletInputsAt
     , ResolvedUtxoSet
@@ -334,6 +335,20 @@ readStateUtxoAt stateAddr policyId tid =
                       \produced a state-address leaf whose \
                       \value did not decode as a TxOut: "
                         <> show err
+
+-- | Read the named request UTxO at a given request address
+-- by walking the CSMT subtree and selecting the entry whose
+-- 'TxIn' matches the target. Returns 'Nothing' when the
+-- address subtree does not carry the requested 'TxIn'.
+readNamedRequestUtxo
+    :: Addr -> TxIn -> IndexerTx (Maybe ResolvedWalletInput)
+readNamedRequestUtxo reqAddr targetTxIn =
+    findUtxo <$> readWalletInputsAt reqAddr
+  where
+    findUtxo [] = Nothing
+    findUtxo (row@(txIn, _, _) : rest)
+        | txIn == targetTxIn = Just row
+        | otherwise = findUtxo rest
 
 -- | Walk the UTxO-CSMT subtree at a request address and
 -- produce the enumerated UTxOs plus a production

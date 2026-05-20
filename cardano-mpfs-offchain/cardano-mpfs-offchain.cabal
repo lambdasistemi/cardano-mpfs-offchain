@@ -304,6 +304,7 @@ test-suite unit-tests
     Cardano.MPFS.HTTP.RequestDeleteFactsSpec
     Cardano.MPFS.HTTP.RequestInsertFactsSpec
     Cardano.MPFS.HTTP.RequestsSpec
+    Cardano.MPFS.HTTP.RetractFactsSpec
     Cardano.MPFS.HTTP.StatusSpec
     Cardano.MPFS.HTTP.TokenSpec
     Cardano.MPFS.HTTP.TokensSpec

@@ -37,6 +37,7 @@ module Cardano.MPFS.API
     , FactsBootAPI
     , FactsRequestInsertAPI
     , FactsRequestDeleteAPI
+    , FactsRetractAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
@@ -92,6 +93,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RetractFacts
     )
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
@@ -209,6 +211,15 @@ type FactsRequestDeleteAPI =
         :> ReqBody '[JSON] DeleteRequest
         :> Post '[JSON] RequestDeleteFacts
 
+-- | @POST \/facts\/retract@ — return indexed facts
+-- required by wallet-side retract transaction
+-- construction.
+type FactsRetractAPI =
+    "facts"
+        :> "retract"
+        :> ReqBody '[JSON] RetractRequest
+        :> Post '[JSON] RetractFacts
+
 -- | @POST \/facts\/end@ — return indexed facts
 -- required by wallet-side end transaction
 -- construction.
@@ -299,6 +310,7 @@ type API =
         :<|> FactsBootAPI
         :<|> FactsRequestInsertAPI
         :<|> FactsRequestDeleteAPI
+        :<|> FactsRetractAPI
         :<|> FactsEndAPI
         :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI

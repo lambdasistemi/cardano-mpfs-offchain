@@ -16,12 +16,15 @@ module Cardano.MPFS.HTTP.Server
     , mkBootFacts
     , mkRequestInsertFacts
     , mkRequestDeleteFacts
+    , mkRetractFacts
     , mkEndFacts
     ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -68,6 +71,7 @@ import Cardano.MPFS.API.Types.Facts
     ( EndFacts
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RetractFacts
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -77,6 +81,7 @@ import Cardano.MPFS.Core.Types
     , LocatedRequest (..)
     , LocatedTokenState (..)
     , PParams
+    , Request (..)
     , Root (..)
     , SlotNo (..)
     , TokenId
@@ -135,9 +140,11 @@ import Cardano.MPFS.HTTP.Types.Facts
     ( mkEndFacts
     , mkRequestDeleteFacts
     , mkRequestInsertFacts
+    , mkRetractFacts
     )
 import Cardano.MPFS.Indexer.Reads
-    ( readRequestSetAt
+    ( readNamedRequestUtxo
+    , readRequestSetAt
     , readSnapshot
     , readStateUtxoAt
     , readWalletInputsAt
@@ -162,8 +169,15 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
     , cagePolicyIdFromCfg
     , currentPosixMs
+    , extractCageDatum
     , requestAddrFromCfg
     )
+
+import Cardano.Ledger.Api.Tx.Out (TxOut)
+import Cardano.Ledger.Binary qualified as L
+import Cardano.MPFS.Core.OnChain (CageDatum (..))
+import Cardano.MPFS.Core.OnChain qualified as OnChain
+import Cardano.MPFS.Provider qualified as Prov
 
 -- | Combined API with Swagger UI.
 type FullAPI = SwaggerAPI :<|> API
@@ -189,6 +203,7 @@ mkApp ctx =
             :<|> factsBootHandler ctx
             :<|> factsRequestInsertHandler ctx
             :<|> factsRequestDeleteHandler ctx
+            :<|> factsRetractHandler ctx
             :<|> factsEndHandler ctx
             :<|> txUpdateValueHandler ctx
             :<|> txRejectHandler ctx
@@ -805,6 +820,217 @@ factsRequestDeleteHandler
                             submittedAt
                             inputs
                             pp
+
+-- | @POST \/facts\/retract@. Reads snapshot, the named
+-- request UTxO at the per-cage request address, the cage
+-- state UTxO, and the requester wallet UTxOs inside ONE
+-- indexer transaction, then derives Phase 2 validity slot
+-- bounds from the on-chain datums and returns facts for
+-- wallet-side retract transaction construction.
+factsRetractHandler
+    :: Context IO
+    -> RetractRequest
+    -> Handler RetractFacts
+factsRetractHandler
+    ctx
+    RetractRequest
+        { rrUtxo = utxoRef
+        , rrAddr = addrHex
+        } = do
+        addr <- requireAddr addrHex
+        reqTxIn <- parseUtxoRef utxoRef
+        mLoc <-
+            liftIO
+                $ St.getRequest
+                    (St.requests (state ctx))
+                    reqTxIn
+        tid <- case mLoc of
+            Nothing ->
+                throwError
+                    err404
+                        { errBody =
+                            "Unknown request: \
+                            \not in pending set"
+                        }
+            Just LocatedRequest{request = r} ->
+                pure (requestToken r)
+        let cfg = cfgCage ctx
+            reqAddr =
+                requestAddrFromCfg
+                    cfg
+                    tid
+                    (network cfg)
+            stateAddr =
+                cageAddrFromCfg cfg (network cfg)
+            policyId = cagePolicyIdFromCfg cfg
+        ( mSnap
+            , mRequestUtxo
+            , mStateUtxo
+            , walletInputs
+            ) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    reqU <-
+                        readNamedRequestUtxo
+                            reqAddr
+                            reqTxIn
+                    stU <-
+                        readStateUtxoAt
+                            stateAddr
+                            policyId
+                            tid
+                    wall <- readWalletInputsAt addr
+                    pure (snap, reqU, stU, wall)
+        snap <- case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just s -> pure s
+        requestUtxo@(_, reqOutBytes, _) <-
+            case mRequestUtxo of
+                Nothing ->
+                    throwError
+                        err404
+                            { errBody =
+                                "Request UTxO not \
+                                \found at request \
+                                \address"
+                            }
+                Just r -> pure r
+        stateUtxo@(_, stateOutBytes, _) <-
+            case mStateUtxo of
+                Nothing ->
+                    throwError
+                        err404
+                            { errBody =
+                                "State UTxO not \
+                                \found for token"
+                            }
+                Just s -> pure s
+        when (null walletInputs)
+            $ throwError
+                err400
+                    { errBody =
+                        "No wallet UTxOs at \
+                        \address"
+                    }
+        submittedAt <-
+            requireRequestSubmittedAt reqOutBytes
+        (procTime, retrTime) <-
+            requireStateRetractTimesBytes stateOutBytes
+        let phase2Start = submittedAt + procTime
+            phase2End =
+                submittedAt + procTime + retrTime
+        lowerSlot <-
+            liftIO
+                $ Prov.posixMsCeilSlot
+                    (provider ctx)
+                    phase2Start
+        upperSlot <-
+            liftIO
+                $ Prov.posixMsToSlot
+                    (provider ctx)
+                    phase2End
+        pp <-
+            liftIO
+                $ queryProtocolParams
+                    (provider ctx)
+        let startSlot =
+                toInteger (unSlotNo lowerSlot)
+            endSlotRaw =
+                toInteger (unSlotNo upperSlot)
+            endSlot = max 0 (endSlotRaw - 1)
+        pure
+            $ mkRetractFacts
+                snap
+                tid
+                requestUtxo
+                stateUtxo
+                walletInputs
+                startSlot
+                endSlot
+                pp
+
+-- | Decode a 'TxOut' from indexed CBOR bytes; throws a
+-- 500 with a path-tagged error body on failure.
+decodeIndexedTxOut
+    :: Text -> ByteString -> Handler (TxOut ConwayEra)
+decodeIndexedTxOut path bytes =
+    case L.decodeFull
+        (natVersion @11)
+        (BSL.fromStrict bytes) of
+        Right out -> pure out
+        Left err ->
+            throwError
+                ServerError
+                    { errHTTPCode = 500
+                    , errReasonPhrase =
+                        "Internal Server Error"
+                    , errBody =
+                        BL.fromStrict
+                            $ TE.encodeUtf8
+                            $ path
+                                <> ": indexer "
+                                <> "TxOut decode "
+                                <> "failed: "
+                                <> T.pack (show err)
+                    , errHeaders = []
+                    }
+
+-- | Extract @submitted_at@ from the inline datum of an
+-- indexed request UTxO. 500 if the output is missing a
+-- valid request datum.
+requireRequestSubmittedAt
+    :: ByteString -> Handler Integer
+requireRequestSubmittedAt bytes = do
+    out <-
+        decodeIndexedTxOut "facts/retract.request_utxo" bytes
+    case extractCageDatum out of
+        Just (RequestDatum r) ->
+            pure (OnChain.requestSubmittedAt r)
+        _ ->
+            throwError
+                ServerError
+                    { errHTTPCode = 500
+                    , errReasonPhrase =
+                        "Internal Server Error"
+                    , errBody =
+                        "facts/retract.request_utxo \
+                        \missing request datum"
+                    , errHeaders = []
+                    }
+
+-- | Extract @process_time@ and @retract_time@ from the
+-- inline datum of an indexed state UTxO. 500 if the
+-- output is missing a valid state datum.
+requireStateRetractTimesBytes
+    :: ByteString -> Handler (Integer, Integer)
+requireStateRetractTimesBytes bytes = do
+    out <-
+        decodeIndexedTxOut "facts/retract.state_utxo" bytes
+    case extractCageDatum out of
+        Just (StateDatum s) ->
+            pure
+                ( OnChain.stateProcessTime s
+                , OnChain.stateRetractTime s
+                )
+        _ ->
+            throwError
+                ServerError
+                    { errHTTPCode = 500
+                    , errReasonPhrase =
+                        "Internal Server Error"
+                    , errBody =
+                        "facts/retract.state_utxo \
+                        \missing state datum"
+                    , errHeaders = []
+                    }
 
 -- | @POST \/facts\/end@. Reads snapshot, owner funding
 -- inputs, state UTxO, and the request-set completeness

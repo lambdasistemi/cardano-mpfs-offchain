@@ -13,6 +13,7 @@ module Cardano.MPFS.API.Types.Facts
       BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RetractFacts (..)
     , EndFacts (..)
 
       -- * Common facts/proof primitives
@@ -318,6 +319,114 @@ instance ToSchema RequestDeleteFacts where
                 ?~ "Facts-only request-delete response. Carries \
                    \request payload, submission timestamp, wallet \
                    \UTxO witnesses, and unverified protocol \
+                   \parameters, with no unsigned transaction CBOR."
+
+-- | Facts-only retract response.
+--
+-- Carries the named request UTxO being retracted, the cage state
+-- UTxO (referenced as input), requester wallet UTxOs for fees and
+-- collateral, server-derived Phase 2 validity slot bounds, and
+-- unverified protocol parameters. The verifier proves the UTxO
+-- witnesses against the trusted snapshot; the slot bounds and
+-- protocol parameters are unverified inputs whose tampering causes
+-- the locally-built transaction to fail Phase 2 ledger validation.
+data RetractFacts = RetractFacts
+    { rfSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , rfToken :: TokenIdJSON
+    -- ^ Cage token the retracted request points at.
+    , rfRequestUtxo :: UtxoEntry
+    -- ^ Named request UTxO with CSMT inclusion proof.
+    , rfStateUtxo :: UtxoEntry
+    -- ^ Cage state UTxO with CSMT inclusion proof. The
+    -- builder consumes its inline datum and uses it as a
+    -- reference input.
+    , rfWalletUtxos :: [UtxoEntry]
+    -- ^ Requester wallet UTxOs with CSMT inclusion proofs.
+    , rfValidityStartSlot :: Integer
+    -- ^ Server-derived Phase 2 lower validity slot
+    -- (entirely_after(submitted_at + process_time)).
+    , rfValidityEndSlot :: Integer
+    -- ^ Server-derived Phase 2 upper validity slot
+    -- (strictly before submitted_at + process_time +
+    -- retract_time).
+    , rfProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RetractFacts where
+    toJSON RetractFacts{..} =
+        object
+            [ "snapshot" .= rfSnapshot
+            , "token" .= rfToken
+            , "request_utxo" .= rfRequestUtxo
+            , "state_utxo" .= rfStateUtxo
+            , "wallet_utxos" .= rfWalletUtxos
+            , "validity_start_slot" .= rfValidityStartSlot
+            , "validity_end_slot" .= rfValidityEndSlot
+            , "protocol_parameters" .= rfProtocolParameters
+            ]
+
+instance FromJSON RetractFacts where
+    parseJSON =
+        withObject "RetractFacts" $ \o ->
+            RetractFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "request_utxo"
+                <*> o .: "state_utxo"
+                <*> o .: "wallet_utxos"
+                <*> o .: "validity_start_slot"
+                <*> o .: "validity_end_slot"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema RetractFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        utxoEntrySchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        walletSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        integerSchema <-
+            declareSchemaRef (Proxy @Integer)
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "RetractFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("request_utxo", utxoEntrySchema)
+                    , ("state_utxo", utxoEntrySchema)
+                    , ("wallet_utxos", walletSchema)
+                    , ("validity_start_slot", integerSchema)
+                    , ("validity_end_slot", integerSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "request_utxo"
+                   , "state_utxo"
+                   , "wallet_utxos"
+                   , "validity_start_slot"
+                   , "validity_end_slot"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only retract response. Carries the \
+                   \named request UTxO, cage state UTxO, wallet \
+                   \funding UTxO witnesses, server-derived Phase 2 \
+                   \validity slot bounds, and unverified protocol \
                    \parameters, with no unsigned transaction CBOR."
 
 -- | Facts-only end response.
