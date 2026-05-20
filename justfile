@@ -66,6 +66,11 @@ e2e match="":
     fi
     nix run --quiet .#e2e-tests -- "${args[@]}"
 
+# Run the #278 facts API coverage matrix only.
+# See specs/278-local-cluster-facts-api-coverage-matrix/quickstart.md.
+e2e-facts-matrix:
+    just e2e "facts API coverage matrix"
+
 # Regenerate docs/assets/swagger.json
 update-swagger:
     #!/usr/bin/env bash

@@ -71,4 +71,14 @@ check_absent \
   cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/API.hs \
   cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs
 
+check_present \
+  "FactsMatrixSpec missing from e2e cabal stanza" \
+  'Cardano.MPFS.E2E.FactsMatrixSpec' \
+  cardano-mpfs-offchain/cardano-mpfs-offchain.cabal
+
+check_present \
+  "FactsMatrixSpec not wired into e2e main.hs" \
+  'FactsMatrixSpec.spec' \
+  cardano-mpfs-offchain/e2e-test/main.hs
+
 nix develop --quiet -c just ci
