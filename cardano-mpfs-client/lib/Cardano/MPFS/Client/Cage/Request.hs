@@ -6,6 +6,7 @@
 module Cardano.MPFS.Client.Cage.Request
     ( requestInsertCageTx
     , requestDeleteCageTx
+    , requestUpdateCageTx
     ) where
 
 import Data.ByteString (ByteString)
@@ -101,6 +102,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RequestUpdateFacts (..)
     )
 import Cardano.MPFS.Cage.Ledger
     ( ConwayEra
@@ -129,8 +131,10 @@ import Cardano.MPFS.Client.Cage.Policy
 import Cardano.MPFS.Client.Facts
     ( VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
+    , VerifiedRequestUpdateFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestInsertFacts
+    , verifiedRequestUpdateFacts
     )
 import Cardano.Node.Client.Balance
     ( BalanceResult (..)
@@ -190,6 +194,31 @@ requestDeleteCageTx cfg policy verified =
             (unHex $ rdfKey facts)
             (OpDelete (unHex $ rdfValue facts))
             (rdfSubmittedAt facts)
+
+-- | Build an unsigned request-update transaction from already-verified
+-- request-update facts. The function decodes ledger facts, enforces
+-- wallet caps, and returns a transaction ready for requester signing.
+requestUpdateCageTx
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestUpdateFacts
+    -> Either BuildError (Tx ConwayEra)
+requestUpdateCageTx cfg policy verified =
+    let facts = verifiedRequestUpdateFacts verified
+    in  buildRequestCageTx
+            "request_update"
+            cfg
+            policy
+            (rufProtocolParameters facts)
+            (rufWalletUtxos facts)
+            (rufAddress facts)
+            (tokenIdFromJSON $ rufToken facts)
+            (unHex $ rufKey facts)
+            ( OpUpdate
+                (unHex $ rufOldValue facts)
+                (unHex $ rufNewValue facts)
+            )
+            (rufSubmittedAt facts)
 
 buildRequestCageTx
     :: Text

@@ -18,6 +18,7 @@ import Cardano.MPFS.HTTP.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.HTTP.EndFactsSpec qualified as EndFactsSpec
 import Cardano.MPFS.HTTP.RequestDeleteFactsSpec qualified as RequestDeleteFactsSpec
 import Cardano.MPFS.HTTP.RequestInsertFactsSpec qualified as RequestInsertFactsSpec
+import Cardano.MPFS.HTTP.RequestUpdateFactsSpec qualified as RequestUpdateFactsSpec
 import Cardano.MPFS.HTTP.RequestsSpec qualified as RequestsSpec
 import Cardano.MPFS.HTTP.RetractFactsSpec qualified as RetractFactsSpec
 import Cardano.MPFS.HTTP.StatusSpec qualified as StatusSpec
@@ -74,6 +75,7 @@ main =
                 BootFactsSpec.spec
                 RequestInsertFactsSpec.spec
                 RequestDeleteFactsSpec.spec
+                RequestUpdateFactsSpec.spec
                 RetractFactsSpec.spec
                 EndFactsSpec.spec
                 RequestsSpec.spec

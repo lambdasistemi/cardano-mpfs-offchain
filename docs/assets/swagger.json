@@ -535,38 +535,50 @@
             ],
             "type": "object"
         },
-        "RequestProofJSON": {
-            "description": "Proof payload for POST /tx/request/{insert,delete,update}",
+        "RequestUpdateFacts": {
+            "description": "Facts-only request-update response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR.",
             "properties": {
-                "funding": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "new_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "old_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "wallet_utxos": {
                     "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
+                        "$ref": "#/definitions/UtxoEntry"
                     },
                     "type": "array"
                 }
             },
             "required": [
-                "funding"
-            ],
-            "type": "object"
-        },
-        "RequestTxResponse": {
-            "description": "Proof-bearing response for POST /tx/request/{insert,delete,update}",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/RequestProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
                 "snapshot",
-                "proof"
+                "token",
+                "key",
+                "old_value",
+                "new_value",
+                "address",
+                "submitted_at",
+                "wallet_utxos",
+                "protocol_parameters"
             ],
             "type": "object"
         },
@@ -1216,6 +1228,37 @@
                 }
             }
         },
+        "/facts/request/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateValueRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestUpdateFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/facts/retract": {
             "post": {
                 "consumes": [
@@ -1475,37 +1518,6 @@
                         "description": "",
                         "schema": {
                             "$ref": "#/definitions/RejectTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
-                    }
-                }
-            }
-        },
-        "/tx/request/update": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/UpdateValueRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/RequestTxResponse"
                         }
                     },
                     "400": {

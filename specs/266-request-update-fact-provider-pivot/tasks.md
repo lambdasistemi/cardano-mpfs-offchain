@@ -1,44 +1,44 @@
 # Tasks: Request-Update Fact Provider Pivot
 
-- [ ] T001 [US1] RED: add request-update facts JSON/schema and verifier tests
+- [X] T001 [US1] RED: add request-update facts JSON/schema and verifier tests
       covering round-trip, happy path, snapshot tamper, trusted-root mismatch,
       and wallet proof tamper in
       `cardano-mpfs-client/test/Cardano/MPFS/Client/RequestUpdateFactsSpec.hs`.
-- [ ] T002 [US1] GREEN: add `RequestUpdateFacts` to
+- [X] T002 [US1] GREEN: add `RequestUpdateFacts` to
       `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs` and
       `VerifiedRequestUpdateFacts` / `verifyRequestUpdateFacts` to
       `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`, with exports in
       `cardano-mpfs-client/lib/Cardano/MPFS/Client.hs` and test-suite wiring.
-- [ ] T003 [US1] RED: extend
+- [X] T003 [US1] RED: extend
       `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/RequestSpec.hs` with
       `requestUpdateCageTx` empty-funding, wallet-policy, structural, and
       byte-equality tests against
       `specs/266-request-update-fact-provider-pivot/test-vectors/legacy-request-update.cbor`.
-- [ ] T004 [US1] GREEN: capture `legacy-request-update.cbor` from the legacy
+- [X] T004 [US1] GREEN: capture `legacy-request-update.cbor` from the legacy
       request-update shape, add `requestUpdateCageTx` to
       `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Request.hs`, and keep
       request-insert/delete byte vectors passing.
-- [ ] T005 [US1] RED: add HTTP tests proving `POST /facts/request/update` is
+- [X] T005 [US1] RED: add HTTP tests proving `POST /facts/request/update` is
       routed, returns facts without transaction CBOR, documents the facts path,
       and omits `/tx/request/update` in
       `cardano-mpfs-offchain/test/Cardano/MPFS/HTTP/RequestUpdateFactsSpec.hs`.
-- [ ] T006 [US1] GREEN: add `FactsRequestUpdateAPI`,
+- [X] T006 [US1] GREEN: add `FactsRequestUpdateAPI`,
       `factsRequestUpdateHandler`, `mkRequestUpdateFacts`, typed client
       `requestUpdateFacts`, remove `TxRequestUpdateAPI` /
       `txUpdateValueHandler` / `requestUpdateTx`, regenerate
       `docs/assets/swagger.json`, and keep reject/update/sweep routes intact.
-- [ ] T007 [US1] RED: extend
+- [X] T007 [US1] RED: extend
       `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
       so the matrix fails without a request-update row and fails if
       `/tx/request/update` remains reachable.
-- [ ] T008 [US1] GREEN: implement the request-update matrix row:
+- [X] T008 [US1] GREEN: implement the request-update matrix row:
       `POST /facts/request/update -> verifyRequestUpdateFacts ->
       requestUpdateCageTx -> submit -> request indexed`, then process the
       request if needed to leave later rows with clean preconditions.
-- [ ] T009 [US1] Record request-update MOOG boundary status in this spec and
+- [X] T009 [US1] Record request-update MOOG boundary status in this spec and
       the PR body as deferred to cardano-foundation/moog#96 unless a
       request-update canary/staged-port proof exists.
-- [ ] T010 [US1] Run focused verifier, cage, HTTP, matrix, and final
+- [X] T010 [US1] Run focused verifier, cage, HTTP, matrix, and final
       `./gate.sh` verification; leave `gate.sh` present for parent
       finalization.
 

@@ -28,7 +28,7 @@ module Cardano.MPFS.Client.Http
     , bootFacts
     , requestInsertFacts
     , requestDeleteFacts
-    , requestUpdateTx
+    , requestUpdateFacts
     , rejectTx
     , updateTx
     , sweepTx
@@ -69,13 +69,13 @@ import Cardano.MPFS.API
     ( FactsBootAPI
     , FactsRequestDeleteAPI
     , FactsRequestInsertAPI
+    , FactsRequestUpdateAPI
     , TxWriteAPI
     )
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.API.Types.Facts qualified as FactsWire
 import Cardano.MPFS.Client.Bundle
     ( RejectTxResponse
-    , RequestTxResponse
     , UpdateTxResponse
     )
 import Cardano.MPFS.Client.Snapshot (Hex)
@@ -86,7 +86,7 @@ import Cardano.MPFS.Client.Verify
     , verifyRejectTxResponse
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
-    , verifyRequestTxResponse
+    , verifyRequestUpdateFacts
     , verifyUpdateTxResponse
     )
 
@@ -159,7 +159,7 @@ instance ToJSON RequestDeleteParams where
             , "address" .= requestDeleteAddress
             ]
 
--- | @POST /tx/request/update@ request body.
+-- | @POST /facts/request/update@ request body.
 data RequestUpdateParams = RequestUpdateParams
     { requestUpdateToken :: Hex
     , requestUpdateKey :: Hex
@@ -251,17 +251,19 @@ requestDeleteFacts http trustedRoot params =
         factsRequestDeleteClient
         (verifyRequestDeleteFacts trustedRoot)
 
--- | Build an update-value request transaction.
-requestUpdateTx
+-- | Fetch request-update facts and verify the bundled wallet UTxO
+-- witnesses against the externally-trusted CSMT root.
+requestUpdateFacts
     :: MpfsHttp
+    -> TrustedRoot
     -> RequestUpdateParams
-    -> IO (Either ClientError RequestTxResponse)
-requestUpdateTx http params =
+    -> IO (Either ClientError FactsWire.RequestUpdateFacts)
+requestUpdateFacts http trustedRoot params =
     runWriteEndpoint
         http
         params
-        txRequestUpdateClient
-        verifyRequestTxResponse
+        factsRequestUpdateClient
+        (verifyRequestUpdateFacts trustedRoot)
 
 -- | Build a reject transaction.
 rejectTx
@@ -347,8 +349,8 @@ factsRequestInsertClient
     :: Wire.InsertRequest -> ClientM FactsWire.RequestInsertFacts
 factsRequestDeleteClient
     :: Wire.DeleteRequest -> ClientM FactsWire.RequestDeleteFacts
-txRequestUpdateClient
-    :: Wire.UpdateValueRequest -> ClientM Wire.RequestTxResponse
+factsRequestUpdateClient
+    :: Wire.UpdateValueRequest -> ClientM FactsWire.RequestUpdateFacts
 txRejectClient
     :: Wire.RejectRequest -> ClientM Wire.RejectTxResponse
 txUpdateClient
@@ -364,8 +366,10 @@ factsRequestInsertClient =
 factsRequestDeleteClient =
     client (Proxy :: Proxy FactsRequestDeleteAPI)
 
-txRequestUpdateClient
-    :<|> txRejectClient
+factsRequestUpdateClient =
+    client (Proxy :: Proxy FactsRequestUpdateAPI)
+
+txRejectClient
     :<|> txUpdateClient
     :<|> txSweepClient =
         client (Proxy :: Proxy TxWriteAPI)

@@ -37,11 +37,11 @@ module Cardano.MPFS.API
     , FactsBootAPI
     , FactsRequestInsertAPI
     , FactsRequestDeleteAPI
+    , FactsRequestUpdateAPI
     , FactsRetractAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
-    , TxRequestUpdateAPI
     , TxRejectAPI
     , TxUpdateAPI
     , TxSweepAPI
@@ -73,7 +73,6 @@ import Cardano.MPFS.API.Types
     , ProofResponse
     , RejectRequest
     , RejectTxResponse
-    , RequestTxResponse
     , RequestsResponse
     , RetractRequest
     , StatusResponse
@@ -91,6 +90,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RequestUpdateFacts
     , RetractFacts
     )
 
@@ -209,6 +209,16 @@ type FactsRequestDeleteAPI =
         :> ReqBody '[JSON] DeleteRequest
         :> Post '[JSON] RequestDeleteFacts
 
+-- | @POST \/facts\/request\/update@ — return indexed facts
+-- required by wallet-side request-update transaction
+-- construction.
+type FactsRequestUpdateAPI =
+    "facts"
+        :> "request"
+        :> "update"
+        :> ReqBody '[JSON] UpdateValueRequest
+        :> Post '[JSON] RequestUpdateFacts
+
 -- | @POST \/facts\/retract@ — return indexed facts
 -- required by wallet-side retract transaction
 -- construction.
@@ -226,15 +236,6 @@ type FactsEndAPI =
         :> "end"
         :> ReqBody '[JSON] EndRequest
         :> Post '[JSON] EndFacts
-
--- | @POST \/tx\/request\/update@ — build an
--- update-value request transaction.
-type TxRequestUpdateAPI =
-    "tx"
-        :> "request"
-        :> "update"
-        :> ReqBody '[JSON] UpdateValueRequest
-        :> Post '[JSON] RequestTxResponse
 
 -- | @POST \/tx\/reject@ — build a reject
 -- transaction for Phase 3 requests.
@@ -266,8 +267,7 @@ type TxSweepAPI =
 -- deriving a Servant client without depending on the
 -- server package.
 type TxWriteAPI =
-    TxRequestUpdateAPI
-        :<|> TxRejectAPI
+    TxRejectAPI
         :<|> TxUpdateAPI
         :<|> TxSweepAPI
 
@@ -299,9 +299,9 @@ type API =
         :<|> FactsBootAPI
         :<|> FactsRequestInsertAPI
         :<|> FactsRequestDeleteAPI
+        :<|> FactsRequestUpdateAPI
         :<|> FactsRetractAPI
         :<|> FactsEndAPI
-        :<|> TxRequestUpdateAPI
         :<|> TxRejectAPI
         :<|> TxUpdateAPI
         :<|> TxSweepAPI

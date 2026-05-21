@@ -10,6 +10,7 @@
 module Cardano.MPFS.HTTP.Types.Facts
     ( mkRequestInsertFacts
     , mkRequestDeleteFacts
+    , mkRequestUpdateFacts
     , mkRetractFacts
     , mkEndFacts
     ) where
@@ -36,6 +37,7 @@ import Cardano.MPFS.API.Types.Facts
     ( EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     )
 import Cardano.MPFS.Core.Types
@@ -123,6 +125,45 @@ mkRequestDeleteFacts
             , rdfWalletUtxos =
                 map resolvedWalletInputToUtxoEntry walletUtxos
             , rdfProtocolParameters =
+                pparamsToJSON pparams
+            }
+
+-- | Build the facts-only request-update response from one
+-- atomic indexer snapshot, requester funding UTxOs, the
+-- request payload, a submission timestamp, and node protocol
+-- parameters.
+mkRequestUpdateFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> Integer
+    -> [ResolvedWalletInput]
+    -> PParams ConwayEra
+    -> RequestUpdateFacts
+mkRequestUpdateFacts
+    snap
+    tid
+    key
+    oldValue
+    newValue
+    address
+    submittedAt
+    walletUtxos
+    pparams =
+        RequestUpdateFacts
+            { rufSnapshot = bundleSnapshotToJSON snap
+            , rufToken = tokenIdToJSON tid
+            , rufKey = Hex key
+            , rufOldValue = Hex oldValue
+            , rufNewValue = Hex newValue
+            , rufAddress = Hex address
+            , rufSubmittedAt = submittedAt
+            , rufWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , rufProtocolParameters =
                 pparamsToJSON pparams
             }
 

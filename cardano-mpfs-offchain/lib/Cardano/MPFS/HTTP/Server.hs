@@ -16,6 +16,7 @@ module Cardano.MPFS.HTTP.Server
     , mkBootFacts
     , mkRequestInsertFacts
     , mkRequestDeleteFacts
+    , mkRequestUpdateFacts
     , mkRetractFacts
     , mkEndFacts
     ) where
@@ -71,6 +72,7 @@ import Cardano.MPFS.API.Types.Facts
     ( EndFacts
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RequestUpdateFacts
     , RetractFacts
     )
 import Cardano.MPFS.Context (Context (..))
@@ -104,7 +106,6 @@ import Cardano.MPFS.HTTP.Types
     , ProofResponse (..)
     , RejectRequest (..)
     , RejectTxResponse
-    , RequestTxResponse
     , RequestsResponse (..)
     , RetractRequest (..)
     , StatusResponse (..)
@@ -123,7 +124,6 @@ import Cardano.MPFS.HTTP.Types
     , WitnessedUtxo (..)
     , bundleSnapshotToJSON
     , mkRejectTxResponse
-    , mkRequestTxResponse
     , mkSweepTxResponse
     , mkUpdateTxResponse
     , parseAddr
@@ -138,6 +138,7 @@ import Cardano.MPFS.HTTP.Types.Facts
     ( mkEndFacts
     , mkRequestDeleteFacts
     , mkRequestInsertFacts
+    , mkRequestUpdateFacts
     , mkRetractFacts
     )
 import Cardano.MPFS.Indexer.Reads
@@ -201,9 +202,9 @@ mkApp ctx =
             :<|> factsBootHandler ctx
             :<|> factsRequestInsertHandler ctx
             :<|> factsRequestDeleteHandler ctx
+            :<|> factsRequestUpdateHandler ctx
             :<|> factsRetractHandler ctx
             :<|> factsEndHandler ctx
-            :<|> txUpdateValueHandler ctx
             :<|> txRejectHandler ctx
             :<|> txUpdateHandler ctx
             :<|> txSweepHandler ctx
@@ -818,6 +819,66 @@ factsRequestDeleteHandler
                             inputs
                             pp
 
+-- | @POST \/facts\/request\/update@. Reads snapshot and wallet
+-- inputs at the requester address inside ONE indexer transaction,
+-- then returns facts for wallet-side request-update transaction
+-- construction.
+factsRequestUpdateHandler
+    :: Context IO
+    -> UpdateValueRequest
+    -> Handler RequestUpdateFacts
+factsRequestUpdateHandler
+    ctx
+    UpdateValueRequest
+        { uvrToken = tokenId
+        , uvrKey = Hex k
+        , uvrOldValue = Hex oldV
+        , uvrNewValue = Hex newV
+        , uvrAddr = addrHex@(Hex addrBytes)
+        } = do
+        let tid = tokenIdFromJSON tokenId
+        addr <- requireAddr addrHex
+        (mSnap, inputs) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    ins <- readWalletInputsAt addr
+                    pure (snap, ins)
+        case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just snap
+                | null inputs ->
+                    throwError
+                        err400
+                            { errBody =
+                                "No wallet UTxOs \
+                                \at address"
+                            }
+                | otherwise -> do
+                    pp <-
+                        liftIO
+                            $ queryProtocolParams
+                                (provider ctx)
+                    submittedAt <- liftIO currentPosixMs
+                    pure
+                        $ mkRequestUpdateFacts
+                            snap
+                            tid
+                            k
+                            oldV
+                            newV
+                            addrBytes
+                            submittedAt
+                            inputs
+                            pp
+
 -- | @POST \/facts\/retract@. Reads snapshot, the named
 -- request UTxO at the per-cage request address, the cage
 -- state UTxO, and the requester wallet UTxOs inside ONE
@@ -1124,34 +1185,6 @@ factsEndHandler
                                             )
                                         ]
                                     }
-
-txUpdateValueHandler
-    :: Context IO
-    -> UpdateValueRequest
-    -> Handler RequestTxResponse
-txUpdateValueHandler
-    ctx
-    UpdateValueRequest
-        { uvrToken = tokenId
-        , uvrKey = Hex k
-        , uvrOldValue = Hex oldV
-        , uvrNewValue = Hex newV
-        , uvrAddr = addrHex
-        } = do
-        let tid = tokenIdFromJSON tokenId
-        addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.requestUpdate
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    k
-                    oldV
-                    newV
-                    addr
-        pure (mkRequestTxResponse bundle)
 
 txRejectHandler
     :: Context IO
