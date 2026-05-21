@@ -125,6 +125,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RequestUpdateFacts (..)
     )
 import Cardano.MPFS.Cage.Blueprint
     ( extractCompiledCode
@@ -151,12 +152,15 @@ import Cardano.MPFS.Client.Cage.Policy
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
+    , requestUpdateCageTx
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
+    , VerifiedRequestUpdateFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
     )
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
@@ -169,6 +173,7 @@ spec :: Spec
 spec = do
     insertSpec
     deleteSpec
+    updateSpec
 
 insertSpec :: Spec
 insertSpec = describe "requestInsertCageTx" $ do
@@ -335,6 +340,149 @@ deleteSpec = describe "requestDeleteCageTx" $ do
                 Right tx -> pure tx
         expected <- BS.readFile =<< legacyRequestDeleteVectorPath
         serialize' (natVersion @11) tx `shouldBe` expected
+
+updateSpec :: Spec
+updateSpec = describe "requestUpdateCageTx" $ do
+    it "rejects empty funding before building" $ do
+        cfg <- testCageConfig
+        let RequestUpdateFixture{updateTrustedRoot, updateFacts} =
+                deterministicRequestUpdateFixture []
+        verified <-
+            expectUpdateVerified updateTrustedRoot updateFacts
+        requestUpdateCageTx cfg permissiveWalletPolicy verified
+            `shouldBe` Left EmptyFunding
+
+    it "rejects wallet policy caps before signing" $ do
+        cfg <- testCageConfig
+        let RequestUpdateFixture{updateTrustedRoot, updateFacts} =
+                deterministicRequestUpdateFixture
+                    [(walletTxId, 1, walletTxOutBytes)]
+            policy =
+                permissiveWalletPolicy
+                    { wpMaxMinUtxoCoinPerByte = Coin 1
+                    }
+        verified <-
+            expectUpdateVerified updateTrustedRoot updateFacts
+        requestUpdateCageTx cfg policy verified
+            `shouldBe` Left
+                ( PolicyViolation
+                    ( MinUtxoCoinPerByteTooHigh
+                        (Coin 4_310)
+                        (Coin 1)
+                    )
+                )
+
+    it "builds an unsigned update request for verified facts" $ do
+        cfg <- testCageConfig
+        let RequestUpdateFixture
+                { updateTrustedRoot
+                , updateFacts
+                , updateWalletInput
+                } =
+                    deterministicRequestUpdateFixture
+                        [(walletTxId, 1, walletTxOutBytes)]
+            requestAddr =
+                requestAddrFromCfg
+                    cfg
+                    (tokenIdFromJSON sampleToken)
+                    Testnet
+        verified <-
+            expectUpdateVerified updateTrustedRoot updateFacts
+        tx <-
+            case requestUpdateCageTx
+                cfg
+                permissiveWalletPolicy
+                verified of
+                Left err ->
+                    expectationFailure
+                        ("requestUpdateCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        Set.member
+            updateWalletInput
+            (tx ^. bodyTxL . inputsTxBodyL)
+            `shouldBe` True
+        tx ^. bodyTxL . mintTxBodyL `shouldBe` mempty
+        Map.size (tx ^. witsTxL . scriptTxWitsL) `shouldBe` 0
+        tx ^. witsTxL . rdmrsTxWitsL `shouldBe` mempty
+        txOutputAddresses tx `shouldSatisfy` elem requestAddr
+
+    it "matches the legacy request-update CBOR vector" $ do
+        cfg <- testCageConfig
+        let RequestUpdateFixture{updateTrustedRoot, updateFacts} =
+                deterministicRequestUpdateFixture
+                    [(walletTxId, 1, walletTxOutBytes)]
+        verified <-
+            expectUpdateVerified updateTrustedRoot updateFacts
+        tx <-
+            case requestUpdateCageTx
+                cfg
+                permissiveWalletPolicy
+                verified of
+                Left err ->
+                    expectationFailure
+                        ("requestUpdateCageTx failed: " <> show err)
+                        *> error "unreachable"
+                Right tx -> pure tx
+        expected <- BS.readFile =<< legacyRequestUpdateVectorPath
+        serialize' (natVersion @11) tx `shouldBe` expected
+
+data RequestUpdateFixture = RequestUpdateFixture
+    { updateTrustedRoot :: TrustedRoot
+    , updateFacts :: RequestUpdateFacts
+    , updateWalletInput :: TxIn
+    }
+
+deterministicRequestUpdateFixture
+    :: [(ByteString, Word, ByteString)] -> RequestUpdateFixture
+deterministicRequestUpdateFixture rows =
+    let (root, entries) = csmtEntries rows
+        input = txInFromBytes walletTxId 1
+        facts =
+            RequestUpdateFacts
+                { rufSnapshot = snapshotWithRoot root
+                , rufToken = sampleToken
+                , rufKey = Hex "mykey"
+                , rufOldValue = Hex "oldvalue"
+                , rufNewValue = Hex "newvalue"
+                , rufAddress = Hex (serialiseAddr fundingAddr)
+                , rufSubmittedAt = submittedAt
+                , rufWalletUtxos = entries
+                , rufProtocolParameters =
+                    pparamsFacts realisticPParams
+                }
+    in  RequestUpdateFixture
+            { updateTrustedRoot = TrustedRoot (Hex root)
+            , updateFacts = facts
+            , updateWalletInput = input
+            }
+
+expectUpdateVerified
+    :: TrustedRoot
+    -> RequestUpdateFacts
+    -> IO VerifiedRequestUpdateFacts
+expectUpdateVerified trusted facts =
+    case verifyRequestUpdateFacts trusted facts of
+        Left err ->
+            expectationFailure
+                ("verifyRequestUpdateFacts failed: " <> show err)
+                *> error "unreachable"
+        Right verified ->
+            pure verified
+
+legacyRequestUpdateVectorPath :: IO FilePath
+legacyRequestUpdateVectorPath = do
+    let candidates =
+            [ "specs/266-request-update-fact-provider-pivot/test-vectors/legacy-request-update.cbor"
+            , "../specs/266-request-update-fact-provider-pivot/test-vectors/legacy-request-update.cbor"
+            ]
+    existing <- filterM doesFileExist candidates
+    case existing of
+        path : _ -> pure path
+        [] ->
+            expectationFailure
+                "legacy request-update vector not found from test working directory"
+                *> error "unreachable"
 
 data RequestDeleteFixture = RequestDeleteFixture
     { deleteTrustedRoot :: TrustedRoot

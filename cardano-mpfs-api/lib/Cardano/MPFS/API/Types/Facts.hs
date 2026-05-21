@@ -13,6 +13,7 @@ module Cardano.MPFS.API.Types.Facts
       BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
 
@@ -317,6 +318,112 @@ instance ToSchema RequestDeleteFacts where
                    ]
             & description
                 ?~ "Facts-only request-delete response. Carries \
+                   \request payload, submission timestamp, wallet \
+                   \UTxO witnesses, and unverified protocol \
+                   \parameters, with no unsigned transaction CBOR."
+
+-- | Facts-only request-update response.
+--
+-- Carries the request payload, server-selected submission
+-- timestamp, wallet funding UTxOs, and protocol parameters. The
+-- verifier proves only the UTxO witnesses against the trusted
+-- snapshot; protocol parameters and timestamp remain wallet policy
+-- inputs for local transaction construction.
+data RequestUpdateFacts = RequestUpdateFacts
+    { rufSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , rufToken :: TokenIdJSON
+    -- ^ Cage token being modified.
+    , rufKey :: Hex
+    -- ^ Trie key to update.
+    , rufOldValue :: Hex
+    -- ^ Trie value expected before the update.
+    , rufNewValue :: Hex
+    -- ^ Trie value to write after the update.
+    , rufAddress :: Hex
+    -- ^ Serialized requester address.
+    , rufSubmittedAt :: Integer
+    -- ^ POSIXTime in milliseconds for the request datum.
+    , rufWalletUtxos :: [UtxoEntry]
+    -- ^ Wallet UTxOs with CSMT inclusion proofs.
+    , rufProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RequestUpdateFacts where
+    toJSON RequestUpdateFacts{..} =
+        object
+            [ "snapshot" .= rufSnapshot
+            , "token" .= rufToken
+            , "key" .= rufKey
+            , "old_value" .= rufOldValue
+            , "new_value" .= rufNewValue
+            , "address" .= rufAddress
+            , "submitted_at" .= rufSubmittedAt
+            , "wallet_utxos" .= rufWalletUtxos
+            , "protocol_parameters" .= rufProtocolParameters
+            ]
+
+instance FromJSON RequestUpdateFacts where
+    parseJSON =
+        withObject "RequestUpdateFacts" $ \o ->
+            RequestUpdateFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "key"
+                <*> o .: "old_value"
+                <*> o .: "new_value"
+                <*> o .: "address"
+                <*> o .: "submitted_at"
+                <*> o .: "wallet_utxos"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema RequestUpdateFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        integerSchema <-
+            declareSchemaRef (Proxy @Integer)
+        walletSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "RequestUpdateFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("key", hexSchema)
+                    , ("old_value", hexSchema)
+                    , ("new_value", hexSchema)
+                    , ("address", hexSchema)
+                    , ("submitted_at", integerSchema)
+                    , ("wallet_utxos", walletSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "key"
+                   , "old_value"
+                   , "new_value"
+                   , "address"
+                   , "submitted_at"
+                   , "wallet_utxos"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only request-update response. Carries \
                    \request payload, submission timestamp, wallet \
                    \UTxO witnesses, and unverified protocol \
                    \parameters, with no unsigned transaction CBOR."

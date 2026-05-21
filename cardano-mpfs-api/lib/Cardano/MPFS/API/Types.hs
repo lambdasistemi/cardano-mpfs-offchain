@@ -39,6 +39,7 @@ module Cardano.MPFS.API.Types
     , BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
 
@@ -119,6 +120,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     )
 
@@ -598,7 +600,7 @@ instance FromJSON DeleteRequest where
             <*> o .: "value"
             <*> o .: "address"
 
--- | @POST \/tx\/request\/update@ request body.
+-- | @POST \/facts\/request\/update@ request body.
 data UpdateValueRequest = UpdateValueRequest
     { uvrToken :: TokenIdJSON
     , uvrKey :: Hex

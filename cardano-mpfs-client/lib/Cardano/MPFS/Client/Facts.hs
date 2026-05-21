@@ -8,22 +8,26 @@ module Cardano.MPFS.Client.Facts
     ( BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
+    , VerifiedRequestUpdateFacts
     , VerifiedRetractFacts
     , VerifiedEndFacts
     , verifiedBootFacts
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
+    , verifiedRequestUpdateFacts
     , verifiedRetractFacts
     , verifiedEndFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
+    , verifyRequestUpdateFacts
     , verifyRetractFacts
     , verifyEndFacts
     ) where
@@ -43,6 +47,7 @@ import Cardano.MPFS.API.Types.Facts
     , EndFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
+    , RequestUpdateFacts (..)
     , RetractFacts (..)
     )
 import Cardano.MPFS.Client.Cage.Config
@@ -80,6 +85,12 @@ newtype VerifiedRequestDeleteFacts
     = VerifiedRequestDeleteFacts RequestDeleteFacts
     deriving stock (Eq, Show)
 
+-- | Opaque witness that request-update facts have been checked
+-- against the caller-supplied trusted root.
+newtype VerifiedRequestUpdateFacts
+    = VerifiedRequestUpdateFacts RequestUpdateFacts
+    deriving stock (Eq, Show)
+
 -- | Opaque witness that retract facts have been checked
 -- against the caller-supplied trusted root. The constructor is
 -- intentionally not exported, so public callers cannot bypass
@@ -110,6 +121,13 @@ verifiedRequestInsertFacts (VerifiedRequestInsertFacts facts) =
 verifiedRequestDeleteFacts
     :: VerifiedRequestDeleteFacts -> RequestDeleteFacts
 verifiedRequestDeleteFacts (VerifiedRequestDeleteFacts facts) =
+    facts
+
+-- | Extract the verified facts after 'verifyRequestUpdateFacts'
+-- has established the trusted-root and CSMT proof checks.
+verifiedRequestUpdateFacts
+    :: VerifiedRequestUpdateFacts -> RequestUpdateFacts
+verifiedRequestUpdateFacts (VerifiedRequestUpdateFacts facts) =
     facts
 
 -- | Extract the verified facts after 'verifyRetractFacts'
@@ -226,6 +244,42 @@ verifyRequestDeleteFacts
                 ( \(ix, entry) ->
                     replayUtxoEntry
                         ( "request_delete.wallet_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+
+-- | Verify a facts-only request-update response against an
+-- externally-supplied trusted UTxO-CSMT root.
+verifyRequestUpdateFacts
+    :: TrustedRoot
+    -> RequestUpdateFacts
+    -> Either VerifyError VerifiedRequestUpdateFacts
+verifyRequestUpdateFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@RequestUpdateFacts{..} = do
+        checkLength "request_update.trusted_root" trustedBs
+        let snapshotPath = "request_update.snapshot.utxo_root"
+            Hex snapshotBs = vsUtxoRoot rufSnapshot
+        checkLength snapshotPath snapshotBs
+        if snapshotBs == trustedBs
+            then Right ()
+            else Left (TrustedRootMismatch snapshotPath)
+        replayWalletUtxos trustedBs rufWalletUtxos
+        Right (VerifiedRequestUpdateFacts facts)
+      where
+        checkLength field bs
+            | BS.length bs == 32 = Right ()
+            | otherwise =
+                Left (WrongHexLength field 32 (BS.length bs))
+        replayWalletUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "request_update.wallet_utxos["
                             <> T.pack (show (ix :: Int))
                             <> "]"
                         )

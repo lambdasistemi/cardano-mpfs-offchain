@@ -58,13 +58,12 @@ import Cardano.MPFS.Client
     , rejectTx
     , requestDeleteFacts
     , requestInsertFacts
-    , requestUpdateTx
+    , requestUpdateFacts
     , updateTx
     )
 import Cardano.MPFS.Client.Fixtures
     ( honestBootTrustedRoot
     , honestRejectResponse
-    , honestRequestResponse
     , honestUnsignedBootResponse
     , honestUpdateResponse
     )
@@ -223,10 +222,17 @@ writeEndpointCases =
                 )
         )
     , EndpointCase
-        ["tx", "request", "update"]
+        ["facts", "request", "update"]
         (Aeson.toJSON requestUpdateParams)
-        (Aeson.encode honestRequestResponse)
-        (voidRight . (`requestUpdateTx` requestUpdateParams))
+        (Aeson.encode honestRequestUpdateFacts)
+        ( \http ->
+            voidRight
+                ( requestUpdateFacts
+                    http
+                    honestBootTrustedRoot
+                    requestUpdateParams
+                )
+        )
     , EndpointCase
         ["tx", "reject"]
         (Aeson.toJSON rejectParams)
@@ -288,6 +294,26 @@ honestRequestDeleteFacts =
         , Wire.rdfWalletUtxos =
             Wire.utrInputs honestUnsignedBootResponse
         , Wire.rdfProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
+
+honestRequestUpdateFacts :: Wire.RequestUpdateFacts
+honestRequestUpdateFacts =
+    Wire.RequestUpdateFacts
+        { Wire.rufSnapshot =
+            Wire.utrSnapshot honestUnsignedBootResponse
+        , Wire.rufToken = Wire.TokenIdJSON "00"
+        , Wire.rufKey = Wire.Hex "11"
+        , Wire.rufOldValue = Wire.Hex "33"
+        , Wire.rufNewValue = Wire.Hex "44"
+        , Wire.rufAddress = Wire.Hex "aabbcc"
+        , Wire.rufSubmittedAt = 1_700_000_000_000
+        , Wire.rufWalletUtxos =
+            Wire.utrInputs honestUnsignedBootResponse
+        , Wire.rufProtocolParameters =
             Wire.UnverifiedPParams
                 { Wire.uppVerified = False
                 , Wire.uppCbor = Wire.Hex "\x82\x01\x02"

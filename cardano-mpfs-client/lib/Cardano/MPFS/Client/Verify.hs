@@ -17,11 +17,13 @@ module Cardano.MPFS.Client.Verify
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
+    , VerifiedRequestUpdateFacts
     , VerifiedRetractFacts
     , VerifiedEndFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
+    , verifyRequestUpdateFacts
     , verifyRetractFacts
     , verifyEndFacts
 
@@ -62,11 +64,13 @@ import Cardano.MPFS.Client.Facts
     , VerifiedEndFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
+    , VerifiedRequestUpdateFacts
     , VerifiedRetractFacts
     , verifyBootFacts
     , verifyEndFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
     , verifyRetractFacts
     )
 import Cardano.MPFS.Client.Snapshot

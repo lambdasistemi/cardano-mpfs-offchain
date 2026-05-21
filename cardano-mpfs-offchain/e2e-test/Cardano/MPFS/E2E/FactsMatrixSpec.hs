@@ -118,9 +118,11 @@ import Cardano.MPFS.API.Types
     , InsertRequest (..)
     , RequestDeleteFacts
     , RequestInsertFacts
+    , RequestUpdateFacts
     , RetractFacts
     , RetractRequest (..)
     , StatusResponse (..)
+    , UpdateValueRequest (..)
     )
 import Cardano.MPFS.API.Types.Common (TokenIdJSON (..))
 import Cardano.MPFS.Application
@@ -134,6 +136,7 @@ import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
+    , requestUpdateCageTx
     )
 import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Facts
@@ -141,6 +144,7 @@ import Cardano.MPFS.Client.Facts
     , verifyEndFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
     , verifyRetractFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
@@ -229,13 +233,23 @@ matrixSpec scripts =
             -- preconditions for the delete row.
             processPendingRequests ctx app tokenId
             factIndexed app tokenId matrixInsertKey
-            runRequestDeleteRow
+            runRequestUpdateRow
                 cfg
                 ctx
                 app
                 tokenId
                 matrixInsertKey
                 matrixInsertValue
+                matrixUpdatedValue
+            processPendingRequests ctx app tokenId
+            factIndexed app tokenId matrixInsertKey
+            runRequestDeleteRow
+                cfg
+                ctx
+                app
+                tokenId
+                matrixInsertKey
+                matrixUpdatedValue
             processPendingRequests ctx app tokenId
             factAbsent app tokenId matrixInsertKey
             -- Retract row: re-insert a fresh request to
@@ -266,6 +280,10 @@ matrixInsertKey = "matrix-key"
 
 matrixInsertValue :: ByteString
 matrixInsertValue = "matrix-value"
+
+-- | Updated value produced by the request-update row.
+matrixUpdatedValue :: ByteString
+matrixUpdatedValue = "matrix-updated-value"
 
 -- | Key/value pair the matrix uses for the retract row's
 -- throwaway insert.
@@ -354,6 +372,59 @@ runRequestInsertRow cfg ctx app tokenId key value = do
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "insert row" result
+    awaitTx app (txIdTx signed)
+    pendingRequestsNonEmpty app tokenId
+
+-- | Request-update row:
+-- @POST \/facts\/request\/update \-> verifyRequestUpdateFacts
+-- \-> requestUpdateCageTx \-> submit \-> update request indexed@.
+-- The 'matrixSpec' caller is responsible for the subsequent
+-- process/update step that materialises the new value in the trie.
+runRequestUpdateRow
+    :: CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> IO ()
+runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
+    trusted <- waitForTrustedRoot app
+    facts <-
+        postRequestUpdateFacts
+            app
+            tokenId
+            key
+            oldValue
+            newValue
+            genesisAddr
+    verified <-
+        case verifyRequestUpdateFacts trusted facts of
+            Left err ->
+                expectationFailure
+                    ( "update request row: \
+                      \verifyRequestUpdateFacts failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right value' -> pure value'
+    unsigned <-
+        case requestUpdateCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                expectationFailure
+                    ( "update request row: \
+                      \requestUpdateCageTx failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signed = addKeyWitness genesisSignKey unsigned
+    result <- submitTx (submitter ctx) signed
+    assertSubmitted "update request row" result
     awaitTx app (txIdTx signed)
     pendingRequestsNonEmpty app tokenId
 
@@ -567,6 +638,7 @@ assertLegacyRoutesGone app =
         [ "/tx/boot"
         , "/tx/request/insert"
         , "/tx/request/delete"
+        , "/tx/request/update"
         , "/tx/retract"
         , "/tx/end"
         ]
@@ -658,6 +730,28 @@ postRequestDeleteFacts app tokenId key value addr =
             }
         "delete row"
         "RequestDeleteFacts"
+
+postRequestUpdateFacts
+    :: Application
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> ByteString
+    -> Addr
+    -> IO RequestUpdateFacts
+postRequestUpdateFacts app tokenId key oldValue newValue addr =
+    postFactsRequest
+        app
+        "/facts/request/update"
+        UpdateValueRequest
+            { uvrToken = tokenIdJSON tokenId
+            , uvrKey = Hex key
+            , uvrOldValue = Hex oldValue
+            , uvrNewValue = Hex newValue
+            , uvrAddr = Hex (serialiseAddr addr)
+            }
+        "update request row"
+        "RequestUpdateFacts"
 
 postEndFacts
     :: Application -> TokenId -> Addr -> IO EndFacts
@@ -833,7 +927,7 @@ factIndexed app tokenId key = do
         Nothing ->
             expectationFailure
                 "process row: fact never appeared at \
-                \/tokens/:id/facts/:key after insert+process"
+                \/tokens/:id/facts/:key after process"
 
 -- | Poll @\/tokens\/:id\/facts\/:key@ until it returns
 -- something other than 200 (the fact has been removed).
