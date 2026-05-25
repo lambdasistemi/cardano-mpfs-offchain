@@ -90,9 +90,6 @@ import Cardano.Ledger.Api.Tx.Wits
     , rdmrsTxWitsL
     , scriptTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
@@ -105,6 +102,7 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , CoinPerByte (..)
     )
 import Cardano.Ledger.Core
     ( PParams
@@ -192,7 +190,7 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( computeScriptIntegrity
     )
 import Cardano.Slotting.Slot

@@ -201,7 +201,7 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     )

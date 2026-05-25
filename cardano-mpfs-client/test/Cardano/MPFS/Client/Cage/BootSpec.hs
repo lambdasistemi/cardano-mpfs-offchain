@@ -71,14 +71,13 @@ import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
     , rdmrsTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
     , TxIx (..)
     )
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.Ledger.Coin (Coin (..))
+import Cardano.Ledger.Coin (Coin (..), CoinPerByte (..))
 import Cardano.Ledger.Core (PParams)
 import Cardano.Ledger.Credential
     ( Credential (..)
@@ -133,7 +132,7 @@ import Cardano.MPFS.Client.Facts
     , verifyBootFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( computeScriptIntegrity
     , evalBudgetExUnits
     )

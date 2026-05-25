@@ -54,6 +54,7 @@ library
     , cardano-node-clients
     , cardano-slotting
     , cardano-strict-containers
+    , cardano-tx-tools
     , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library
     , cborg
@@ -266,6 +267,7 @@ test-suite unit-tests
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-strict-containers
+    , cardano-tx-tools
     , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library
     , cborg
@@ -351,6 +353,7 @@ test-suite e2e-tests
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-node-clients:devnet
+    , cardano-tx-tools
     , cardano-utxo-csmt:library
     , containers
     , contra-tracer

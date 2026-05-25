@@ -52,6 +52,7 @@ library
     , cardano-node-clients
     , cardano-slotting
     , cardano-strict-containers
+    , cardano-tx-tools
     , cborg                      >=0.2  && <0.3
     , containers                 >=0.6  && <0.8
     , hspec                      >=2.11 && <2.12
@@ -131,6 +132,7 @@ test-suite unit-tests
     , cardano-mpfs-client
     , cardano-node-clients
     , cardano-slotting
+    , cardano-tx-tools
     , cborg                   >=0.2  && <0.3
     , containers              >=0.6  && <0.8
     , directory

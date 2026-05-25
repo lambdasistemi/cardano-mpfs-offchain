@@ -92,7 +92,7 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.TxBuild qualified as Tx
+import Cardano.Tx.Build qualified as Tx
 import Cardano.Slotting.Slot (SlotNo)
 
 -- | Empty query GADT (no context needed).

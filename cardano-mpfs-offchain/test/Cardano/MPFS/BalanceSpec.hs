@@ -52,7 +52,7 @@ import Cardano.MPFS.Generators
     ( genKeyHash
     , genTxIn
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceError (..)
     , BalanceResult (..)
     , balanceTx

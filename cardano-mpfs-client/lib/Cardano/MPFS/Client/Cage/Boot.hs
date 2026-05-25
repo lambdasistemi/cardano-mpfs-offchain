@@ -40,8 +40,7 @@ import Cardano.Ledger.Api.PParams
     , ppPricesL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -56,9 +55,9 @@ import Cardano.Ledger.Api.Tx.Out
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , datsTxWitsL
     , rdmrsTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
     ( StrictMaybe (..)
     , TxIx (..)
@@ -68,7 +67,8 @@ import Cardano.Ledger.Binary
     , decodeFull
     , natVersion
     )
-import Cardano.Ledger.Coin (Coin (..))
+import Cardano.Ledger.Coin (Coin (..), CoinPerByte (..))
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core (PParams)
 import Cardano.Ledger.Credential (Credential (..))
 import Cardano.Ledger.Hashes
@@ -82,9 +82,6 @@ import Cardano.Ledger.Mary.Value
     ( AssetName (..)
     , MaryValue (..)
     , MultiAsset (..)
-    )
-import Cardano.Ledger.Plutus.Language
-    ( Language (..)
     )
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
@@ -122,17 +119,21 @@ import Cardano.MPFS.Client.Facts
     ( VerifiedBootFacts
     , verifiedBootFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
     , evalBudgetExUnits
+    , languagesUsedInTx
     )
-import Cardano.Node.Client.TxBuild
+import Cardano.Tx.Build
     ( Interpret (..)
     , TxBuild
     )
-import Cardano.Node.Client.TxBuild qualified as TxBuild
+import Cardano.Tx.Build qualified as TxBuild
+import Cardano.Tx.Ledger
+    ( ConwayTx
+    )
 import Cardano.Slotting.Slot (SlotNo (..))
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -145,7 +146,7 @@ bootCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedBootFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 bootCageTx cfg policy verified = do
     let facts = verifiedBootFacts verified
     pp <- decodePParams (bfProtocolParameters facts)
@@ -265,9 +266,9 @@ buildBootTx
     -> InputRow
     -> [InputRow]
     -> Addr
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
-    case balanceTx pp ledgerPairs ownerAddr withSubmitBudget of
+    case balanceTx pp ledgerPairs [] ownerAddr withSubmitBudget of
         Left err ->
             Left (DSLBuildFailed $ T.pack $ show err)
         Right BalanceResult{balancedTx} ->
@@ -296,17 +297,18 @@ buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
 
 patchRedeemerBudgets
     :: PParams ConwayEra
-    -> Tx ConwayEra
-    -> Tx ConwayEra
+    -> ConwayTx
+    -> ConwayTx
 patchRedeemerBudgets pp tx =
     tx
         & witsTxL . rdmrsTxWitsL
             .~ budgetedRedeemers
         & bodyTxL . scriptIntegrityHashTxBodyL
             .~ computeScriptIntegrity
-                PlutusV3
+                (languagesUsedInTx tx [])
                 pp
                 budgetedRedeemers
+                (tx ^. witsTxL . datsTxWitsL)
   where
     Redeemers rdmrs =
         tx ^. witsTxL . rdmrsTxWitsL
@@ -395,7 +397,8 @@ enforcePParamsPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -413,7 +416,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

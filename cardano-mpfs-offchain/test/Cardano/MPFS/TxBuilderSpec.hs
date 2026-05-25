@@ -74,13 +74,13 @@ import Cardano.Ledger.Api.Tx.Wits
     , rdmrsTxWitsL
     , scriptTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
     , StrictMaybe (..)
+    )
+import Cardano.Ledger.Coin
+    ( CoinPerByte (..)
     )
 import Cardano.Ledger.Credential
     ( Credential (..)

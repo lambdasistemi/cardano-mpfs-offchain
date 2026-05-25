@@ -63,7 +63,7 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     )

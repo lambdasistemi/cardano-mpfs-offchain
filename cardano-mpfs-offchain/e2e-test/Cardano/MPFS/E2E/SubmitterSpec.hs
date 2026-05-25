@@ -39,7 +39,7 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     )

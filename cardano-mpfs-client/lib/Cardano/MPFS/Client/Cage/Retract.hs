@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.Client.Cage.Retract
@@ -38,6 +39,9 @@ import Cardano.Ledger.Alonzo.TxBody
     ( reqSignerHashesTxBodyL
     , scriptIntegrityHashTxBodyL
     )
+import Cardano.Ledger.Alonzo.TxWits
+    ( TxDats (..)
+    )
 import Cardano.Ledger.Api.PParams
     ( ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
@@ -49,8 +53,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , binaryDataToData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , mkBasicTx
     , witsTxL
     )
@@ -73,9 +76,6 @@ import Cardano.Ledger.Api.Tx.Wits
     , rdmrsTxWitsL
     , scriptTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( StrictMaybe (..)
     , TxIx (..)
@@ -85,6 +85,10 @@ import Cardano.Ledger.Binary
     , decodeFull
     , natVersion
     )
+import Cardano.Ledger.Coin
+    ( CoinPerByte (..)
+    )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose (..)
     )
@@ -164,11 +168,14 @@ import Cardano.MPFS.Client.Facts
     ( VerifiedRetractFacts
     , verifiedRetractFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
     , evalBudgetExUnits
+    )
+import Cardano.Tx.Ledger
+    ( ConwayTx
     )
 
 -- | Build an unsigned retract transaction from already-verified
@@ -180,7 +187,7 @@ retractCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRetractFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 retractCageTx cfg policy verified = do
     let facts = verifiedRetractFacts verified
     pp <- decodePParams (rfProtocolParameters facts)
@@ -322,12 +329,12 @@ requestOwnerBytes row =
                     \request datum"
 
 ownerWitnessKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Witness)
+    :: ByteString -> Either BuildError (KeyHash Guard)
 ownerWitnessKeyHash ownerBytes =
     coerce <$> ownerPaymentKeyHash ownerBytes
 
 ownerPaymentKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Payment)
+    :: ByteString -> Either BuildError (KeyHash Payment)
 ownerPaymentKeyHash ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> Right (KeyHash hash)
@@ -354,9 +361,9 @@ buildRetractTx
     -> InputRow
     -> InputRow
     -> Addr
-    -> KeyHash 'Witness
+    -> KeyHash Guard
     -> ValidityInterval
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 buildRetractTx
     cfg
     pp
@@ -367,7 +374,7 @@ buildRetractTx
     changeAddr
     ownerSigner
     validity =
-        case balanceTx pp ledgerPairs changeAddr draft of
+        case balanceTx pp ledgerPairs [] changeAddr draft of
             Left err ->
                 Left (DSLBuildFailed $ T.pack $ show err)
             Right BalanceResult{balancedTx} ->
@@ -388,7 +395,7 @@ buildRetractTx
                     (ConwaySpending (AsIx reqIx))
                     (toLedgerData redeemer, budget)
         body =
-            mkBasicTxBody
+            mkBasicTxBody @ConwayEra
                 & inputsTxBodyL .~ Set.singleton requestRef
                 & referenceInputsTxBodyL
                     .~ Set.singleton stateRef
@@ -399,9 +406,11 @@ buildRetractTx
                 & vldtTxBodyL .~ validity
                 & scriptIntegrityHashTxBodyL
                     .~ computeScriptIntegrity
-                        PlutusV3
+                        (Set.singleton PlutusV3)
                         pp
                         redeemers
+                        (TxDats mempty)
+        draft :: ConwayTx
         draft =
             mkBasicTx body
                 & witsTxL . scriptTxWitsL
@@ -467,7 +476,8 @@ enforcePParamsPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -485,7 +495,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

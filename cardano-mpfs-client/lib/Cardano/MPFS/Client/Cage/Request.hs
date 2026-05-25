@@ -41,8 +41,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , mkBasicTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -59,9 +58,6 @@ import Cardano.Ledger.Api.Tx.Out
     , mkBasicTxOut
     , valueTxOutL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , StrictMaybe (..)
@@ -74,7 +70,9 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , CoinPerByte (..)
     )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     )
@@ -136,9 +134,12 @@ import Cardano.MPFS.Client.Facts
     , verifiedRequestInsertFacts
     , verifiedRequestUpdateFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
+    )
+import Cardano.Tx.Ledger
+    ( ConwayTx
     )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
@@ -158,7 +159,7 @@ requestInsertCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestInsertFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 requestInsertCageTx cfg policy verified =
     let facts = verifiedRequestInsertFacts verified
     in  buildRequestCageTx
@@ -180,7 +181,7 @@ requestDeleteCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestDeleteFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 requestDeleteCageTx cfg policy verified =
     let facts = verifiedRequestDeleteFacts verified
     in  buildRequestCageTx
@@ -202,7 +203,7 @@ requestUpdateCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestUpdateFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 requestUpdateCageTx cfg policy verified =
     let facts = verifiedRequestUpdateFacts verified
     in  buildRequestCageTx
@@ -231,7 +232,7 @@ buildRequestCageTx
     -> ByteString
     -> OnChainOperation
     -> Integer
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 buildRequestCageTx
     label
     cfg
@@ -361,7 +362,7 @@ buildRequestTx
     -> ByteString
     -> OnChainOperation
     -> Integer
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError (ConwayTx)
 buildRequestTx
     cfg
     pp
@@ -374,6 +375,7 @@ buildRequestTx
         case balanceTx
             pp
             [(rowRef fundingRow, rowOut fundingRow)]
+            []
             requesterAddr
             draft of
             Left err ->
@@ -410,6 +412,7 @@ buildRequestTx
             mkBasicTxBody
                 & outputsTxBodyL
                     .~ StrictSeq.singleton txOut
+        draft :: ConwayTx
         draft = mkBasicTx body
 
 requestDatum
@@ -473,7 +476,8 @@ enforcePParamsPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -491,7 +495,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)
