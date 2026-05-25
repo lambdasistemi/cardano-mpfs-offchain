@@ -20,8 +20,10 @@
 -- library handles its own serialization.
 --
 -- 'allUnifiedCodecs' builds codecs for
--- 'UnifiedColumns' — the combined 11-column-family
--- selector used by the block processing transaction.
+-- 'UnifiedColumns' — the combined 14-column-family
+-- selector (6 UTxO + 7 cage\/trie + 1 composed
+-- rollback) used by the block processing
+-- transaction.
 module Cardano.MPFS.Indexer.Codecs
     ( -- * Column codecs
       allCodecs
@@ -41,6 +43,7 @@ module Cardano.MPFS.Indexer.Codecs
     , slotNoPrism
     , rollbackPointPrism
     , trieStatusPrism
+    , identityPrism
     ) where
 
 import Cardano.Ledger.Binary
@@ -155,6 +158,11 @@ allCodecs =
             :=> Codecs
                 { keyCodec = tokenIdPrism
                 , valueCodec = trieStatusPrism
+                }
+        , TrieRawValues
+            :=> Codecs
+                { keyCodec = hexKeyPrism
+                , valueCodec = identityPrism
                 }
         ]
 
@@ -455,6 +463,13 @@ composedRollbackPrism = prism' enc dec
 -- Reuses the codec from @haskell-mts@ test lib.
 isoMPFHash :: Prism' ByteString MPFHash
 isoMPFHash = mpfValueCodec mpfHashCodecs
+
+-- | Identity codec for raw 'ByteString' values
+-- ('TrieRawValues'). The bytes are stored as-is;
+-- the MPF library and Aiken verifier already
+-- treat user value payloads as opaque.
+identityPrism :: Prism' ByteString ByteString
+identityPrism = prism' id Just
 
 -- | Encode/decode 'TrieStatus' as a single byte.
 -- @0x01@ = 'Visible', @0x02@ = 'Hidden'.

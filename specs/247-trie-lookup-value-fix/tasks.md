@@ -14,7 +14,7 @@ is the orchestrator's check-off ledger.
 Owns: column-family addition, codec entry, RocksDB CF list,
 INV-3 startup pre-flight.
 
-- [ ] T001-S1 — Add `TrieRawValues :: AllColumns (KV HexKey ByteString)`
+- [X] T001-S1 — Add `TrieRawValues :: AllColumns (KV HexKey ByteString)`
       to `cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Columns.hs`
       (constructor + `GEq` + `GCompare` + module-haddock count
       update). Add the `TrieRawValues :=> Codecs {...}` entry to
@@ -25,11 +25,11 @@ INV-3 startup pre-flight.
       `cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs` and
       update the `withApplication` haddock counts (cage 6 → 7,
       unified 13 → 14).
-- [ ] T002-S1 — RED + GREEN for `opens_with_trie_raw_values_column`
+- [X] T002-S1 — RED + GREEN for `opens_with_trie_raw_values_column`
       in `cardano-mpfs-offchain/test/Cardano/MPFS/Trie/PersistentSpec.hs`:
       a fresh `withApplication` exposes `TrieRawValues` as an
       empty queryable CF.
-- [ ] T003-S1 — RED + GREEN for `refuses_to_start_on_stale_schema`
+- [X] T003-S1 — RED + GREEN for `refuses_to_start_on_stale_schema`
       in the same `PersistentSpec`: opening a DB with rows in
       `TrieKV` and no rows in `TrieRawValues` raises a structured
       `SchemaMigrationRequired` exception whose message names
