@@ -43,7 +43,7 @@ Owns: INV-1 (write atomicity) wiring + INV-2 (rollback atomicity)
 verification + lookup contract change in
 `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`.
 
-- [ ] T004-S2 — Rewire `unifiedInsert` and `unifiedDelete` to also
+- [X] T004-S2 — Rewire `unifiedInsert` and `unifiedDelete` to also
       `KV.put TrieRawValues (byteStringToHexKey (hashBS k)) v` /
       `KV.delete TrieRawValues ...` inside the existing
       `Transaction m cf AllColumns ops` body (INV-1 enforced by
@@ -55,12 +55,12 @@ verification + lookup contract change in
       are OUT OF SLICE 2 SCOPE** — they operate on the
       `MPFStandalone*Col` schema which has no `TrieRawValues`
       analogue; their asymmetry is captured by `T013-S5`.
-- [ ] T005-S2 — RED + GREEN for `insert_then_lookup_returns_raw_value`
+- [X] T005-S2 — RED + GREEN for `insert_then_lookup_returns_raw_value`
       and `delete_then_lookup_returns_nothing` in
       `cardano-mpfs-offchain/test/Cardano/MPFS/Trie/PersistentSpec.hs`.
       Delete test also asserts via direct `KV.query TrieRawValues`
       that the row is gone.
-- [ ] T006-S2 — RED + GREEN for `rollback_undoes_both_columns`
+- [X] T006-S2 — RED + GREEN for `rollback_undoes_both_columns`
       (INV-2 verification): insert `(k, v)`, checkpoint, insert
       `(k, v')`, roll the chain-follower back to the checkpoint,
       assert `Trie.lookup k == Just v` AND

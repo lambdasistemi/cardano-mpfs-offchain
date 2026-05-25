@@ -56,7 +56,8 @@ import Test.QuickCheck
 
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Database.RocksDB
-    ( ColumnFamily
+    ( BatchOp
+    , ColumnFamily
     , Config (..)
     , DB (..)
     , withDBCF
@@ -90,6 +91,7 @@ import Database.KV.Database (mkColumns)
 import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
     ( RunTransaction (..)
+    , Transaction
     , newRunTransaction
     )
 import Database.KV.Transaction qualified as KV
@@ -108,6 +110,15 @@ import Cardano.MPFS.Application
 import Cardano.MPFS.Indexer.Codecs (allCodecs)
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
+    )
+import Cardano.MPFS.Indexer.Event
+    ( CageInverseOp (..)
+    )
+import Cardano.MPFS.Indexer.Follower
+    ( applyCageInverses
+    )
+import Cardano.MPFS.Indexer.Persistent
+    ( mkTransactionalState
     )
 import Cardano.MPFS.Trie.Persistent
     ( mkPersistentTrieManager
@@ -349,6 +360,9 @@ spec db nodesCF kvCF metaCF counterRef = do
     describe
         "TrieRawValues column + schema check"
         schemaSpec
+    describe
+        "Value-bearing lookup (#247 Slice 2)"
+        valueBearingLookupSpec
 
 -- ---------------------------------------------------------
 -- Property-based tests
@@ -1211,3 +1225,195 @@ refusesToStartOnStaleSchema =
                         expectationFailure
                             "expected SchemaMigrationRequired \
                             \but schema check succeeded"
+
+-- ---------------------------------------------------------
+-- Value-bearing lookup (#247 Slice 2)
+-- ---------------------------------------------------------
+
+-- | Issue #247 Slice 2: 'Trie.lookup' must return
+-- the original raw value bytes (read from
+-- 'TrieRawValues'), not @hashBS k@. Insert and
+-- delete must update both the existing
+-- 'TrieKV'\/'TrieNodes' columns and the new
+-- 'TrieRawValues' column atomically (INV-1).
+-- Rollback machinery re-uses the same 'insert' /
+-- 'delete', so a replayed 'InvTrieInsert' must
+-- restore both columns to the previous value
+-- (INV-2).
+valueBearingLookupSpec :: Spec
+valueBearingLookupSpec = do
+    it
+        "insert then lookup returns the raw value \
+        \(not hashBS k)"
+        insertThenLookupReturnsRawValue
+    it
+        "delete then lookup returns Nothing and \
+        \clears the TrieRawValues row"
+        deleteThenLookupReturnsNothing
+    it
+        "rollback restores both TrieKV and \
+        \TrieRawValues (INV-2)"
+        rollbackUndoesBothColumns
+
+-- | Fixed token id for slice-2 tests.
+slice2TokenId :: TokenId
+slice2TokenId =
+    TokenId (AssetName (SBS.pack [247, 2]))
+
+-- | Bracket: open a unified-cage DB with all 7
+-- cage column families, build the transactional
+-- 'mkUnifiedTrieManager', create a fresh trie for
+-- 'slice2TokenId', and run the action with the
+-- transaction runner.
+withValueBearingDB
+    :: ( ( forall a
+            . Transaction
+                IO
+                ColumnFamily
+                AllColumns
+                BatchOp
+                a
+           -> IO a
+         )
+         -> IO ()
+       )
+    -> IO ()
+withValueBearingDB action =
+    withSystemTempDirectory "slice2" $ \dir ->
+        withDBCF dir dbConfig cageColumnFamilies
+            $ \db -> do
+                let cfs = columnFamilies db
+                    columns = mkColumns cfs allCodecs
+                    database =
+                        mkRocksDBDatabase db columns
+                RunTransaction{runTransaction} <-
+                    newRunTransaction database
+                runTransaction
+                    $ createTrie
+                        mkUnifiedTrieManager
+                        slice2TokenId
+                action runTransaction
+
+-- | Insert a key with a non-trivial value, then
+-- look it up: the value-bearing contract requires
+-- 'Trie.lookup' to return the raw value, not
+-- @hashBS k@.
+insertThenLookupReturnsRawValue :: IO ()
+insertThenLookupReturnsRawValue =
+    withValueBearingDB $ \runTransaction -> do
+        let tid = slice2TokenId
+            tm = mkUnifiedTrieManager
+            k = "the-key" :: ByteString
+            v = "hello" :: ByteString
+        runTransaction
+            $ withTrie tm tid
+            $ \trie -> void $ insert trie k v
+        mVal <-
+            runTransaction
+                $ withTrie tm tid
+                $ \trie ->
+                    Cardano.MPFS.Trie.lookup trie k
+        mVal `shouldBe` Just v
+
+-- | Insert wires the raw value into
+-- 'TrieRawValues' (precondition, fails in RED).
+-- Delete clears both columns (postcondition).
+deleteThenLookupReturnsNothing :: IO ()
+deleteThenLookupReturnsNothing =
+    withValueBearingDB $ \runTransaction -> do
+        let tid = slice2TokenId
+            tm = mkUnifiedTrieManager
+            k = "the-key" :: ByteString
+            v = "world" :: ByteString
+            hexKey =
+                byteStringToHexKey
+                    (renderMPFHash (mkMPFHash k))
+        -- Phase 1: insert
+        runTransaction
+            $ withTrie tm tid
+            $ \trie -> void $ insert trie k v
+        -- Precondition: the raw value is in
+        -- TrieRawValues. Fails in RED because
+        -- unifiedInsert never wrote it.
+        rawAfterInsert <-
+            runTransaction
+                $ KV.query TrieRawValues hexKey
+        rawAfterInsert `shouldBe` Just v
+        -- Phase 2: delete
+        runTransaction
+            $ withTrie tm tid
+            $ \trie ->
+                void
+                    $ Cardano.MPFS.Trie.delete
+                        trie
+                        k
+        -- Postcondition 1: trie lookup is Nothing.
+        mVal <-
+            runTransaction
+                $ withTrie tm tid
+                $ \trie ->
+                    Cardano.MPFS.Trie.lookup trie k
+        mVal `shouldBe` Nothing
+        -- Postcondition 2: the raw column is
+        -- empty for this key.
+        rawAfterDelete <-
+            runTransaction
+                $ KV.query TrieRawValues hexKey
+        rawAfterDelete `shouldBe` Nothing
+
+-- | INV-2 verification. Insert (k, v), then
+-- overwrite with (k, v'), then replay the
+-- inverse op 'InvTrieInsert tid k v' through
+-- 'applyCageInverses'. Both 'TrieKV' /
+-- 'TrieNodes' and 'TrieRawValues' must reflect
+-- @v@ (not @v'@, not absent) after rollback.
+rollbackUndoesBothColumns :: IO ()
+rollbackUndoesBothColumns =
+    withValueBearingDB $ \runTransaction -> do
+        let tid = slice2TokenId
+            tm = mkUnifiedTrieManager
+            k = "the-key" :: ByteString
+            valueA = "value-A" :: ByteString
+            valueB = "value-B" :: ByteString
+            hexKey =
+                byteStringToHexKey
+                    (renderMPFHash (mkMPFHash k))
+        -- Forward block 1: insert (k, valueA)
+        runTransaction
+            $ withTrie tm tid
+            $ \trie ->
+                void $ insert trie k valueA
+        -- Forward block 2: overwrite with valueB
+        runTransaction
+            $ withTrie tm tid
+            $ \trie ->
+                void $ insert trie k valueB
+        -- Rollback: replay the inverse of block
+        -- 2, which is "re-insert the old value
+        -- valueA". The brief notes that the
+        -- existing rollback path uses
+        -- 'applyCageInverses' on top of the
+        -- 'Trie m' interface — so making
+        -- 'unifiedInsert' write both columns is
+        -- enough to make rollback atomic.
+        runTransaction
+            $ applyCageInverses
+                mkTransactionalState
+                tm
+                [InvTrieInsert tid k valueA]
+        -- Assertion 1: 'Trie.lookup' returns
+        -- valueA. Fails in RED because lookup
+        -- still returns 'Just (hashBS k)'.
+        mVal <-
+            runTransaction
+                $ withTrie tm tid
+                $ \trie ->
+                    Cardano.MPFS.Trie.lookup trie k
+        mVal `shouldBe` Just valueA
+        -- Assertion 2: 'TrieRawValues' has valueA.
+        -- Fails in RED because TrieRawValues was
+        -- never written.
+        mRaw <-
+            runTransaction
+                $ KV.query TrieRawValues hexKey
+        mRaw `shouldBe` Just valueA
