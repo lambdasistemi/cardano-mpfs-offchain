@@ -28,8 +28,8 @@ check_legacy_trie_lookup_patterns_absent() {
         count_fixed 'Just (renderMPFHash (mkMPFHash k))' "$persistent_file" "$pure_file" | wc -l | tr -d ' '
     )
 
-    if [ "$persistent_hash_count" -ne 1 ]; then
-        echo "FAIL: expected exactly one Persistent.hs 'Just (hashBS k)' occurrence (the speculative path); found $persistent_hash_count"
+    if [ "$persistent_hash_count" -ne 0 ]; then
+        echo "FAIL: legacy Persistent.hs 'Just (hashBS k)' fallback reappeared (Slice 7 closed the MPFStandalone speculative path; expected 0)"
         count_fixed 'Just (hashBS k)' "$persistent_file"
         return 1
     fi
