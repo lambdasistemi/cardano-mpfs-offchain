@@ -120,8 +120,10 @@ this PR.
 ## Success criteria
 
 1. Both backends (`Persistent.hs` `unifiedLookup` and `Pure.hs`
-   `pureLookup`) honour the value-bearing contract agreed in the
-   chosen option (A, B, or C — picked via `Q-001`).
+   `pureLookup`) honour the value-bearing contract under Option A
+   (operator decision recorded in `Q-001` / `A-001`):
+   `Trie.lookup` returns the raw value bytes pulled from the new
+   `TrieRawValues` column (or the pure-backend in-memory mirror).
 2. `verifyFactPresentResponse` round-trip passes against a live
    devnet response.
 3. `verifyFactAbsentResponse` round-trip passes unchanged.
@@ -129,16 +131,86 @@ this PR.
    `verifyFactPresentResponse` and asserts `Right ()` — the
    structural-only check is replaced.
 5. `specs/243-proof-redesign/research.md` records the chosen
-   option.
+   option (A) and the reasoning.
 6. `./gate.sh` (the resolve-ticket bootstrap gate) is green; the
    final mark-ready commit drops it.
 
+## Hard invariants (MUST)
+
+These are non-negotiable operator-mandated invariants for the
+`TrieRawValues` schema. Any implementation slice that violates them
+is rejected at review.
+
+### INV-1 (MUST) — Write atomicity
+
+Every write to the `TrieRawValues` column lands in the **same**
+RocksDB write batch as the corresponding `(key_hash, value_hash)`
+write into the existing `TrieKV` / `TrieNodes` columns. There is no
+acceptable interleaving where one column is updated but the other
+is not, even momentarily, even on a crash, even on a process
+restart between writes.
+
+Implementation guidance: the existing `unifiedInsert` /
+`unifiedDelete` functions in
+`cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`
+already run inside a single `Transaction m cf AllColumns ops`
+monadic action via `MPF.Insertion.inserting` /
+`MPF.Deletion.deleting`. The fix is to add the
+`KV.put TrieRawValues …` / `KV.delete TrieRawValues …` call inside
+that same transaction. The block-processing transaction in
+`Cardano.MPFS.Application` already commits the unified column
+families in one batch per block; nothing has to change at the
+batch-boundary layer.
+
+### INV-2 (MUST) — Rollback atomicity
+
+The `TrieRawValues` column participates in chain-follower's
+existing rollback machinery in lockstep with the trie. When the
+indexer rolls back from block N to block M, every `TrieRawValues`
+row written between M+1 and N must be undone in the **same atomic
+step** as the trie rollback. Partial states — where `TrieKV` /
+`TrieNodes` have been rolled back but `TrieRawValues` still
+carries entries for keys that no longer exist in the trie, or vice
+versa — are correctness bugs, not degraded modes.
+
+Implementation guidance: rollback is driven by replaying
+`CageInverseOp` entries (see
+`cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Follower.hs`
+`applyCageInverses`). The two trie-touching inverse ops route
+through the `Trie m` interface:
+
+```haskell
+InvTrieInsert tid key val ->
+    withTrie tm tid $ \trie -> void $ insert trie key val
+InvTrieDelete tid key ->
+    withTrie tm tid $ \trie -> void $ delete trie key
+```
+
+Because the rollback path reuses the same `insert` and `delete`
+operations as the forward path, making `unifiedInsert` /
+`unifiedDelete` write both columns inside one transaction
+**automatically** makes the rollback replay write both columns
+inside one transaction. The existing single-write-batch rollback
+boundary (composed-rollback column family + the
+`Transaction m cf UnifiedColumns ops` runner) handles atomicity at
+the block boundary. No new rollback machinery is required.
+
+Verification: the implementation slice must include a
+`PersistentSpec` test that (a) inserts a key, (b) writes a
+post-insert checkpoint, (c) executes a rollback that crosses the
+insert, and (d) confirms both `TrieKV[hashOfKey]` is absent AND
+`TrieRawValues[hashOfKey]` is absent after rollback. The symmetric
+delete-then-rollback test confirms both rows are restored.
+
 ## Open questions / pending clarifications
 
-The architectural choice between options A, B, and C is the parent
-decision. It is enumerated in `## Clarifications` below and
-escalated to the operator via `Q-001-schema-option.md` before any
-implementation slice is dispatched.
+- `Q-001` (resolved by `A-001`): **Option A** chosen — add a
+  `TrieRawValues` column family. Decision is recorded in the
+  `## Clarifications` section below.
+- `Q-002` (open): **Migration strategy.** Operator requires this
+  not to be picked silently. Surfaced as
+  `/tmp/epic-257/247/questions/Q-002-migration-strategy.md`.
+  Plan and tasks land only after `A-002` is answered.
 
 ## Clarifications
 
@@ -171,8 +243,33 @@ is the central architectural decision for this ticket.
   `FactPresentResponse`.
 
 This decision is logged as `Q-001-schema-option.md` in the
-ticket's runtime root and is the gating dependency for `plan.md`
-and `tasks.md`.
+ticket's runtime root. **Resolved (A-001, 2026-05-25): Option A.**
+The operator confirmed Option A and added two MUST-level atomicity
+invariants (INV-1 write atomicity, INV-2 rollback atomicity) — see
+the `## Hard invariants (MUST)` section above.
+
+### Session 2026-05-25 — Migration strategy (Q-002)
+
+Adding a 14th column family on an existing RocksDB indexer DB
+requires a story for how pre-migration data is handled. The
+sub-options are:
+
+- **(1) Re-index from genesis required.** Operators drop the
+  RocksDB directory and resync the indexer from genesis. Simplest
+  story; aligned with cage being in the proof-redesign series.
+  Document the requirement in the PR body and the release notes.
+- **(2) Forward-compatible / degrade gracefully.** New column is
+  created on first open; pre-migration keys return `Nothing` from
+  `Trie.lookup` (and therefore `404` from the facts endpoint)
+  until they are re-inserted. Schema is forward-compatible. Risk:
+  silent loss of fact lookups for old keys until operators notice.
+- **(3) Backfill from `CageRequests` journal.** Replay forward
+  from genesis using the existing block journal, re-inserting raw
+  values into the new column. Most operational complexity; also
+  the most defensive.
+
+This is logged as `Q-002-migration-strategy.md`. The plan and
+tasks gate on `A-002`.
 
 ## References
 
