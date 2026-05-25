@@ -146,10 +146,14 @@ import Cardano.Node.Client.E2E.Setup
     )
 
 import Cardano.MPFS.API.Encoding qualified as Api
+import Cardano.MPFS.API.Types
+    ( FactResponse (..)
+    )
 import Cardano.MPFS.API.Types.Common (UtxoEntry (..))
 import Cardano.MPFS.API.Types.Common qualified as Common
 import Cardano.MPFS.Client
     ( EndFacts (..)
+    , FactPresentFacts (..)
     , Hex (..)
     , RejectTxResponse (..)
     , UpdateTxResponse
@@ -163,6 +167,7 @@ import Cardano.MPFS.Client
     , shouldAccept
     , shouldRejectWith
     , verifyEndFacts
+    , verifyFactPresentFacts
     , verifyRejectTxResponse
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
@@ -313,7 +318,7 @@ proofsSpec scripts =
             -- present as non-empty hex.
             assertWitnessedUtxo
                 =<< lookupObj tokenObj "state"
-            assertFactEnvelope factObj
+            assertFactEnvelope (Api.Hex factKey) factObj
             assertProofEnvelope proofObj
 
             assertRequestsEnvelope requestsObj
@@ -448,19 +453,27 @@ assertWitnessedUtxo v = do
     proof <- lookupHex utxo "utxo_proof"
     proof `shouldSatisfy` (not . T.null)
 
--- | The @/facts/:key@ envelope carries the stored
--- MPF value, the state witness, and the MPF proof.
--- MPFS stores values as 32-byte content hashes, so we
--- only assert the @value@ field is non-empty hex.
-assertFactEnvelope :: Value -> IO ()
-assertFactEnvelope v = do
-    val <- lookupHex v "value"
-    val `shouldSatisfy` (not . T.null)
-    fact <- lookupObj v "fact"
-    state <- lookupObj fact "state"
-    assertWitnessedUtxo state
-    mpfProof <- lookupHex fact "mpf_proof"
-    mpfProof `shouldSatisfy` (not . T.null)
+-- | The @/facts/:key@ envelope must verify against the
+-- state witness's UTxO root and trie root, binding the
+-- requested key to the returned raw value.
+assertFactEnvelope :: Api.Hex -> Value -> IO ()
+assertFactEnvelope factKey' v =
+    case parseEither parseJSON v of
+        Left err ->
+            expectationFailure
+                ("fact response parse: " <> err)
+        Right resp@FactResponse{frSnapshot} -> do
+            let trusted = TrustedRoot (Common.vsUtxoRoot frSnapshot)
+                facts =
+                    FactPresentFacts
+                        { fpfKey = factKey'
+                        , fpfResponse = resp
+                        }
+            case verifyFactPresentFacts trusted facts of
+                Right _ -> pure ()
+                Left err ->
+                    expectationFailure
+                        ("verifyFactPresentFacts failed: " <> show err)
 
 -- | The @/proofs/:key@ envelope carries the state
 -- witness and the MPF proof (no value).

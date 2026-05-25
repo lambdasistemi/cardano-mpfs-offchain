@@ -91,7 +91,7 @@ Owns: the proof-replay acceptance criterion in
 and any matrix entries in `FactsMatrixSpec.hs` that asserted on
 the structural-only shape.
 
-- [ ] T009-S4 — Add `verifyFactPresentFacts` /
+- [X] T009-S4 — Add `verifyFactPresentFacts` /
       `verifyFactAbsentFacts` to
       `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`
       following the existing `verifyXFacts` pattern: take a
@@ -103,14 +103,14 @@ the structural-only shape.
       reuse `FactResponse` (driver's call). Unit tests cover
       happy path + tampered-value / tampered-proof / mismatched-
       root cases.
-- [ ] T009b-S4 — Replace (or supplement) `assertFactEnvelope` in
+- [X] T009b-S4 — Replace (or supplement) `assertFactEnvelope` in
       `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`
       with a call to the new T009-S4 verifier, asserting
       `Right ()`. Trusted root from the same response's snapshot
       (mirror `endFactsTrustedRoot` ~line 495). Update the
       now-wrong haddock "MPFS stores values as 32-byte content
       hashes" (~lines 451-454).
-- [ ] T010-S4 — Sweep
+- [X] T010-S4 — Sweep
       `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
       around lines 920–950 (the
       `/tokens/:id/facts/:key after process` and

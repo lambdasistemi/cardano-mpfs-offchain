@@ -50,17 +50,23 @@ module Cardano.MPFS.Client
     , RequestDeleteFacts (..)
     , RequestUpdateFacts (..)
     , EndFacts (..)
+    , FactPresentFacts (..)
+    , FactAbsentFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestUpdateFacts
     , VerifiedEndFacts
+    , VerifiedFactPresentFacts
+    , VerifiedFactAbsentFacts
     , verifiedBootFacts
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestUpdateFacts
     , verifiedEndFacts
+    , verifiedFactPresentFacts
+    , verifiedFactAbsentFacts
     , RequestTxResponse (..)
     , RetractTxResponse (..)
     , RejectTxResponse (..)
@@ -75,6 +81,8 @@ module Cardano.MPFS.Client
     , verifyRequestDeleteFacts
     , verifyRequestUpdateFacts
     , verifyEndFacts
+    , verifyFactPresentFacts
+    , verifyFactAbsentFacts
     , verifyBootTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -170,20 +178,28 @@ import Cardano.MPFS.Client.Cage.Retract
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , FactAbsentFacts (..)
+    , FactPresentFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedEndFacts
+    , VerifiedFactAbsentFacts
+    , VerifiedFactPresentFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestUpdateFacts
     , verifiedBootFacts
     , verifiedEndFacts
+    , verifiedFactAbsentFacts
+    , verifiedFactPresentFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestInsertFacts
     , verifiedRequestUpdateFacts
+    , verifyFactAbsentFacts
+    , verifyFactPresentFacts
     )
 import Cardano.MPFS.Client.Http
     ( BaseUrl (..)

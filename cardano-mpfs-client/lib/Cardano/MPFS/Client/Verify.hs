@@ -74,14 +74,16 @@ import Cardano.MPFS.Client.Facts
     , verifyRetractFacts
     )
 import Cardano.MPFS.Client.Snapshot
-    ( ChainPoint (..)
-    , Hex (..)
+    ( Hex (..)
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
     , replayTrieFact
     , replayWitnessedUtxo
+    )
+import Cardano.MPFS.Client.Verify.Snapshot
+    ( verifyVerificationSnapshot
     )
 import Cardano.MPFS.Client.Verify.TxView
     ( verifyBootAssetBinding
@@ -97,16 +99,6 @@ import Cardano.MPFS.Client.Verify.TxView
     , verifyTxInputBinding
     , verifyUpdateRedeemerBinding
     )
-
--- | Structural check for the snapshot that every proof-bearing response
--- must carry. Confirms the @utxo_root@ decodes as a 32-byte hash and
--- the chain-point block id decodes as a non-empty hash.
-verifyVerificationSnapshot
-    :: VerificationSnapshot -> Either VerifyError ()
-verifyVerificationSnapshot VerificationSnapshot{..} = do
-    checkHash32 "utxo_root" utxoRoot
-    let ChainPoint{blockId} = chainpoint
-    checkNonEmptyHash "chainpoint.block_id" blockId
 
 -- | Verify a @POST \/tx\/boot@ response.
 verifyBootTxResponse :: BootTxResponse -> Either VerifyError ()
@@ -324,11 +316,6 @@ checkHash32 field h = do
     if got == 32
         then Right ()
         else Left (WrongHexLength field 32 got)
-
-checkNonEmptyHash :: Text -> Hex -> Either VerifyError ()
-checkNonEmptyHash field h = do
-    bs <- decodeHex field h
-    if BS.null bs then Left EmptyBlockId else Right ()
 
 decodeHex :: Text -> Hex -> Either VerifyError BS.ByteString
 decodeHex field (Hex txt) =

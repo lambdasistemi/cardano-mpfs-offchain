@@ -11,6 +11,8 @@ module Cardano.MPFS.Client.Facts
     , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
+    , FactPresentFacts (..)
+    , FactAbsentFacts (..)
     , UnverifiedPParams (..)
     , VerifiedBootFacts
     , VerifiedRequestInsertFacts
@@ -18,26 +20,44 @@ module Cardano.MPFS.Client.Facts
     , VerifiedRequestUpdateFacts
     , VerifiedRetractFacts
     , VerifiedEndFacts
+    , VerifiedFactPresentFacts
+    , VerifiedFactAbsentFacts
     , verifiedBootFacts
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestUpdateFacts
     , verifiedRetractFacts
     , verifiedEndFacts
+    , verifiedFactPresentFacts
+    , verifiedFactAbsentFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
     , verifyRequestUpdateFacts
     , verifyRetractFacts
     , verifyEndFacts
+    , verifyFactPresentFacts
+    , verifyFactAbsentFacts
     ) where
 
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as Base16
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 
 import Cardano.MPFS.API.Encoding (Hex (..))
+import Cardano.MPFS.API.Types
+    ( FactResponse (..)
+    , FactWitness (..)
+    , ProofResponse (..)
+    , TokenStateJSON (..)
+    , TxInJSON (..)
+    , WitnessedTokenState (..)
+    , WitnessedUtxo (..)
+    )
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
+    ( ChainPointJSON (..)
+    , UnverifiedPParams (..)
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , VerificationSnapshot (..)
@@ -50,12 +70,14 @@ import Cardano.MPFS.API.Types.Facts
     , RequestUpdateFacts (..)
     , RetractFacts (..)
     )
+import Cardano.MPFS.Client.Bundle qualified as ClientWire
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig
     )
 import Cardano.MPFS.Client.Cage.Identity
     ( requestSetPrefixFromCfg
     )
+import Cardano.MPFS.Client.Snapshot qualified as ClientSnapshot
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
     )
@@ -64,7 +86,12 @@ import Cardano.MPFS.Client.Verify.Completeness
     )
 import Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
+    , replayTrieFact
     , replayUtxoEntry
+    , replayWitnessedUtxo
+    )
+import Cardano.MPFS.Client.Verify.Snapshot
+    ( verifyVerificationSnapshot
     )
 
 -- | Opaque witness that boot facts have been checked against the
@@ -102,6 +129,36 @@ newtype VerifiedRetractFacts
 -- | Opaque witness that end facts have been checked against the
 -- caller-supplied trusted root and locally-derived request prefix.
 newtype VerifiedEndFacts = VerifiedEndFacts EndFacts
+    deriving stock (Eq, Show)
+
+-- | Client-side verifier input for @GET /tokens/:id/facts/:key@.
+-- The server response intentionally keeps the path key out of the
+-- JSON body, so callers pair the decoded response with the key they
+-- requested before replaying the MPF proof.
+data FactPresentFacts = FactPresentFacts
+    { fpfKey :: Hex
+    , fpfResponse :: FactResponse
+    }
+    deriving stock (Eq, Show)
+
+-- | Client-side verifier input for @GET /tokens/:id/proofs/:key@
+-- when the key is absent from the trie.
+data FactAbsentFacts = FactAbsentFacts
+    { fafKey :: Hex
+    , fafResponse :: ProofResponse
+    }
+    deriving stock (Eq, Show)
+
+-- | Opaque witness that a present fact response has been checked
+-- against the caller-supplied trusted root and the token trie root.
+newtype VerifiedFactPresentFacts
+    = VerifiedFactPresentFacts FactPresentFacts
+    deriving stock (Eq, Show)
+
+-- | Opaque witness that an absent fact response has been checked
+-- against the caller-supplied trusted root and the token trie root.
+newtype VerifiedFactAbsentFacts
+    = VerifiedFactAbsentFacts FactAbsentFacts
     deriving stock (Eq, Show)
 
 -- | Extract the verified facts after 'verifyBootFacts' has
@@ -143,6 +200,17 @@ verifiedRetractFacts (VerifiedRetractFacts facts) =
 -- request-set completeness checks.
 verifiedEndFacts :: VerifiedEndFacts -> EndFacts
 verifiedEndFacts (VerifiedEndFacts facts) = facts
+
+-- | Extract the verified facts after 'verifyFactPresentFacts' has
+-- established the trusted-root, state-UTxO, and MPF inclusion checks.
+verifiedFactPresentFacts
+    :: VerifiedFactPresentFacts -> FactPresentFacts
+verifiedFactPresentFacts (VerifiedFactPresentFacts facts) = facts
+
+-- | Extract the verified facts after 'verifyFactAbsentFacts' has
+-- established the trusted-root, state-UTxO, and MPF exclusion checks.
+verifiedFactAbsentFacts :: VerifiedFactAbsentFacts -> FactAbsentFacts
+verifiedFactAbsentFacts (VerifiedFactAbsentFacts facts) = facts
 
 -- | Verify a facts-only boot response against an externally-supplied
 -- trusted UTxO-CSMT root.
@@ -387,3 +455,121 @@ verifyEndFacts
                     "end.request_set.entries[0]"
                     (uerRef entry)
                 )
+
+-- | Verify a present fact response against an externally-supplied
+-- trusted UTxO-CSMT root and the key from the request path.
+verifyFactPresentFacts
+    :: TrustedRoot
+    -> FactPresentFacts
+    -> Either VerifyError VerifiedFactPresentFacts
+verifyFactPresentFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@FactPresentFacts
+        { fpfKey
+        , fpfResponse = FactResponse{..}
+        } = do
+        verifyFactSnapshot "fact_present" trustedBs frSnapshot
+        replayFactState "fact_present" trustedBs frFact
+        replayTrieFact
+            "fact_present.fact"
+            (factWitnessTrieRoot frFact)
+            ClientWire.TrieFact
+                { ClientWire.key = toClientHex fpfKey
+                , ClientWire.value = Just (toClientHex frValue)
+                , ClientWire.mpfProof =
+                    toClientHex (fwMpfProof frFact)
+                }
+        Right (VerifiedFactPresentFacts facts)
+
+-- | Verify an absent fact response against an externally-supplied
+-- trusted UTxO-CSMT root and the key from the request path.
+verifyFactAbsentFacts
+    :: TrustedRoot
+    -> FactAbsentFacts
+    -> Either VerifyError VerifiedFactAbsentFacts
+verifyFactAbsentFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@FactAbsentFacts
+        { fafKey
+        , fafResponse = ProofResponse{..}
+        } = do
+        verifyFactSnapshot "fact_absent" trustedBs prSnapshot
+        replayFactState "fact_absent" trustedBs prFact
+        replayTrieFact
+            "fact_absent.fact"
+            (factWitnessTrieRoot prFact)
+            ClientWire.TrieFact
+                { ClientWire.key = toClientHex fafKey
+                , ClientWire.value = Nothing
+                , ClientWire.mpfProof =
+                    toClientHex (fwMpfProof prFact)
+                }
+        Right (VerifiedFactAbsentFacts facts)
+
+verifyFactSnapshot
+    :: T.Text
+    -> BS.ByteString
+    -> VerificationSnapshot
+    -> Either VerifyError ()
+verifyFactSnapshot prefix trustedBs snap@VerificationSnapshot{..} = do
+    checkTrustedLength (prefix <> ".trusted_root") trustedBs
+    verifyVerificationSnapshot (toClientSnapshot snap)
+    let snapshotPath = prefix <> ".snapshot.utxo_root"
+        Hex snapshotBs = vsUtxoRoot
+    if snapshotBs == trustedBs
+        then Right ()
+        else Left (TrustedRootMismatch snapshotPath)
+  where
+    checkTrustedLength field bs
+        | BS.length bs == 32 = Right ()
+        | otherwise =
+            Left (WrongHexLength field 32 (BS.length bs))
+
+toClientSnapshot
+    :: VerificationSnapshot -> ClientSnapshot.VerificationSnapshot
+toClientSnapshot VerificationSnapshot{..} =
+    ClientSnapshot.VerificationSnapshot
+        { ClientSnapshot.utxoRoot = toClientHex vsUtxoRoot
+        , ClientSnapshot.chainpoint =
+            let ChainPointJSON{..} = vsChainPoint
+            in  ClientSnapshot.ChainPoint
+                    { ClientSnapshot.slot = cpSlot
+                    , ClientSnapshot.blockId = toClientHex cpBlockId
+                    }
+        }
+
+replayFactState
+    :: T.Text
+    -> BS.ByteString
+    -> FactWitness
+    -> Either VerifyError ()
+replayFactState prefix trustedBs FactWitness{fwState} =
+    replayWitnessedUtxo
+        (prefix <> ".fact.state.utxo")
+        trustedBs
+        (toClientWitnessedUtxo (wtsUtxo fwState))
+
+factWitnessTrieRoot :: FactWitness -> BS.ByteString
+factWitnessTrieRoot FactWitness{fwState} =
+    let Hex rootBs = root (wtsState fwState)
+    in  rootBs
+
+toClientWitnessedUtxo :: WitnessedUtxo -> ClientWire.WitnessedUtxo
+toClientWitnessedUtxo WitnessedUtxo{..} =
+    ClientWire.WitnessedUtxo
+        { ClientWire.txIn =
+            toClientTxIn wuTxIn
+        , ClientWire.txOut = toClientHex wuTxOut
+        , ClientWire.utxoProof = toClientHex wuProof
+        }
+
+toClientTxIn :: TxInJSON -> ClientWire.TxIn
+toClientTxIn TxInJSON{..} =
+    ClientWire.TxIn
+        { ClientWire.txId = toClientHex tjTxId
+        , ClientWire.txIx = tjTxIx
+        }
+
+toClientHex :: Hex -> ClientSnapshot.Hex
+toClientHex (Hex bs) =
+    ClientSnapshot.Hex (T.decodeUtf8 (Base16.encode bs))
