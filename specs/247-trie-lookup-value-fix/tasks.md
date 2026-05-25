@@ -72,7 +72,7 @@ Owns: parallel write/lookup contract for the pure backend in
 `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Pure.hs` (and
 `PureManager.hs` if it exposes the underlying ref).
 
-- [ ] T007-S3 — Extend the pure backend with a sibling
+- [X] T007-S3 — Extend the pure backend with a sibling
       `IORef (Map HexKey ByteString)` (or fold it into the
       existing `IORef` cell as one record under one ref to dodge
       the race-window concern in R2). Rewire `pureInsert` to write
@@ -80,7 +80,7 @@ Owns: parallel write/lookup contract for the pure backend in
       return from the raw mirror. The persistent rollback test
       does not need a pure analogue (pure backend has no rollback
       machinery).
-- [ ] T008-S3 — RED + GREEN for `pure_insert_then_lookup_returns_raw_value`
+- [X] T008-S3 — RED + GREEN for `pure_insert_then_lookup_returns_raw_value`
       and `pure_delete_then_lookup_returns_nothing` in
       `cardano-mpfs-offchain/test/Cardano/MPFS/TrieSpec.hs`.
 

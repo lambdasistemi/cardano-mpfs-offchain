@@ -7,10 +7,10 @@
 --
 -- In-memory implementation of the 'TrieManager'
 -- interface backed by a 'Map TokenId (IORef
--- MPFInMemoryDB)'. Each token gets its own isolated
--- in-memory MPF database; speculative sessions copy
--- the 'IORef' contents so the original is never
--- mutated.
+-- PureTrieState)'. Each token gets its own isolated
+-- in-memory MPF database plus raw-value mirror;
+-- speculative sessions copy the 'IORef' contents so
+-- the original is never mutated.
 --
 -- Useful for unit tests and development where
 -- RocksDB is not available or not desired. For
@@ -32,13 +32,15 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 
 import MPF.Backend.Pure
-    ( MPFInMemoryDB
-    , emptyMPFInMemoryDB
+    ( emptyMPFInMemoryDB
     )
 
 import Cardano.MPFS.Core.Types (TokenId)
 import Cardano.MPFS.Trie (Trie, TrieManager (..))
-import Cardano.MPFS.Trie.Pure (mkPureTrieFromRef)
+import Cardano.MPFS.Trie.Pure
+    ( PureTrieState (..)
+    , mkPureTrieFromRef
+    )
 
 -- | Create a new 'TrieManager IO' backed by a 'Map'
 -- of per-token in-memory MPF databases. Each token
@@ -48,7 +50,7 @@ mkPureTrieManager = do
     ref <-
         newIORef
             ( Map.empty
-                :: Map TokenId (IORef MPFInMemoryDB)
+                :: Map TokenId (IORef PureTrieState)
             )
     hiddenRef <- newIORef (Set.empty :: Set TokenId)
     pure
@@ -65,7 +67,7 @@ mkPureTrieManager = do
 -- | Run an action with access to a token's trie.
 -- Throws if the trie doesn't exist or is hidden.
 pureWithTrie
-    :: IORef (Map TokenId (IORef MPFInMemoryDB))
+    :: IORef (Map TokenId (IORef PureTrieState))
     -> IORef (Set TokenId)
     -> TokenId
     -> (Trie IO -> IO a)
@@ -88,7 +90,7 @@ pureWithTrie ref hiddenRef tid action = do
 -- | Run a speculative session on a copy of the
 -- trie. The copy is discarded after the action.
 pureWithSpeculativeTrie
-    :: IORef (Map TokenId (IORef MPFInMemoryDB))
+    :: IORef (Map TokenId (IORef PureTrieState))
     -> IORef (Set TokenId)
     -> TokenId
     -> (forall n. Monad n => Trie n -> n a)
@@ -113,16 +115,21 @@ pureWithSpeculativeTrie ref hiddenRef tid action = do
 
 -- | Create a new empty trie for a token.
 pureCreateTrie
-    :: IORef (Map TokenId (IORef MPFInMemoryDB))
+    :: IORef (Map TokenId (IORef PureTrieState))
     -> TokenId
     -> IO ()
 pureCreateTrie ref tid = do
-    dbRef <- newIORef emptyMPFInMemoryDB
+    dbRef <-
+        newIORef
+            $ PureTrieState
+                { ptsMpfDb = emptyMPFInMemoryDB
+                , ptsRawValues = Map.empty
+                }
     modifyIORef' ref (Map.insert tid dbRef)
 
 -- | Delete a token's trie (permanent removal).
 pureDeleteTrie
-    :: IORef (Map TokenId (IORef MPFInMemoryDB))
+    :: IORef (Map TokenId (IORef PureTrieState))
     -> TokenId
     -> IO ()
 pureDeleteTrie ref =

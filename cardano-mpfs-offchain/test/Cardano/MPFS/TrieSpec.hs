@@ -56,6 +56,7 @@ import MPF.Test.Lib
 
 import Cardano.MPFS.Core.Types (Root (..))
 import Cardano.MPFS.Trie (Trie (..))
+import Cardano.MPFS.Trie.Pure (mkPureTrie)
 
 -- -----------------------------------------------------------------
 -- Generators
@@ -94,6 +95,7 @@ genUniqueKVs = do
 spec :: IO (Trie IO) -> Spec
 spec newTrie = do
     describe "Trie" $ trieSpec newTrie
+    describe "Pure trie" pureTrieSpec
     describe "Trie test vectors"
         $ testVectorSpec newTrie
     describe "Trie properties" propertySpec
@@ -163,6 +165,21 @@ trieSpec newTrie = do
         trie <- newTrie
         mProof <- getProof trie "any"
         isNothing mProof `shouldBe` True
+
+pureTrieSpec :: Spec
+pureTrieSpec = do
+    it "pure_insert_then_lookup_returns_raw_value" $ do
+        trie <- mkPureTrie
+        _ <- insert trie "hello" "raw hello value"
+        Cardano.MPFS.Trie.lookup trie "hello"
+            `shouldReturn` Just "raw hello value"
+
+    it "pure_delete_then_lookup_returns_nothing" $ do
+        trie <- mkPureTrie
+        _ <- insert trie "hello" "raw hello value"
+        _ <- Cardano.MPFS.Trie.delete trie "hello"
+        Cardano.MPFS.Trie.lookup trie "hello"
+            `shouldReturn` Nothing
 
 -- -----------------------------------------------------------------
 -- Properties (via merkle-patricia-forestry pure backend)
