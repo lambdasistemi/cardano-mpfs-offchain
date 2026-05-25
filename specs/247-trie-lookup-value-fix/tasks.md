@@ -222,7 +222,7 @@ commit (`814446a`) has been reverted (`b10b7f3`); a fresh
 `chore: drop gate.sh (ready for review)` commit lands
 after Slice 8 is green and CI is green on HEAD.
 
-- [ ] T014-S6 — Drop `./gate.sh` in a
+- [X] T014-S6 — Drop `./gate.sh` in a
       `chore: drop gate.sh (ready for review)` commit. No
       `Tasks:` trailer required (chore allowed by the commit
       gate). `gh pr ready 284` to flip out of draft.
