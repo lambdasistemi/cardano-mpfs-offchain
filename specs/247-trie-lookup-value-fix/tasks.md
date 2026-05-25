@@ -50,9 +50,11 @@ verification + lookup contract change in
       reuse). Rewire `unifiedLookup` to return
       `KV.query TrieRawValues hexKey` when the inclusion proof
       witnesses presence; return `Nothing` if either the proof
-      lookup or the raw-value read is absent. Apply the same
-      treatment to the `unifiedManager` variants (lines 942, 963,
-      1039, 1059 in the existing source).
+      lookup or the raw-value read is absent. **The
+      `persistent*`/`speculative*` functions at ~lines 930–1089
+      are OUT OF SLICE 2 SCOPE** — they operate on the
+      `MPFStandalone*Col` schema which has no `TrieRawValues`
+      analogue; their asymmetry is captured by `T013-S5`.
 - [ ] T005-S2 — RED + GREEN for `insert_then_lookup_returns_raw_value`
       and `delete_then_lookup_returns_nothing` in
       `cardano-mpfs-offchain/test/Cardano/MPFS/Trie/PersistentSpec.hs`.
@@ -121,12 +123,21 @@ sentinel that the legacy bug cannot return.
       sub-option (1)), and a pointer to this PR.
 - [ ] T012-S5 — Extend `./gate.sh` with a `check_absent` sentinel
       for the legacy `Just (hashBS k)` /
-      `Just (renderMPFHash (mkMPFHash k))` fallback in
+      `Just (renderMPFHash (mkMPFHash k))` fallback ONLY at the
+      unified-path call sites in
       `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`
-      and
-      `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Pure.hs`. The
-      sentinel guarantees a regression that re-introduces the bug
-      fails the gate.
+      (`unifiedLookup`) and the entirety of
+      `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Pure.hs`.
+      Scope-exclude the speculative-path call site at
+      `Trie/Persistent.hs:~1089` (which remains legitimately
+      broken pending `T013-S5`).
+- [ ] T013-S5 — Document the deferred speculative-path
+      asymmetry in
+      `specs/243-proof-redesign/research.md`:
+      `speculativeLookup` / `persistentLookup` continue to return
+      `Just (hashBS k)` after #247 because they operate on the
+      `MPFStandalone*Col` schema which has no `TrieRawValues`
+      analogue. Captures the asymmetry; no code change.
 
 ## Slice 6 — Drop gate.sh (finalization)
 
