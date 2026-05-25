@@ -133,22 +133,40 @@ startup-check RED/GREEN).
 columns inside the same transaction. Make `unifiedLookup` read
 from `TrieRawValues`. Both atomicity invariants land here.
 
+**Scope correction (2026-05-25, navigator-surfaced).** Earlier
+drafts of this plan named "the `unifiedManager` variants at lines
+942, 963, 1039, 1059" as in-scope. **They are not.** Those
+functions are `persistentInsert` / `persistentDelete` /
+`speculativeInsert` / `speculativeDelete` / `speculativeLookup`
+operating on the `MPFStandalone HexKey MPFHash MPFHash` schema
+(`MPFStandaloneKVCol` / `MPFStandaloneMPFCol`), used by the
+TxBuilder speculative dry-run path. `TrieRawValues` lives in
+`AllColumns`, which the speculative path does not address —
+"same treatment" would not typecheck and is out of scope. The
+broken `/tokens/:id/facts/:key` endpoint reads via the
+unified path, not the speculative path. The speculative-path
+asymmetry (`speculativeLookup` at ~line 1089 still returns
+`Just (hashBS k)`) is documented as a follow-up in Slice 5's
+research note + a new task `T013-S5`.
+
 **Files.**
 
 - `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`
-  - `unifiedInsert`: after `inserting … TrieKV TrieNodes …`, call
+  - `unifiedInsert` (~line 180): after the existing
+    `inserting … TrieKV TrieNodes …`, call
     `KV.put TrieRawValues (byteStringToHexKey (hashBS k)) v`
-    inside the same transaction.
-  - `unifiedDelete`: after `deleting …`, call
+    inside the same `Transaction m cf AllColumns ops` body.
+  - `unifiedDelete` (~line 197): after `deleting …`, call
     `KV.delete TrieRawValues (byteStringToHexKey (hashBS k))`.
-  - `unifiedLookup`: replace
+  - `unifiedLookup` (~line 212): replace
     `Just _ -> Just (hashBS k)` with
     `Just _ -> KV.query TrieRawValues hexKey` (or equivalent).
     The proof guard stays — `unifiedLookup` still returns
     `Nothing` if the MPF inclusion proof can't be built, even if
     the raw column happened to have a row (defence in depth).
-  - The `unifiedManager` variants (lines 942, 963, 1039, 1059 in
-    the existing source) get the same treatment.
+  - The `persistent*` / `speculative*` functions ~lines
+    930–1089 are **out of Slice 2 scope** — they operate on a
+    different column-family schema; do not touch them.
 
 **RED.** `cardano-mpfs-offchain/test/Cardano/MPFS/Trie/PersistentSpec.hs`
 gains:
@@ -250,13 +268,27 @@ gone.
   this PR.
 - `gate.sh` — extend with `check_absent "legacy hashBS-as-value
   fallback" 'Just \(hashBS k\)|Just \(renderMPFHash \(mkMPFHash k\)\)' …`
-  pointing at `Trie/Persistent.hs` and `Trie/Pure.hs` so any
-  regression that re-introduces the bug fails the gate.
+  pointing **only** at the unified-path call sites in
+  `Trie/Persistent.hs` (unifiedLookup) and the entire
+  `Trie/Pure.hs`. The speculative-path call site at
+  `Trie/Persistent.hs` ~line 1089 still legitimately uses
+  `Just (hashBS k)` after this slice (see Slice 2's scope
+  correction and `T013-S5` below); the sentinel must not
+  false-positive on it.
 
 **RED.** Not applicable — this is documentation + a sentinel.
 `gate.sh` runs and the sentinel passes.
 
-**Tasks.** `T011-S5`, `T012-S5`.
+**Tasks.** `T011-S5`, `T012-S5`, `T013-S5`.
+
+- `T013-S5` is a documentation-only task: add a section to
+  `specs/243-proof-redesign/research.md` (or a comment block at
+  the head of `Trie/Persistent.hs`'s speculative section) noting
+  the deferred speculative-path asymmetry: `speculativeLookup` /
+  `persistentLookup` still return `Just (hashBS k)` because they
+  operate on the `MPFStandalone*Col` schema which has no
+  `TrieRawValues` analogue. Captures the asymmetry for future
+  readers; no code change.
 
 ### Slice 6 — Drop `gate.sh` (finalization)
 
