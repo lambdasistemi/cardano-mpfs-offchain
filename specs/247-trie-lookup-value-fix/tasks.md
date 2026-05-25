@@ -154,7 +154,7 @@ introduced by Slice 4's e2e wiring (run
 https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26400824147
 at HEAD `814446a`).
 
-- [ ] T015-S7 — Reproduce the e2e failure locally
+- [X] T015-S7 — Reproduce the e2e failure locally
       (`just e2e` with the failing scenario isolated).
       Capture the exact trie root, proof bytes, key, and
       value used by the verifier; pinpoint where the
@@ -162,13 +162,13 @@ at HEAD `814446a`).
       Document the diagnosis in
       `/tmp/epic-257/247/s7-driver/STATUS.md` as a
       `NOTE diagnosis: <one-line summary>` line.
-- [ ] T016-S7 — Land the fix at whichever layer the
+- [X] T016-S7 — Land the fix at whichever layer the
       diagnosis identifies (likely
       `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
       or `Trie/Persistent.hs`). Do NOT relax the verifier;
       fix the root/proof/value disagreement at its source.
       `./gate.sh` and `just e2e` both pass at HEAD.
-- [ ] T017-S7 — Add a unit-level regression test that
+- [X] T017-S7 — Add a unit-level regression test that
       reproduces the disagreement at the indexer layer
       (no cardano-node), so future drivers can catch this
       class of bug without running the full e2e.
