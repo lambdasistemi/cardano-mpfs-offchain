@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -35,7 +36,10 @@ module Cardano.MPFS.Trie.Persistent
     , withPersistentTrieManager
     ) where
 
-import Control.Lens (Prism')
+import Control.Lens
+    ( Prism'
+    , prism'
+    )
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -48,6 +52,7 @@ import Data.IORef
     )
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Type.Equality ((:~:) (..))
 
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
@@ -64,7 +69,11 @@ import Database.KV.Database
     , fromPairList
     )
 import Database.KV.Transaction
-    ( Transaction
+    ( GCompare (..)
+    , GEq (..)
+    , GOrdering (..)
+    , KV
+    , Transaction
     , runSpeculation
     , runTransactionUnguarded
     )
@@ -92,8 +101,7 @@ import Database.RocksDB
     )
 
 import MPF.Backend.Standalone
-    ( MPFStandalone (..)
-    , MPFStandaloneCodecs (..)
+    ( MPFStandaloneCodecs (..)
     )
 import MPF.Deletion (deleteSubtree, deleting)
 import MPF.Hashes
@@ -134,6 +142,31 @@ import Cardano.MPFS.Trie
     , Trie (..)
     , TrieManager (..)
     )
+
+-- | Standalone IO-layer columns. The MPF node and
+-- hash-value columns mirror 'MPFStandalone', with an
+-- additional raw-value column for serving fact responses.
+data StandaloneTrieColumn x where
+    StandaloneKVCol :: StandaloneTrieColumn (KV HexKey MPFHash)
+    StandaloneMPFCol
+        :: StandaloneTrieColumn
+            (KV HexKey (HexIndirect MPFHash))
+    StandaloneRawCol :: StandaloneTrieColumn (KV HexKey ByteString)
+
+instance GEq StandaloneTrieColumn where
+    geq StandaloneKVCol StandaloneKVCol = Just Refl
+    geq StandaloneMPFCol StandaloneMPFCol = Just Refl
+    geq StandaloneRawCol StandaloneRawCol = Just Refl
+    geq _ _ = Nothing
+
+instance GCompare StandaloneTrieColumn where
+    gcompare StandaloneKVCol StandaloneKVCol = GEQ
+    gcompare StandaloneKVCol _ = GLT
+    gcompare StandaloneMPFCol StandaloneKVCol = GGT
+    gcompare StandaloneMPFCol StandaloneMPFCol = GEQ
+    gcompare StandaloneMPFCol StandaloneRawCol = GLT
+    gcompare StandaloneRawCol StandaloneRawCol = GEQ
+    gcompare StandaloneRawCol _ = GGT
 
 -- --------------------------------------------------------
 -- Token prefix
@@ -391,6 +424,8 @@ mkPersistentTrieManager
     -- ^ Column family for trie registry metadata
     -> IO (TrieManager IO)
 mkPersistentTrieManager db nodesCF kvCF metaCF = do
+    let rawCF =
+            standaloneRawColumnFamily db metaCF
     (known, hidden) <- scanTrieMeta db metaCF
     knownRef <- newIORef known
     hiddenRef <- newIORef hidden
@@ -401,6 +436,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     metaCF
                     knownRef
                     hiddenRef
@@ -409,6 +445,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     metaCF
                     knownRef
                     hiddenRef
@@ -417,6 +454,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     metaCF
                     knownRef
                     hiddenRef
@@ -425,6 +463,7 @@ mkPersistentTrieManager db nodesCF kvCF metaCF = do
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     metaCF
                     knownRef
                     hiddenRef
@@ -457,10 +496,11 @@ withPersistentTrieManager path action =
         [ ("nodes", defaultConfig)
         , ("kv", defaultConfig)
         , ("meta", defaultConfig)
+        , ("raw", defaultConfig)
         ]
         $ \db@DB{columnFamilies} ->
             case columnFamilies of
-                [nodesCF, kvCF, metaCF] -> do
+                [nodesCF, kvCF, metaCF, _rawCF] -> do
                     mgr <-
                         mkPersistentTrieManager
                             db
@@ -471,7 +511,16 @@ withPersistentTrieManager path action =
                 _ ->
                     error
                         "withPersistentTrieManager: \
-                        \expected 3 column families"
+                        \expected 4 column families"
+
+standaloneRawColumnFamily :: DB -> ColumnFamily -> ColumnFamily
+standaloneRawColumnFamily DB{columnFamilies} metaCF =
+    case drop 1 (dropWhile (/= metaCF) columnFamilies) of
+        rawCF : _ -> rawCF
+        [] ->
+            error
+                "mkPersistentTrieManager: expected raw \
+                \column family immediately after meta"
 
 -- | Default RocksDB configuration.
 defaultConfig :: Config
@@ -498,6 +547,7 @@ persistentWithTrie
     -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
+    -> ColumnFamily
     -> IORef (Set TokenId)
     -> IORef (Set TokenId)
     -> TokenId
@@ -507,6 +557,7 @@ persistentWithTrie
     db
     nodesCF
     kvCF
+    rawCF
     metaCF
     knownRef
     hiddenRef
@@ -527,6 +578,7 @@ persistentWithTrie
                             db
                             nodesCF
                             kvCF
+                            rawCF
                             BS.empty
                 action
                     (mkPersistentTrie hexPfx database)
@@ -548,6 +600,7 @@ persistentWithSpeculativeTrie
     -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
+    -> ColumnFamily
     -> IORef (Set TokenId)
     -> IORef (Set TokenId)
     -> TokenId
@@ -561,6 +614,7 @@ persistentWithSpeculativeTrie
     db
     nodesCF
     kvCF
+    rawCF
     metaCF
     knownRef
     hiddenRef
@@ -581,6 +635,7 @@ persistentWithSpeculativeTrie
                             db
                             nodesCF
                             kvCF
+                            rawCF
                             BS.empty
                 runSpeculation
                     database
@@ -653,6 +708,7 @@ persistentCreateTrie
     -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
+    -> ColumnFamily
     -> IORef (Set TokenId)
     -> IORef (Set TokenId)
     -> TokenId
@@ -661,6 +717,7 @@ persistentCreateTrie
     db
     nodesCF
     kvCF
+    rawCF
     metaCF
     knownRef
     hiddenRef
@@ -670,10 +727,11 @@ persistentCreateTrie
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     BS.empty
         runTransactionUnguarded database
             $ deleteSubtree
-                MPFStandaloneMPFCol
+                StandaloneMPFCol
                 hexPfx
         write
             db
@@ -692,6 +750,7 @@ persistentDeleteTrie
     -> ColumnFamily
     -> ColumnFamily
     -> ColumnFamily
+    -> ColumnFamily
     -> IORef (Set TokenId)
     -> IORef (Set TokenId)
     -> TokenId
@@ -700,6 +759,7 @@ persistentDeleteTrie
     db
     nodesCF
     kvCF
+    rawCF
     metaCF
     knownRef
     hiddenRef
@@ -709,10 +769,11 @@ persistentDeleteTrie
                     db
                     nodesCF
                     kvCF
+                    rawCF
                     BS.empty
         runTransactionUnguarded database
             $ deleteSubtree
-                MPFStandaloneMPFCol
+                StandaloneMPFCol
                 hexPfx
         write
             db
@@ -765,13 +826,14 @@ mkPrefixedTrieDB
     :: DB
     -> ColumnFamily
     -> ColumnFamily
+    -> ColumnFamily
     -> ByteString
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
-mkPrefixedTrieDB db nodesCF kvCF pfx =
+mkPrefixedTrieDB db nodesCF kvCF rawCF pfx =
     let trieDB =
             Database
                 { valueAt = \cf key ->
@@ -785,7 +847,7 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
                             DelCF cf (pfx <> key)
                 , columns =
                     fromPairList
-                        [ MPFStandaloneKVCol
+                        [ StandaloneKVCol
                             :=> Column
                                 { family = kvCF
                                 , codecs =
@@ -796,12 +858,23 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
                                             isoMPFHash'
                                         }
                                 }
-                        , MPFStandaloneMPFCol
+                        , StandaloneMPFCol
                             :=> Column
                                 { family = nodesCF
                                 , codecs =
                                     mpfCodecs
                                         isoMPFHash'
+                                }
+                        , StandaloneRawCol
+                            :=> Column
+                                { family = rawCF
+                                , codecs =
+                                    Codecs
+                                        { keyCodec =
+                                            hexKeyPrism
+                                        , valueCodec =
+                                            bytesCodec
+                                        }
                                 }
                         ]
                 , newIterator = \cf ->
@@ -812,6 +885,9 @@ mkPrefixedTrieDB db nodesCF kvCF pfx =
   where
     isoMPFHash' :: Prism' ByteString MPFHash
     isoMPFHash' = mpfValueCodec mpfHashCodecs
+
+    bytesCodec :: Prism' ByteString ByteString
+    bytesCodec = prism' id Just
 
 -- --------------------------------------------------------
 -- Prefixed iterator (for IO layer)
@@ -889,7 +965,7 @@ mkPersistentTrie
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> Trie IO
 mkPersistentTrie pfx database =
@@ -911,11 +987,7 @@ mkSpeculativeTrie
         ( Transaction
             IO
             ColumnFamily
-            ( MPFStandalone
-                HexKey
-                MPFHash
-                MPFHash
-            )
+            StandaloneTrieColumn
             BatchOp
         )
 mkSpeculativeTrie pfx =
@@ -938,21 +1010,24 @@ persistentInsert
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> ByteString
     -> ByteString
     -> IO Root
 persistentInsert pfx database k v =
     runTransactionUnguarded database $ do
+        let hexKey =
+                byteStringToHexKey (hashBS k)
         inserting
             pfx
             fromHexKVIdentity
             mpfHashing
-            MPFStandaloneKVCol
-            MPFStandaloneMPFCol
-            (byteStringToHexKey (hashBS k))
+            StandaloneKVCol
+            StandaloneMPFCol
+            hexKey
             (mkMPFHash v)
+        KV.insert StandaloneRawCol hexKey v
         speculativeGetRoot pfx
 
 persistentDelete
@@ -960,19 +1035,22 @@ persistentDelete
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> ByteString
     -> IO Root
 persistentDelete pfx database k =
     runTransactionUnguarded database $ do
+        let hexKey =
+                byteStringToHexKey (hashBS k)
         deleting
             pfx
             fromHexKVIdentity
             mpfHashing
-            MPFStandaloneKVCol
-            MPFStandaloneMPFCol
-            (byteStringToHexKey (hashBS k))
+            StandaloneKVCol
+            StandaloneMPFCol
+            hexKey
+        KV.delete StandaloneRawCol hexKey
         speculativeGetRoot pfx
 
 persistentLookup
@@ -980,7 +1058,7 @@ persistentLookup
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> ByteString
     -> IO (Maybe ByteString)
@@ -993,7 +1071,7 @@ persistentGetRoot
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> IO Root
 persistentGetRoot pfx database =
@@ -1006,7 +1084,7 @@ persistentGetProof
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> ByteString
     -> IO (Maybe Proof)
@@ -1019,7 +1097,7 @@ persistentGetProofSteps
     -> Database
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
     -> ByteString
     -> IO (Maybe [ProofStep])
@@ -1038,18 +1116,21 @@ speculativeInsert
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         Root
 speculativeInsert pfx k v = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
     inserting
         pfx
         fromHexKVIdentity
         mpfHashing
-        MPFStandaloneKVCol
-        MPFStandaloneMPFCol
-        (byteStringToHexKey (hashBS k))
+        StandaloneKVCol
+        StandaloneMPFCol
+        hexKey
         (mkMPFHash v)
+    KV.insert StandaloneRawCol hexKey v
     speculativeGetRoot pfx
 
 speculativeDelete
@@ -1058,17 +1139,20 @@ speculativeDelete
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         Root
 speculativeDelete pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
     deleting
         pfx
         fromHexKVIdentity
         mpfHashing
-        MPFStandaloneKVCol
-        MPFStandaloneMPFCol
-        (byteStringToHexKey (hashBS k))
+        StandaloneKVCol
+        StandaloneMPFCol
+        hexKey
+    KV.delete StandaloneRawCol hexKey
     speculativeGetRoot pfx
 
 speculativeLookup
@@ -1077,7 +1161,7 @@ speculativeLookup
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         (Maybe ByteString)
 speculativeLookup pfx k = do
@@ -1088,22 +1172,22 @@ speculativeLookup pfx k = do
             pfx
             fromHexKVIdentity
             mpfHashing
-            MPFStandaloneMPFCol
+            StandaloneMPFCol
             hexKey
-    pure $ case mProof of
-        Nothing -> Nothing
-        Just _ -> Just (hashBS k)
+    case mProof of
+        Nothing -> pure Nothing
+        Just _ -> KV.query StandaloneRawCol hexKey
 
 speculativeGetRoot
     :: HexKey
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         Root
 speculativeGetRoot pfx = do
-    mi <- KV.query MPFStandaloneMPFCol pfx
+    mi <- KV.query StandaloneMPFCol pfx
     pure $ case mi of
         Nothing -> Root (BS.replicate 32 0)
         Just
@@ -1128,7 +1212,7 @@ speculativeGetProof
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         (Maybe Proof)
 speculativeGetProof pfx k = do
@@ -1139,7 +1223,7 @@ speculativeGetProof pfx k = do
             pfx
             fromHexKVIdentity
             mpfHashing
-            MPFStandaloneMPFCol
+            StandaloneMPFCol
             hexKey
     pure
         $ fmap
@@ -1154,7 +1238,7 @@ speculativeGetProofSteps
     -> Transaction
         IO
         ColumnFamily
-        (MPFStandalone HexKey MPFHash MPFHash)
+        StandaloneTrieColumn
         BatchOp
         (Maybe [ProofStep])
 speculativeGetProofSteps pfx k = do
@@ -1165,7 +1249,7 @@ speculativeGetProofSteps pfx k = do
             pfx
             fromHexKVIdentity
             mpfHashing
-            MPFStandaloneMPFCol
+            StandaloneMPFCol
             hexKey
     pure
         $ fmap

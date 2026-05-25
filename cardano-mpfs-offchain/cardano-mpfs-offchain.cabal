@@ -263,6 +263,7 @@ test-suite unit-tests
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
+    , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-node-clients
     , cardano-strict-containers
@@ -280,6 +281,7 @@ test-suite unit-tests
     , microlens
     , mts:csmt
     , mts:csmt-core
+    , mts:csmt-test-lib
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks

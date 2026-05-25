@@ -149,6 +149,7 @@ testCFs =
     [ ("nodes", testConfig)
     , ("kv", testConfig)
     , ("meta", testConfig)
+    , ("raw", testConfig)
     ]
 
 -- | Run an action with a temporary RocksDB that has
@@ -181,11 +182,11 @@ withTestDBAt dir action =
     withDBCF dir testConfig testCFs
         $ \db@DB{columnFamilies = cfs} ->
             case cfs of
-                [nodesCF, kvCF, metaCF] ->
+                [nodesCF, kvCF, metaCF, _rawCF] ->
                     action db nodesCF kvCF metaCF
                 _ ->
                     error
-                        "Expected 3 column \
+                        "Expected 4 column \
                         \families"
 
 -- ---------------------------------------------------------

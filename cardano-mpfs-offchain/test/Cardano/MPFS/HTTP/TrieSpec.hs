@@ -10,6 +10,8 @@
 -- @\/tokens\/:id\/proofs\/:key@.
 module Cardano.MPFS.HTTP.TrieSpec (spec) where
 
+import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
@@ -17,6 +19,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
+import Data.Either (isRight)
 import Data.Text qualified as T
 import Network.HTTP.Types
     ( status200
@@ -42,19 +45,60 @@ import Test.Hspec
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Test.QuickCheck (generate)
 
+import CSMT.Core.CBOR (renderProof)
+import CSMT.Core.Hash
+    ( byteStringToKey
+    , renderHash
+    )
+import CSMT.Hashes
+    ( hashHashing
+    , mkHash
+    )
+import CSMT.Test.Lib
+    ( evalPureFromEmptyDB
+    , getRootHashM
+    , hashCodecs
+    , identityFromKV
+    , insertMHash
+    , proofM
+    )
+import Cardano.MPFS.Application (dbConfig)
+import Cardano.MPFS.Client.Facts
+    ( FactPresentFacts (..)
+    , verifyFactPresentFacts
+    )
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , LocatedTokenState (..)
+    , Root (..)
     , SlotNo (..)
     , TokenId (..)
+    , TokenState (..)
+    , TxIn
     )
 import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.TokensSpec (mkDummyTokenState)
+import Cardano.MPFS.HTTP.Types
+    ( FactResponse (..)
+    , TxInJSON (..)
+    , VerificationSnapshot (..)
+    , txInToJSON
+    )
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Trie qualified as Trie
+import Cardano.MPFS.Trie.Persistent
+    ( mkPersistentTrieManager
+    )
+import Database.RocksDB
+    ( DB (..)
+    , withDBCF
+    )
+import System.IO.Temp (withSystemTempDirectory)
 
 -- | "cafe" token — hex "63616665".
 cafeTid :: TokenId
@@ -100,6 +144,14 @@ seedTokenState ctx = do
         (St.tokens (state ctx))
         cafeTid
         (LocatedTokenState txIn ts)
+
+seedTokenStateWithRoot :: Context IO -> TxIn -> Root -> IO ()
+seedTokenStateWithRoot ctx txIn trieRoot = do
+    ts <- mkDummyTokenState
+    St.putToken
+        (St.tokens (state ctx))
+        cafeTid
+        (LocatedTokenState txIn ts{root = trieRoot})
 
 spec :: Spec
 spec = do
@@ -170,6 +222,30 @@ spec = do
                     _ ->
                         expectationFailure
                             "Expected JSON object"
+
+        it
+            "returns a persistent fact value that replays \
+            \against its MPF proof"
+            $ withPersistentFactContext
+            $ \ctx -> do
+                resp <-
+                    getFact
+                        ctx
+                        "63616665"
+                        (hex "hello")
+                simpleStatus resp `shouldBe` status200
+                case decode (simpleBody resp) of
+                    Just factResp@FactResponse{frSnapshot} ->
+                        verifyFactPresentFacts
+                            (TrustedRoot (vsUtxoRoot frSnapshot))
+                            FactPresentFacts
+                                { fpfKey = Hex "hello"
+                                , fpfResponse = factResp
+                                }
+                            `shouldSatisfy` isRight
+                    _ ->
+                        expectationFailure
+                            "Expected fact response JSON"
 
         it "returns 404 for missing key" $ do
             ctx0 <- mkTestContext
@@ -349,3 +425,94 @@ getProof ctx tokenHex keyHex =
             )
         )
         (mkApp ctx)
+
+withPersistentFactContext :: (Context IO -> IO a) -> IO a
+withPersistentFactContext action =
+    withSystemTempDirectory "persistent-fact-http" $ \dir ->
+        withDBCF
+            dir
+            dbConfig
+            [ ("nodes", dbConfig)
+            , ("kv", dbConfig)
+            , ("meta", dbConfig)
+            , ("raw", dbConfig)
+            ]
+            $ \db@DB{columnFamilies} ->
+                case columnFamilies of
+                    [nodesCF, kvCF, metaCF, _rawCF] -> do
+                        tm <-
+                            mkPersistentTrieManager
+                                db
+                                nodesCF
+                                kvCF
+                                metaCF
+                        ctx0 <- mkTestContext
+                        stateTxIn <- generate genTxIn
+                        let stateTxOut = "state-tx-out"
+                            CsmtWitness
+                                { cwRoot
+                                , cwTxOut
+                                , cwProof
+                                } =
+                                    singleUtxoWitness
+                                        stateTxIn
+                                        stateTxOut
+                        ctx <-
+                            withSnapshot
+                                cwRoot
+                                cwTxOut
+                                cwProof
+                                ctx0{trieManager = tm}
+                        Trie.createTrie (trieManager ctx) cafeTid
+                        trieRoot <-
+                            Trie.withTrie
+                                (trieManager ctx)
+                                cafeTid
+                                $ \trie -> do
+                                    _ <- Trie.insert trie "hello" "world"
+                                    Trie.getRoot trie
+                        seedTokenStateWithRoot
+                            ctx
+                            stateTxIn
+                            trieRoot
+                        action ctx
+                    _ ->
+                        expectationFailure
+                            "expected four test column families"
+                            >> error "unreachable"
+
+data CsmtWitness = CsmtWitness
+    { cwRoot :: ByteString
+    , cwTxOut :: ByteString
+    , cwProof :: ByteString
+    }
+
+singleUtxoWitness :: TxIn -> ByteString -> CsmtWitness
+singleUtxoWitness txIn txOutBs =
+    evalPureFromEmptyDB $ do
+        let key = byteStringToKey (encodeTxInForCsmt txIn)
+        insertMHash key (mkHash txOutBs)
+        mProof <- proofM hashCodecs identityFromKV hashHashing key
+        mRoot <- getRootHashM
+        pure
+            CsmtWitness
+                { cwRoot = maybe BS.empty renderHash mRoot
+                , cwTxOut = txOutBs
+                , cwProof =
+                    case mProof of
+                        Just (_, proof) -> renderProof proof
+                        Nothing -> BS.empty
+                }
+
+encodeTxInForCsmt :: TxIn -> ByteString
+encodeTxInForCsmt txIn =
+    let TxInJSON
+            { tjTxId = Hex txIdBs
+            , tjTxIx
+            } = txInToJSON txIn
+    in  CBOR.toStrictByteString
+            $ mconcat
+                [ CBOR.encodeListLen 2
+                , CBOR.encodeBytes txIdBs
+                , CBOR.encodeWord64 tjTxIx
+                ]
