@@ -91,17 +91,25 @@ Owns: the proof-replay acceptance criterion in
 and any matrix entries in `FactsMatrixSpec.hs` that asserted on
 the structural-only shape.
 
-- [ ] T009-S4 — Replace (or supplement) `assertFactEnvelope` so
-      that it decodes the `/tokens/:id/facts/:key` response into
-      the typed wire shape and calls
-      `verifyFactPresentResponse trustedRoot blueprint resp` (or
-      the equivalent client-side replay), asserting `Right ()`.
-      The trusted root is pulled from the same response's
-      snapshot, mirroring the existing `endFactsTrustedRoot`
-      helper (~line 495 of the existing source). Update the
-      haddock above `assertFactEnvelope` — the "MPFS stores values
-      as 32-byte content hashes" comment is now wrong (~lines
-      451–454).
+- [ ] T009-S4 — Add `verifyFactPresentFacts` /
+      `verifyFactAbsentFacts` to
+      `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs`
+      following the existing `verifyXFacts` pattern: take a
+      `TrustedRoot`, run structural + replay checks, return
+      `Either VerifyError VerifiedFactPresentFacts` (and
+      symmetric for absent). May add `FactPresentFacts` /
+      `FactAbsentFacts` typed shapes in
+      `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs` or
+      reuse `FactResponse` (driver's call). Unit tests cover
+      happy path + tampered-value / tampered-proof / mismatched-
+      root cases.
+- [ ] T009b-S4 — Replace (or supplement) `assertFactEnvelope` in
+      `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`
+      with a call to the new T009-S4 verifier, asserting
+      `Right ()`. Trusted root from the same response's snapshot
+      (mirror `endFactsTrustedRoot` ~line 495). Update the
+      now-wrong haddock "MPFS stores values as 32-byte content
+      hashes" (~lines 451-454).
 - [ ] T010-S4 — Sweep
       `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
       around lines 920–950 (the
