@@ -99,3 +99,106 @@ verifyTokenResponse
 ## Summary of resolutions
 
 All eight items resolved. No `[NEEDS CLARIFICATION]` carried forward. The plan's Phase 1 may proceed to produce `data-model.md`, `contracts/api-shapes.md`, `contracts/verify-error.md`, and `quickstart.md`.
+
+## #247 — value-bearing lookup
+
+**Decision**: use Option A from
+`specs/247-trie-lookup-value-fix/spec.md`: add a `TrieRawValues`
+column family to the unified RocksDB schema and make
+`Trie.lookup` return raw value bytes from that mirror. The
+canonical facts response keeps its existing `value` field shape,
+but after #247 that field is backed by the original inserted value,
+not by `hashBS key` or `mkMPFHash key`.
+
+The implementation is tracked by
+https://github.com/lambdasistemi/cardano-mpfs-offchain/pull/284.
+
+**Rationale**: the operator chose Option A in A-001 because it
+keeps the strongest verifier semantics. The client-side verifier
+continues to call `verifyAikenInclusionProof` with the raw value
+bytes it received from the server, and the verifier continues to
+hash those bytes internally before comparing against the MPF leaf's
+stored value hash. No caller has to switch to a "hashed value"
+variant, and the wire shape does not change.
+
+Option A also keeps the fix inside one repository and one PR. The
+alternative hashed-verifier path would couple this PR to an
+upstream `haskell-mts` change and require clients to distinguish
+raw-value and hashed-value verification modes. Dropping the
+`value` field would be smaller in this repository, but it would
+turn the #243 facts contract into a different API just as the proof
+redesign is trying to stabilise it.
+
+**Alternatives considered**:
+
+- **Option A — `TrieRawValues` column.** Persist raw values under
+  `tokenHexPrefix + hashOfKey`, while the existing MPF columns keep
+  storing `hashOfKey -> mkMPFHash value`. `Trie.lookup` reads the
+  raw-value mirror only after the MPF inclusion proof establishes
+  key presence. Chosen.
+- **Option B — hashed verifier upstream.** Return
+  `mkMPFHash actualValue` in the existing `value` field and add an
+  upstream verifier that treats the supplied bytes as already
+  hashed. Rejected: correct but cross-repo, weaker as an API
+  contract, and easy for clients to misuse by choosing the wrong
+  verifier.
+- **Option C — drop the `value` field.** Treat the MPF proof as a
+  witness that some value hash exists, while the application value
+  travels out of band. Rejected: this changes the facts response
+  contract and removes the direct offline replay path the client
+  API promised.
+
+**Atomicity invariants**:
+
+- **INV-1 — write atomicity.** `TrieRawValues` writes and deletes
+  ride in the same RocksDB write batch as the corresponding
+  `TrieKV` / `TrieNodes` mutation. `unifiedInsert` writes both the
+  MPF value hash and the raw-value mirror inside the same
+  `Transaction m cf AllColumns ops` action. `unifiedDelete`
+  removes both inside the same transaction. There is no accepted
+  state where only one side of the pair is committed.
+- **INV-2 — rollback atomicity.** Chain rollback continues to use
+  `applyCageInverses`, whose trie-touching inverse operations
+  route through the `Trie m` interface:
+  `InvTrieInsert` calls `insert`, and `InvTrieDelete` calls
+  `delete`. Because those operations now mutate both the MPF
+  columns and `TrieRawValues` in one transaction, rollback replay
+  inherits the same atomicity boundary as forward block
+  processing.
+- **INV-3 — fail-loud startup check.** Opening an existing DB with
+  trie data in `TrieKV` and no matching `TrieRawValues` state is a
+  schema migration error, not a degraded lookup mode. The startup
+  pre-flight raises `SchemaMigrationRequired` and names the
+  operator action explicitly.
+
+**Migration**: A-002 chose sub-option (1): re-index from genesis on
+first open after #247. There is no reliable backfill from the old
+schema because raw values were not stored in the MPF trie; the old
+database can prove `mkMPFHash value` but cannot reconstruct
+`value`. Operators must drop the RocksDB directory and resync the
+indexer from genesis so every post-#247 insert writes both columns.
+
+### #247.1 — speculative-path asymmetry (deferred)
+
+`persistentLookup` and `speculativeLookup` in
+`cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`
+continue to return `Just (hashBS k)` after #247. This is
+intentional for the current PR scope.
+
+Those functions operate on the standalone TxBuilder dry-run schema:
+`MPFStandalone HexKey MPFHash MPFHash`, backed by
+`MPFStandaloneKVCol` and `MPFStandaloneMPFCol`. That schema has no
+`TrieRawValues` analogue, so applying the unified-path fix there is
+not a mechanical column-family change.
+
+The value-bearing bug fixed by #247 is on the unified path used by
+the `/tokens/:id/facts/:key` endpoint and by other callers that
+consume the facts response value. The standalone
+`persistentLookup` / `speculativeLookup` path is used by the
+TxBuilder speculative dry-run machinery, which only needs an
+existence-shaped lookup result for its current callers.
+
+The asymmetry should stay visible. A follow-up can either extend
+the standalone schema with its own raw-value mirror or change the
+speculative lookup contract to `Maybe ()` / `Bool` so no future
+caller can mistake `hashBS key` for a value-bearing result.
