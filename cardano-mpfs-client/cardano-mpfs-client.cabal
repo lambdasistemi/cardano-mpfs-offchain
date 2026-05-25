@@ -89,6 +89,7 @@ library
     Cardano.MPFS.Client.Verify.DSL
     Cardano.MPFS.Client.Verify.Read
     Cardano.MPFS.Client.Verify.Replay
+    Cardano.MPFS.Client.Verify.Snapshot
     Cardano.MPFS.Client.Verify.TxView
     Cardano.MPFS.Client.Verify.Write
     Cardano.MPFS.Client.Write

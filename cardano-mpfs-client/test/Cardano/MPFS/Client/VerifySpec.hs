@@ -13,13 +13,23 @@
 -- runner, assert a matching @shouldRejectWith@.
 module Cardano.MPFS.Client.VerifySpec (spec) where
 
+import Control.Monad (void)
+import Data.Bits (xor)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as Base16
+import Data.Text.Encoding qualified as T
 import Test.Hspec (Spec, describe, it)
 
+import Cardano.MPFS.API.Encoding qualified as Api
+import Cardano.MPFS.API.Types qualified as Api
 import Cardano.MPFS.Client
     ( BootProof (..)
     , BootTxResponse (..)
     , EndProof (..)
     , EndTxResponse (..)
+    , FactAbsentFacts (..)
+    , FactPresentFacts (..)
     , Hex (..)
     , RetractProof (..)
     , RetractTxResponse (..)
@@ -27,6 +37,7 @@ import Cardano.MPFS.Client
     , TxIn (..)
     , UpdateProof (..)
     , UpdateTxResponse (..)
+    , VerifyError
     , WitnessedUtxo (..)
     , csmtReplayFailedAt
     , dropToExclusion
@@ -45,9 +56,12 @@ import Cardano.MPFS.Client
     , runForgeUpdateTrie
     , shouldAccept
     , shouldRejectWith
+    , trustedRootMismatchAt
     , txBindingFailedAt
     , verifyBootTxResponse
     , verifyEndTxResponse
+    , verifyFactAbsentFacts
+    , verifyFactPresentFacts
     , verifyRejectTxResponse
     , verifyRequestTxResponse
     , verifyRetractTxResponse
@@ -56,15 +70,19 @@ import Cardano.MPFS.Client
     )
 import Cardano.MPFS.Client.Fixtures
     ( TxRedeemerFixture (..)
+    , bundleFunding
+    , bundleRoot
     , honestBootResponse
     , honestEndResponse
     , honestRejectResponse
     , honestRequestResponse
     , honestRetractResponse
     , honestTrieExclusion
+    , honestTrieInclusion
     , honestUpdateResponse
     , honestUpdateResponseEmptyTrie
     , honestUpdateResponseMixedTrie
+    , honestWitness
     , sampleStateAsset
     , spendContributeRedeemerTerm
     , spendEndRedeemerTerm
@@ -76,9 +94,40 @@ import Cardano.MPFS.Client.Fixtures
     , txOutTerm
     , updateActionTermFromProof
     )
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 
 spec :: Spec
 spec = do
+    describe "Facts read verifiers" $ do
+        it
+            "accepts a present fact with a real state witness, value, and MPF proof"
+            $ honestFactPresentFacts
+                `shouldAccept` verifyPresentUnit
+                    honestFactTrustedRoot
+
+        it "accepts an absent fact with a real exclusion proof"
+            $ honestFactAbsentFacts
+                `shouldAccept` verifyAbsentUnit
+                    honestFactTrustedRoot
+
+        it "rejects a present fact with a tampered value"
+            $ tamperPresentValue honestFactPresentFacts
+                `shouldRejectWith` verifyPresentUnit
+                    honestFactTrustedRoot
+            $ mpfReplayFailedAt "fact_present.fact.mpf_proof"
+
+        it "rejects a present fact with a tampered proof"
+            $ tamperPresentProof honestFactPresentFacts
+                `shouldRejectWith` verifyPresentUnit
+                    honestFactTrustedRoot
+            $ mpfReplayFailedAt "fact_present.fact.mpf_proof"
+
+        it "rejects a present fact with a mismatched trusted root"
+            $ honestFactPresentFacts
+                `shouldRejectWith` verifyPresentUnit
+                    (TrustedRoot (Api.Hex (BS.replicate 32 0x99)))
+            $ trustedRootMismatchAt "fact_present.snapshot.utxo_root"
+
     describe "positive path — every honest response shouldAccept" $ do
         it "boot"
             $ honestBootResponse
@@ -261,6 +310,144 @@ foreignTxIn =
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         , txIx = 99
         }
+
+honestFactTrustedRoot :: TrustedRoot
+honestFactTrustedRoot =
+    TrustedRoot (Api.Hex (bundleRoot honestWitness))
+
+verifyPresentUnit
+    :: TrustedRoot -> FactPresentFacts -> Either VerifyError ()
+verifyPresentUnit trusted =
+    void . verifyFactPresentFacts trusted
+
+verifyAbsentUnit
+    :: TrustedRoot -> FactAbsentFacts -> Either VerifyError ()
+verifyAbsentUnit trusted =
+    void . verifyFactAbsentFacts trusted
+
+honestFactPresentFacts :: FactPresentFacts
+honestFactPresentFacts =
+    let (_, trieFact) = honestTrieInclusion
+    in  FactPresentFacts
+            { fpfKey = toApiHex (key trieFact)
+            , fpfResponse =
+                Api.FactResponse
+                    { Api.frSnapshot = factSnapshot
+                    , Api.frValue =
+                        case value trieFact of
+                            Just v -> toApiHex v
+                            Nothing ->
+                                error
+                                    "VerifySpec: expected inclusion value"
+                    , Api.frFact = factWitness trieFact
+                    }
+            }
+
+honestFactAbsentFacts :: FactAbsentFacts
+honestFactAbsentFacts =
+    let (_, trieFact) = honestTrieExclusion
+    in  FactAbsentFacts
+            { fafKey = toApiHex (key trieFact)
+            , fafResponse =
+                Api.ProofResponse
+                    { Api.prSnapshot = factSnapshot
+                    , Api.prFact = factWitness trieFact
+                    }
+            }
+
+factWitness :: TrieFact -> Api.FactWitness
+factWitness trieFact =
+    Api.FactWitness
+        { Api.fwState =
+            Api.WitnessedTokenState
+                { Api.wtsUtxo =
+                    toApiWitnessedUtxo (bundleFunding honestWitness)
+                , Api.wtsState =
+                    Api.TokenStateJSON
+                        { Api.owner = "owner"
+                        , Api.root = toApiHex (trieRootFor trieFact)
+                        , Api.tip = 1000000
+                        , Api.processTime = 60000
+                        , Api.retractTime = 30000
+                        }
+                }
+        , Api.fwMpfProof = toApiHex (mpfProof trieFact)
+        }
+
+trieRootFor :: TrieFact -> Hex
+trieRootFor TrieFact{value = Just _} =
+    toClientHex (fst honestTrieInclusion)
+trieRootFor TrieFact{value = Nothing} =
+    toClientHex (fst honestTrieExclusion)
+
+factSnapshot :: Api.VerificationSnapshot
+factSnapshot =
+    Api.VerificationSnapshot
+        { Api.vsUtxoRoot = Api.Hex (bundleRoot honestWitness)
+        , Api.vsChainPoint =
+            Api.ChainPointJSON
+                { Api.cpSlot = 42
+                , Api.cpBlockId = Api.Hex (BS.replicate 32 0x11)
+                }
+        }
+
+toApiWitnessedUtxo :: WitnessedUtxo -> Api.WitnessedUtxo
+toApiWitnessedUtxo
+    WitnessedUtxo
+        { txIn = TxIn{txId = txId', txIx = txIx'}
+        , txOut
+        , utxoProof
+        } =
+        Api.WitnessedUtxo
+            { Api.wuTxIn =
+                Api.TxInJSON
+                    { Api.tjTxId = toApiHex txId'
+                    , Api.tjTxIx = txIx'
+                    }
+            , Api.wuTxOut = toApiHex txOut
+            , Api.wuProof = toApiHex utxoProof
+            }
+
+tamperPresentValue :: FactPresentFacts -> FactPresentFacts
+tamperPresentValue facts@FactPresentFacts{fpfResponse} =
+    facts
+        { fpfResponse =
+            fpfResponse
+                { Api.frValue = flipLastByte (Api.frValue fpfResponse)
+                }
+        }
+
+tamperPresentProof :: FactPresentFacts -> FactPresentFacts
+tamperPresentProof facts@FactPresentFacts{fpfResponse} =
+    facts
+        { fpfResponse =
+            fpfResponse
+                { Api.frFact =
+                    (Api.frFact fpfResponse)
+                        { Api.fwMpfProof =
+                            flipLastByte
+                                (Api.fwMpfProof (Api.frFact fpfResponse))
+                        }
+                }
+        }
+
+flipLastByte :: Api.Hex -> Api.Hex
+flipLastByte (Api.Hex bs)
+    | BS.null bs = error "VerifySpec.flipLastByte: empty bytes"
+    | otherwise =
+        Api.Hex
+            ( BS.init bs
+                <> BS.singleton (BS.last bs `xor` 0x01)
+            )
+
+toApiHex :: Hex -> Api.Hex
+toApiHex (Hex txt) =
+    case Base16.decode (T.encodeUtf8 txt) of
+        Right bs -> Api.Hex bs
+        Left err -> error ("VerifySpec.toApiHex: " <> err)
+
+toClientHex :: ByteString -> Hex
+toClientHex = Hex . T.decodeUtf8 . Base16.encode
 
 replaceBootTx :: Hex -> BootTxResponse -> BootTxResponse
 replaceBootTx tx' (BootTxResponse _ s p) =

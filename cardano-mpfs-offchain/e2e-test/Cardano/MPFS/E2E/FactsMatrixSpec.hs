@@ -115,7 +115,9 @@ import Cardano.MPFS.API.Types
     , DeleteRequest (..)
     , EndFacts
     , EndRequest (..)
+    , FactResponse (..)
     , InsertRequest (..)
+    , ProofResponse (..)
     , RequestDeleteFacts
     , RequestInsertFacts
     , RequestUpdateFacts
@@ -124,7 +126,10 @@ import Cardano.MPFS.API.Types
     , StatusResponse (..)
     , UpdateValueRequest (..)
     )
-import Cardano.MPFS.API.Types.Common (TokenIdJSON (..))
+import Cardano.MPFS.API.Types.Common
+    ( TokenIdJSON (..)
+    , VerificationSnapshot (..)
+    )
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
@@ -140,8 +145,12 @@ import Cardano.MPFS.Client.Cage.Request
     )
 import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Facts
-    ( verifyBootFacts
+    ( FactAbsentFacts (..)
+    , FactPresentFacts (..)
+    , verifyBootFacts
     , verifyEndFacts
+    , verifyFactAbsentFacts
+    , verifyFactPresentFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
@@ -919,14 +928,24 @@ factIndexed app tokenId key = do
     mOk <-
         pollUntilJust 60 $ do
             resp <- get app (factPath tokenId key)
-            if simpleStatus resp == status200
-                then pure (Just ())
-                else pure Nothing
+            if simpleStatus resp /= status200
+                then pure Nothing
+                else case eitherDecode (simpleBody resp) of
+                    Left _ -> pure Nothing
+                    Right factResp@FactResponse{frSnapshot} ->
+                        case verifyFactPresentFacts
+                            (TrustedRoot (vsUtxoRoot frSnapshot))
+                            FactPresentFacts
+                                { fpfKey = Hex key
+                                , fpfResponse = factResp
+                                } of
+                            Right _ -> pure (Just ())
+                            Left _ -> pure Nothing
     case mOk of
         Just () -> pure ()
         Nothing ->
             expectationFailure
-                "process row: fact never appeared at \
+                "process row: fact never verified at \
                 \/tokens/:id/facts/:key after process"
 
 -- | Poll @\/tokens\/:id\/facts\/:key@ until it returns
@@ -941,7 +960,7 @@ factAbsent app tokenId key = do
                 then pure Nothing
                 else pure (Just ())
     case mGone of
-        Just () -> pure ()
+        Just () -> factAbsenceVerified app tokenId key
         Nothing ->
             expectationFailure
                 "delete row: fact still present at \
@@ -953,6 +972,38 @@ factPath tokenId key =
         <> tokenIdHex tokenId
         <> "/facts/"
         <> B16.encode key
+
+proofPath :: TokenId -> ByteString -> ByteString
+proofPath tokenId key =
+    "/tokens/"
+        <> tokenIdHex tokenId
+        <> "/proofs/"
+        <> B16.encode key
+
+factAbsenceVerified :: Application -> TokenId -> ByteString -> IO ()
+factAbsenceVerified app tokenId key = do
+    mOk <-
+        pollUntilJust 60 $ do
+            resp <- get app (proofPath tokenId key)
+            if simpleStatus resp /= status200
+                then pure Nothing
+                else case eitherDecode (simpleBody resp) of
+                    Left _ -> pure Nothing
+                    Right proofResp@ProofResponse{prSnapshot} ->
+                        case verifyFactAbsentFacts
+                            (TrustedRoot (vsUtxoRoot prSnapshot))
+                            FactAbsentFacts
+                                { fafKey = Hex key
+                                , fafResponse = proofResp
+                                } of
+                            Right _ -> pure (Just ())
+                            Left _ -> pure Nothing
+    case mOk of
+        Just () -> pure ()
+        Nothing ->
+            expectationFailure
+                "delete row: absence proof never verified at \
+                \/tokens/:id/proofs/:key after delete+process"
 
 -- | Poll @\/tokens\/:id@ until it returns something other
 -- than 200 (the token has been ended).
