@@ -123,13 +123,13 @@ the structural-only shape.
 Owns: the acceptance-required research write-up + a `gate.sh`
 sentinel that the legacy bug cannot return.
 
-- [ ] T011-S5 — Append a `## #247 — value-bearing lookup` section
+- [X] T011-S5 — Append a `## #247 — value-bearing lookup` section
       to `specs/243-proof-redesign/research.md` covering: the
       three options that were weighed, the chosen one (A), the
       two atomicity invariants (INV-1, INV-2), the fail-loud
       startup check (INV-3), the migration sub-option (A-002 /
       sub-option (1)), and a pointer to this PR.
-- [ ] T012-S5 — Extend `./gate.sh` with a `check_absent` sentinel
+- [X] T012-S5 — Extend `./gate.sh` with a `check_absent` sentinel
       for the legacy `Just (hashBS k)` /
       `Just (renderMPFHash (mkMPFHash k))` fallback ONLY at the
       unified-path call sites in
@@ -139,7 +139,7 @@ sentinel that the legacy bug cannot return.
       Scope-exclude the speculative-path call site at
       `Trie/Persistent.hs:~1089` (which remains legitimately
       broken pending `T013-S5`).
-- [ ] T013-S5 — Document the deferred speculative-path
+- [X] T013-S5 — Document the deferred speculative-path
       asymmetry in
       `specs/243-proof-redesign/research.md`:
       `speculativeLookup` / `persistentLookup` continue to return
