@@ -412,6 +412,87 @@ passes. The e2e (`just e2e`) passes.
 **Tasks.** `T015-S7` (diagnose + repro), `T016-S7` (fix),
 `T017-S7` (regression unit test).
 
+### Slice 8 — Serve exclusion proofs at `/tokens/:id/proofs/:key` (second post-mark-ready CI failure)
+
+**Goal.** After Slice 7 landed and pushed, CI run
+https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26405777252
+turned RED again — different failure now, in
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`:
+
+```
+delete row: absence proof never verified at
+/tokens/:id/proofs/:key after delete+process
+```
+
+**Diagnosis (pre-confirmed by ticket-orchestrator).** The
+server's `requireMpfProof` (in `HTTP/Server.hs`) calls
+`Trie.getProof`, which dispatches to `unifiedGetProof` (or
+`pureGetProof`). Both call **only** `mkMPFInclusionProof` —
+they never call `mkMPFExclusionProof`. For an absent key,
+`mkMPFInclusionProof` returns `Nothing`, the server returns
+`404`, the matrix test polls indefinitely, and times out.
+
+The matrix test (added/refined in Slice 4) expects
+`/tokens/:id/proofs/:key` to return a `ProofResponse`
+containing a valid exclusion proof for absent keys, so
+`verifyFactAbsentFacts` can verify cryptographically. The
+expectation is correct; the server gap is the bug.
+
+`mkMPFExclusionProof` exists at
+`/code/haskell-mts/lib/mpf-write/MPF/Proof/Exclusion.hs`
+and produces `MPFExclusionProof a`. Its
+`mpfExclusionProofSteps` view returns the same
+`[MPFProofStep a]` transport shape used by inclusion proofs,
+so the existing `serializeProof` CBOR codec can be adapted
+to serialize exclusion proofs via a thin wrapper.
+
+**Fix shape.**
+
+1. Add a serializer for exclusion proofs in
+   `cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Proof.hs`
+   (or wherever `serializeProof` lives). Two options:
+   - (a) Add `serializeExclusionProof :: MPFExclusionProof MPFHash -> ByteString`
+     that reuses the CBOR step encoder. The empty-exclusion
+     case (`MPFExclusionEmpty`) serializes as the empty
+     step list — Slice 4's verifier already handles this
+     case (see `verifyAikenExclusionProof` checking root
+     against `nullHash`).
+   - (b) Refactor `serializeProof` to take `[MPFProofStep a]`
+     directly; both inclusion and exclusion call the same
+     entry. Slightly more invasive but cleaner.
+2. Extend `unifiedGetProof` / `pureGetProof` /
+   `persistentGetProof` / `speculativeGetProof` to fall
+   back to `mkMPFExclusionProof` when
+   `mkMPFInclusionProof` returns `Nothing`. The trie layer
+   returns whichever proof type applies; the server's
+   `requireMpfProof` never sees `Nothing` for a token that
+   exists at all (only when the trie itself is missing).
+3. Add a regression unit test (no cardano-node) exercising
+   `verifyFactAbsentFacts` against the persistent proofs
+   endpoint for an absent key: insert k, delete k, GET
+   `/tokens/:id/proofs/:k`, assert
+   `verifyFactAbsentFacts` returns `Right _`.
+
+**Strict constraint.** Do NOT relax
+`verifyFactAbsentFacts` or the matrix expectation. The
+verifier is correct; the bug is upstream — the server was
+never producing exclusion proofs.
+
+**RED.** A unit test exercising the persistent proofs
+endpoint for an absent key, asserting through
+`verifyFactAbsentFacts`. **Currently fails** at HEAD
+because the server returns 404 → the test's decode step
+gets nothing → the verifier never even runs.
+
+**GREEN.** The fix lands in the proof-generation paths and
+the proof-serialization layer. The unit test passes.
+`./gate.sh` passes. The e2e matrix test passes locally.
+
+**Tasks.** `T018-S8` (diagnose + repro — diagnosis already
+done by ticket-orchestrator; driver confirms with local
+repro), `T019-S8` (fix: serializer + getProof fallbacks),
+`T020-S8` (regression unit test).
+
 ## Out of slice scope
 
 - Migration tooling for any of Q-002's three sub-options is
