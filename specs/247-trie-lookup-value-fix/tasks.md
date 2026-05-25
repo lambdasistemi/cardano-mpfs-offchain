@@ -173,14 +173,54 @@ at HEAD `814446a`).
       (no cardano-node), so future drivers can catch this
       class of bug without running the full e2e.
 
+## Slice 8 — Serve exclusion proofs at `/tokens/:id/proofs/:key`
+
+Owns: extend `Trie.getProof` to construct exclusion proofs
+when the inclusion variant is absent, so
+`/tokens/:id/proofs/:key after delete+process` returns a
+`ProofResponse` whose embedded MPF proof verifies via
+`verifyFactAbsentFacts`. Second post-mark-ready CI failure
+at HEAD `73fbdc9`:
+https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26405777252
+
+- [ ] T018-S8 — Confirm the pre-stated diagnosis with a
+      local repro (`just e2e --match
+      "/Facts API coverage matrix/.../"`). The diagnosis is
+      pre-stated in `plan.md` Slice 8: server's
+      `Trie.getProof` only calls `mkMPFInclusionProof`,
+      never `mkMPFExclusionProof`; absent keys yield 404
+      instead of an exclusion-proof response. Confirm with
+      one targeted STATUS line and proceed; do not chase
+      alternative hypotheses unless the local repro
+      contradicts the brief.
+- [ ] T019-S8 — Add a serializer for exclusion proofs in
+      `cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Proof.hs`
+      (preferred: reuse the existing CBOR step encoder via
+      a thin wrapper around `mpfExclusionProofSteps`).
+      Extend `unifiedGetProof` (in
+      `lib/Cardano/MPFS/Trie/Persistent.hs`),
+      `pureGetProof` (in `lib/Cardano/MPFS/Trie/Pure.hs`),
+      `persistentGetProof` / `speculativeGetProof` (also in
+      `Persistent.hs`) to fall back to
+      `mkMPFExclusionProof` when `mkMPFInclusionProof`
+      returns `Nothing`.
+- [ ] T020-S8 — Add a unit regression test (no
+      cardano-node) exercising `verifyFactAbsentFacts`
+      against the persistent proofs endpoint for an absent
+      key: insert k, delete k, GET
+      `/tokens/:id/proofs/:k`, assert
+      `verifyFactAbsentFacts` returns `Right _`. The test
+      MUST use the typed client verifier — do NOT bypass
+      it by hand-rolling `verifyAikenExclusionProof` raw.
+
 ## Slice 6 — Drop gate.sh (finalization)
 
 Owns: the standard resolve-ticket finalization sentinel.
 
-Re-run after Slice 7 lands — the prior drop-gate commit
-(`814446a`) has been reverted (`b10b7f3`); a fresh
+Re-run after Slices 7 + 8 land — the prior drop-gate
+commit (`814446a`) has been reverted (`b10b7f3`); a fresh
 `chore: drop gate.sh (ready for review)` commit lands
-after Slice 7 is green.
+after Slice 8 is green and CI is green on HEAD.
 
 - [ ] T014-S6 — Drop `./gate.sh` in a
       `chore: drop gate.sh (ready for review)` commit. No
