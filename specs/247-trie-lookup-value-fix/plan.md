@@ -71,13 +71,16 @@ exclusion-proof check.
 One bisect-safe slice per concern. Each slice is a single commit
 with a `Tasks: T###-Sn` trailer.
 
-### Slice 1 — Plumbing: add `TrieRawValues` column + codec + RocksDB wiring
+### Slice 1 — Plumbing: add `TrieRawValues` column + codec + RocksDB wiring + fail-loud startup check
 
 **Goal.** Add the new column-family type, codec, and on-disk
-config without touching the trie operations yet. After this slice,
-the indexer opens with 14 column families and ignores
-`TrieRawValues` everywhere. The build is green, all existing tests
-pass.
+config. Wire the INV-3 startup check (A-002 follow-through #2): if
+the trie columns carry pre-migration data and the new
+`TrieRawValues` column is empty, refuse to start with a structured
+error naming the resync step. After this slice, the indexer opens
+fresh DBs with 14 column families, refuses stale DBs loudly, and
+otherwise ignores `TrieRawValues` (the trie operations still
+return `hashBS k` until Slice 2).
 
 **Files.**
 
@@ -96,16 +99,33 @@ pass.
 - `cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Columns.hs`
   (module haddock) — update the column-count narrative.
 
-**RED.** A `PersistentSpec` test
-`opens_with_trie_raw_values_column` opens a fresh `withApplication`
-and confirms `TrieRawValues` is queryable as an empty CF (no
-rows). The test currently fails because the constructor does not
-exist.
+**RED.** Two `PersistentSpec` tests:
 
-**GREEN.** Add the constructor + codec + CF config. The test
-passes.
+- `opens_with_trie_raw_values_column` opens a fresh
+  `withApplication` and confirms `TrieRawValues` is queryable as
+  an empty CF (no rows). Currently fails because the constructor
+  does not exist.
+- `refuses_to_start_on_stale_schema` opens an existing DB whose
+  `TrieKV` has rows and whose `TrieRawValues` is empty, and
+  expects `withApplication` to throw a structured
+  `SchemaMigrationRequired` exception (or equivalent) whose
+  message names "drop the RocksDB directory and resync from
+  genesis". Test fabricates the pre-migration state by inserting
+  directly into `TrieKV` via `KV.put` and skipping the
+  corresponding `TrieRawValues` write. Currently fails because no
+  such check exists.
 
-**Tasks.** `T001-S1`, `T002-S1`.
+**GREEN.** Add the constructor + codec + CF config + startup
+pre-flight. The startup check runs inside `withApplication` after
+RocksDB opens and before the runtime returns control. The tests
+pass.
+
+**Tasks.** `T001-S1` (CF + codec + RocksDB wiring), `T002-S1`
+(opens-with-fresh-DB RED/GREEN), `T003-S1` (fail-loud
+startup-check RED/GREEN).
+
+> Note: tasks below this slice renumber by 1 — Slice 2 starts at
+> `T004-S2` and so on.
 
 ### Slice 2 — Persistent trie: write + delete + lookup via `TrieRawValues`
 
@@ -148,7 +168,7 @@ gains:
 inside `unifiedInsert` / `unifiedDelete` / `unifiedLookup`. The
 tests pass.
 
-**Tasks.** `T003-S2`, `T004-S2`, `T005-S2` (rollback test).
+**Tasks.** `T004-S2`, `T005-S2`, `T006-S2` (rollback test).
 
 ### Slice 3 — Pure trie: in-memory raw-value mirror
 
@@ -182,7 +202,7 @@ machinery in the pure backend).
 
 **GREEN.** Wire the mirror map.
 
-**Tasks.** `T006-S3`, `T007-S3`.
+**Tasks.** `T007-S3`, `T008-S3`.
 
 ### Slice 4 — E2E: replace `assertFactEnvelope` with verifier round-trip
 
@@ -213,7 +233,7 @@ green.
 **GREEN.** Slices 2 + 3 already shipped the trie-side fix. This
 slice just lands the e2e update; the test now passes.
 
-**Tasks.** `T008-S4`, `T009-S4`.
+**Tasks.** `T009-S4`, `T010-S4`.
 
 ### Slice 5 — Research note + extend `gate.sh`
 
@@ -236,7 +256,7 @@ gone.
 **RED.** Not applicable — this is documentation + a sentinel.
 `gate.sh` runs and the sentinel passes.
 
-**Tasks.** `T010-S5`, `T011-S5`.
+**Tasks.** `T011-S5`, `T012-S5`.
 
 ### Slice 6 — Drop `gate.sh` (finalization)
 
@@ -250,7 +270,7 @@ finalization audit passes, drop the gate and mark the PR ready.
 **Commit.** `chore: drop gate.sh (ready for review)`. No
 `Tasks:` trailer (chore allowed by the commit gate).
 
-**Tasks.** `T012-S6`.
+**Tasks.** `T013-S6`.
 
 ## Out of slice scope
 

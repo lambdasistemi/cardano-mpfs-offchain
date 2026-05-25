@@ -132,7 +132,13 @@ this PR.
    structural-only check is replaced.
 5. `specs/243-proof-redesign/research.md` records the chosen
    option (A) and the reasoning.
-6. `./gate.sh` (the resolve-ticket bootstrap gate) is green; the
+6. The PR body (and changelog if applicable) carries an
+   unmistakable "drop and resync from genesis required" notice for
+   operators (A-002 follow-through #1).
+7. Opening a pre-migration RocksDB fails loudly with a structured
+   error naming the migration step (INV-3 / A-002
+   follow-through #2).
+8. `./gate.sh` (the resolve-ticket bootstrap gate) is green; the
    final mark-ready commit drops it.
 
 ## Hard invariants (MUST)
@@ -140,6 +146,24 @@ this PR.
 These are non-negotiable operator-mandated invariants for the
 `TrieRawValues` schema. Any implementation slice that violates them
 is rejected at review.
+
+### INV-3 (MUST) — Fail-loud schema-migration detection
+
+If the indexer opens an existing RocksDB whose trie columns
+(`TrieKV` / `TrieNodes`) carry data written by a pre-#247 version,
+the server refuses to start (or surfaces a structured
+"schema-migration-required" error on the affected endpoints —
+implementer's choice, with "refuse to start" preferred as the
+loudest signal). It must not silently degrade to returning
+`Nothing` from `Trie.lookup` for pre-migration keys.
+
+Implementation guidance: A-002 picks sub-option (1) — "re-index
+from genesis required". The startup pre-flight detects the
+stale-schema condition (e.g. by checking that `TrieKV` is empty
+when `TrieRawValues` is empty, or by setting a schema-version
+sentinel on first post-migration write). The error message must
+name the migration step explicitly: "drop the RocksDB directory
+and resync the indexer from genesis on first open after #247".
 
 ### INV-1 (MUST) — Write atomicity
 
@@ -207,10 +231,10 @@ delete-then-rollback test confirms both rows are restored.
 - `Q-001` (resolved by `A-001`): **Option A** chosen — add a
   `TrieRawValues` column family. Decision is recorded in the
   `## Clarifications` section below.
-- `Q-002` (open): **Migration strategy.** Operator requires this
-  not to be picked silently. Surfaced as
-  `/tmp/epic-257/247/questions/Q-002-migration-strategy.md`.
-  Plan and tasks land only after `A-002` is answered.
+- `Q-002` (resolved by `A-002`): **Sub-option (1)** chosen —
+  re-index from genesis required. Two follow-throughs are now
+  spec-level requirements: (#1) PR body/changelog clarity (acceptance
+  criterion 6 above), (#2) fail-loud startup check (INV-3 above).
 
 ## Clarifications
 
