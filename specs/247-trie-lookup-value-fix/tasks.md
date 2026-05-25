@@ -151,7 +151,7 @@ sentinel that the legacy bug cannot return.
 
 Owns: the standard resolve-ticket finalization sentinel.
 
-- [ ] T014-S6 — Drop `./gate.sh` in a
+- [X] T014-S6 — Drop `./gate.sh` in a
       `chore: drop gate.sh (ready for review)` commit. No
       `Tasks:` trailer required (chore allowed by the commit
       gate). `gh pr ready 284` to flip out of draft.
