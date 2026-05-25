@@ -184,14 +184,17 @@ unifiedInsert
     -> ByteString
     -> Transaction m cf AllColumns ops Root
 unifiedInsert pfx k v = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
     inserting
         pfx
         fromHexKVIdentity
         mpfHashing
         TrieKV
         TrieNodes
-        (byteStringToHexKey (hashBS k))
+        hexKey
         (mkMPFHash v)
+    KV.insert TrieRawValues hexKey v
     unifiedGetRoot pfx
 
 unifiedDelete
@@ -200,13 +203,16 @@ unifiedDelete
     -> ByteString
     -> Transaction m cf AllColumns ops Root
 unifiedDelete pfx k = do
+    let hexKey =
+            byteStringToHexKey (hashBS k)
     deleting
         pfx
         fromHexKVIdentity
         mpfHashing
         TrieKV
         TrieNodes
-        (byteStringToHexKey (hashBS k))
+        hexKey
+    KV.delete TrieRawValues hexKey
     unifiedGetRoot pfx
 
 unifiedLookup
@@ -229,9 +235,9 @@ unifiedLookup pfx k = do
             mpfHashing
             TrieNodes
             hexKey
-    pure $ case mProof of
-        Nothing -> Nothing
-        Just _ -> Just (hashBS k)
+    case mProof of
+        Nothing -> pure Nothing
+        Just _ -> KV.query TrieRawValues hexKey
 
 unifiedGetRoot
     :: (Monad m)
