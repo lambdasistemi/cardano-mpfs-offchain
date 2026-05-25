@@ -183,7 +183,7 @@ when the inclusion variant is absent, so
 at HEAD `73fbdc9`:
 https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26405777252
 
-- [ ] T018-S8 — Confirm the pre-stated diagnosis with a
+- [x] T018-S8 — Confirm the pre-stated diagnosis with a
       local repro (`just e2e --match
       "/Facts API coverage matrix/.../"`). The diagnosis is
       pre-stated in `plan.md` Slice 8: server's
@@ -193,7 +193,7 @@ https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26405777252
       one targeted STATUS line and proceed; do not chase
       alternative hypotheses unless the local repro
       contradicts the brief.
-- [ ] T019-S8 — Add a serializer for exclusion proofs in
+- [x] T019-S8 — Add a serializer for exclusion proofs in
       `cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Proof.hs`
       (preferred: reuse the existing CBOR step encoder via
       a thin wrapper around `mpfExclusionProofSteps`).
@@ -204,7 +204,7 @@ https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26405777252
       `Persistent.hs`) to fall back to
       `mkMPFExclusionProof` when `mkMPFInclusionProof`
       returns `Nothing`.
-- [ ] T020-S8 — Add a unit regression test (no
+- [x] T020-S8 — Add a unit regression test (no
       cardano-node) exercising `verifyFactAbsentFacts`
       against the persistent proofs endpoint for an absent
       key: insert k, delete k, GET

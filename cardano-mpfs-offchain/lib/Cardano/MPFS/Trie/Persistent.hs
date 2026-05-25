@@ -119,6 +119,9 @@ import MPF.Interface
     , hexKeyPrism
     , mpfCodecs
     )
+import MPF.Proof.Exclusion
+    ( mkMPFExclusionProof
+    )
 import MPF.Proof.Insertion
     ( mkMPFInclusionProof
     )
@@ -129,7 +132,8 @@ import MPF.Test.Lib
 
 import Cardano.MPFS.Core.OnChain (ProofStep)
 import Cardano.MPFS.Core.Proof
-    ( serializeProof
+    ( serializeExclusionProof
+    , serializeProof
     , toProofSteps
     )
 import Cardano.MPFS.Core.Types
@@ -309,19 +313,30 @@ unifiedGetProof
 unifiedGetProof pfx k = do
     let hexKey =
             byteStringToHexKey (hashBS k)
-    mProof <-
+    mIncProof <-
         mkMPFInclusionProof
             pfx
             fromHexKVIdentity
             mpfHashing
             TrieNodes
             hexKey
-    pure
-        $ fmap
-            ( Proof
-                . serializeProof
-            )
-            mProof
+    case mIncProof of
+        Just proof ->
+            pure
+                $ Just
+                    (Proof (serializeProof proof))
+        Nothing -> do
+            mExcProof <-
+                mkMPFExclusionProof
+                    pfx
+                    fromHexKVIdentity
+                    mpfHashing
+                    TrieNodes
+                    hexKey
+            pure
+                $ fmap
+                    (Proof . serializeExclusionProof)
+                    mExcProof
 
 unifiedGetProofSteps
     :: (Monad m)
@@ -1218,19 +1233,30 @@ speculativeGetProof
 speculativeGetProof pfx k = do
     let hexKey =
             byteStringToHexKey (hashBS k)
-    mProof <-
+    mIncProof <-
         mkMPFInclusionProof
             pfx
             fromHexKVIdentity
             mpfHashing
             StandaloneMPFCol
             hexKey
-    pure
-        $ fmap
-            ( Proof
-                . serializeProof
-            )
-            mProof
+    case mIncProof of
+        Just proof ->
+            pure
+                $ Just
+                    (Proof (serializeProof proof))
+        Nothing -> do
+            mExcProof <-
+                mkMPFExclusionProof
+                    pfx
+                    fromHexKVIdentity
+                    mpfHashing
+                    StandaloneMPFCol
+                    hexKey
+            pure
+                $ fmap
+                    (Proof . serializeExclusionProof)
+                    mExcProof
 
 speculativeGetProofSteps
     :: HexKey

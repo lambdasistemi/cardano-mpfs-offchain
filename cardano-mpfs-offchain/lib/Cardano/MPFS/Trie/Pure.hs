@@ -51,11 +51,16 @@ import MPF.Test.Lib
     ( deleteMPFM
     , getRootHashM
     , insertByteStringM
+    , proofExcludeMPFM
     , proofMPFM
     )
 
 import Cardano.MPFS.Core.OnChain (ProofStep)
-import Cardano.MPFS.Core.Proof (serializeProof, toProofSteps)
+import Cardano.MPFS.Core.Proof
+    ( serializeExclusionProof
+    , serializeProof
+    , toProofSteps
+    )
 import Cardano.MPFS.Core.Types (Root (..))
 import Cardano.MPFS.Trie (Proof (..), Trie (..))
 
@@ -179,14 +184,24 @@ pureGetProof
 pureGetProof ref k = do
     state <- readIORef ref
     let hexKey = rawValueKey k
-        (mProof, _) =
+        (mIncProof, state') =
             runMPFPure
                 (ptsMpfDb state)
                 (proofMPFM hexKey)
-    pure $ case mProof of
-        Nothing -> Nothing
+    case mIncProof of
         Just proof ->
-            Just (Proof (serializeProof proof))
+            pure
+                $ Just
+                    (Proof (serializeProof proof))
+        Nothing -> do
+            let (mExcProof, _) =
+                    runMPFPure
+                        state'
+                        (proofExcludeMPFM hexKey)
+            pure
+                $ fmap
+                    (Proof . serializeExclusionProof)
+                    mExcProof
 
 -- | Generate on-chain proof steps for a key.
 pureGetProofSteps
