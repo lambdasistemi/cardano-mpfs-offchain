@@ -229,16 +229,35 @@ redesign no longer asserts structural fields only — it decodes
 the response into the typed wire shape and runs the offline
 verifier.
 
+**Scope expansion (2026-05-25).** `verifyFactPresentResponse`
+does not yet exist in `cardano-mpfs-client`. Slice 4 therefore
+covers BOTH (a) adding the new verifier to
+`cardano-mpfs-client/Facts.hs` following the existing
+`verifyXFacts` pattern (taking a `TrustedRoot` and returning
+`Either VerifyError VerifiedFactPresentFacts`), and (b) wiring
+the e2e to use it. May need a new typed shape `FactPresentFacts`
+in `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs` —
+driver's call whether to reuse `FactResponse` directly or extract
+a leaner shape.
+
 **Files.**
 
+- `cardano-mpfs-api/lib/Cardano/MPFS/API/Types/Facts.hs` — add
+  `FactPresentFacts` / `FactAbsentFacts` if a leaner shape is
+  preferred over reusing the existing `FactResponse`.
+- `cardano-mpfs-client/lib/Cardano/MPFS/Client/Facts.hs` — add
+  `verifyFactPresentFacts` / `verifyFactAbsentFacts` mirroring
+  the existing per-endpoint verifier shape; export
+  `VerifiedFactPresentFacts` / `VerifiedFactAbsentFacts`
+  newtypes.
+- `cardano-mpfs-client/test/Cardano/MPFS/Client/...` — unit
+  tests for the new verifiers (happy path + tampered cases).
 - `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`
   - Replace (or supplement) `assertFactEnvelope` with a call to
-    `verifyFactPresentResponse trustedRoot blueprint resp`. The
-    trusted root comes from the same response's snapshot (mirrors
-    the existing `endFactsTrustedRoot` helper around line 495).
-  - Update the haddock pointing at "MPFS stores values as 32-byte
-    content hashes" — that comment is now wrong (cf. line 451–454
-    in the existing source).
+    the new verifier. Trusted root from the same response's
+    snapshot (mirrors `endFactsTrustedRoot` ~line 495).
+  - Update the haddock about "MPFS stores values as 32-byte
+    content hashes" (~lines 451–454) — now wrong.
 - `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
   — touch any matrix entry that asserted on the structural-only
   shape (look around lines 920–950).
@@ -251,7 +270,8 @@ green.
 **GREEN.** Slices 2 + 3 already shipped the trie-side fix. This
 slice just lands the e2e update; the test now passes.
 
-**Tasks.** `T009-S4`, `T010-S4`.
+**Tasks.** `T009-S4` (new verifier API), `T009b-S4` (e2e
+wiring), `T010-S4` (FactsMatrixSpec sweep).
 
 ### Slice 5 — Research note + extend `gate.sh`
 
