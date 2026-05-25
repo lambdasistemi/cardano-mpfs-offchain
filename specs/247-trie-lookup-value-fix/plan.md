@@ -322,7 +322,95 @@ finalization audit passes, drop the gate and mark the PR ready.
 **Commit.** `chore: drop gate.sh (ready for review)`. No
 `Tasks:` trailer (chore allowed by the commit gate).
 
-**Tasks.** `T013-S6`.
+**Tasks.** `T014-S6`.
+
+### Slice 7 — E2E verifier regression: diagnose and fix (post-mark-ready CI failure)
+
+**Goal.** After the initial Slice 6 mark-ready, CI run
+https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26400824147
+turned the e2e job RED at HEAD `814446a` with a deterministic
+failure in
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`
+`Proof-bearing envelopes E2E "read and write envelopes carry
+verifiable proofs"` and the
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
+matrix entries:
+
+```
+verifyFactPresentFacts failed:
+  MpfReplayFailed "fact_present.fact.mpf_proof" "root mismatch"
+```
+
+The verifier itself is internally consistent (uses
+`factWitnessTrieRoot frFact` = `wtsState.root` for the trie
+proof, `frSnapshot.utxoRoot` for the snapshot/state checks). The
+unit tests in `cardano-mpfs-client/test/...` passed because
+they built fixtures where root/proof/value were guaranteed
+coherent. The live indexer-driven flow exposes a gap between
+the proof bytes the server generates and the trie root the
+server embeds in `tokenState.root` (the on-chain state datum).
+
+**Diagnosis hypotheses (driver to confirm by inspection +
+local reproduction):**
+
+1. The server-side `requireMpfProof` extracts the proof from
+   the indexer's current trie, but the on-chain
+   `LocatedTokenState.tokenState.root` field carries the root
+   from a different point in time (e.g. the state UTxO carries
+   the **pre-update** root because the current state UTxO is
+   the boot UTxO that hasn't been replaced by an update yet —
+   but the trie HAS been mutated by request processing).
+2. A subtle mismatch in how the proof is generated vs how
+   `tokenState.root` is computed (e.g. different hashing
+   convention, wrong `tokenHexPrefix`, off-by-one in the
+   trie node addressing).
+3. A Slice 1-2 regression in how `unifiedInsert` updates
+   `TrieKV` — silently writes a slightly different
+   `mkMPFHash v` for some inputs.
+
+**Verification strategy:**
+
+The driver MUST reproduce the failure locally (the e2e
+harness uses a cardano-node subprocess; the existing
+`just e2e` recipe runs it). Once reproduced, capture the
+exact proof bytes, root bytes, key bytes, value bytes, and
+the trie state at the lookup point. Pinpoint which of the
+three hypotheses applies; if none, surface a `Q-NNN` to the
+ticket-orchestrator.
+
+**Files (provisional — depend on the diagnosis).**
+
+- `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
+  (`tokenFactHandler` + `requireMpfProof`) — likely the
+  proof-generation or root-embedding bug.
+- `cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs`
+  (`unifiedGetRoot` / `unifiedGetProof`) — possibly the trie
+  side.
+- `cardano-mpfs-offchain/test/...` — add a unit-level
+  regression test that reproduces the bug at the indexer
+  layer (does not require cardano-node), so we don't regress
+  again.
+- Possibly the `cardano-mpfs-client/test/...` unit tests if
+  the verifier itself has a bug that the unit fixtures
+  masked.
+
+**Strict constraint.** Do NOT relax the verifier (e.g.
+swap the trie-root source) without first proving where the
+disagreement comes from. The verifier asserts a real
+cryptographic invariant; relaxing it would re-introduce the
+class of bug postmortem #248 surfaced.
+
+**RED.** A unit-level test reproducing the proof/root
+mismatch at the indexer layer (no cardano-node). Plus the
+e2e itself (already failing on CI; the diagnosis confirms
+the local repro).
+
+**GREEN.** The fix lands at whichever layer the diagnosis
+identifies. The unit-level regression test passes. `./gate.sh`
+passes. The e2e (`just e2e`) passes.
+
+**Tasks.** `T015-S7` (diagnose + repro), `T016-S7` (fix),
+`T017-S7` (regression unit test).
 
 ## Out of slice scope
 

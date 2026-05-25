@@ -147,9 +147,40 @@ sentinel that the legacy bug cannot return.
       `MPFStandalone*Col` schema which has no `TrieRawValues`
       analogue. Captures the asymmetry; no code change.
 
+## Slice 7 — E2E verifier regression fix (post-mark-ready CI failure)
+
+Owns: diagnosis and fix for the `MpfReplayFailed "fact_present.fact.mpf_proof" "root mismatch"` failure
+introduced by Slice 4's e2e wiring (run
+https://github.com/lambdasistemi/cardano-mpfs-offchain/actions/runs/26400824147
+at HEAD `814446a`).
+
+- [ ] T015-S7 — Reproduce the e2e failure locally
+      (`just e2e` with the failing scenario isolated).
+      Capture the exact trie root, proof bytes, key, and
+      value used by the verifier; pinpoint where the
+      server-side root diverges from the proof's root.
+      Document the diagnosis in
+      `/tmp/epic-257/247/s7-driver/STATUS.md` as a
+      `NOTE diagnosis: <one-line summary>` line.
+- [ ] T016-S7 — Land the fix at whichever layer the
+      diagnosis identifies (likely
+      `cardano-mpfs-offchain/lib/Cardano/MPFS/HTTP/Server.hs`
+      or `Trie/Persistent.hs`). Do NOT relax the verifier;
+      fix the root/proof/value disagreement at its source.
+      `./gate.sh` and `just e2e` both pass at HEAD.
+- [ ] T017-S7 — Add a unit-level regression test that
+      reproduces the disagreement at the indexer layer
+      (no cardano-node), so future drivers can catch this
+      class of bug without running the full e2e.
+
 ## Slice 6 — Drop gate.sh (finalization)
 
 Owns: the standard resolve-ticket finalization sentinel.
+
+Re-run after Slice 7 lands — the prior drop-gate commit
+(`814446a`) has been reverted (`b10b7f3`); a fresh
+`chore: drop gate.sh (ready for review)` commit lands
+after Slice 7 is green.
 
 - [ ] T014-S6 — Drop `./gate.sh` in a
       `chore: drop gate.sh (ready for review)` commit. No
