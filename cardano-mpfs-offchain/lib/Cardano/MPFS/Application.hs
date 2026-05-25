@@ -8,14 +8,22 @@
 -- Top-level wiring module that assembles all
 -- service interfaces into a fully operational
 -- 'Context IO'. The bracket 'withApplication' opens
--- a shared RocksDB database with 13 column families
--- (6 UTxO + 6 cage\/trie + 1 composed rollback), connects to a local
+-- a shared RocksDB database with 14 column families
+-- (6 UTxO + 7 cage\/trie + 1 composed rollback), connects to a local
 -- Cardano node via two N2C connections, and builds
 -- the production 'Provider', 'Submitter', persistent
 -- 'State', persistent 'TrieManager', real
 -- 'TxBuilder', and a 'CageFollower' that processes
 -- blocks from ChainSync. On exit it cancels both
 -- connection threads and closes the database.
+--
+-- On open, 'withApplication' runs the INV-3
+-- pre-flight via 'checkSchemaMigration' and
+-- refuses to start on a pre-#247 database whose
+-- 'TrieKV' carries rows but whose
+-- 'TrieRawValues' is empty — silent fallback to
+-- @Nothing@ on legacy keys is a correctness
+-- bug, not a degraded mode.
 --
 -- __Invariant: one block = one DB transaction.__
 -- All mutations for a single block — UTxO CSMT
@@ -47,6 +55,11 @@ module Cardano.MPFS.Application
     , allColumnFamilies
     , cageColumnFamilies
     , unifiedCodecs
+
+      -- * Schema migration check
+    , checkSchemaMigration
+    , SchemaMigrationRequired (..)
+    , schemaMigrationMessage
     ) where
 
 import Cardano.Chain.Slotting (EpochSlots)
@@ -187,7 +200,12 @@ import Cardano.MPFS.Indexer.Reads
 import Data.Dependent.Map (DMap)
 
 import Cardano.MPFS.Indexer.Codecs (allUnifiedCodecs)
-import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
+import Cardano.MPFS.Indexer.Columns
+    ( AllColumns (..)
+    , SchemaMigrationRequired (..)
+    , UnifiedColumns (..)
+    , schemaMigrationMessage
+    )
 import Cardano.MPFS.Indexer.Persistent
     ( mkPersistentState
     )
@@ -255,11 +273,11 @@ dbConfig =
 
 -- | All column families: 6 UTxO (cardano-utxo-csmt,
 -- including journal and Runner rollbacks) followed
--- by 6 cage\/trie plus 1 composed rollback
+-- by 7 cage\/trie plus 1 composed rollback
 -- (chain-follower). Order matters — cardano-utxo-csmt
 -- consumes the first 6 via its internal 'Columns'
--- GADT, our 'AllColumns' GADT consumes the next 6,
--- then 'InRollbacks' gets the 13th.
+-- GADT, our 'AllColumns' GADT consumes the next 7,
+-- then 'InRollbacks' gets the 14th.
 allColumnFamilies :: [(String, Config)]
 allColumnFamilies =
     utxoColumnFamilies
@@ -276,7 +294,13 @@ allColumnFamilies =
         ]
 
 -- | Cage-only column families (7). Used by tests
--- that don't need the UTxO index.
+-- that don't need the UTxO index. The
+-- @trie-raw-values@ column (added for #247
+-- Slice 1) stores raw value bytes keyed by the
+-- hashed trie key, mirroring 'TrieKV' so
+-- 'Trie.lookup' can return the original value
+-- once the lookup contract change lands in a
+-- later slice.
 cageColumnFamilies :: [(String, Config)]
 cageColumnFamilies =
     [ ("tokens", dbConfig)
@@ -285,14 +309,18 @@ cageColumnFamilies =
     , ("trie-nodes", dbConfig)
     , ("trie-kv", dbConfig)
     , ("trie-meta", dbConfig)
+    , ("trie-raw-values", dbConfig)
     ]
 
 -- | Run an action with a fully wired 'Context IO'.
 --
--- Opens RocksDB with 13 column families, creates
--- the UTxO state machine and cage state, starts
--- two N2C connections (ChainSync + LSQ\/LTxS),
--- and tears down on exit.
+-- Opens RocksDB with 14 column families (6 UTxO
+-- + 7 cage\/trie + 1 composed rollback), runs
+-- the INV-3 schema-migration pre-flight (refuses
+-- to start on pre-#247 databases), creates the
+-- UTxO state machine and cage state, starts two
+-- N2C connections (ChainSync + LSQ\/LTxS), and
+-- tears down on exit.
 withApplication
     :: AppConfig
     -- ^ Application configuration
@@ -314,7 +342,7 @@ withApplication cfg action = do
         dbConfig
         allColumnFamilies
         $ \db -> do
-            -- Unified database over all 12 CFs
+            -- Unified database over all 14 CFs
             let unifiedCols =
                     mkColumns
                         (columnFamilies db)
@@ -324,7 +352,7 @@ withApplication cfg action = do
             L.RunTransaction run <-
                 newRunTransaction unifiedDb
 
-            -- Project into cage columns (6–12)
+            -- Project into cage columns (7–13)
             let cageRt =
                     L.RunTransaction
                         (run . mapColumns InCage)
@@ -340,13 +368,22 @@ withApplication cfg action = do
                                 }
                         }
 
-            -- Project into UTxO columns (1–5)
+            -- Project into UTxO columns (1–6)
             let utxoRt =
                     CSMT.RunTransaction
                         (run . mapColumns InUtxo)
 
+            -- INV-3 (#247): refuse to start if
+            -- legacy trie data is present without
+            -- the new TrieRawValues column.
+            checkSchemaMigration
+                (run . mapColumns InCage)
+
             -- Trie: CFs at indices 9–11 (6 UTxO + 3 cage
-            -- before trie-nodes, trie-kv, trie-meta)
+            -- before trie-nodes, trie-kv, trie-meta).
+            -- The 7th cage CF, trie-raw-values, sits
+            -- at index 12 and is touched only via the
+            -- 'TrieRawValues' AllColumns constructor.
             case drop 9 (columnFamilies db) of
                 (nodesCF : kvCF : metaCF : _) -> do
                     tm <-
@@ -649,7 +686,7 @@ withApplication cfg action = do
                             cancel nodeThread
                 _ ->
                     error
-                        "Expected at least 13 \
+                        "Expected at least 14 \
                         \column families"
 
 -- | Seed a fresh database with genesis UTxOs from
@@ -731,7 +768,7 @@ latestRollbackPoint run = do
                         (rpMeta rp)
                     )
 
--- | Pre-applied unified codecs for all 12 column
+-- | Pre-applied unified codecs for all 14 column
 -- families. Useful for tools that open the database
 -- directly (e.g. inspectors) without needing to
 -- import @cardano-utxo-csmt@ internals.
@@ -750,3 +787,35 @@ unifiedCodecs = allUnifiedCodecs prisms
 -- version 11.
 cborEncode :: EncCBOR a => a -> BSL.ByteString
 cborEncode = serialize (natVersion @11)
+
+-- | INV-3 (#247) startup pre-flight. Inspects
+-- the legacy 'TrieKV' and the new
+-- 'TrieRawValues' columns. If 'TrieKV' has rows
+-- but 'TrieRawValues' is empty, the database was
+-- written by a pre-#247 indexer that did not
+-- persist raw value bytes — 'Trie.lookup' would
+-- silently return @Nothing@ for every legacy key
+-- once the lookup contract change lands. Refuses
+-- to start with 'SchemaMigrationRequired' so the
+-- operator drops the RocksDB directory and
+-- resyncs the indexer from genesis.
+checkSchemaMigration
+    :: ( forall a
+          . L.Transaction IO cf AllColumns op a
+         -> IO a
+       )
+    -- ^ Transaction runner projected into
+    -- 'AllColumns' (in 'withApplication': @run .
+    -- mapColumns InCage@; in tests: the raw
+    -- 'AllColumns' runner).
+    -> IO ()
+checkSchemaMigration run = do
+    stale <- run $ do
+        trieKVEmpty <-
+            iterating TrieKV
+                $ isNothing <$> firstEntry
+        trieRawValuesEmpty <-
+            iterating TrieRawValues
+                $ isNothing <$> firstEntry
+        pure (not trieKVEmpty && trieRawValuesEmpty)
+    when stale $ throwIO SchemaMigrationRequired

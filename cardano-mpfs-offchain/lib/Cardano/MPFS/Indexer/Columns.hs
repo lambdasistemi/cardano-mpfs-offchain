@@ -11,22 +11,23 @@
 -- indexer's RocksDB-backed persistent state using
 -- @rocksdb-kv-transactions@. Two GADT selectors:
 --
---   * 'AllColumns' — the six cage\/trie column
+--   * 'AllColumns' — the seven cage\/trie column
 --     families (used inside @'mapColumns' 'InCage'@):
 --
 --       - Cage state: 'CageTokens', 'CageRequests',
 --         'CageCfg'
---       - Trie storage: 'TrieNodes', 'TrieKV'
+--       - Trie storage: 'TrieNodes', 'TrieKV',
+--         'TrieRawValues'
 --       - Trie registry: 'TrieMeta'
 --
 --   * 'UnifiedColumns' — combines the six UTxO
 --     columns ('Columns' from @cardano-utxo-csmt@,
 --     including the journal and Runner rollback
---     columns) with the six cage\/trie columns via
+--     columns) with the seven cage\/trie columns via
 --     'InUtxo' and 'InCage', plus a composed
 --     rollback column 'InRollbacks'.
 --     A single 'Transaction' over 'UnifiedColumns'
---     addresses all 13 column families, enforcing
+--     addresses all 14 column families, enforcing
 --     the one-block-one-commit invariant.
 --
 -- Serialization codecs for these columns live in
@@ -43,9 +44,15 @@ module Cardano.MPFS.Indexer.Columns
 
       -- * Trie registry status
     , TrieStatus (..)
+
+      -- * Schema migration
+    , SchemaMigrationRequired (..)
+    , schemaMigrationMessage
     ) where
 
+import Control.Exception (Exception (..))
 import Control.Lens (type (:~:) (..))
+import Data.ByteString (ByteString)
 import Database.KV.Transaction
     ( GCompare (..)
     , GEq (..)
@@ -127,6 +134,19 @@ data AllColumns x where
     -- the in-memory known\/hidden sets.
     TrieMeta
         :: AllColumns (KV TokenId TrieStatus)
+    -- | Raw value bytes keyed by hashed-key (the
+    -- same 'HexKey' the trie uses), stored
+    -- alongside the trie so 'Trie.lookup' can
+    -- return the original value rather than the
+    -- key hash. Lookup contract change lands in a
+    -- later slice; in slice 1 the column exists
+    -- and is wired through codecs and the
+    -- on-disk schema only. See issue
+    -- @lambdasistemi/cardano-mpfs-offchain#247@
+    -- (Option A) and atomicity invariants INV-1
+    -- and INV-2.
+    TrieRawValues
+        :: AllColumns (KV HexKey ByteString)
 
 instance GEq AllColumns where
     geq CageTokens CageTokens = Just Refl
@@ -135,6 +155,7 @@ instance GEq AllColumns where
     geq TrieNodes TrieNodes = Just Refl
     geq TrieKV TrieKV = Just Refl
     geq TrieMeta TrieMeta = Just Refl
+    geq TrieRawValues TrieRawValues = Just Refl
     geq _ _ = Nothing
 
 instance GCompare AllColumns where
@@ -154,18 +175,21 @@ instance GCompare AllColumns where
     gcompare TrieKV _ = GLT
     gcompare _ TrieKV = GGT
     gcompare TrieMeta TrieMeta = GEQ
+    gcompare TrieMeta _ = GLT
+    gcompare _ TrieMeta = GGT
+    gcompare TrieRawValues TrieRawValues = GEQ
 
 -- | Unified column selector covering both UTxO
 -- (cardano-utxo-csmt) and cage\/trie columns.
 -- Enables a single RocksDB transaction runner for
--- all 13 column families via 'mapColumns'.
+-- all 14 column families via 'mapColumns'.
 data UnifiedColumns slot hash key value x where
     -- | UTxO columns (first 6, including journal
     -- and Runner rollback)
     InUtxo
         :: Columns slot hash key value x
         -> UnifiedColumns slot hash key value x
-    -- | Cage\/trie columns (next 6)
+    -- | Cage\/trie columns (next 7)
     InCage
         :: AllColumns x
         -> UnifiedColumns slot hash key value x
@@ -192,3 +216,34 @@ instance GCompare (UnifiedColumns slot hash key value) where
     gcompare (InCage _) _ = GLT
     gcompare _ (InCage _) = GGT
     gcompare InRollbacks InRollbacks = GEQ
+
+-- | Raised by the indexer startup pre-flight when
+-- it detects a pre-#247 RocksDB schema: the
+-- legacy 'TrieKV' column carries rows but the
+-- new 'TrieRawValues' column is empty, which
+-- means 'Trie.lookup' would silently return
+-- @Nothing@ for every pre-migration key (INV-3
+-- violation). The operator must drop the
+-- RocksDB directory and resync the indexer from
+-- genesis on first open after #247.
+data SchemaMigrationRequired
+    = SchemaMigrationRequired
+    deriving stock (Eq, Show)
+
+instance Exception SchemaMigrationRequired where
+    displayException _ = schemaMigrationMessage
+
+-- | Operator-facing message for
+-- 'SchemaMigrationRequired'. The substring
+-- @"drop the RocksDB directory and resync from
+-- genesis"@ is asserted on by tests as the
+-- INV-3 contract; do not paraphrase it.
+schemaMigrationMessage :: String
+schemaMigrationMessage =
+    "Detected pre-#247 RocksDB schema: \
+    \TrieKV has rows but TrieRawValues is empty. \
+    \Please drop the RocksDB directory and \
+    \resync from genesis on first open after \
+    \#247. See \
+    \https://github.com/lambdasistemi/cardano-mpfs-offchain/pull/284 \
+    \for context."

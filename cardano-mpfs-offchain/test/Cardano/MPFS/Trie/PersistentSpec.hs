@@ -20,6 +20,7 @@ module Cardano.MPFS.Trie.PersistentSpec
     , withTestDB
     ) where
 
+import Control.Exception (displayException, try)
 import Control.Monad (forM_, void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
@@ -28,12 +29,13 @@ import Data.IORef
     ( IORef
     , atomicModifyIORef'
     )
-import Data.List (nubBy)
+import Data.List (isInfixOf, nubBy)
 import Data.Maybe (isJust)
 import Data.Word (Word8)
 import Test.Hspec
     ( Spec
     , describe
+    , expectationFailure
     , it
     , shouldBe
     , shouldSatisfy
@@ -90,12 +92,23 @@ import Database.KV.Transaction
     ( RunTransaction (..)
     , newRunTransaction
     )
+import Database.KV.Transaction qualified as KV
+    ( insert
+    , query
+    )
+
+import MPF.Interface (byteStringToHexKey)
 
 import Cardano.MPFS.Application
-    ( cageColumnFamilies
+    ( SchemaMigrationRequired (..)
+    , cageColumnFamilies
+    , checkSchemaMigration
     , dbConfig
     )
 import Cardano.MPFS.Indexer.Codecs (allCodecs)
+import Cardano.MPFS.Indexer.Columns
+    ( AllColumns (..)
+    )
 import Cardano.MPFS.Trie.Persistent
     ( mkPersistentTrieManager
     , mkUnifiedTrieManager
@@ -333,6 +346,9 @@ spec db nodesCF kvCF metaCF counterRef = do
     describe
         "Cross-layer consistency"
         crossLayerSpec
+    describe
+        "TrieRawValues column + schema check"
+        schemaSpec
 
 -- ---------------------------------------------------------
 -- Property-based tests
@@ -1087,3 +1103,111 @@ speculativeBatchInsert =
             -- Both proofs must exist
             isJust steps1 `shouldBe` True
             isJust steps2 `shouldBe` True
+
+-- ---------------------------------------------------------
+-- TrieRawValues column + schema-migration check (#247)
+-- ---------------------------------------------------------
+
+-- | Issue #247 Slice 1: the indexer gains a new
+-- @TrieRawValues@ column family that stores raw
+-- value bytes alongside the existing @TrieKV@
+-- (key-hash → value-hash) map. A startup
+-- pre-flight refuses to open a pre-#247 RocksDB
+-- whose @TrieKV@ has rows but whose
+-- @TrieRawValues@ is empty.
+schemaSpec :: Spec
+schemaSpec = do
+    it
+        "opens with TrieRawValues column \
+        \(fresh DB exposes empty queryable CF)"
+        opensWithTrieRawValuesColumn
+    it
+        "inserts into TrieRawValues column \
+        \(round-trip raw bytes)"
+        insertsIntoTrieRawValuesColumn
+    it
+        "refuses to start on stale schema \
+        \(TrieKV non-empty + TrieRawValues empty)"
+        refusesToStartOnStaleSchema
+
+-- | A fresh database exposes @TrieRawValues@ as
+-- an empty, queryable column family. Querying a
+-- key returns 'Nothing' without throwing.
+opensWithTrieRawValuesColumn :: IO ()
+opensWithTrieRawValuesColumn =
+    withSystemTempDirectory "trie-raw-values" $ \dir ->
+        withDBCF dir dbConfig cageColumnFamilies
+            $ \db -> do
+                let cfs = columnFamilies db
+                    columns = mkColumns cfs allCodecs
+                    database =
+                        mkRocksDBDatabase db columns
+                RunTransaction{runTransaction} <-
+                    newRunTransaction database
+                let absentKey =
+                        byteStringToHexKey "absent"
+                result <-
+                    runTransaction
+                        $ KV.query TrieRawValues absentKey
+                result `shouldBe` Nothing
+
+-- | Inserting a raw value into @TrieRawValues@
+-- and reading it back returns the exact bytes
+-- (identity codec, no hashing).
+insertsIntoTrieRawValuesColumn :: IO ()
+insertsIntoTrieRawValuesColumn =
+    withSystemTempDirectory "trie-raw-values-rt" $ \dir ->
+        withDBCF dir dbConfig cageColumnFamilies
+            $ \db -> do
+                let cfs = columnFamilies db
+                    columns = mkColumns cfs allCodecs
+                    database =
+                        mkRocksDBDatabase db columns
+                RunTransaction{runTransaction} <-
+                    newRunTransaction database
+                let k =
+                        byteStringToHexKey "the-key"
+                    v = "the raw value bytes" :: ByteString
+                runTransaction
+                    $ KV.insert TrieRawValues k v
+                result <-
+                    runTransaction
+                        $ KV.query TrieRawValues k
+                result `shouldBe` Just v
+
+-- | Opening a pre-#247 database — one whose
+-- @TrieKV@ carries rows but whose
+-- @TrieRawValues@ is empty — must throw
+-- 'SchemaMigrationRequired' with a message
+-- naming the resync step.
+refusesToStartOnStaleSchema :: IO ()
+refusesToStartOnStaleSchema =
+    withSystemTempDirectory "stale-schema" $ \dir ->
+        withDBCF dir dbConfig cageColumnFamilies
+            $ \db -> do
+                let cfs = columnFamilies db
+                    columns = mkColumns cfs allCodecs
+                    database =
+                        mkRocksDBDatabase db columns
+                RunTransaction{runTransaction} <-
+                    newRunTransaction database
+                -- Fabricate pre-migration state:
+                -- TrieKV has a row, TrieRawValues
+                -- is empty.
+                let k =
+                        byteStringToHexKey "stale-key"
+                    vh = mkMPFHash "stale-value"
+                runTransaction $ KV.insert TrieKV k vh
+                result <-
+                    try @SchemaMigrationRequired
+                        (checkSchemaMigration runTransaction)
+                case result of
+                    Left exc ->
+                        displayException exc
+                            `shouldSatisfy` ( "drop the RocksDB directory and resync from genesis"
+                                                `isInfixOf`
+                                            )
+                    Right () ->
+                        expectationFailure
+                            "expected SchemaMigrationRequired \
+                            \but schema check succeeded"
