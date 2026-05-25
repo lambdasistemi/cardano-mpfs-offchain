@@ -64,7 +64,9 @@ import CSMT.Test.Lib
     )
 import Cardano.MPFS.Application (dbConfig)
 import Cardano.MPFS.Client.Facts
-    ( FactPresentFacts (..)
+    ( FactAbsentFacts (..)
+    , FactPresentFacts (..)
+    , verifyFactAbsentFacts
     , verifyFactPresentFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
@@ -85,6 +87,8 @@ import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.TokensSpec (mkDummyTokenState)
 import Cardano.MPFS.HTTP.Types
     ( FactResponse (..)
+    , FactWitness (..)
+    , ProofResponse (..)
     , TxInJSON (..)
     , VerificationSnapshot (..)
     , txInToJSON
@@ -97,6 +101,9 @@ import Cardano.MPFS.Trie.Persistent
 import Database.RocksDB
     ( DB (..)
     , withDBCF
+    )
+import MPF.Verify
+    ( verifyAikenExclusionProof
     )
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -331,18 +338,62 @@ spec = do
                         expectationFailure
                             "Expected JSON object"
 
-        it "returns 404 for missing key" $ do
+        it "returns verifiable exclusion proof for missing key" $ do
             ctx0 <- mkTestContext
             ctx <-
                 withSnapshot "root" "tx-out" "proof" ctx0
-            seedTokenState ctx
             Trie.createTrie (trieManager ctx) cafeTid
+            trieRoot <-
+                Trie.withTrie
+                    (trieManager ctx)
+                    cafeTid
+                    Trie.getRoot
+            txIn <- generate genTxIn
+            seedTokenStateWithRoot ctx txIn trieRoot
             resp <-
                 getProof
                     ctx
                     "63616665"
                     (hex "absent")
-            simpleStatus resp `shouldBe` status404
+            simpleStatus resp `shouldBe` status200
+            case decode (simpleBody resp) of
+                Just ProofResponse{prFact} ->
+                    verifyAikenExclusionProof
+                        (unRoot trieRoot)
+                        "absent"
+                        (unHex (fwMpfProof prFact))
+                        `shouldBe` True
+                _ ->
+                    expectationFailure
+                        "Expected proof response JSON"
+
+        it
+            "returns a persistent absence proof that \
+            \verifies after delete"
+            $ withPersistentFactContextWithTrie
+                ( \trie -> do
+                    _ <- Trie.insert trie "deleted" "gone"
+                    Trie.delete trie "deleted"
+                )
+            $ \ctx -> do
+                resp <-
+                    getProof
+                        ctx
+                        "63616665"
+                        (hex "deleted")
+                simpleStatus resp `shouldBe` status200
+                case decode (simpleBody resp) of
+                    Just proofResp@ProofResponse{prSnapshot} ->
+                        verifyFactAbsentFacts
+                            (TrustedRoot (vsUtxoRoot prSnapshot))
+                            FactAbsentFacts
+                                { fafKey = Hex "deleted"
+                                , fafResponse = proofResp
+                                }
+                            `shouldSatisfy` isRight
+                    _ ->
+                        expectationFailure
+                            "Expected proof response JSON"
 
         it "returns 404 for unknown token" $ do
             ctx0 <- mkTestContext
@@ -427,7 +478,18 @@ getProof ctx tokenHex keyHex =
         (mkApp ctx)
 
 withPersistentFactContext :: (Context IO -> IO a) -> IO a
-withPersistentFactContext action =
+withPersistentFactContext =
+    withPersistentFactContextWithTrie
+        ( \trie -> do
+            _ <- Trie.insert trie "hello" "world"
+            Trie.getRoot trie
+        )
+
+withPersistentFactContextWithTrie
+    :: (Trie.Trie IO -> IO Root)
+    -> (Context IO -> IO a)
+    -> IO a
+withPersistentFactContextWithTrie setupTrie action =
     withSystemTempDirectory "persistent-fact-http" $ \dir ->
         withDBCF
             dir
@@ -468,9 +530,7 @@ withPersistentFactContext action =
                             Trie.withTrie
                                 (trieManager ctx)
                                 cafeTid
-                                $ \trie -> do
-                                    _ <- Trie.insert trie "hello" "world"
-                                    Trie.getRoot trie
+                                setupTrie
                         seedTokenStateWithRoot
                             ctx
                             stateTxIn

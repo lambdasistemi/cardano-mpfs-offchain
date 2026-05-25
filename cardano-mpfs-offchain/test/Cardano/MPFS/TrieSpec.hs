@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -14,11 +15,13 @@ import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Data.List (nubBy)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust)
 
 import Test.Hspec
-    ( Spec
+    ( Expectation
+    , Spec
     , describe
+    , expectationFailure
     , it
     , shouldBe
     , shouldReturn
@@ -53,9 +56,15 @@ import MPF.Test.Lib
     , runMPFPure'
     , verifyMPFM
     )
+import MPF.Verify
+    ( verifyAikenExclusionProof
+    )
 
 import Cardano.MPFS.Core.Types (Root (..))
-import Cardano.MPFS.Trie (Trie (..))
+import Cardano.MPFS.Trie
+    ( Proof (..)
+    , Trie (..)
+    )
 import Cardano.MPFS.Trie.Pure (mkPureTrie)
 
 -- -----------------------------------------------------------------
@@ -158,13 +167,24 @@ trieSpec newTrie = do
     it "getProof for missing key" $ do
         trie <- newTrie
         _ <- insert trie "hello" "world"
+        root <- getRoot trie
         mProof <- getProof trie "nonexistent"
-        isNothing mProof `shouldBe` True
+        shouldVerifyExclusionProof root "nonexistent" mProof
 
     it "getProof on empty trie" $ do
         trie <- newTrie
+        root <- getRoot trie
         mProof <- getProof trie "any"
-        isNothing mProof `shouldBe` True
+        shouldVerifyExclusionProof root "any" mProof
+
+shouldVerifyExclusionProof
+    :: Root -> ByteString -> Maybe Proof -> Expectation
+shouldVerifyExclusionProof root key = \case
+    Nothing ->
+        expectationFailure "Expected MPF exclusion proof"
+    Just (Proof proofBs) ->
+        verifyAikenExclusionProof (unRoot root) key proofBs
+            `shouldBe` True
 
 pureTrieSpec :: Spec
 pureTrieSpec = do
