@@ -31,12 +31,20 @@
       regenerate `docs/assets/swagger.json`, and prove Swagger/API expose only
       the new update facts shape while reject and sweep remain untouched.
 
+## Slice S4b - Validity Slot Fact
+
+- [ ] T006-S4b [US1] Extend `UpdateFacts` with provider-derived
+      `validity_upper_slot`, compute it in `/facts/update`, verify it in
+      `verifyUpdateFacts`, consume it in `updateCageTx`, refresh Swagger, and
+      add Q-002 slot-tamper/parity coverage without adding ExUnits to facts.
+
 ## Slice S5 - Matrix, MOOG Boundary, And Final Proof
 
 - [ ] T005-S5 [US1] Add the update row to the facts API local-cluster matrix,
-      prove live `/tx/update` absence, record update MOOG boundary status in
-      the PR body, run focused verifier/cage/HTTP/matrix commands plus
-      `./gate.sh`, and leave the branch ready for final gate removal.
+      prove live `/tx/update` absence using the S4b validity-slot fact, record
+      update MOOG boundary status in the PR body, run focused
+      verifier/cage/HTTP/matrix commands plus `./gate.sh`, and leave the
+      branch ready for final gate removal.
 
 ## Worker Slice Briefs
 
@@ -77,11 +85,22 @@ Then add the facts route, remove `TxUpdateAPI`/`txUpdateHandler`/typed
 `updateTx`, regenerate `docs/assets/swagger.json`, and keep reject and sweep
 legacy routes intact.
 
+### Slice S4b: Validity Slot Fact
+
+Worker owns T006-S4b. Write RED tests first showing `UpdateFacts` lacks a
+`validity_upper_slot` field, `verifyUpdateFacts` does not reject slot tamper,
+and `updateCageTx` still derives `invalidHereafter` by treating POSIX
+milliseconds as `SlotNo`. Then add the slot fact through wire/server/verifier
+cage helper/Swagger. The server must compute the slot with the provider
+conversion used by the legacy update path. `updateCageTx` must consume the
+verified slot. Keep ExUnits out of facts and leave reject (#270) unimplemented.
+
 ### Slice S5: Matrix, MOOG Boundary, And Final Proof
 
 Worker owns T005-S5. Extend the local-cluster facts matrix with update:
 `POST /facts/update -> verifyUpdateFacts -> updateCageTx -> submit -> expected
-state root indexed`, and assert `/tx/update` absence at the live WAI boundary.
-Record the update MOOG boundary status in the PR body as deferred to
-cardano-foundation/moog#96 unless a real update canary/staged-port proof exists.
-Run the focused commands and `./gate.sh`; do not drop `gate.sh` here.
+state root indexed` using unmodified S4b facts, and assert `/tx/update`
+absence at the live WAI boundary. Record the update MOOG boundary status in
+the PR body as deferred to cardano-foundation/moog#96 unless a real update
+canary/staged-port proof exists. Run the focused commands and `./gate.sh`; do
+not drop `gate.sh` here.

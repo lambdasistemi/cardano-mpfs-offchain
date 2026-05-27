@@ -27,6 +27,7 @@ The update wire shape is expected to contain:
 - `wallet_utxos`
 - `trie_root`
 - `trie_facts`
+- `validity_upper_slot`
 - `protocol_parameters`
 
 The `trie_root` must match the root embedded in the state UTxO datum. Each
@@ -36,6 +37,12 @@ facts over the old value before mutation. The shared fold helper consumes the
 request datum operations plus `TrieFact`s and returns the new root. The helper
 is general enough for #270 reject to reuse, but this PR only exposes update
 behavior.
+
+Q-002 classifies update validity slot conversion as an era-schedule fact, not
+an evaluator result: the server computes the upper slot from the request
+deadline using its provider, the verifier checks the field's basic
+consistency, and `updateCageTx` consumes the verified slot. Per-redeemer
+ExUnits remain client-local evaluator output.
 
 ## Shared Surfaces
 
@@ -94,6 +101,10 @@ amending the worker commit, and pushes.
    `/tx/update` from shared API, server wiring, client wrappers, active tests,
    and Swagger, then regenerate `docs/assets/swagger.json`. Reject and sweep
    legacy routes remain untouched.
+4b. **Validity Slot Fact**: extend `UpdateFacts` with
+   `validity_upper_slot`, have the server compute it via provider slot
+   conversion, verify it, consume it in `updateCageTx`, update Swagger, and
+   document the Q-001 to Q-002 boundary revision.
 5. **Local-Cluster Matrix And Boundary Status**: add the update row to the
    facts matrix, prove live legacy-route absence, record MOOG boundary status
    in the PR body, run the focused commands and final gate, then leave the PR
@@ -109,6 +120,10 @@ amending the worker commit, and pushes.
   `nix develop --quiet -c just unit-client "/updateCageTx/"`
 - HTTP route focused tests:
   `nix develop --quiet -c just unit-offchain "/POST /facts/update/"`
+- Validity slot focused tests:
+  `nix develop --quiet -c just unit-client "/verifyUpdateFacts|updateCageTx/"`
+  and
+  `nix develop --quiet -c just unit-offchain "/POST /facts/update|update facts wire/"`
 - Swagger refresh:
   `nix develop --quiet -c just update-swagger`
 - Matrix proof:
@@ -128,6 +143,10 @@ transition from facts and accepts it on-chain. The #278 facts API matrix is
 therefore required before this PR leaves draft. Because it is slow, `gate.sh`
 keeps the standard `just ci` spine plus the final legacy-route sentinel, while
 the matrix command is run and recorded explicitly.
+
+Q-002 came from this live-boundary smoke: with unmodified update facts,
+`updateCageTx` treated POSIX milliseconds as `SlotNo`, so the tx could not
+submit. The fix is a new slot fact, not a matrix workaround.
 
 ## MOOG Boundary
 
