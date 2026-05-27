@@ -18,7 +18,7 @@
 
 ## Slice S3 - Cage Helper And Structural Parity
 
-- [ ] T003-S3 [US1] Add
+- [X] T003-S3 [US1] Add
       `Cardano.MPFS.Client.Cage.Update.updateCageTx`, implement/reuse the MPF
       fold helper, and prove Q-001 structural parity for fact-derived update
       tx fields plus same-new-root behavior against the legacy server-side

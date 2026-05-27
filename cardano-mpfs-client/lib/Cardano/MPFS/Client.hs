@@ -142,6 +142,7 @@ module Cardano.MPFS.Client
     , requestDeleteCageTx
     , requestUpdateCageTx
     , retractCageTx
+    , updateCageTx
     ) where
 
 import Cardano.MPFS.Client.Bundle
@@ -178,6 +179,9 @@ import Cardano.MPFS.Client.Cage.Request
     )
 import Cardano.MPFS.Client.Cage.Retract
     ( retractCageTx
+    )
+import Cardano.MPFS.Client.Cage.Update
+    ( updateCageTx
     )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)

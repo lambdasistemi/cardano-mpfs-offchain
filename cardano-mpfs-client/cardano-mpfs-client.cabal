@@ -79,6 +79,7 @@ library
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Cage.Request
     Cardano.MPFS.Client.Cage.Retract
+    Cardano.MPFS.Client.Cage.Update
     Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
@@ -125,6 +126,7 @@ test-suite unit-tests
     , cardano-ledger-api
     , cardano-ledger-babbage
     , cardano-ledger-binary
+    , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-api
@@ -158,6 +160,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.Cage.EndSpec
     Cardano.MPFS.Client.Cage.RequestSpec
     Cardano.MPFS.Client.Cage.RetractSpec
+    Cardano.MPFS.Client.Cage.UpdateSpec
     Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures
     Cardano.MPFS.Client.HttpSpec
