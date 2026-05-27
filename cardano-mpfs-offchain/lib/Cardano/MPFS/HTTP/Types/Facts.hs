@@ -11,6 +11,7 @@ module Cardano.MPFS.HTTP.Types.Facts
     ( mkRequestInsertFacts
     , mkRequestDeleteFacts
     , mkRequestUpdateFacts
+    , mkUpdateFacts
     , mkRetractFacts
     , mkEndFacts
     ) where
@@ -39,6 +40,8 @@ import Cardano.MPFS.API.Types.Facts
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
     , RetractFacts (..)
+    , TrieFact (..)
+    , UpdateFacts (..)
     )
 import Cardano.MPFS.Core.Types
     ( ConwayEra
@@ -55,6 +58,7 @@ import Cardano.MPFS.TxBuilder
     ( BundleSnapshot
     , ResolvedWalletInput
     )
+import Cardano.MPFS.TxBuilder qualified as Tx
 
 -- | Build the facts-only request-insert response from one
 -- atomic indexer snapshot, requester funding UTxOs, the
@@ -167,6 +171,43 @@ mkRequestUpdateFacts
                 pparamsToJSON pparams
             }
 
+-- | Build the facts-only update response from one atomic
+-- indexer snapshot, the state UTxO, pending request UTxOs,
+-- wallet funding UTxOs, trie facts, and node protocol
+-- parameters.
+mkUpdateFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ResolvedWalletInput
+    -> [ResolvedWalletInput]
+    -> [ResolvedWalletInput]
+    -> ByteString
+    -> [Tx.TrieFact]
+    -> PParams ConwayEra
+    -> UpdateFacts
+mkUpdateFacts
+    snap
+    tid
+    stateUtxo
+    requestUtxos
+    walletUtxos
+    trieRoot
+    trieFacts
+    pparams =
+        UpdateFacts
+            { ufSnapshot = bundleSnapshotToJSON snap
+            , ufToken = tokenIdToJSON tid
+            , ufStateUtxo =
+                resolvedWalletInputToUtxoEntry stateUtxo
+            , ufRequestUtxos =
+                map resolvedWalletInputToUtxoEntry requestUtxos
+            , ufWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , ufTrieRoot = Hex trieRoot
+            , ufTrieFacts = map trieFactToJSON trieFacts
+            , ufProtocolParameters = pparamsToJSON pparams
+            }
+
 -- | Build the facts-only retract response from one atomic
 -- indexer snapshot, the named request UTxO, the cage state
 -- UTxO, the requester funding UTxOs, the server-derived Phase
@@ -265,4 +306,12 @@ txInToUtxoRef (TxIn (TxId sh) (TxIx ix)) =
                     (extractHash sh)
                 )
         , urTxIx = fromIntegral ix
+        }
+
+trieFactToJSON :: Tx.TrieFact -> TrieFact
+trieFactToJSON fact =
+    TrieFact
+        { tfKey = Hex (Tx.factKey fact)
+        , tfValue = Hex <$> Tx.factValue fact
+        , tfMpfProof = Hex (Tx.factMpfProof fact)
         }

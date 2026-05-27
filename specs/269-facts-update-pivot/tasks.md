@@ -2,7 +2,7 @@
 
 ## Slice S1 - Wire Types And Indexer Reads
 
-- [ ] T001-S1 [US1] Add update facts wire/indexer foundation: RED tests for
+- [X] T001-S1 [US1] Add update facts wire/indexer foundation: RED tests for
       `UpdateFacts`/`TrieFact` JSON/schema and update read helpers, then GREEN
       `UpdateFacts`, shared `TrieFact`, server conversion helpers,
       `readRequestUtxosAt`, and `readTrieFact` without adding `/facts/update`

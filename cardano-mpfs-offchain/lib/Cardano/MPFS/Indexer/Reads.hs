@@ -35,7 +35,9 @@ module Cardano.MPFS.Indexer.Reads
     , readSnapshot
     , readStateUtxoAt
     , readNamedRequestUtxo
+    , readRequestUtxosAt
     , readRequestSetAt
+    , readTrieFact
     , readWalletInputsAt
     , ResolvedUtxoSet
 
@@ -118,10 +120,16 @@ import Cardano.MPFS.Core.Types
     , TxIn
     )
 import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
+import Cardano.MPFS.Trie qualified as Trie
+import Cardano.MPFS.Trie.Persistent
+    ( mkUnifiedTrie
+    , tokenHexPrefix
+    )
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
     , ResolvedWalletInput
     )
+import Cardano.MPFS.TxBuilder qualified as Tx
 
 -- | Request-address UTxO set witness read from the indexer:
 -- each entry carries only @(TxIn, TxOut CBOR)@ because the
@@ -350,6 +358,15 @@ readNamedRequestUtxo reqAddr targetTxIn =
         | txIn == targetTxIn = Just row
         | otherwise = findUtxo rest
 
+-- | Read all currently indexed request-address UTxOs with
+-- individual CSMT inclusion proofs. The update facts route
+-- consumes request UTxOs as transaction inputs rather than as
+-- a completeness witness, so it needs the same resolved input
+-- shape as wallet funding reads.
+readRequestUtxosAt
+    :: Addr -> IndexerTx [ResolvedWalletInput]
+readRequestUtxosAt = readWalletInputsAt
+
 -- | Walk the UTxO-CSMT subtree at a request address and
 -- produce the enumerated UTxOs plus a production
 -- prefix-completeness proof for that exact subtree.
@@ -412,6 +429,34 @@ readRequestSetAt addr =
                         <> ")"
             Just txOutBytes ->
                 pure (txInDecoded, BSL.toStrict txOutBytes)
+
+-- | Read one MPF trie fact for a token/key inside the
+-- indexer transaction.
+--
+-- The value comes from 'TrieRawValues' through the persistent
+-- trie lookup path, so clients receive the original raw value
+-- bytes rather than the internal MPF content hash.
+readTrieFact
+    :: TokenId -> ByteString -> IndexerTx Tx.TrieFact
+readTrieFact tid key =
+    IndexerTx
+        $ mapColumns InCage
+        $ do
+            let trie = mkUnifiedTrie (tokenHexPrefix tid)
+            mValue <- Trie.lookup trie key
+            mProof <- Trie.getProof trie key
+            case mProof of
+                Just (Trie.Proof proofBytes) ->
+                    pure
+                        Tx.TrieFact
+                            { Tx.factKey = key
+                            , Tx.factValue = mValue
+                            , Tx.factMpfProof = proofBytes
+                            }
+                Nothing ->
+                    error
+                        "readTrieFact: persistent trie \
+                        \could not produce an MPF proof"
 
 addressScopedLeafKey
     :: FromKV key value hash

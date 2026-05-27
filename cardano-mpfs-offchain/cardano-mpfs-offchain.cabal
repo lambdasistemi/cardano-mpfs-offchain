@@ -263,6 +263,7 @@ test-suite unit-tests
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
+    , cardano-mpfs-api
     , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-node-clients
@@ -292,6 +293,7 @@ test-suite unit-tests
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
     , rocksdb-kv-transactions:kv-transactions
+    , swagger2
     , temporary
     , text
     , vector
@@ -312,6 +314,7 @@ test-suite unit-tests
     Cardano.MPFS.HTTP.TokenSpec
     Cardano.MPFS.HTTP.TokensSpec
     Cardano.MPFS.HTTP.TrieSpec
+    Cardano.MPFS.HTTP.UpdateFactsSpec
     Cardano.MPFS.Indexer.ArmageddonSpec
     Cardano.MPFS.Indexer.CodecsSpec
     Cardano.MPFS.Indexer.EventSpec
