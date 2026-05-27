@@ -183,6 +183,7 @@ mkUpdateFacts
     -> [ResolvedWalletInput]
     -> ByteString
     -> [Tx.TrieFact]
+    -> Integer
     -> PParams ConwayEra
     -> UpdateFacts
 mkUpdateFacts
@@ -193,6 +194,7 @@ mkUpdateFacts
     walletUtxos
     trieRoot
     trieFacts
+    validityUpperSlot
     pparams =
         UpdateFacts
             { ufSnapshot = bundleSnapshotToJSON snap
@@ -205,6 +207,7 @@ mkUpdateFacts
                 map resolvedWalletInputToUtxoEntry walletUtxos
             , ufTrieRoot = Hex trieRoot
             , ufTrieFacts = map trieFactToJSON trieFacts
+            , ufValidityUpperSlot = validityUpperSlot
             , ufProtocolParameters = pparamsToJSON pparams
             }
 

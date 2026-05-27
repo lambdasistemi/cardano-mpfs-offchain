@@ -152,6 +152,7 @@ spec = do
             , "wallet_utxos"
             , "trie_root"
             , "trie_facts"
+            , "validity_upper_slot"
             , "protocol_parameters"
             ]
             (toJSON facts)
@@ -188,6 +189,7 @@ spec = do
                     [sampleUtxoInput txIn]
                     "trie-root"
                     [sampleBuilderTrieFact]
+                    123
                     samplePParams
         assertJSONKeys
             [ "snapshot"
@@ -197,6 +199,7 @@ spec = do
             , "wallet_utxos"
             , "trie_root"
             , "trie_facts"
+            , "validity_upper_slot"
             , "protocol_parameters"
             ]
             (toJSON facts)
@@ -274,6 +277,7 @@ sampleUpdateFacts =
                 , tfMpfProof = Hex "proof"
                 }
             ]
+        , ufValidityUpperSlot = 123
         , ufProtocolParameters = sampleUnverifiedPParams
         }
 

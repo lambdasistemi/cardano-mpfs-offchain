@@ -103,6 +103,56 @@ spec = describe "verifyUpdateFacts" $ do
             `shouldBe` Left
                 (WrongHexLength "update.trie_root" 32 1)
 
+    it "rejects an empty update request list" $ do
+        let UpdateFactsFixture{trustedRoot, facts} =
+                honestUpdateFactsFixture
+            forged = facts{ufRequestUtxos = []}
+        verifyUpdateFacts trustedRoot forged
+            `shouldBe` Left
+                ( TxBindingFailed
+                    "update.request_utxos"
+                    "must not be empty"
+                )
+
+    it "rejects a stale validity upper slot" $ do
+        let UpdateFactsFixture{trustedRoot, facts} =
+                honestUpdateFactsFixture
+            forged =
+                facts
+                    { ufValidityUpperSlot =
+                        fromIntegral
+                            $ cpSlot
+                            $ vsChainPoint
+                            $ ufSnapshot facts
+                    }
+        verifyUpdateFacts trustedRoot forged
+            `shouldBe` Left
+                ( TxBindingFailed
+                    "update.validity_upper_slot"
+                    "must be greater than the snapshot slot"
+                )
+
+    it "rejects an out-of-horizon validity upper slot" $ do
+        let UpdateFactsFixture{trustedRoot, facts} =
+                honestUpdateFactsFixture
+            snapshotSlot =
+                fromIntegral
+                    $ cpSlot
+                    $ vsChainPoint
+                    $ ufSnapshot facts
+            computedHorizon = 60 + 600
+            forged =
+                facts
+                    { ufValidityUpperSlot =
+                        snapshotSlot + computedHorizon + 1
+                    }
+        verifyUpdateFacts trustedRoot forged
+            `shouldBe` Left
+                ( TxBindingFailed
+                    "update.validity_upper_slot"
+                    "too far beyond the snapshot slot"
+                )
+
     it "rejects a tampered state UTxO inclusion proof" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
@@ -202,6 +252,11 @@ honestUpdateFactsFixture =
                 , ufWalletUtxos = toApiUtxoEntry <$> fs
                 , ufTrieRoot = toApiHex trieRoot
                 , ufTrieFacts = toApiTrieFact <$> trieFacts
+                , ufValidityUpperSlot =
+                    fromIntegral
+                        $ ClientSnapshot.slot
+                            (ClientSnapshot.chainpoint snapshot)
+                            + 100
                 , ufProtocolParameters =
                     UnverifiedPParams
                         { uppVerified = False

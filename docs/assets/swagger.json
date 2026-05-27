@@ -881,6 +881,9 @@
                 "trie_root": {
                     "$ref": "#/definitions/Hex"
                 },
+                "validity_upper_slot": {
+                    "type": "integer"
+                },
                 "wallet_utxos": {
                     "items": {
                         "$ref": "#/definitions/UtxoEntry"
@@ -896,6 +899,7 @@
                 "wallet_utxos",
                 "trie_root",
                 "trie_facts",
+                "validity_upper_slot",
                 "protocol_parameters"
             ],
             "type": "object"

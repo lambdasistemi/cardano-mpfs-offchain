@@ -249,7 +249,10 @@ updateCageTx cfg policy verified = do
             $ let BuiltinByteString ownerBytes = stateOwner oldState
               in  ownerBytes
     let changeAddr = rowAddress feeRow
-        upperSlot = updateUpperSlot oldState requestDatums
+        upperSlot =
+            SlotNo
+                $ fromIntegral
+                $ ufValidityUpperSlot facts
     tx <-
         buildUpdateTx
             cfg
@@ -684,15 +687,6 @@ spendingIndex needle inputs =
     go n (x : xs)
         | x == needle = n
         | otherwise = go (n + 1) xs
-
-updateUpperSlot :: OnChainTokenState -> [OnChainRequest] -> SlotNo
-updateUpperSlot oldState requests =
-    SlotNo
-        $ fromIntegral
-        $ minimum
-            [ requestSubmittedAt request + stateProcessTime oldState
-            | request <- requests
-            ]
 
 trieFactProofSteps :: TrieFact -> Either BuildError [ProofStep]
 trieFactProofSteps TrieFact{tfMpfProof = Hex proofBytes} =

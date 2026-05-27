@@ -156,7 +156,10 @@ sampleStateAsset quantity =
         }
 
 requestTxOut, fundingTxOut :: ByteString
-requestTxOut = txOutCbor True []
+requestTxOut =
+    txOutCborWithDatum
+        []
+        (Just requestDatumTerm)
 fundingTxOut = txOutCbor False []
 
 stateTxOutWithRoot :: ByteString -> ByteString
@@ -289,6 +292,21 @@ stateDatumTerm root =
             , CBOR.TInteger 1_000_000
             , CBOR.TInteger 60_000
             , CBOR.TInteger 30_000
+            ]
+        ]
+
+requestDatumTerm :: CBOR.Term
+requestDatumTerm =
+    constr
+        0
+        [ constr
+            0
+            [ CBOR.TBytes sampleAssetName
+            , CBOR.TBytes (BS.replicate 28 0xBB)
+            , CBOR.TBytes "fixture-key"
+            , constr 0 [CBOR.TBytes "fixture-value"]
+            , CBOR.TInteger 1_000_000
+            , CBOR.TInteger 1_700_000_000_000
             ]
         ]
 
