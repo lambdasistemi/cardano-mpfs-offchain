@@ -50,6 +50,7 @@ module Cardano.MPFS.Client
     , RequestDeleteFacts (..)
     , RequestUpdateFacts (..)
     , EndFacts (..)
+    , UpdateFacts (..)
     , FactPresentFacts (..)
     , FactAbsentFacts (..)
     , UnverifiedPParams (..)
@@ -57,6 +58,7 @@ module Cardano.MPFS.Client
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestUpdateFacts
+    , VerifiedUpdateFacts
     , VerifiedEndFacts
     , VerifiedFactPresentFacts
     , VerifiedFactAbsentFacts
@@ -64,6 +66,7 @@ module Cardano.MPFS.Client
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestUpdateFacts
+    , verifiedUpdateFacts
     , verifiedEndFacts
     , verifiedFactPresentFacts
     , verifiedFactAbsentFacts
@@ -80,6 +83,7 @@ module Cardano.MPFS.Client
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
     , verifyRequestUpdateFacts
+    , verifyUpdateFacts
     , verifyEndFacts
     , verifyFactPresentFacts
     , verifyFactAbsentFacts
@@ -184,6 +188,7 @@ import Cardano.MPFS.Client.Facts
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
     , UnverifiedPParams (..)
+    , UpdateFacts (..)
     , VerifiedBootFacts
     , VerifiedEndFacts
     , VerifiedFactAbsentFacts
@@ -191,6 +196,7 @@ import Cardano.MPFS.Client.Facts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestInsertFacts
     , VerifiedRequestUpdateFacts
+    , VerifiedUpdateFacts
     , verifiedBootFacts
     , verifiedEndFacts
     , verifiedFactAbsentFacts
@@ -198,6 +204,7 @@ import Cardano.MPFS.Client.Facts
     , verifiedRequestDeleteFacts
     , verifiedRequestInsertFacts
     , verifiedRequestUpdateFacts
+    , verifiedUpdateFacts
     , verifyFactAbsentFacts
     , verifyFactPresentFacts
     )
@@ -238,6 +245,7 @@ import Cardano.MPFS.Client.Verify
     , verifyRequestTxResponse
     , verifyRequestUpdateFacts
     , verifyRetractTxResponse
+    , verifyUpdateFacts
     , verifyUpdateTxResponse
     , verifyVerificationSnapshot
     )

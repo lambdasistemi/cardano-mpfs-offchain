@@ -11,6 +11,7 @@ module Cardano.MPFS.Client.Facts
     , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
+    , UpdateFacts (..)
     , FactPresentFacts (..)
     , FactAbsentFacts (..)
     , UnverifiedPParams (..)
@@ -18,6 +19,7 @@ module Cardano.MPFS.Client.Facts
     , VerifiedRequestInsertFacts
     , VerifiedRequestDeleteFacts
     , VerifiedRequestUpdateFacts
+    , VerifiedUpdateFacts
     , VerifiedRetractFacts
     , VerifiedEndFacts
     , VerifiedFactPresentFacts
@@ -26,6 +28,7 @@ module Cardano.MPFS.Client.Facts
     , verifiedRequestInsertFacts
     , verifiedRequestDeleteFacts
     , verifiedRequestUpdateFacts
+    , verifiedUpdateFacts
     , verifiedRetractFacts
     , verifiedEndFacts
     , verifiedFactPresentFacts
@@ -34,6 +37,7 @@ module Cardano.MPFS.Client.Facts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
     , verifyRequestUpdateFacts
+    , verifyUpdateFacts
     , verifyRetractFacts
     , verifyEndFacts
     , verifyFactPresentFacts
@@ -58,7 +62,9 @@ import Cardano.MPFS.API.Types
 import Cardano.MPFS.API.Types.Common
     ( ChainPointJSON (..)
     , UnverifiedPParams (..)
+    , UtxoEntry (..)
     , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
     , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     )
@@ -69,6 +75,8 @@ import Cardano.MPFS.API.Types.Facts
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
     , RetractFacts (..)
+    , TrieFact (..)
+    , UpdateFacts (..)
     )
 import Cardano.MPFS.Client.Bundle qualified as ClientWire
 import Cardano.MPFS.Client.Cage.Config
@@ -93,6 +101,9 @@ import Cardano.MPFS.Client.Verify.Replay
 import Cardano.MPFS.Client.Verify.Snapshot
     ( verifyVerificationSnapshot
     )
+import Cardano.MPFS.Client.Verify.TxView
+    ( verifyStateRootBinding
+    )
 
 -- | Opaque witness that boot facts have been checked against the
 -- caller-supplied trusted root. The constructor is intentionally
@@ -116,6 +127,11 @@ newtype VerifiedRequestDeleteFacts
 -- against the caller-supplied trusted root.
 newtype VerifiedRequestUpdateFacts
     = VerifiedRequestUpdateFacts RequestUpdateFacts
+    deriving stock (Eq, Show)
+
+-- | Opaque witness that update facts have been checked against
+-- the caller-supplied trusted root and the advertised trie root.
+newtype VerifiedUpdateFacts = VerifiedUpdateFacts UpdateFacts
     deriving stock (Eq, Show)
 
 -- | Opaque witness that retract facts have been checked
@@ -186,6 +202,12 @@ verifiedRequestUpdateFacts
     :: VerifiedRequestUpdateFacts -> RequestUpdateFacts
 verifiedRequestUpdateFacts (VerifiedRequestUpdateFacts facts) =
     facts
+
+-- | Extract the verified facts after 'verifyUpdateFacts'
+-- has established trusted-root, CSMT, state-root, and MPF
+-- checks.
+verifiedUpdateFacts :: VerifiedUpdateFacts -> UpdateFacts
+verifiedUpdateFacts (VerifiedUpdateFacts facts) = facts
 
 -- | Extract the verified facts after 'verifyRetractFacts'
 -- has established the trusted-root and CSMT proof checks for
@@ -353,6 +375,79 @@ verifyRequestUpdateFacts
                         )
                         root
                         entry
+                )
+                (zip [0 ..] entries)
+
+-- | Verify a facts-only update response against an
+-- externally-supplied trusted UTxO-CSMT root. Replays the
+-- inclusion proofs for the state UTxO, every request UTxO,
+-- every wallet UTxO, binds the advertised trie root to the
+-- state datum, and replays every MPF trie fact against that
+-- root.
+verifyUpdateFacts
+    :: TrustedRoot
+    -> UpdateFacts
+    -> Either VerifyError VerifiedUpdateFacts
+verifyUpdateFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@UpdateFacts{..} = do
+        checkLength "update.trusted_root" trustedBs
+        let snapshotPath = "update.snapshot.utxo_root"
+            Hex snapshotBs = vsUtxoRoot ufSnapshot
+        checkLength snapshotPath snapshotBs
+        if snapshotBs == trustedBs
+            then Right ()
+            else Left (TrustedRootMismatch snapshotPath)
+        replayUtxoEntry "update.state_utxo" trustedBs ufStateUtxo
+        replayRequestUtxos trustedBs ufRequestUtxos
+        replayWalletUtxos trustedBs ufWalletUtxos
+        let Hex trieRootBs = ufTrieRoot
+        checkLength "update.trie_root" trieRootBs
+        verifyStateRootBinding
+            "update"
+            (toClientWitnessedUtxoEntry ufStateUtxo)
+            (toClientHex ufTrieRoot)
+        replayTrieFacts trieRootBs ufTrieFacts
+        Right (VerifiedUpdateFacts facts)
+      where
+        checkLength field bs
+            | BS.length bs == 32 = Right ()
+            | otherwise =
+                Left (WrongHexLength field 32 (BS.length bs))
+        replayRequestUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "update.request_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+        replayWalletUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "update.wallet_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+        replayTrieFacts root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayTrieFact
+                        ( "update.trie_facts["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        (toClientTrieFact entry)
                 )
                 (zip [0 ..] entries)
 
@@ -563,11 +658,35 @@ toClientWitnessedUtxo WitnessedUtxo{..} =
         , ClientWire.utxoProof = toClientHex wuProof
         }
 
+toClientWitnessedUtxoEntry :: UtxoEntry -> ClientWire.WitnessedUtxo
+toClientWitnessedUtxoEntry UtxoEntry{..} =
+    ClientWire.WitnessedUtxo
+        { ClientWire.txIn =
+            toClientUtxoRef ueRef
+        , ClientWire.txOut = toClientHex ueTxOutCbor
+        , ClientWire.utxoProof = toClientHex ueInclusionProof
+        }
+
 toClientTxIn :: TxInJSON -> ClientWire.TxIn
 toClientTxIn TxInJSON{..} =
     ClientWire.TxIn
         { ClientWire.txId = toClientHex tjTxId
         , ClientWire.txIx = tjTxIx
+        }
+
+toClientUtxoRef :: UtxoRef -> ClientWire.TxIn
+toClientUtxoRef UtxoRef{..} =
+    ClientWire.TxIn
+        { ClientWire.txId = toClientHex urTxId
+        , ClientWire.txIx = urTxIx
+        }
+
+toClientTrieFact :: TrieFact -> ClientWire.TrieFact
+toClientTrieFact TrieFact{..} =
+    ClientWire.TrieFact
+        { ClientWire.key = toClientHex tfKey
+        , ClientWire.value = toClientHex <$> tfValue
+        , ClientWire.mpfProof = toClientHex tfMpfProof
         }
 
 toClientHex :: Hex -> ClientSnapshot.Hex

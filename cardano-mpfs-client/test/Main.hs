@@ -14,6 +14,7 @@ import Cardano.MPFS.Client.RequestInsertFactsSpec qualified as RequestInsertFact
 import Cardano.MPFS.Client.RequestUpdateFactsSpec qualified as RequestUpdateFactsSpec
 import Cardano.MPFS.Client.RetractFactsSpec qualified as RetractFactsSpec
 import Cardano.MPFS.Client.SnapshotSpec qualified as SnapshotSpec
+import Cardano.MPFS.Client.UpdateFactsSpec qualified as UpdateFactsSpec
 import Cardano.MPFS.Client.Verify.WriteSpec qualified as WriteSpec
 import Cardano.MPFS.Client.VerifySpec qualified as VerifySpec
 import Test.Hspec (hspec)
@@ -29,6 +30,7 @@ main = hspec $ do
     RequestUpdateFactsSpec.spec
     RetractFactsSpec.spec
     EndFactsSpec.spec
+    UpdateFactsSpec.spec
     BootSpec.spec
     RequestSpec.spec
     CageRetractSpec.spec
