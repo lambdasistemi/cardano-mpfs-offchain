@@ -1,0 +1,246 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+
+-- |
+-- Module      : Cardano.MPFS.HTTP.UpdateFactsSpec
+-- Description : Tests for update facts wire and read foundation
+-- License     : Apache-2.0
+module Cardano.MPFS.HTTP.UpdateFactsSpec (spec) where
+
+import Data.Aeson
+    ( ToJSON (toJSON)
+    , Value (..)
+    , eitherDecode
+    , encode
+    )
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString (ByteString)
+import Data.ByteString.Short qualified as SBS
+import Data.Foldable (traverse_)
+import Data.Proxy (Proxy (..))
+import Data.Swagger qualified as Swagger
+import Test.Hspec
+    ( Spec
+    , describe
+    , expectationFailure
+    , it
+    , shouldBe
+    )
+import Test.QuickCheck (generate)
+
+import Cardano.Ledger.Api.PParams (emptyPParams)
+import Cardano.Ledger.Mary.Value (AssetName (..))
+import Cardano.MPFS.API.Encoding (Hex (..))
+import Cardano.MPFS.API.Types.Facts
+    ( ChainPointJSON (..)
+    , TokenIdJSON (..)
+    , TrieFact (..)
+    , UnverifiedPParams (..)
+    , UpdateFacts (..)
+    , UtxoEntry (..)
+    , UtxoRef (..)
+    , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.Core.Types
+    ( Addr
+    , BlockId (..)
+    , ConwayEra
+    , PParams
+    , SlotNo (..)
+    , TokenId (..)
+    , TxIn
+    )
+import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.Types.Facts (mkUpdateFacts)
+import Cardano.MPFS.Indexer.Reads
+    ( IndexerTx
+    , readRequestUtxosAt
+    , readTrieFact
+    )
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , ResolvedWalletInput
+    )
+import Cardano.MPFS.TxBuilder qualified as Tx
+
+spec :: Spec
+spec = describe "update facts wire" $ do
+    it "encodes the shared TrieFact shape with nullable values" $ do
+        let fact =
+                TrieFact
+                    { tfKey = Hex "key"
+                    , tfValue = Nothing
+                    , tfMpfProof = Hex "proof"
+                    }
+        assertJSONKeys
+            ["key", "value", "mpf_proof"]
+            (toJSON fact)
+        case toJSON fact of
+            Object obj ->
+                KM.lookup "value" obj `shouldBe` Just Null
+            _ ->
+                expectationFailure
+                    "Expected TrieFact JSON object"
+
+    it "encodes UpdateFacts without unsigned transaction CBOR" $ do
+        let facts =
+                sampleUpdateFacts
+        assertJSONKeys
+            [ "snapshot"
+            , "token"
+            , "state_utxo"
+            , "request_utxos"
+            , "wallet_utxos"
+            , "trie_root"
+            , "trie_facts"
+            , "protocol_parameters"
+            ]
+            (toJSON facts)
+        case toJSON facts of
+            Object obj -> do
+                KM.member "tx" obj `shouldBe` False
+                KM.member "unsigned_tx_cbor" obj
+                    `shouldBe` False
+            _ ->
+                expectationFailure
+                    "Expected UpdateFacts JSON object"
+
+    it "round-trips UpdateFacts through JSON"
+        $ eitherDecode (encode sampleUpdateFacts)
+        `shouldBe` Right sampleUpdateFacts
+
+    it "has Swagger schema instances" $ do
+        let _updateSchema =
+                Swagger.toSchema (Proxy @UpdateFacts)
+            _trieFactSchema =
+                Swagger.toSchema (Proxy @TrieFact)
+        _updateSchema `seq`
+            _trieFactSchema `seq`
+                (pure () :: IO ())
+
+    it "provides server conversion from update inputs" $ do
+        txIn <- generate genTxIn
+        let facts =
+                mkUpdateFacts
+                    sampleSnapshot
+                    sampleToken
+                    (sampleUtxoInput txIn)
+                    [sampleUtxoInput txIn]
+                    [sampleUtxoInput txIn]
+                    "trie-root"
+                    [sampleBuilderTrieFact]
+                    samplePParams
+        assertJSONKeys
+            [ "snapshot"
+            , "token"
+            , "state_utxo"
+            , "request_utxos"
+            , "wallet_utxos"
+            , "trie_root"
+            , "trie_facts"
+            , "protocol_parameters"
+            ]
+            (toJSON facts)
+
+    it "exports update-focused atomic read helpers" $ do
+        let _readRequestUtxosAt
+                :: Addr
+                -> IndexerTx [ResolvedWalletInput]
+            _readRequestUtxosAt = readRequestUtxosAt
+            _readTrieFact
+                :: TokenId
+                -> ByteString
+                -> IndexerTx Tx.TrieFact
+            _readTrieFact = readTrieFact
+        _readRequestUtxosAt `seq`
+            _readTrieFact `seq`
+                (pure () :: IO ())
+
+assertJSONKeys :: [String] -> Value -> IO ()
+assertJSONKeys keys = \case
+    Object obj ->
+        traverse_
+            ( \key ->
+                KM.member (Key.fromString key) obj
+                    `shouldBe` True
+            )
+            keys
+    _ ->
+        expectationFailure "Expected JSON object"
+
+sampleUpdateFacts :: UpdateFacts
+sampleUpdateFacts =
+    UpdateFacts
+        { ufSnapshot = sampleVerificationSnapshot
+        , ufToken = TokenIdJSON "cafe"
+        , ufStateUtxo = sampleUtxoEntry
+        , ufRequestUtxos = [sampleUtxoEntry]
+        , ufWalletUtxos = [sampleUtxoEntry]
+        , ufTrieRoot = Hex "trie-root"
+        , ufTrieFacts =
+            [ TrieFact
+                { tfKey = Hex "key"
+                , tfValue = Just (Hex "value")
+                , tfMpfProof = Hex "proof"
+                }
+            ]
+        , ufProtocolParameters = sampleUnverifiedPParams
+        }
+
+sampleVerificationSnapshot :: VerificationSnapshot
+sampleVerificationSnapshot =
+    VerificationSnapshot
+        { vsUtxoRoot = Hex "root"
+        , vsChainPoint =
+            ChainPointJSON
+                { cpSlot = 42
+                , cpBlockId = Hex "block-id"
+                }
+        }
+
+sampleUtxoEntry :: UtxoEntry
+sampleUtxoEntry =
+    UtxoEntry
+        { ueRef =
+            UtxoRef
+                { urTxId = Hex "tx-id"
+                , urTxIx = 0
+                }
+        , ueTxOutCbor = Hex "tx-out"
+        , ueInclusionProof = Hex "utxo-proof"
+        }
+
+sampleUnverifiedPParams :: UnverifiedPParams
+sampleUnverifiedPParams =
+    UnverifiedPParams
+        { uppVerified = False
+        , uppCbor = Hex "pparams"
+        }
+
+sampleBuilderTrieFact :: Tx.TrieFact
+sampleBuilderTrieFact =
+    Tx.TrieFact
+        { Tx.factKey = "key"
+        , Tx.factValue = Just "value"
+        , Tx.factMpfProof = "proof"
+        }
+
+sampleSnapshot :: BundleSnapshot
+sampleSnapshot =
+    BundleSnapshot
+        { snapshotUtxoRoot = "root"
+        , snapshotSlot = SlotNo 42
+        , snapshotBlockId = BlockId "block-id"
+        }
+
+sampleToken :: TokenId
+sampleToken = TokenId (AssetName (SBS.toShort "cafe"))
+
+sampleUtxoInput :: TxIn -> ResolvedWalletInput
+sampleUtxoInput txIn =
+    (txIn, "tx-out", "utxo-proof")
+
+samplePParams :: PParams ConwayEra
+samplePParams = emptyPParams

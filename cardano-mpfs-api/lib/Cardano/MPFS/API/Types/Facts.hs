@@ -16,6 +16,8 @@ module Cardano.MPFS.API.Types.Facts
     , RequestUpdateFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
+    , TrieFact (..)
+    , UpdateFacts (..)
 
       -- * Common facts/proof primitives
     , ChainPointJSON (..)
@@ -427,6 +429,164 @@ instance ToSchema RequestUpdateFacts where
                    \request payload, submission timestamp, wallet \
                    \UTxO witnesses, and unverified protocol \
                    \parameters, with no unsigned transaction CBOR."
+
+-- | Shared JSON representation of a trie read fact.
+--
+-- The value is nullable so the same shape can carry both
+-- membership and absence facts against an MPF trie root.
+data TrieFact = TrieFact
+    { tfKey :: Hex
+    -- ^ Trie key the builder looked up.
+    , tfValue :: Maybe Hex
+    -- ^ Value bound to 'tfKey', or 'Nothing' for an
+    -- absence fact.
+    , tfMpfProof :: Hex
+    -- ^ MPF inclusion\/exclusion proof.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TrieFact where
+    toJSON TrieFact{..} =
+        object
+            [ "key" .= tfKey
+            , "value" .= tfValue
+            , "mpf_proof" .= tfMpfProof
+            ]
+
+instance FromJSON TrieFact where
+    parseJSON =
+        withObject "TrieFact" $ \o ->
+            TrieFact
+                <$> o .: "key"
+                <*> o .: "value"
+                <*> o .: "mpf_proof"
+
+instance ToSchema TrieFact where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        maybeHexSchema <-
+            declareSchemaRef (Proxy @(Maybe Hex))
+        pure
+            $ Swagger.NamedSchema (Just "TrieFact")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("key", hexSchema)
+                    , ("value", maybeHexSchema)
+                    , ("mpf_proof", hexSchema)
+                    ]
+            & required
+                .~ [ "key"
+                   , "value"
+                   , "mpf_proof"
+                   ]
+            & description
+                ?~ "Trie read fact: key, optional value, \
+                   \and MPF proof against a trie root."
+
+-- | Facts-only update response foundation.
+--
+-- Carries the state UTxO, pending request UTxOs, wallet
+-- funding UTxOs, trie root/read facts, and protocol
+-- parameters needed by a wallet-side update builder. Route
+-- wiring is added by a later slice.
+data UpdateFacts = UpdateFacts
+    { ufSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled UTxO proofs target.
+    , ufToken :: TokenIdJSON
+    -- ^ Cage token being updated.
+    , ufStateUtxo :: UtxoEntry
+    -- ^ State UTxO consumed by the update.
+    , ufRequestUtxos :: [UtxoEntry]
+    -- ^ Pending request UTxOs batched into the update.
+    , ufWalletUtxos :: [UtxoEntry]
+    -- ^ Wallet UTxOs funding fees and collateral.
+    , ufTrieRoot :: Hex
+    -- ^ Trie root from the consumed state datum.
+    , ufTrieFacts :: [TrieFact]
+    -- ^ MPF facts for trie keys touched by the batch.
+    , ufProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON UpdateFacts where
+    toJSON UpdateFacts{..} =
+        object
+            [ "snapshot" .= ufSnapshot
+            , "token" .= ufToken
+            , "state_utxo" .= ufStateUtxo
+            , "request_utxos" .= ufRequestUtxos
+            , "wallet_utxos" .= ufWalletUtxos
+            , "trie_root" .= ufTrieRoot
+            , "trie_facts" .= ufTrieFacts
+            , "protocol_parameters" .= ufProtocolParameters
+            ]
+
+instance FromJSON UpdateFacts where
+    parseJSON =
+        withObject "UpdateFacts" $ \o ->
+            UpdateFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "state_utxo"
+                <*> o .: "request_utxos"
+                <*> o .: "wallet_utxos"
+                <*> o .: "trie_root"
+                <*> o .: "trie_facts"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema UpdateFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        utxoSchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        utxoListSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        trieFactsSchema <-
+            declareSchemaRef (Proxy @[TrieFact])
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "UpdateFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("state_utxo", utxoSchema)
+                    , ("request_utxos", utxoListSchema)
+                    , ("wallet_utxos", utxoListSchema)
+                    , ("trie_root", hexSchema)
+                    , ("trie_facts", trieFactsSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "state_utxo"
+                   , "request_utxos"
+                   , "wallet_utxos"
+                   , "trie_root"
+                   , "trie_facts"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only update response. Carries \
+                   \state, request and wallet UTxO witnesses, \
+                   \trie root/read facts, and unverified \
+                   \protocol parameters, with no unsigned \
+                   \transaction CBOR."
 
 -- | Facts-only retract response.
 --
