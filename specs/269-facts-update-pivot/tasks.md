@@ -40,7 +40,7 @@
 
 ## Slice S5 - Matrix, MOOG Boundary, And Final Proof
 
-- [ ] T005-S5 [US1] Add the update row to the facts API local-cluster matrix,
+- [X] T005-S5 [US1] Add the update row to the facts API local-cluster matrix,
       prove live `/tx/update` absence using the S4b validity-slot fact, record
       update MOOG boundary status in the PR body, run focused
       verifier/cage/HTTP/matrix commands plus `./gate.sh`, and leave the
