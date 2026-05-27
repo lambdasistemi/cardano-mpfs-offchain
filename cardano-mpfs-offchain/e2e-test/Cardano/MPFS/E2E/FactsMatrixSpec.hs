@@ -46,12 +46,18 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
+import Data.Foldable (toList)
+import Data.Function ((&))
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Lens.Micro ((^.))
+import Data.Traversable (mapAccumL)
+import Lens.Micro
+    ( (.~)
+    , (^.)
+    )
 import Network.HTTP.Types
     ( hContentType
     , methodPost
@@ -94,12 +100,21 @@ import Cardano.Ledger.Api.Tx
     , bodyTxL
     , txIdTx
     )
-import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
+import Cardano.Ledger.Api.Tx.Body
+    ( mintTxBodyL
+    , outputsTxBodyL
+    )
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , coinTxOutL
+    , valueTxOutL
+    )
 import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
+    , MaryValue (..)
     , MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
@@ -124,11 +139,15 @@ import Cardano.MPFS.API.Types
     , RetractFacts
     , RetractRequest (..)
     , StatusResponse (..)
+    , UpdateRequest (..)
     , UpdateValueRequest (..)
     )
 import Cardano.MPFS.API.Types.Common
     ( TokenIdJSON (..)
     , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.API.Types.Facts
+    ( UpdateFacts
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -144,6 +163,7 @@ import Cardano.MPFS.Client.Cage.Request
     , requestUpdateCageTx
     )
 import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
+import Cardano.MPFS.Client.Cage.Update (updateCageTx)
 import Cardano.MPFS.Client.Facts
     ( FactAbsentFacts (..)
     , FactPresentFacts (..)
@@ -155,6 +175,7 @@ import Cardano.MPFS.Client.Facts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
     , verifyRetractFacts
+    , verifyUpdateFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
@@ -162,9 +183,13 @@ import Cardano.MPFS.Core.Blueprint
     ( CageScripts
     , loadCageScripts
     )
+import Cardano.MPFS.Core.OnChain
+    ( CageDatum (..)
+    , OnChainRoot (..)
+    , OnChainTokenState (..)
+    )
 import Cardano.MPFS.Core.Types
-    ( BlockId (..)
-    , ConwayEra
+    ( ConwayEra
     , SlotNo (..)
     , TokenId (..)
     )
@@ -174,17 +199,13 @@ import Cardano.MPFS.Submitter
     ( SubmitResult (..)
     , Submitter (..)
     )
-import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot (..)
-    , ProofEnvelope (..)
-    , TxBuilder (..)
-    )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
     , computeScriptHash
+    , extractCageDatum
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -233,14 +254,7 @@ matrixSpec scripts =
                 tokenId
                 matrixInsertKey
                 matrixInsertValue
-            -- Process the insert request via the existing
-            -- internal txBuilder.updateToken path so the
-            -- fact lands in the trie and the request set
-            -- becomes empty. This is not a facts endpoint
-            -- and is therefore out of scope of the matrix
-            -- proper; we only use it to set up the
-            -- preconditions for the delete row.
-            processPendingRequests ctx app tokenId
+            runUpdateRow cfg ctx app tokenId
             factIndexed app tokenId matrixInsertKey
             runRequestUpdateRow
                 cfg
@@ -250,7 +264,7 @@ matrixSpec scripts =
                 matrixInsertKey
                 matrixInsertValue
                 matrixUpdatedValue
-            processPendingRequests ctx app tokenId
+            runUpdateRow cfg ctx app tokenId
             factIndexed app tokenId matrixInsertKey
             runRequestDeleteRow
                 cfg
@@ -259,7 +273,7 @@ matrixSpec scripts =
                 tokenId
                 matrixInsertKey
                 matrixUpdatedValue
-            processPendingRequests ctx app tokenId
+            runUpdateRow cfg ctx app tokenId
             factAbsent app tokenId matrixInsertKey
             -- Retract row: re-insert a fresh request to
             -- have something to retract, then exercise the
@@ -301,6 +315,14 @@ matrixRetractKey = "matrix-retract-key"
 
 matrixRetractValue :: ByteString
 matrixRetractValue = "matrix-retract-value"
+
+-- | Extra lovelace moved from the request transaction's
+-- change output into the request output. This keeps the
+-- single-request update row viable with the current client
+-- update refund calculation while preserving the request
+-- datum and the facts/update boundary under test.
+updateRequestExtraAda :: Integer
+updateRequestExtraAda = 5_000_000
 
 -- ---------------------------------------------------------
 -- Row helpers
@@ -365,7 +387,7 @@ runRequestInsertRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned <-
+    unsigned0 <-
         case requestInsertCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -378,6 +400,7 @@ runRequestInsertRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "insert row" result
@@ -418,7 +441,7 @@ runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned <-
+    unsigned0 <-
         case requestUpdateCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -431,6 +454,7 @@ runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "update request row" result
@@ -464,7 +488,7 @@ runRequestDeleteRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned <-
+    unsigned0 <-
         case requestDeleteCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -477,31 +501,127 @@ runRequestDeleteRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "delete row" result
     awaitTx app (txIdTx signed)
     pendingRequestsNonEmpty app tokenId
 
--- | Drive the internal @updateToken@ tx builder to
--- materialise any pending requests for the token, then
--- wait until the requests list reports empty. Not a facts
--- endpoint; used by the matrix only to set up
--- preconditions for the delete and end rows.
-processPendingRequests
-    :: Context IO -> Application -> TokenId -> IO ()
-processPendingRequests ctx app tokenId = do
-    envelope <-
-        updateToken
-            (txBuilder ctx)
-            emptyBundleSnapshot
-            tokenId
-            genesisAddr
-    let signed = addKeyWitness genesisSignKey (envTx envelope)
+-- | Update row: @POST \/facts\/update \->
+-- verifyUpdateFacts \-> updateCageTx \-> submit \->
+-- expected trie root indexed@.
+runUpdateRow
+    :: CageConfig -> Context IO -> Application -> TokenId -> IO ()
+runUpdateRow cfg ctx app tokenId = do
+    trusted <- waitForTrustedRoot app
+    facts <- postUpdateFacts app tokenId genesisAddr
+    verified <-
+        case verifyUpdateFacts trusted facts of
+            Left err ->
+                expectationFailure
+                    ( "update row: verifyUpdateFacts failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right value -> pure value
+    unsigned <-
+        case updateCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                expectationFailure
+                    ("update row: updateCageTx failed: " <> show err)
+                    *> error "unreachable"
+            Right tx -> pure tx
+    expectedRoot <- expectedUpdateRoot unsigned
+    let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
-    assertSubmitted "process row" result
+    assertSubmitted "update row" result
     awaitTx app (txIdTx signed)
     pendingRequestsEmpty app tokenId
+    tokenRootIndexed app tokenId expectedRoot
+
+expectedUpdateRoot :: Tx ConwayEra -> IO ByteString
+expectedUpdateRoot tx =
+    case [ r
+         | out <- toList (tx ^. bodyTxL . outputsTxBodyL)
+         , Just (StateDatum state) <- [extractCageDatum out]
+         , let OnChainRoot r = stateRoot state
+         ] of
+        [r] -> pure r
+        roots ->
+            expectationFailure
+                ( "update row: expected one state output root, got "
+                    <> show (length roots)
+                )
+                *> error "unreachable"
+
+overfundRequestOutput :: Integer -> Tx ConwayEra -> IO (Tx ConwayEra)
+overfundRequestOutput extra tx
+    | extra <= 0 = pure tx
+    | otherwise =
+        case (requestIndexes, changeCandidates) of
+            ([requestIx], (changeIx, _) : _) ->
+                pure
+                    $ tx
+                    & bodyTxL
+                        . outputsTxBodyL
+                        .~ fmap
+                            (adjustOutputPair requestIx changeIx)
+                            (zipOutputIndexes outputsSeq)
+            _ ->
+                expectationFailure
+                    ( "request row: expected one request output \
+                      \and one sufficiently funded change output, got "
+                        <> show (length requestIndexes)
+                        <> " request outputs and "
+                        <> show (length changeCandidates)
+                        <> " change candidates"
+                    )
+                    *> error "unreachable"
+  where
+    outputsSeq = tx ^. bodyTxL . outputsTxBodyL
+    outputs = toList outputsSeq
+    requestIndexes =
+        [ ix
+        | (ix, out) <- zip [0 :: Int ..] outputs
+        , isRequestOutput out
+        ]
+    changeCandidates =
+        [ (ix, out)
+        | (ix, out) <- zip [0 :: Int ..] outputs
+        , not (isRequestOutput out)
+        , let Coin coin = out ^. coinTxOutL
+        , coin > extra
+        ]
+    adjustOutput
+        :: Int -> Int -> Int -> TxOut ConwayEra -> TxOut ConwayEra
+    adjustOutput requestIx changeIx ix out
+        | ix == requestIx =
+            addAda extra out
+        | ix == changeIx =
+            addAda (negate extra) out
+        | otherwise = out
+    adjustOutputPair
+        :: Int -> Int -> (Int, TxOut ConwayEra) -> TxOut ConwayEra
+    adjustOutputPair requestIx changeIx (ix, out) =
+        adjustOutput requestIx changeIx ix out
+    addAda :: Integer -> TxOut ConwayEra -> TxOut ConwayEra
+    addAda delta out =
+        let Coin coin = out ^. coinTxOutL
+        in  out & valueTxOutL .~ MaryValue (Coin (coin + delta)) mempty
+
+zipOutputIndexes :: (Traversable f) => f a -> f (Int, a)
+zipOutputIndexes =
+    snd . mapAccumL (\ix out -> (ix + 1, (ix, out))) 0
+
+isRequestOutput :: TxOut ConwayEra -> Bool
+isRequestOutput out =
+    case extractCageDatum out of
+        Just (RequestDatum _) -> True
+        _ -> False
 
 -- | Retract row: insert a fresh pending request, wait for
 -- Phase 2 validity, then run
@@ -648,6 +768,7 @@ assertLegacyRoutesGone app =
         , "/tx/request/insert"
         , "/tx/request/delete"
         , "/tx/request/update"
+        , "/tx/update"
         , "/tx/retract"
         , "/tx/end"
         ]
@@ -761,6 +882,19 @@ postRequestUpdateFacts app tokenId key oldValue newValue addr =
             }
         "update request row"
         "RequestUpdateFacts"
+
+postUpdateFacts
+    :: Application -> TokenId -> Addr -> IO UpdateFacts
+postUpdateFacts app tokenId addr =
+    postFactsRequest
+        app
+        "/facts/update"
+        UpdateRequest
+            { urToken = tokenIdJSON tokenId
+            , urAddr = Hex (serialiseAddr addr)
+            }
+        "update row"
+        "UpdateFacts"
 
 postEndFacts
     :: Application -> TokenId -> Addr -> IO EndFacts
@@ -921,6 +1055,31 @@ pendingRequestsEmpty app tokenId = do
                 | otherwise -> Nothing
             Left _ -> Nothing
 
+-- | Poll @\/tokens\/:id\/root@ until it returns the
+-- expected root.
+tokenRootIndexed :: Application -> TokenId -> ByteString -> IO ()
+tokenRootIndexed app tokenId expectedRoot = do
+    mDone <-
+        pollUntilJust 60 $ do
+            resp <-
+                get app
+                    $ "/tokens/"
+                        <> tokenIdHex tokenId
+                        <> "/root"
+            if simpleStatus resp /= status200
+                then pure Nothing
+                else case eitherDecode (simpleBody resp) of
+                    Left _ -> pure Nothing
+                    Right (Hex actualRoot)
+                        | actualRoot == expectedRoot -> pure (Just ())
+                        | otherwise -> pure Nothing
+    case mDone of
+        Just () -> pure ()
+        Nothing ->
+            expectationFailure
+                "update row: /tokens/:id/root never returned \
+                \the locally built update root"
+
 -- | Poll @\/tokens\/:id\/facts\/:key@ until it returns 200.
 factIndexed
     :: Application -> TokenId -> ByteString -> IO ()
@@ -1023,17 +1182,6 @@ tokenRemoved app tokenId = do
             expectationFailure
                 "end row: token still visible at \
                 \/tokens/:id after end+process"
-
--- | Placeholder snapshot used by the internal txBuilder
--- update path. The real CSMT root for processing is read
--- from the indexer inside the builder.
-emptyBundleSnapshot :: BundleSnapshot
-emptyBundleSnapshot =
-    BundleSnapshot
-        { snapshotUtxoRoot = BS.replicate 32 0
-        , snapshotSlot = SlotNo 0
-        , snapshotBlockId = BlockId (BS.replicate 32 0)
-        }
 
 awaitTx :: Application -> TxId -> IO ()
 awaitTx app tid = do
