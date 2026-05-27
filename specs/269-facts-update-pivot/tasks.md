@@ -16,12 +16,13 @@
       pure verifier and exports with zero `Cardano.Ledger.Api.Tx` imports in
       the verifier surface.
 
-## Slice S3 - Cage Helper And Golden Vector
+## Slice S3 - Cage Helper And Structural Parity
 
-- [ ] T003-S3 [US1] Capture `legacy-update.cbor`, add
+- [ ] T003-S3 [US1] Add
       `Cardano.MPFS.Client.Cage.Update.updateCageTx`, implement/reuse the MPF
-      fold helper, and prove byte equality plus same-new-root behavior against
-      the legacy server-side update fold.
+      fold helper, and prove Q-001 structural parity for fact-derived update
+      tx fields plus same-new-root behavior against the legacy server-side
+      update fold.
 
 ## Slice S4 - HTTP Hard Swap And Swagger
 
@@ -58,14 +59,15 @@ verifier, and exports. The verifier surface must not import
 `Cardano.Ledger.Api.Tx`. Do not build transactions or add HTTP routing in this
 slice.
 
-### Slice S3: Cage Helper And Golden Vector
+### Slice S3: Cage Helper And Structural Parity
 
 Worker owns T003-S3. Write RED cage tests first for `updateCageTx`, including
-empty funding/policy behavior, byte equality against
-`specs/269-facts-update-pivot/test-vectors/legacy-update.cbor`, and a proof
-that the local MPF fold produces the same new state root as the legacy
-server-side fold for equivalent inputs. Capture the golden vector before S4
-removes the legacy route. Do not edit server route wiring in this slice.
+empty funding/policy behavior, Q-001 structural parity against the legacy
+update transaction shape for fact-derived fields, and a proof that the local
+MPF fold produces the same new state root as the legacy server-side fold for
+equivalent inputs. Exclude only provider-runtime validity upper slot and
+per-redeemer ExUnits from structural parity. Do not edit server route wiring in
+this slice.
 
 ### Slice S4: HTTP Hard Swap And Swagger
 

@@ -57,7 +57,7 @@ behavior.
 - `cardano-mpfs-offchain/test/main.hs`
 - `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
 - `docs/assets/swagger.json`
-- `specs/269-facts-update-pivot/test-vectors/legacy-update.cbor`
+- `specs/269-facts-update-pivot/research.md`
 - `gate.sh`
 
 Shared API files are included because prior facts slices define public
@@ -84,10 +84,12 @@ amending the worker commit, and pushes.
    tamper, trusted-root mismatch, CSMT proof tamper, MPF proof tamper, and
    trie-fact value tamper. Verifier code must not import
    `Cardano.Ledger.Api.Tx`.
-3. **Cage Helper And Golden Vector**: capture `legacy-update.cbor`, add
+3. **Cage Helper And Structural Parity**: add
    `Cardano.MPFS.Client.Cage.Update.updateCageTx`, implement/reuse the MPF
-   fold helper, and prove byte equality plus same-new-root behavior against
-   the legacy server-side fold.
+   fold helper, and prove Q-001 structural parity for fact-derived fields plus
+   same-new-root behavior against the legacy server-side fold. Validity upper
+   slot and per-redeemer ExUnits are provider-runtime fields and are excluded
+   from structural parity.
 4. **HTTP Hard Swap And Swagger**: add `POST /facts/update`, remove
    `/tx/update` from shared API, server wiring, client wrappers, active tests,
    and Swagger, then regenerate `docs/assets/swagger.json`. Reject and sweep
@@ -103,7 +105,7 @@ amending the worker commit, and pushes.
   `nix develop --quiet -c just unit-offchain "/update facts wire|readTrieFact|readRequestUtxosAt/"`
 - Verifier focused tests:
   `nix develop --quiet -c just unit-client "/verifyUpdateFacts/"`
-- Cage/golden focused tests:
+- Cage/structural-parity focused tests:
   `nix develop --quiet -c just unit-client "/updateCageTx/"`
 - HTTP route focused tests:
   `nix develop --quiet -c just unit-offchain "/POST /facts/update/"`
@@ -120,7 +122,7 @@ amending the worker commit, and pushes.
 
 ## Live-Boundary Smoke Decision
 
-Unit tests prove wire shape, proof replay, MPF folding, byte equality, and
+Unit tests prove wire shape, proof replay, MPF folding, structural parity, and
 route wiring. They do not prove the live server boundary builds the same state
 transition from facts and accepts it on-chain. The #278 facts API matrix is
 therefore required before this PR leaves draft. Because it is slow, `gate.sh`
