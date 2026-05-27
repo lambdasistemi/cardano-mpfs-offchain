@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.Client.Facts
 -- Description : Client surface for facts-only proof responses.
@@ -44,8 +46,10 @@ module Cardano.MPFS.Client.Facts
     , verifyFactAbsentFacts
     ) where
 
+import Codec.CBOR.Term qualified as CBOR
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
+import Data.Foldable (traverse_)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
 
@@ -102,7 +106,9 @@ import Cardano.MPFS.Client.Verify.Snapshot
     ( verifyVerificationSnapshot
     )
 import Cardano.MPFS.Client.Verify.TxView
-    ( verifyStateRootBinding
+    ( TxOutView (..)
+    , decodeTxOutView
+    , verifyStateRootBinding
     )
 
 -- | Opaque witness that boot facts have been checked against the
@@ -407,6 +413,7 @@ verifyUpdateFacts
             "update"
             (toClientWitnessedUtxoEntry ufStateUtxo)
             (toClientHex ufTrieRoot)
+        verifyUpdateValidityUpperSlot facts
         replayTrieFacts trieRootBs ufTrieFacts
         Right (VerifiedUpdateFacts facts)
       where
@@ -450,6 +457,207 @@ verifyUpdateFacts
                         (toClientTrieFact entry)
                 )
                 (zip [0 ..] entries)
+
+verifyUpdateValidityUpperSlot
+    :: UpdateFacts
+    -> Either VerifyError ()
+verifyUpdateValidityUpperSlot facts@UpdateFacts{..} = do
+    processTime <- updateStateProcessTime facts
+    processSlots <- processTimeSlotBound processTime
+    requestSubmittedAt <- updateRequestSubmittedAt facts
+    traverse_ validateSubmittedAt requestSubmittedAt
+    if slot <= 0
+        then
+            Left
+                $ TxBindingFailed
+                    "update.validity_upper_slot"
+                    "must be positive"
+        else
+            if slot <= snapshotSlot
+                then
+                    Left
+                        $ TxBindingFailed
+                            "update.validity_upper_slot"
+                            "must be greater than the snapshot slot"
+                else
+                    if slot
+                        > snapshotSlot
+                            + processSlots
+                            + updateValiditySlotBuffer
+                        then
+                            Left
+                                $ TxBindingFailed
+                                    "update.validity_upper_slot"
+                                    "too far beyond the snapshot slot"
+                        else Right ()
+  where
+    slot = ufValidityUpperSlot
+    snapshotSlot = fromIntegral (cpSlot (vsChainPoint ufSnapshot))
+
+updateValiditySlotBuffer :: Integer
+updateValiditySlotBuffer = 600
+
+validateSubmittedAt :: Integer -> Either VerifyError ()
+validateSubmittedAt value
+    | value >= 0 = Right ()
+    | otherwise =
+        Left
+            $ TxBindingFailed
+                "update.request_utxos[].datum.request.submitted_at"
+                "missing non-negative submitted_at"
+
+processTimeSlotBound :: Integer -> Either VerifyError Integer
+processTimeSlotBound value =
+    Right ((max 0 value + 999) `div` 1000)
+
+updateStateProcessTime
+    :: UpdateFacts
+    -> Either VerifyError Integer
+updateStateProcessTime UpdateFacts{..} =
+    stateProcessTimeFromEntry
+        "update.state_utxo"
+        ufStateUtxo
+
+updateRequestSubmittedAt
+    :: UpdateFacts
+    -> Either VerifyError [Integer]
+updateRequestSubmittedAt UpdateFacts{..} =
+    case ufRequestUtxos of
+        [] ->
+            Left
+                $ TxBindingFailed
+                    "update.request_utxos"
+                    "must not be empty"
+        entries ->
+            traverse
+                (uncurry requestSubmittedAtFromEntry)
+                (zip [0 :: Int ..] entries)
+
+stateProcessTimeFromEntry
+    :: T.Text -> UtxoEntry -> Either VerifyError Integer
+stateProcessTimeFromEntry field entry = do
+    datum <- inlineDatumFromEntry field entry
+    (datumTag, datumFields) <- parseConstr (field <> ".datum") datum
+    case (datumTag, datumFields) of
+        (1, [stateTerm]) -> parseStateProcessTime field stateTerm
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum")
+                    "expected state datum"
+
+parseStateProcessTime
+    :: T.Text -> CBOR.Term -> Either VerifyError Integer
+parseStateProcessTime field stateTerm = do
+    (stateTag, stateFields) <-
+        parseConstr (field <> ".datum.state") stateTerm
+    case (stateTag, stateFields) of
+        (0, [_owner, _root, _fee, processTime, _retract]) ->
+            termInteger
+                (field <> ".datum.state.process_time")
+                processTime
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum.state.process_time")
+                    "missing process time"
+
+requestSubmittedAtFromEntry
+    :: Int -> UtxoEntry -> Either VerifyError Integer
+requestSubmittedAtFromEntry ix entry = do
+    let field =
+            "update.request_utxos["
+                <> T.pack (show ix)
+                <> "]"
+    datum <- inlineDatumFromEntry field entry
+    (datumTag, datumFields) <- parseConstr (field <> ".datum") datum
+    case (datumTag, datumFields) of
+        (0, [requestTerm]) ->
+            parseRequestSubmittedAt field requestTerm
+        (0, requestFields@[_token, _owner, _key, _op, _fee, _submitted]) ->
+            parseRequestSubmittedAtFields field requestFields
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum")
+                    "expected request datum"
+
+parseRequestSubmittedAt
+    :: T.Text -> CBOR.Term -> Either VerifyError Integer
+parseRequestSubmittedAt field requestTerm = do
+    (requestTag, requestFields) <-
+        parseConstr (field <> ".datum.request") requestTerm
+    case (requestTag, requestFields) of
+        (0, fields@[_token, _owner, _key, _op, _fee, _submitted]) ->
+            parseRequestSubmittedAtFields field fields
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum.request.submitted_at")
+                    "missing non-negative submitted_at"
+
+parseRequestSubmittedAtFields
+    :: T.Text -> [CBOR.Term] -> Either VerifyError Integer
+parseRequestSubmittedAtFields field = \case
+    [_token, _owner, _key, _op, _fee, submitted] ->
+        termInteger
+            (field <> ".datum.request.submitted_at")
+            submitted
+    _ ->
+        Left
+            $ TxBindingFailed
+                (field <> ".datum.request.submitted_at")
+                "missing non-negative submitted_at"
+
+termInteger :: T.Text -> CBOR.Term -> Either VerifyError Integer
+termInteger field = \case
+    CBOR.TInt value -> Right (toInteger value)
+    CBOR.TInteger value -> Right value
+    _ -> Left (TxBindingFailed field "expected integer")
+
+inlineDatumFromEntry
+    :: T.Text -> UtxoEntry -> Either VerifyError CBOR.Term
+inlineDatumFromEntry field UtxoEntry{ueTxOutCbor} = do
+    TxOutView{txOutInlineDatum} <-
+        decodeTxOutView
+            (field <> ".tx_out")
+            (toClientHex ueTxOutCbor)
+    case txOutInlineDatum of
+        Just datum -> Right datum
+        Nothing ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".tx_out.datum")
+                    "inline datum missing"
+
+parseConstr
+    :: T.Text -> CBOR.Term -> Either VerifyError (Integer, [CBOR.Term])
+parseConstr field = \case
+    CBOR.TTagged tag fieldsTerm -> do
+        constr <- constructorIndex tag
+        fields <- parseList field fieldsTerm
+        Right (constr, fields)
+    _ -> Left (TxBindingFailed field "expected constructor data")
+  where
+    constructorIndex tag
+        | tag >= 121 && tag <= 127 =
+            Right (toInteger tag - 121)
+        | tag >= 1280 && tag <= 1400 =
+            Right (toInteger tag - 1280 + 7)
+        | tag == 102 =
+            Left
+                $ TxBindingFailed
+                    field
+                    "generic constructor data unsupported"
+        | otherwise =
+            Left (TxBindingFailed field "unsupported constructor tag")
+
+parseList
+    :: T.Text -> CBOR.Term -> Either VerifyError [CBOR.Term]
+parseList field = \case
+    CBOR.TList xs -> Right xs
+    CBOR.TListI xs -> Right xs
+    _ -> Left (TxBindingFailed field "expected list data")
 
 -- | Verify a facts-only retract response against an
 -- externally-supplied trusted UTxO-CSMT root. Replays the

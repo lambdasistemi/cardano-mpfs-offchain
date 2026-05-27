@@ -33,7 +33,7 @@
 
 ## Slice S4b - Validity Slot Fact
 
-- [ ] T006-S4b [US1] Extend `UpdateFacts` with provider-derived
+- [X] T006-S4b [US1] Extend `UpdateFacts` with provider-derived
       `validity_upper_slot`, compute it in `/facts/update`, verify it in
       `verifyUpdateFacts`, consume it in `updateCageTx`, refresh Swagger, and
       add Q-002 slot-tamper/parity coverage without adding ExUnits to facts.

@@ -53,6 +53,9 @@ import Cardano.Ledger.Address
     ( Addr (..)
     , Withdrawals (..)
     )
+import Cardano.Ledger.Allegra.Scripts
+    ( ValidityInterval (..)
+    )
 import Cardano.Ledger.Alonzo.Scripts
     ( AsIx (..)
     )
@@ -84,6 +87,7 @@ import Cardano.Ledger.Api.Tx.Body
     , networkIdTxBodyL
     , outputsTxBodyL
     , referenceInputsTxBodyL
+    , vldtTxBodyL
     , withdrawalsTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -338,6 +342,22 @@ spec = describe "updateCageTx" $ do
         txOutputAddresses tx
             `shouldSatisfy` elem ownerAddr
 
+    it "uses the fact-derived validity upper slot" $ do
+        cfg <- testCageConfig
+        let factSlot = 101
+            UpdateFixture{trustedRoot, facts} =
+                honestUpdateFixture
+                    cfg
+                    [(walletTxId, 2, walletTxOutBytes)]
+            factsWithSlot =
+                facts{ufValidityUpperSlot = factSlot}
+        verified <- expectVerified trustedRoot factsWithSlot
+        tx <- expectUpdateTx cfg verified
+        tx ^. bodyTxL . vldtTxBodyL
+            `shouldBe` ValidityInterval
+                SNothing
+                (SJust $ SlotNo $ fromIntegral factSlot)
+
     it "matches fact-derived legacy update structure" $ do
         cfg <- testCageConfig
         let UpdateFixture
@@ -378,8 +398,8 @@ spec = describe "updateCageTx" $ do
                 mkBasicTxOut
                     ownerAddr
                     (inject $ Coin $ 2_500_000 - 1_000_000 - txFee)
-        -- Q-001 excludes only provider-runtime fields: validity upper
-        -- slot and per-redeemer ExUnits.
+        -- Q-001 now excludes only provider-runtime per-redeemer ExUnits;
+        -- S4b makes the validity upper slot a verified fact.
         inputs
             `shouldBe` Set.fromList
                 (stateInput : walletInput : requestInputs)
@@ -399,6 +419,8 @@ spec = describe "updateCageTx" $ do
         body ^. certsTxBodyL `shouldBe` mempty
         body ^. withdrawalsTxBodyL `shouldBe` Withdrawals mempty
         body ^. networkIdTxBodyL `shouldBe` SNothing
+        body ^. vldtTxBodyL
+            `shouldBe` ValidityInterval SNothing (SJust $ SlotNo 100)
         tx ^. witsTxL . datsTxWitsL `shouldBe` mempty
         body ^. reqSignerHashesTxBodyL
             `shouldBe` Set.singleton expectedOwnerWitness
@@ -474,6 +496,7 @@ honestUpdateFixture cfg walletRows =
                 , ufWalletUtxos = walletEntries
                 , ufTrieRoot = Hex oldRoot
                 , ufTrieFacts = [trieFact]
+                , ufValidityUpperSlot = 100
                 , ufProtocolParameters =
                     pparamsFacts realisticPParams
                 }

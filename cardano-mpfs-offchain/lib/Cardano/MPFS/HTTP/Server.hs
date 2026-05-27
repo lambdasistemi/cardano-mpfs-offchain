@@ -175,6 +175,7 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     , extractCageDatum
     , requestAddrFromCfg
     )
+import Cardano.MPFS.TxBuilder.Real.Update (computeUpperSlot)
 
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.Binary qualified as L
@@ -963,6 +964,8 @@ factsUpdateHandler
             case stateTrieRootBytes stateOutBytes of
                 Left msg -> throwInternal msg
                 Right root -> pure root
+        validityUpperSlot <-
+            updateValidityUpperSlot ctx stateOutBytes requestUtxos
         pp <-
             liftIO
                 $ queryProtocolParams
@@ -976,6 +979,7 @@ factsUpdateHandler
                 funding
                 trieRoot
                 trieFacts
+                validityUpperSlot
                 pp
 
 -- | @POST \/facts\/retract@. Reads snapshot, the named
@@ -1190,6 +1194,36 @@ stateTrieRootBytes bytes = do
         _ ->
             Left
                 "facts/update.state_utxo missing state datum"
+
+updateValidityUpperSlot
+    :: Context IO
+    -> ByteString
+    -> [ResolvedWalletInput]
+    -> Handler Integer
+updateValidityUpperSlot ctx stateOutBytes requestUtxos = do
+    stateOut <-
+        decodeIndexedTxOut "facts/update.state_utxo" stateOutBytes
+    oldState <- case extractCageDatum stateOut of
+        Just (StateDatum state) -> pure state
+        _ ->
+            throwInternal "facts/update.state_utxo missing state datum"
+    requestPairs <-
+        traverse decodeRequest requestUtxos
+    slot <-
+        liftIO
+            $ computeUpperSlot
+                (provider ctx)
+                oldState
+                requestPairs
+    pure (toInteger (unSlotNo slot))
+  where
+    decodeRequest
+        (txIn, bytes, _proof) = do
+            out <-
+                decodeIndexedTxOut
+                    "facts/update.request_utxos[]"
+                    bytes
+            pure (txIn, out)
 
 -- | Extract @submitted_at@ from the inline datum of an
 -- indexed request UTxO. 500 if the output is missing a

@@ -14,7 +14,8 @@
 -- then outputs a new State UTxO with the updated root
 -- and per-request refund outputs.
 module Cardano.MPFS.TxBuilder.Real.Update
-    ( updateTokenImpl
+    ( computeUpperSlot
+    , updateTokenImpl
     ) where
 
 import Control.Exception (SomeException, try)

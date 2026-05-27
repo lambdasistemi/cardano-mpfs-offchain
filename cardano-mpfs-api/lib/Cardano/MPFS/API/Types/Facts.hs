@@ -508,6 +508,8 @@ data UpdateFacts = UpdateFacts
     -- ^ Trie root from the consumed state datum.
     , ufTrieFacts :: [TrieFact]
     -- ^ MPF facts for trie keys touched by the batch.
+    , ufValidityUpperSlot :: Integer
+    -- ^ Server-derived update validity upper slot.
     , ufProtocolParameters :: UnverifiedPParams
     -- ^ Unverified protocol parameter bytes.
     }
@@ -523,6 +525,7 @@ instance ToJSON UpdateFacts where
             , "wallet_utxos" .= ufWalletUtxos
             , "trie_root" .= ufTrieRoot
             , "trie_facts" .= ufTrieFacts
+            , "validity_upper_slot" .= ufValidityUpperSlot
             , "protocol_parameters" .= ufProtocolParameters
             ]
 
@@ -537,6 +540,7 @@ instance FromJSON UpdateFacts where
                 <*> o .: "wallet_utxos"
                 <*> o .: "trie_root"
                 <*> o .: "trie_facts"
+                <*> o .: "validity_upper_slot"
                 <*> o .: "protocol_parameters"
 
 instance ToSchema UpdateFacts where
@@ -553,6 +557,8 @@ instance ToSchema UpdateFacts where
             declareSchemaRef (Proxy @Hex)
         trieFactsSchema <-
             declareSchemaRef (Proxy @[TrieFact])
+        integerSchema <-
+            declareSchemaRef (Proxy @Integer)
         ppSchema <-
             declareSchemaRef (Proxy @UnverifiedPParams)
         pure
@@ -569,6 +575,7 @@ instance ToSchema UpdateFacts where
                     , ("wallet_utxos", utxoListSchema)
                     , ("trie_root", hexSchema)
                     , ("trie_facts", trieFactsSchema)
+                    , ("validity_upper_slot", integerSchema)
                     , ("protocol_parameters", ppSchema)
                     ]
             & required
@@ -579,6 +586,7 @@ instance ToSchema UpdateFacts where
                    , "wallet_utxos"
                    , "trie_root"
                    , "trie_facts"
+                   , "validity_upper_slot"
                    , "protocol_parameters"
                    ]
             & description

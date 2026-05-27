@@ -395,6 +395,7 @@ honestUpdateFacts =
                 , FactsWire.tfMpfProof = Wire.Hex "proof"
                 }
             ]
+        , FactsWire.ufValidityUpperSlot = 100
         , FactsWire.ufProtocolParameters =
             Wire.UnverifiedPParams
                 { Wire.uppVerified = False
