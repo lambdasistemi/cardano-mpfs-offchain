@@ -10,7 +10,7 @@
 
 ## Slice S2 - Update Facts Verifier
 
-- [ ] T002-S2 [US1] Add `VerifiedUpdateFacts` and `verifyUpdateFacts`: RED
+- [X] T002-S2 [US1] Add `VerifiedUpdateFacts` and `verifyUpdateFacts`: RED
       tests for happy path, snapshot tamper, trusted-root mismatch, CSMT proof
       tamper, MPF proof tamper, and trie-fact value tamper, then GREEN the
       pure verifier and exports with zero `Cardano.Ledger.Api.Tx` imports in
