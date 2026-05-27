@@ -17,6 +17,7 @@ module Cardano.MPFS.HTTP.Server
     , mkRequestInsertFacts
     , mkRequestDeleteFacts
     , mkRequestUpdateFacts
+    , mkUpdateFacts
     , mkRetractFacts
     , mkEndFacts
     ) where
@@ -74,6 +75,7 @@ import Cardano.MPFS.API.Types.Facts
     , RequestInsertFacts
     , RequestUpdateFacts
     , RetractFacts
+    , UpdateFacts
     )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -116,7 +118,6 @@ import Cardano.MPFS.HTTP.Types
     , TokenResponse (..)
     , UnverifiedPParams (..)
     , UpdateRequest (..)
-    , UpdateTxResponse
     , UpdateValueRequest (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
@@ -125,7 +126,6 @@ import Cardano.MPFS.HTTP.Types
     , bundleSnapshotToJSON
     , mkRejectTxResponse
     , mkSweepTxResponse
-    , mkUpdateTxResponse
     , parseAddr
     , requestToJSON
     , resolvedWalletInputToUtxoEntry
@@ -140,12 +140,16 @@ import Cardano.MPFS.HTTP.Types.Facts
     , mkRequestInsertFacts
     , mkRequestUpdateFacts
     , mkRetractFacts
+    , mkUpdateFacts
     )
 import Cardano.MPFS.Indexer.Reads
-    ( readNamedRequestUtxo
+    ( IndexerTx
+    , readNamedRequestUtxo
     , readRequestSetAt
+    , readRequestUtxosAt
     , readSnapshot
     , readStateUtxoAt
+    , readTrieFact
     , readWalletInputsAt
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -203,10 +207,10 @@ mkApp ctx =
             :<|> factsRequestInsertHandler ctx
             :<|> factsRequestDeleteHandler ctx
             :<|> factsRequestUpdateHandler ctx
+            :<|> factsUpdateHandler ctx
             :<|> factsRetractHandler ctx
             :<|> factsEndHandler ctx
             :<|> txRejectHandler ctx
-            :<|> txUpdateHandler ctx
             :<|> txSweepHandler ctx
             :<|> txSubmitHandler ctx
 
@@ -879,6 +883,101 @@ factsRequestUpdateHandler
                             inputs
                             pp
 
+-- | @POST \/facts\/update@. Reads snapshot, state UTxO,
+-- pending request UTxOs, owner funding inputs, and each
+-- request's MPF trie fact inside ONE indexer transaction,
+-- then returns facts for wallet-side update construction.
+factsUpdateHandler
+    :: Context IO
+    -> UpdateRequest
+    -> Handler UpdateFacts
+factsUpdateHandler
+    ctx
+    UpdateRequest
+        { urToken = tokenId
+        , urAddr = addrHex
+        } = do
+        let tid = tokenIdFromJSON tokenId
+            cfg = cfgCage ctx
+            cageAddr = cageAddrFromCfg cfg (network cfg)
+            requestAddr = requestAddrFromCfg cfg tid (network cfg)
+            policyId = cagePolicyIdFromCfg cfg
+        addr <- requireAddr addrHex
+        (mSnap, mStateUtxo, requestUtxos, funding, eTrieFacts) <-
+            liftIO
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    stateUtxo <-
+                        readStateUtxoAt
+                            cageAddr
+                            policyId
+                            tid
+                    reqs <- readRequestUtxosAt requestAddr
+                    wallet <- readWalletInputsAt addr
+                    trieFacts <-
+                        readRequestTrieFacts tid reqs
+                    pure
+                        ( snap
+                        , stateUtxo
+                        , reqs
+                        , wallet
+                        , trieFacts
+                        )
+        snap <- case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just s -> pure s
+        stateUtxo@(_, stateOutBytes, _) <- case mStateUtxo of
+            Nothing ->
+                throwError
+                    err404
+                        { errBody =
+                            "State UTxO not \
+                            \found for token"
+                        }
+            Just row -> pure row
+        when (null funding)
+            $ throwError
+                err400
+                    { errBody =
+                        "No wallet UTxOs at \
+                        \address"
+                    }
+        when (null requestUtxos)
+            $ throwError
+                err400
+                    { errBody =
+                        "No pending request UTxOs \
+                        \at request address"
+                    }
+        trieFacts <- case eTrieFacts of
+            Left msg -> throwInternal msg
+            Right facts -> pure facts
+        trieRoot <-
+            case stateTrieRootBytes stateOutBytes of
+                Left msg -> throwInternal msg
+                Right root -> pure root
+        pp <-
+            liftIO
+                $ queryProtocolParams
+                    (provider ctx)
+        pure
+            $ mkUpdateFacts
+                snap
+                tid
+                stateUtxo
+                requestUtxos
+                funding
+                trieRoot
+                trieFacts
+                pp
+
 -- | @POST \/facts\/retract@. Reads snapshot, the named
 -- request UTxO at the per-cage request address, the cage
 -- state UTxO, and the requester wallet UTxOs inside ONE
@@ -1020,26 +1119,77 @@ factsRetractHandler
 decodeIndexedTxOut
     :: Text -> ByteString -> Handler (TxOut ConwayEra)
 decodeIndexedTxOut path bytes =
+    case decodeIndexedTxOutEither path bytes of
+        Right out -> pure out
+        Left msg -> throwInternal msg
+
+decodeIndexedTxOutEither
+    :: Text -> ByteString -> Either Text (TxOut ConwayEra)
+decodeIndexedTxOutEither path bytes =
     case L.decodeFull
         (natVersion @11)
         (BSL.fromStrict bytes) of
-        Right out -> pure out
+        Right out -> Right out
         Left err ->
-            throwError
-                ServerError
-                    { errHTTPCode = 500
-                    , errReasonPhrase =
-                        "Internal Server Error"
-                    , errBody =
-                        BL.fromStrict
-                            $ TE.encodeUtf8
-                            $ path
-                                <> ": indexer "
-                                <> "TxOut decode "
-                                <> "failed: "
-                                <> T.pack (show err)
-                    , errHeaders = []
-                    }
+            Left
+                $ path
+                    <> ": indexer TxOut decode failed: "
+                    <> T.pack (show err)
+
+throwInternal :: Text -> Handler a
+throwInternal msg =
+    throwError
+        ServerError
+            { errHTTPCode = 500
+            , errReasonPhrase =
+                "Internal Server Error"
+            , errBody =
+                BL.fromStrict
+                    $ TE.encodeUtf8 msg
+            , errHeaders = []
+            }
+
+readRequestTrieFacts
+    :: TokenId
+    -> [ResolvedWalletInput]
+    -> IndexerTx (Either Text [Tx.TrieFact])
+readRequestTrieFacts tid = go []
+  where
+    go acc [] = pure (Right (reverse acc))
+    go acc ((_, requestOutBytes, _) : rest) =
+        case requestDatumKeyBytes requestOutBytes of
+            Left msg -> pure (Left msg)
+            Right key -> do
+                fact <- readTrieFact tid key
+                go (fact : acc) rest
+
+requestDatumKeyBytes :: ByteString -> Either Text ByteString
+requestDatumKeyBytes bytes = do
+    out <-
+        decodeIndexedTxOutEither
+            "facts/update.request_utxos[]"
+            bytes
+    case extractCageDatum out of
+        Just (RequestDatum request) ->
+            Right (OnChain.requestKey request)
+        _ ->
+            Left
+                "facts/update.request_utxos[] missing request datum"
+
+stateTrieRootBytes :: ByteString -> Either Text ByteString
+stateTrieRootBytes bytes = do
+    out <-
+        decodeIndexedTxOutEither
+            "facts/update.state_utxo"
+            bytes
+    case extractCageDatum out of
+        Just (StateDatum state) ->
+            Right
+                $ OnChain.unOnChainRoot
+                $ OnChain.stateRoot state
+        _ ->
+            Left
+                "facts/update.state_utxo missing state datum"
 
 -- | Extract @submitted_at@ from the inline datum of an
 -- indexed request UTxO. 500 if the output is missing a
@@ -1207,28 +1357,6 @@ txRejectHandler
                     tid
                     addr
         pure (mkRejectTxResponse bundle)
-
-txUpdateHandler
-    :: Context IO
-    -> UpdateRequest
-    -> Handler UpdateTxResponse
-txUpdateHandler
-    ctx
-    UpdateRequest
-        { urToken = tokenId
-        , urAddr = addrHex
-        } = do
-        let tid = tokenIdFromJSON tokenId
-        addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
-            liftIO
-                $ Tx.updateToken
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    addr
-        pure (mkUpdateTxResponse bundle)
 
 txSweepHandler
     :: Context IO

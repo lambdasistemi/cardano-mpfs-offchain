@@ -22,15 +22,15 @@ module Cardano.MPFS.Client.Http
     , RequestDeleteParams (..)
     , RequestUpdateParams (..)
     , RejectParams (..)
-    , UpdateParams (..)
+    , UpdateFactsParams (..)
 
       -- * Write endpoints
     , bootFacts
     , requestInsertFacts
     , requestDeleteFacts
     , requestUpdateFacts
+    , updateFacts
     , rejectTx
-    , updateTx
     , sweepTx
     , SweepParams (..)
     ) where
@@ -70,14 +70,12 @@ import Cardano.MPFS.API
     , FactsRequestDeleteAPI
     , FactsRequestInsertAPI
     , FactsRequestUpdateAPI
+    , FactsUpdateAPI
     , TxWriteAPI
     )
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.API.Types.Facts qualified as FactsWire
-import Cardano.MPFS.Client.Bundle
-    ( RejectTxResponse
-    , UpdateTxResponse
-    )
+import Cardano.MPFS.Client.Bundle (RejectTxResponse)
 import Cardano.MPFS.Client.Snapshot (Hex)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
@@ -87,7 +85,7 @@ import Cardano.MPFS.Client.Verify
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
-    , verifyUpdateTxResponse
+    , verifyUpdateFacts
     )
 
 -- | Whether HTTP wrappers run the offline verifier before returning a
@@ -193,18 +191,18 @@ instance ToJSON RejectParams where
             , "address" .= rejectAddress
             ]
 
--- | @POST /tx/update@ request body.
-data UpdateParams = UpdateParams
-    { updateToken :: Hex
-    , updateAddress :: Hex
+-- | @POST /facts/update@ request body.
+data UpdateFactsParams = UpdateFactsParams
+    { updateFactsToken :: Hex
+    , updateFactsAddress :: Hex
     }
     deriving stock (Eq, Show)
 
-instance ToJSON UpdateParams where
-    toJSON UpdateParams{..} =
+instance ToJSON UpdateFactsParams where
+    toJSON UpdateFactsParams{..} =
         object
-            [ "token" .= updateToken
-            , "address" .= updateAddress
+            [ "token" .= updateFactsToken
+            , "address" .= updateFactsAddress
             ]
 
 -- | Fetch boot facts. The post-split #243 shape: caller supplies
@@ -265,6 +263,21 @@ requestUpdateFacts http trustedRoot params =
         factsRequestUpdateClient
         (verifyRequestUpdateFacts trustedRoot)
 
+-- | Fetch update facts and verify the bundled state,
+-- request, wallet, and trie witnesses against the
+-- externally-trusted CSMT root.
+updateFacts
+    :: MpfsHttp
+    -> TrustedRoot
+    -> UpdateFactsParams
+    -> IO (Either ClientError FactsWire.UpdateFacts)
+updateFacts http trustedRoot params =
+    runWriteEndpoint
+        http
+        params
+        factsUpdateClient
+        (verifyUpdateFacts trustedRoot)
+
 -- | Build a reject transaction.
 rejectTx
     :: MpfsHttp
@@ -272,14 +285,6 @@ rejectTx
     -> IO (Either ClientError RejectTxResponse)
 rejectTx http params =
     runWriteEndpoint http params txRejectClient verifyRejectTxResponse
-
--- | Build an update transaction.
-updateTx
-    :: MpfsHttp
-    -> UpdateParams
-    -> IO (Either ClientError UpdateTxResponse)
-updateTx http params =
-    runWriteEndpoint http params txUpdateClient verifyUpdateTxResponse
 
 runWriteEndpoint
     :: ( ToJSON params
@@ -351,10 +356,10 @@ factsRequestDeleteClient
     :: Wire.DeleteRequest -> ClientM FactsWire.RequestDeleteFacts
 factsRequestUpdateClient
     :: Wire.UpdateValueRequest -> ClientM FactsWire.RequestUpdateFacts
+factsUpdateClient
+    :: Wire.UpdateRequest -> ClientM FactsWire.UpdateFacts
 txRejectClient
     :: Wire.RejectRequest -> ClientM Wire.RejectTxResponse
-txUpdateClient
-    :: Wire.UpdateRequest -> ClientM Wire.UpdateTxResponse
 txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 factsBootClient =
@@ -369,8 +374,10 @@ factsRequestDeleteClient =
 factsRequestUpdateClient =
     client (Proxy :: Proxy FactsRequestUpdateAPI)
 
+factsUpdateClient =
+    client (Proxy :: Proxy FactsUpdateAPI)
+
 txRejectClient
-    :<|> txUpdateClient
     :<|> txSweepClient =
         client (Proxy :: Proxy TxWriteAPI)
 

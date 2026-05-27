@@ -38,12 +38,12 @@ module Cardano.MPFS.HTTP.API
     , FactsRequestInsertAPI
     , FactsRequestDeleteAPI
     , FactsRequestUpdateAPI
+    , FactsUpdateAPI
     , FactsRetractAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
     , TxRejectAPI
-    , TxUpdateAPI
     , TxSweepAPI
     , TxWriteAPI
     , TxSubmitAPI
@@ -66,6 +66,7 @@ import Cardano.MPFS.API
     , FactsRequestInsertAPI
     , FactsRequestUpdateAPI
     , FactsRetractAPI
+    , FactsUpdateAPI
     , StatusAPI
     , TokenAPI
     , TokenFactAPI
@@ -77,7 +78,6 @@ import Cardano.MPFS.API
     , TxRejectAPI
     , TxSubmitAPI
     , TxSweepAPI
-    , TxUpdateAPI
     , TxWriteAPI
     , UtxoProofAPI
     , UtxoResolveAPI

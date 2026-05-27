@@ -796,8 +796,8 @@
             ],
             "type": "object"
         },
-        "TrieFactJSON": {
-            "description": "Trie read: key, optional value, and MPF proof against a trie root",
+        "TrieFact": {
+            "description": "Trie read fact: key, optional value, and MPF proof against a trie root.",
             "properties": {
                 "key": {
                     "$ref": "#/definitions/Hex"
@@ -851,40 +851,52 @@
             ],
             "type": "object"
         },
-        "UpdateProofJSON": {
-            "description": "Proof payload for POST /tx/update",
+        "UpdateFacts": {
+            "description": "Facts-only update response. Carries state, request and wallet UTxO witnesses, trie root/read facts, and unverified protocol parameters, with no unsigned transaction CBOR.",
             "properties": {
-                "funding": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_utxos": {
                     "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
+                        "$ref": "#/definitions/UtxoEntry"
                     },
                     "type": "array"
                 },
-                "requests": {
-                    "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
-                    },
-                    "type": "array"
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
                 },
-                "state": {
-                    "$ref": "#/definitions/WitnessedUtxo"
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
                 },
-                "trie_read": {
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "trie_facts": {
                     "items": {
-                        "$ref": "#/definitions/TrieFactJSON"
+                        "$ref": "#/definitions/TrieFact"
                     },
                     "type": "array"
                 },
                 "trie_root": {
                     "$ref": "#/definitions/Hex"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
-                "state",
-                "requests",
-                "funding",
+                "snapshot",
+                "token",
+                "state_utxo",
+                "request_utxos",
+                "wallet_utxos",
                 "trie_root",
-                "trie_read"
+                "trie_facts",
+                "protocol_parameters"
             ],
             "type": "object"
         },
@@ -901,26 +913,6 @@
             "required": [
                 "token",
                 "address"
-            ],
-            "type": "object"
-        },
-        "UpdateTxResponse": {
-            "description": "Proof-bearing response for POST /tx/update",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/UpdateProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
-                "snapshot",
-                "proof"
             ],
             "type": "object"
         },
@@ -1290,6 +1282,37 @@
                 }
             }
         },
+        "/facts/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UpdateFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/metrics": {
             "get": {
                 "produces": [
@@ -1580,37 +1603,6 @@
                         "description": "",
                         "schema": {
                             "$ref": "#/definitions/SweepTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
-                    }
-                }
-            }
-        },
-        "/tx/update": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/UpdateRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/UpdateTxResponse"
                         }
                     },
                     "400": {
