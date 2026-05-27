@@ -26,7 +26,7 @@
 
 ## Slice S4 - HTTP Hard Swap And Swagger
 
-- [ ] T004-S4 [US1] Add `POST /facts/update`, remove the legacy
+- [X] T004-S4 [US1] Add `POST /facts/update`, remove the legacy
       `POST /tx/update` path from shared API/server/client wrappers/tests,
       regenerate `docs/assets/swagger.json`, and prove Swagger/API expose only
       the new update facts shape while reject and sweep remain untouched.

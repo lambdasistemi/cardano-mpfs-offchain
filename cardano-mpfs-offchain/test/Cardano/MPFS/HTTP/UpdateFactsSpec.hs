@@ -17,16 +17,33 @@ import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy.Char8 qualified as BL
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (traverse_)
+import Data.List qualified as List
 import Data.Proxy (Proxy (..))
 import Data.Swagger qualified as Swagger
+import Network.HTTP.Types
+    ( hContentType
+    , methodPost
+    , status400
+    )
+import Network.Wai (Request (..))
+import Network.Wai.Test
+    ( SRequest (..)
+    , SResponse (..)
+    , defaultRequest
+    , runSession
+    , setPath
+    , srequest
+    )
 import Test.Hspec
     ( Spec
     , describe
     , expectationFailure
     , it
     , shouldBe
+    , shouldSatisfy
     )
 import Test.QuickCheck (generate)
 
@@ -43,6 +60,7 @@ import Cardano.MPFS.API.Types.Facts
     , UtxoRef (..)
     , VerificationSnapshot (..)
     )
+import Cardano.MPFS.Context (Context)
 import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
@@ -53,6 +71,9 @@ import Cardano.MPFS.Core.Types
     , TxIn
     )
 import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.Server (mkApp)
+import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
+import Cardano.MPFS.HTTP.Swagger (renderSwaggerJSON)
 import Cardano.MPFS.HTTP.Types.Facts (mkUpdateFacts)
 import Cardano.MPFS.Indexer.Reads
     ( IndexerTx
@@ -66,7 +87,43 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder qualified as Tx
 
 spec :: Spec
-spec = describe "update facts wire" $ do
+spec = do
+    describe "POST " $ do
+        describe "facts" $ do
+            describe "update|update facts wire" $ do
+                it "is routed and rejects malformed addresses with 400" $ do
+                    ctx <- mkTestContext
+                    resp <- postJson ctx "/facts/update" badUpdateRequest
+                    simpleStatus resp `shouldBe` status400
+
+                it "documents facts route and drops legacy tx route"
+                    $ case eitherDecode renderSwaggerJSON of
+                        Right (Object swagger) ->
+                            case KM.lookup "paths" swagger of
+                                Just (Object paths) -> do
+                                    KM.member "/facts/update" paths
+                                        `shouldBe` True
+                                    KM.member "/tx/update" paths
+                                        `shouldBe` False
+                                    case KM.lookup "/facts/update" paths of
+                                        Just route ->
+                                            BL.unpack (encode route)
+                                                `shouldSatisfy` List.isInfixOf
+                                                    "UpdateFacts"
+                                        Nothing ->
+                                            expectationFailure
+                                                "Swagger missing /facts/update"
+                                _ ->
+                                    expectationFailure
+                                        "Swagger paths are not an object"
+                        Right _ ->
+                            expectationFailure
+                                "Swagger document is not an object"
+                        Left err ->
+                            expectationFailure
+                                $ "Could not decode Swagger JSON: "
+                                    <> err
+
     it "encodes the shared TrieFact shape with nullable values" $ do
         let fact =
                 TrieFact
@@ -169,6 +226,37 @@ assertJSONKeys keys = \case
             keys
     _ ->
         expectationFailure "Expected JSON object"
+
+-- | Deliberately malformed serialized address with a valid token
+-- field, so handler-level address validation determines the status.
+badUpdateRequest :: String
+badUpdateRequest =
+    "{\"token\":\"63616665\",\"address\":\"00\"}"
+
+postJson
+    :: Context IO
+    -> ByteString
+    -> String
+    -> IO SResponse
+postJson ctx path body =
+    runSession
+        ( srequest
+            SRequest
+                { simpleRequest =
+                    (setPath defaultRequest path)
+                        { requestMethod = methodPost
+                        , requestHeaders =
+                            [
+                                ( hContentType
+                                , "application/json"
+                                )
+                            ]
+                        }
+                , simpleRequestBody =
+                    BL.pack body
+                }
+        )
+        (mkApp ctx)
 
 sampleUpdateFacts :: UpdateFacts
 sampleUpdateFacts =

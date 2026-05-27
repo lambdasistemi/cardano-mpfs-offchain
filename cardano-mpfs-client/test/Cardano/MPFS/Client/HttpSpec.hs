@@ -35,11 +35,13 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldNotContain
     , shouldSatisfy
     )
 
 import Cardano.MPFS.API.Encoding qualified as Wire
 import Cardano.MPFS.API.Types qualified as Wire
+import Cardano.MPFS.API.Types.Facts qualified as FactsWire
 import Cardano.MPFS.Client
     ( BaseUrl (..)
     , BootFactsParams (..)
@@ -51,7 +53,7 @@ import Cardano.MPFS.Client
     , RequestInsertParams (..)
     , RequestUpdateParams (..)
     , Scheme (..)
-    , UpdateParams (..)
+    , UpdateFactsParams (..)
     , VerifierMode (..)
     , VerifyError (..)
     , bootFacts
@@ -59,13 +61,12 @@ import Cardano.MPFS.Client
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateFacts
-    , updateTx
+    , updateFacts
     )
 import Cardano.MPFS.Client.Fixtures
     ( honestBootTrustedRoot
     , honestRejectResponse
     , honestUnsignedBootResponse
-    , honestUpdateResponse
     )
 
 spec :: Spec
@@ -78,6 +79,10 @@ spec = do
                     result <- endpointCall client
                     result `shouldSatisfy` isRight
                     assertSeen seen endpointPath endpointRequest
+
+        it "does not post any write case to the legacy update tx route"
+            $ map endpointPath writeEndpointCases
+            `shouldNotContain` [["tx", "update"]]
 
         it "runs the verifier when configured with RunVerifier"
             $ withJsonServer
@@ -239,10 +244,17 @@ writeEndpointCases =
         (Aeson.encode honestRejectResponse)
         (voidRight . (`rejectTx` rejectParams))
     , EndpointCase
-        ["tx", "update"]
-        (Aeson.toJSON updateParams)
-        (Aeson.encode honestUpdateResponse)
-        (voidRight . (`updateTx` updateParams))
+        ["facts", "update"]
+        (Aeson.toJSON updateFactsParams)
+        (Aeson.encode honestUpdateFacts)
+        ( \http ->
+            voidRight
+                ( updateFacts
+                    http
+                    honestBootTrustedRoot
+                    updateFactsParams
+                )
+        )
     ]
 
 bootFactsParams :: BootFactsParams
@@ -340,8 +352,8 @@ requestUpdateParams =
 rejectParams :: RejectParams
 rejectParams = RejectParams sampleToken sampleAddress
 
-updateParams :: UpdateParams
-updateParams = UpdateParams sampleToken sampleAddress
+updateFactsParams :: UpdateFactsParams
+updateFactsParams = UpdateFactsParams sampleToken sampleAddress
 
 sampleAddress
     , sampleToken
@@ -356,6 +368,51 @@ sampleKey = Hex "11"
 sampleValue = Hex "22"
 sampleOldValue = Hex "33"
 sampleNewValue = Hex "44"
+
+honestUpdateFacts :: FactsWire.UpdateFacts
+honestUpdateFacts =
+    FactsWire.UpdateFacts
+        { FactsWire.ufSnapshot =
+            Wire.VerificationSnapshot
+                { Wire.vsUtxoRoot =
+                    Wire.Hex (BS.replicate 32 0x11)
+                , Wire.vsChainPoint =
+                    Wire.ChainPointJSON
+                        { Wire.cpSlot = 42
+                        , Wire.cpBlockId =
+                            Wire.Hex (BS.replicate 32 0x22)
+                        }
+                }
+        , FactsWire.ufToken = Wire.TokenIdJSON "\x00"
+        , FactsWire.ufStateUtxo = sampleUtxoEntry 0
+        , FactsWire.ufRequestUtxos = [sampleUtxoEntry 1]
+        , FactsWire.ufWalletUtxos = [sampleUtxoEntry 2]
+        , FactsWire.ufTrieRoot = Wire.Hex (BS.replicate 32 0x33)
+        , FactsWire.ufTrieFacts =
+            [ FactsWire.TrieFact
+                { FactsWire.tfKey = Wire.Hex "key"
+                , FactsWire.tfValue = Just (Wire.Hex "value")
+                , FactsWire.tfMpfProof = Wire.Hex "proof"
+                }
+            ]
+        , FactsWire.ufProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
+
+sampleUtxoEntry :: Int -> Wire.UtxoEntry
+sampleUtxoEntry ix =
+    Wire.UtxoEntry
+        { Wire.ueRef =
+            Wire.UtxoRef
+                { Wire.urTxId = Wire.Hex (BS.replicate 32 0x44)
+                , Wire.urTxIx = fromIntegral ix
+                }
+        , Wire.ueTxOutCbor = Wire.Hex "\x82\x01\x02"
+        , Wire.ueInclusionProof = Wire.Hex "proof"
+        }
 
 data SeenRequest = SeenRequest
     { seenPath :: [Text]
