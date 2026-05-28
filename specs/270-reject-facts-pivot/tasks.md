@@ -20,7 +20,7 @@
 
 ## Slice S2 - Reject Facts Wire Type
 
-- [ ] T002-S2 [US1] Add reject facts wire/indexer foundation: RED
+- [X] T002-S2 [US1] Add reject facts wire/indexer foundation: RED
       tests for `RejectFacts` JSON/schema and reject's rejectable-
       request-batch read helper, then GREEN `RejectFacts` with the
       Q-S2-001 shape (batch `rfRequestUtxos :: [UtxoEntry]`, both

@@ -293,6 +293,7 @@ test-suite unit-tests
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
     , rocksdb-kv-transactions:kv-transactions
+    , servant-server                           >=0.20 && <0.21
     , swagger2
     , temporary
     , text
@@ -305,6 +306,7 @@ test-suite unit-tests
     Cardano.MPFS.Generators
     Cardano.MPFS.HTTP.BootFactsSpec
     Cardano.MPFS.HTTP.EndFactsSpec
+    Cardano.MPFS.HTTP.RejectFactsSpec
     Cardano.MPFS.HTTP.RequestDeleteFactsSpec
     Cardano.MPFS.HTTP.RequestInsertFactsSpec
     Cardano.MPFS.HTTP.RequestsSpec

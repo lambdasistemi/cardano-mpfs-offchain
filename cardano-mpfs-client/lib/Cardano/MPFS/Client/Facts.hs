@@ -11,6 +11,7 @@ module Cardano.MPFS.Client.Facts
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
     , RequestUpdateFacts (..)
+    , RejectFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
     , UpdateFacts (..)
@@ -75,6 +76,7 @@ import Cardano.MPFS.API.Types.Common
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts (..)
     , EndFacts (..)
+    , RejectFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
