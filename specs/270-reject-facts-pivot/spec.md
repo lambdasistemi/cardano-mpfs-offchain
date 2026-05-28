@@ -15,23 +15,27 @@ accepted on-chain and indexed.
   type, so the next slices have a stable DSL to reuse. Migrate the
   inline tamper helpers currently sitting in `UpdateFactsSpec.hs` to
   the DSL primitives. Reinstate the negative update-facts e2e
-  assertion that #269 S7 dropped.
+  assertion that #269 S7 dropped. Shipped as commit bb6cd0a.
 - `RejectFacts` wire type, JSON instances, and Swagger schema.
-- `runForgeRejectFacts` runner added once `RejectFacts` exists.
+- `runForgeRejectFacts :: CsmtForge () -> RejectFacts -> RejectFacts`
+  added once `RejectFacts` exists. No trie-level runner for reject —
+  the envelope has no trie facts.
 - `VerifiedRejectFacts`, `verifyRejectFacts`, and `rejectCageTx` in
   `cardano-mpfs-client`.
-- A provider-derived reject validity upper slot in `RejectFacts`,
-  verified as a facts response field and consumed by `rejectCageTx`
-  instead of deriving a slot directly from POSIX milliseconds.
-- Indexer reads for reject's named request UTxO (reuse the update
-  helpers where shape matches; add reject-specific reads only when
-  needed).
+- Provider-derived reject validity **lower** and **upper** slots in
+  `RejectFacts`, verified as facts response fields and consumed by
+  `rejectCageTx` (lower → `Tx.validFrom`, upper → `Tx.validTo`)
+  instead of deriving slots directly from POSIX milliseconds.
+- Indexer reads for reject's batch of rejectable request UTxOs (the
+  filter `submitted_at + process_time + retract_time < now` lifted
+  out of the legacy `queryRejectContext`). Reuse update read helpers
+  where shape matches; add reject-specific reads only when needed.
 - `POST /facts/reject` in the shared Servant API and offchain server.
 - Removal of the legacy `POST /tx/reject` path in the same PR.
 - Legacy reject parity proof for `rejectCageTx`: structural equality
-  for every fact-derived transaction field, excluding provider-runtime
-  validity slot and per-redeemer ExUnits, plus same-new-root proof for
-  the MPF fold (when reject mutates the trie).
+  for every fact-derived transaction field, excluding per-redeemer
+  ExUnits, plus same-state proof (state root unchanged) against the
+  legacy server-side reject builder.
 - Focused verifier, cage, HTTP, Swagger, and local-cluster reject
   coverage.
 - MOOG boundary-status record for reject. This is boundary evidence
@@ -42,19 +46,22 @@ accepted on-chain and indexed.
 - Add a facts-only reject endpoint accepting the existing reject
   request payload: token id and operator funding address.
 - Return one atomic snapshot bundle containing the state UTxO, the
-  named request UTxO selected for rejection, wallet funding UTxOs, the
-  state trie root, MPF trie facts for the reject fold step (if any),
-  unverified protocol parameters, and the provider-derived validity
-  upper slot for the reject deadline.
+  batch of request UTxOs selected for rejection (matching the legacy
+  `rejectRequestsImpl` filter), wallet funding UTxOs, unverified
+  protocol parameters, and the server-derived validity lower and
+  upper slots. Reject does not mutate the MPF trie, so no trie root
+  or trie facts are returned.
 - Add a pure client verifier that checks the trusted root against the
-  response snapshot, replays every CSMT UTxO proof, checks the state
-  datum's trie root binding, and replays each MPF trie fact.
+  response snapshot, replays every CSMT UTxO proof (state, request,
+  wallet), and validates the validity-slot envelope. Reject does not
+  carry MPF trie facts, so the verifier has no trie replay step.
 - Add `rejectCageTx` under the client cage helpers. It must decode
-  only verified facts, apply the reject mutation locally, produce the
-  expected new state (root unchanged if reject does not alter the
-  trie), enforce wallet policy, and return an unsigned transaction for
-  local signing. It must consume the verified validity upper slot from
-  facts and must not treat POSIX milliseconds as `SlotNo`.
+  only verified facts, replay the reject step locally (state root
+  unchanged), enforce wallet policy, and return an unsigned
+  transaction for local signing. It must consume the verified
+  validity lower slot from facts via `Tx.validFrom` and the verified
+  validity upper slot via `Tx.validTo`, and must not treat POSIX
+  milliseconds as `SlotNo`.
 - Capture legacy reject parity evidence before deleting `/tx/reject`
   and prove structural equality against the local cage helper for all
   fields derivable from facts.
@@ -79,8 +86,10 @@ accepted on-chain and indexed.
   `runForgeUpdateFacts` plus the verifier's actual reported field
   path.
 - `verifyRejectFacts` tests cover happy path, snapshot tamper,
-  trusted-root mismatch, CSMT proof tamper, MPF proof tamper,
-  trie-fact value tamper, and validity-slot tamper.
+  trusted-root mismatch, CSMT proof tamper (state, request_ins[i],
+  funding[i]), and validity-slot tamper (lower and upper).
+  Trie-fact tamper is documented as vacuous (see deviation note
+  below) because reject does not carry trie facts.
 - `POST /facts/reject` is the only reject API path; the legacy
   transaction route is absent from API code, server wiring, typed
   client wrappers, Swagger, and live boundary checks.
@@ -108,16 +117,39 @@ accepted on-chain and indexed.
 ## Deviation From Issue Acceptance Criteria
 
 The issue's original "byte-equality vs the golden vector" requirement
-is replaced with structural equality plus same-new-state proof, by
-analogy with #269 Q-001 and Q-002. Reject's legacy builder also
-derives provider-runtime fields (validity upper slot, per-redeemer
-ExUnits) that are not present in `RejectFacts`; the structural-parity
-boundary mirrors update's.
+is replaced with structural equality plus same-state proof, by
+analogy with #269 Q-001 and Q-002. Reject's legacy builder derives
+provider-runtime fields (validity slots, per-redeemer ExUnits) that
+are not present in `RejectFacts`; the structural-parity boundary
+mirrors update's.
 
-Validity-upper-slot is an era-schedule lookup applied to the request
-deadline. By #269 Q-002 it is a verified field of `RejectFacts`, not a
-client guess; per-redeemer ExUnits remain client-side evaluator output
-and stay excluded from whole-transaction byte equality.
+Validity-slot conversion is an era-schedule lookup applied to request
+deadlines. By #269 Q-002 the slot is a verified field of
+`RejectFacts`, not a client guess. Reject ships **both bounds**: the
+lower slot mirrors the legacy `Tx.validFrom lowerSlot` (latest
+Phase-3 deadline among the rejected requests) and the upper slot is
+an explicit TTL (every tx needs a finite validity window for replay
+protection; relying on node defaults is sloppy). Per-redeemer ExUnits
+remain client-side evaluator output and stay excluded from
+whole-transaction byte equality.
+
+Per Q-S2-001 (operator decision 2026-05-28), reject ships the
+**batch** request-UTxO shape that mirrors the legacy
+`rejectRequestsImpl` (`rfRequestUtxos :: [UtxoEntry]`), not a
+singular "named" request UTxO. Single-target reject would require
+matching changes in the on-chain validator (out of #270 scope).
+
+Per Q-S2-001, reject does **not** carry MPF trie facts.
+`prepareRejectState` in `Real/Reject.hs` leaves `stateRoot`
+unchanged; `RejectProof` carries only CSMT-layer state/request/
+funding witnesses with no trie content; the on-chain reject
+validator does not fold the trie. The issue acceptance criterion
+"trie-fact-tamper" is therefore vacuous for `verifyRejectFacts`. The
+S3 verifier test matrix covers happy / snapshot-tamper /
+trusted-root-mismatch / proof-tamper (state, request_ins[i],
+funding[i]) / validity-slot-tamper (lower, upper). The S1 DSL still
+provides facts-shape trie runners for the cases where trie facts ARE
+consumed; reject is not one of those cases.
 
 ## Architectural Invariants
 

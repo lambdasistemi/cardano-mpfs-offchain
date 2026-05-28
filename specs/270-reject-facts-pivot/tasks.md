@@ -21,39 +21,43 @@
 ## Slice S2 - Reject Facts Wire Type
 
 - [ ] T002-S2 [US1] Add reject facts wire/indexer foundation: RED
-      tests for `RejectFacts` JSON/schema and reject's named
-      request-UTxO read helper, then GREEN `RejectFacts` (with
-      `validity_upper_slot` from the start, per #269 Q-002), server
-      conversion helpers, and `Indexer.Reads` primitives needed by
-      the later HTTP route. Reuse the existing `TrieFact` type. Do
-      not add `/facts/reject`, remove `/tx/reject`, or edit client
-      cage builders in this slice.
+      tests for `RejectFacts` JSON/schema and reject's rejectable-
+      request-batch read helper, then GREEN `RejectFacts` with the
+      Q-S2-001 shape (batch `rfRequestUtxos :: [UtxoEntry]`, both
+      `rfValidityLowerSlot` and `rfValidityUpperSlot`, NO trie root,
+      NO trie facts), server conversion helpers, and `Indexer.Reads`
+      primitives needed by the later HTTP route. Do not add
+      `/facts/reject`, remove `/tx/reject`, or edit client cage
+      builders in this slice.
 
 ## Slice S3 - Reject Facts Verifier (with DSL completion)
 
-- [ ] T003-S3 [US1] Add the reject runners to the forgery DSL
-      (`runForgeRejectFacts` for CSMT, `runForgeRejectFactsTrie` for
-      MPF), then RED client verifier tests in
+- [ ] T003-S3 [US1] Add the reject runner to the forgery DSL
+      (`runForgeRejectFacts` for CSMT — no trie-level runner since
+      reject has no trie facts), then RED client verifier tests in
       `cardano-mpfs-client/test/Cardano/MPFS/Client/RejectFactsSpec.hs`
       including happy path, snapshot tamper, trusted-root mismatch,
-      CSMT proof tamper, MPF proof tamper, trie-fact value tamper,
-      and validity-slot tamper. GREEN the opaque verified witness,
-      `verifyRejectFacts`, and exports. The verifier surface must
-      not import `Cardano.Ledger.Api.Tx`. Do not build transactions
-      or add HTTP routing in this slice.
+      CSMT proof tamper (state, request_ins[i], funding[i]), and
+      validity-slot tamper (lower and upper). Per Q-S2-001 the
+      trie-fact-tamper case is vacuous and is documented in the spec.
+      GREEN the opaque verified witness, `verifyRejectFacts`, and
+      exports. The verifier surface must not import
+      `Cardano.Ledger.Api.Tx`. Do not build transactions or add HTTP
+      routing in this slice.
 
 ## Slice S4 - Cage Helper And Structural Parity
 
 - [ ] T004-S4 [US1] Add `Cardano.MPFS.Client.Cage.Reject.rejectCageTx`.
-      RED cage tests in
+      The cage helper consumes `rfValidityLowerSlot` via
+      `Tx.validFrom` and `rfValidityUpperSlot` via `Tx.validTo`. RED
+      cage tests in
       `cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/RejectSpec.hs`
       for empty funding/policy behaviour, structural parity against
       the legacy reject transaction shape for fact-derived fields, and
-      a proof that the local cage helper produces the same new state
+      a proof that the local cage helper produces the same state
       (root unchanged) as the legacy server-side reject for equivalent
-      inputs. Exclude only provider-runtime validity upper slot and
-      per-redeemer ExUnits from structural parity. Do not edit server
-      route wiring in this slice.
+      inputs. Exclude only per-redeemer ExUnits from structural
+      parity. Do not edit server route wiring in this slice.
 
 ## Slice S5 - HTTP Hard Swap, Swagger, Matrix, MOOG Boundary
 
@@ -176,33 +180,46 @@ When done:
 ### Slice S2: Reject Facts Wire Type
 
 Worker owns T002-S2. Write RED tests first for `RejectFacts`
-JSON/schema and the missing reject indexer read helpers. Then add the
-wire type to `cardano-mpfs-api`, server conversion helpers to
-`Cardano.MPFS.HTTP.Types.Facts`, and the `Indexer.Reads` primitives
-needed by the later HTTP route. Include `validity_upper_slot` from the
-start, computed via the same provider conversion the legacy reject
-path uses. Reuse the existing `TrieFact` type. Do not add
-`/facts/reject`, remove `/tx/reject`, or edit client cage builders in
-this slice.
+JSON/schema and the missing reject indexer read helper (rejectable-
+request batch filter). Then add the wire type to `cardano-mpfs-api`,
+server conversion helpers to `Cardano.MPFS.HTTP.Types.Facts`, and the
+`Indexer.Reads` primitives needed by the later HTTP route. Per
+Q-S2-001, the wire shape is:
+
+- `rfToken :: TokenIdJSON`
+- `rfSnapshot :: VerificationSnapshot`
+- `rfStateUtxo :: UtxoEntry`
+- `rfRequestUtxos :: [UtxoEntry]` (batch; mirrors legacy
+  `rejectRequestsImpl` filter)
+- `rfWalletUtxos :: [UtxoEntry]`
+- `rfValidityLowerSlot :: Integer` (latest Phase-3 deadline among
+  rejected requests; from the same provider conversion the legacy
+  reject path uses)
+- `rfValidityUpperSlot :: Integer` (explicit TTL)
+- `rfProtocolParameters :: UnverifiedPParams`
+
+No `rfTrieRoot`, no `rfTrieFacts` — the on-chain reject validator
+does not fold the trie. Do not add `/facts/reject`, remove
+`/tx/reject`, or edit client cage builders in this slice.
 
 ### Slice S3: Reject Facts Verifier (with DSL completion)
 
 Worker owns T003-S3. First, extend
-`Cardano.MPFS.Client.Verify.DSL` with `runForgeRejectFacts ::
-CsmtForge () -> RejectFacts -> RejectFacts` and
-`runForgeRejectFactsTrie :: TrieForge () -> RejectFacts ->
-RejectFacts`. Path grammar:
+`Cardano.MPFS.Client.Verify.DSL` with
+`runForgeRejectFacts :: CsmtForge () -> RejectFacts -> RejectFacts`.
+No trie-level runner — reject has no trie facts. Path grammar:
 `"state_utxo"` → `rfStateUtxo`,
-`"request_utxo"` → `rfRequestUtxo` (single entry, no index),
+`"request_utxos[i]"` → `rfRequestUtxos[i]`,
 `"wallet_utxos[i]"` → `rfWalletUtxos[i]`,
 `FlipSnapshotRoot` → `rfSnapshot.utxoRoot`. Then RED client verifier
 tests in
 `cardano-mpfs-client/test/Cardano/MPFS/Client/RejectFactsSpec.hs`
 covering happy path, snapshot tamper, trusted-root mismatch, CSMT
-proof tamper (state/request/wallet), MPF proof tamper, trie-fact
-value tamper, and validity-slot tamper. Then GREEN the opaque
-verified witness, `verifyRejectFacts`, and exports. The verifier
-surface must not import `Cardano.Ledger.Api.Tx`.
+proof tamper (state, request_utxos[i], wallet_utxos[i]), and
+validity-slot tamper (lower and upper). Per Q-S2-001 the
+trie-fact-tamper case is vacuous and is NOT in the matrix. Then
+GREEN the opaque verified witness, `verifyRejectFacts`, and exports.
+The verifier surface must not import `Cardano.Ledger.Api.Tx`.
 
 ### Slice S4: Cage Helper And Structural Parity
 

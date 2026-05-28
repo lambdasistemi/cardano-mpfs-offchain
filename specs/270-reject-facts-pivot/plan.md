@@ -7,48 +7,53 @@ indexer read for:
 
 - the current verification snapshot,
 - the cage state UTxO,
-- the named request UTxO selected for rejection,
-- the operator wallet UTxOs that fund fees and collateral,
-- MPF trie facts needed to validate the reject step against the state
-  datum's current root, and
-- the provider-derived validity upper slot for the reject deadline.
+- the batch of rejectable request UTxOs (filter:
+  `submitted_at + process_time + retract_time < now`, mirroring the
+  legacy `queryRejectContext`),
+- the operator wallet UTxOs that fund fees and collateral, and
+- provider-derived validity **lower** and **upper** slots for the
+  reject deadline (lower = latest Phase-3 deadline among the rejected
+  requests, upper = explicit TTL).
 
 The server returns those facts plus unverified protocol parameters. It
 does not build a transaction. The client verifies the facts against an
-independently trusted UTxO root, replays the CSMT and MPF proofs,
-enforces wallet policy, builds the unsigned transaction with
-`rejectCageTx`, signs locally, and submits.
+independently trusted UTxO root, replays the CSMT proofs, enforces
+wallet policy, builds the unsigned transaction with `rejectCageTx`,
+signs locally, and submits.
 
-The reject wire shape is expected to contain:
+The reject wire shape is:
 
 - `snapshot`
 - `token`
 - `state_utxo`
-- `request_utxo`
+- `request_utxos` (list — batch)
 - `wallet_utxos`
-- `trie_root`
-- `trie_facts`
+- `validity_lower_slot`
 - `validity_upper_slot`
 - `protocol_parameters`
 
-The `trie_root` must match the root embedded in the state UTxO datum.
-Each `TrieFact` reuses the API type introduced for update (#269); the
-field grammar is identical (`key`, optional `value`, `mpf_proof`).
+Per Q-S2-001 (operator decision 2026-05-28), reject does **not** carry
+MPF trie facts or a trie root. The legacy `RejectProof` already
+contains only CSMT-layer state/request/funding witnesses; the
+on-chain reject validator does not fold the trie; `prepareRejectState`
+in `Real/Reject.hs` leaves `stateRoot` unchanged. Trie content would
+be ceremonial — no fold output to bind, no validator constraint to
+witness — so the wire shape omits it. The issue acceptance
+criterion "trie-fact-tamper" is documented as vacuous; the S3
+verifier matrix replaces it with validity-slot-tamper coverage on
+both bounds.
 
-Reject is a single-request operation, so the wire shape names
-`request_utxo` (one entry) rather than the update shape's
-`request_utxos` (list). Trie content for reject mirrors the
-on-chain reject validator: the per-request fold step is exercised
-without committing a new root; the structural-parity proof in S4 is
-"same wallet-policy, same `invalidHereafter`, root unchanged" rather
-than the update "same new root".
+Per Q-S2-001, the request set is the **batch** that mirrors the
+legacy `rejectRequestsImpl` filter, not a singular "named" request
+UTxO. Single-target reject would require matching changes in the
+on-chain validator (out of #270 scope).
 
 Per #269 Q-002, reject validity slot conversion is an era-schedule
-fact, not an evaluator result: the server computes the upper slot
-from the request deadline using its provider, the verifier checks
-the field's basic consistency, and `rejectCageTx` consumes the
-verified slot. Per-redeemer ExUnits remain client-local evaluator
-output.
+fact, not an evaluator result: the server computes both bounds using
+its provider, the verifier checks the field envelopes, and
+`rejectCageTx` consumes the verified slots
+(`lower → Tx.validFrom`, `upper → Tx.validTo`). Per-redeemer
+ExUnits remain client-local evaluator output.
 
 ## Shared Surfaces
 
@@ -109,32 +114,28 @@ S3's `runForgeRejectFacts` reuses the exact pattern S1 establishes.
    `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`
    using `runForgeUpdateFacts` plus the verifier's reported field
    path. No reject types touched in this slice.
-2. **Reject Facts Wire Type**: add `RejectFacts` DTO, JSON
-   instances, ToSchema instance, server conversion helpers, and
-   indexer reads for reject's named request UTxO. Reuse the `TrieFact`
-   already shipped by #269. No HTTP route added yet.
+2. **Reject Facts Wire Type**: add `RejectFacts` DTO (batch
+   `rfRequestUtxos :: [UtxoEntry]`, both `rfValidityLowerSlot` and
+   `rfValidityUpperSlot` from the start, NO trie root, NO trie
+   facts), JSON instances, ToSchema instance, server conversion
+   helpers, and indexer reads for the rejectable-request batch
+   filter. No HTTP route added yet.
 3. **Reject Facts Verifier (with DSL completion)**: add
    `runForgeRejectFacts :: CsmtForge () -> RejectFacts -> RejectFacts`
-   and `runForgeRejectFactsTrie :: TrieForge () -> RejectFacts ->
-   RejectFacts` to the DSL, then `VerifiedRejectFacts` and
-   `verifyRejectFacts` with focused tests covering happy path,
-   snapshot tamper, trusted-root mismatch, CSMT proof tamper, MPF
-   proof tamper, trie-fact value tamper, and validity-slot tamper.
-   Verifier code must not import `Cardano.Ledger.Api.Tx`.
+   to the DSL (no trie-level runner — reject has no trie facts), then
+   `VerifiedRejectFacts` and `verifyRejectFacts` with focused tests
+   covering happy path, snapshot tamper, trusted-root mismatch, CSMT
+   proof tamper (state, request_ins[i], funding[i]), and
+   validity-slot tamper (lower and upper). Trie-fact tamper is
+   documented as vacuous (operator decision Q-S2-001). Verifier code
+   must not import `Cardano.Ledger.Api.Tx`.
 4. **Cage Helper And Structural Parity**: add
-   `Cardano.MPFS.Client.Cage.Reject.rejectCageTx`. Prove structural
-   parity for fact-derived fields plus same-new-state (root
-   unchanged) behaviour against the legacy server-side reject builder.
-   Validity upper slot and per-redeemer ExUnits are provider-runtime
-   fields and are excluded from structural parity.
-4b. **Validity Slot Fact** (only if S2/S3/S4 reveal the same gap as
-   #269 S4b): extend `RejectFacts` with `validity_upper_slot`, have
-   the server compute it via provider slot conversion, verify it,
-   consume it in `rejectCageTx`, update Swagger, and document the
-   #269 Q-002 boundary applies here too. If S2 already includes the
-   field (likely, since the brief calls for it from the start), S4b
-   collapses into S2 and this entry is dropped from `tasks.md` after
-   S3 review.
+   `Cardano.MPFS.Client.Cage.Reject.rejectCageTx`. Consume the
+   verified lower slot via `Tx.validFrom` and upper slot via
+   `Tx.validTo`. Prove structural parity for fact-derived fields plus
+   same-state (root unchanged) behaviour against the legacy
+   server-side reject builder. Per-redeemer ExUnits are
+   provider-runtime and excluded from structural parity.
 5. **HTTP Hard Swap, Swagger, Matrix, And MOOG Boundary**: add
    `POST /facts/reject`, remove `/tx/reject` from shared API, server
    wiring, client wrappers, active tests, and Swagger, then regenerate
@@ -187,11 +188,11 @@ draft. The matrix command is run and recorded explicitly; `gate.sh`
 keeps the standard `just ci` spine plus the final legacy-route
 sentinel.
 
-If the matrix surfaces a slot or validity issue analogous to #269
-Q-002, S4b ships the corresponding fact. If the matrix surfaces a
-funding issue analogous to #269 S8, scope is contained to reject's
-request side; the update fix has already shipped on main
-(c42e7bb).
+Q-S2-001 pre-empted the validity-slot lesson: S2 ships both bounds
+from the start, so an S4b-style fact-extension slice is not
+expected. If the matrix surfaces a funding issue analogous to #269
+S8, scope is contained to reject's request side; the update fix has
+already shipped on main (c42e7bb).
 
 ## MOOG Boundary
 
