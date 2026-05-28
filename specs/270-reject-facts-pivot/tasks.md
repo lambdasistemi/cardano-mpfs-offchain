@@ -47,7 +47,7 @@
 
 ## Slice S4 - Cage Helper And Structural Parity
 
-- [ ] T004-S4 [US1] Add `Cardano.MPFS.Client.Cage.Reject.rejectCageTx`.
+- [X] T004-S4 [US1] Add `Cardano.MPFS.Client.Cage.Reject.rejectCageTx`.
       The cage helper consumes `rfValidityLowerSlot` via
       `Tx.validFrom` and `rfValidityUpperSlot` via `Tx.validTo`. RED
       cage tests in

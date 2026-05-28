@@ -77,6 +77,7 @@ library
     Cardano.MPFS.Client.Cage.End
     Cardano.MPFS.Client.Cage.Identity
     Cardano.MPFS.Client.Cage.Policy
+    Cardano.MPFS.Client.Cage.Reject
     Cardano.MPFS.Client.Cage.Request
     Cardano.MPFS.Client.Cage.Retract
     Cardano.MPFS.Client.Cage.Update
@@ -158,6 +159,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Cage.BootSpec
     Cardano.MPFS.Client.Cage.EndSpec
+    Cardano.MPFS.Client.Cage.RejectSpec
     Cardano.MPFS.Client.Cage.RequestSpec
     Cardano.MPFS.Client.Cage.RetractSpec
     Cardano.MPFS.Client.Cage.UpdateSpec

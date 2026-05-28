@@ -153,6 +153,7 @@ module Cardano.MPFS.Client
     , requestInsertCageTx
     , requestDeleteCageTx
     , requestUpdateCageTx
+    , rejectCageTx
     , retractCageTx
     , updateCageTx
     ) where
@@ -183,6 +184,9 @@ import Cardano.MPFS.Client.Cage.Config
 import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
+    )
+import Cardano.MPFS.Client.Cage.Reject
+    ( rejectCageTx
     )
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
