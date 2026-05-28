@@ -115,6 +115,16 @@ amending the worker commit, and pushes.
    client verifier and can build a wallet-side update transaction, while
    retaining legacy `/tx/reject` proof-envelope coverage and `/facts/end`
    facts coverage. Do not restore `/tx/update`.
+8. **Request-Funding Wart Removal**: remove the e2e-only request overfunding
+   scaffolding. Diagnostic evidence without the helper shows
+   `reqValue=2831830`, `tipAmount=1000000`, initial `refundCoin=1831830`,
+   `refMin=849070`, then update fee convergence attempts a negative refund
+   coin. A-S8 selects the bounded request-side fix: derive the request
+   `feeBuffer` from the live Conway protocol parameters using a conservative
+   worst-case update transaction envelope, keep both request builders aligned,
+   keep update refund output shape unchanged, then drop the test-only ADA-shift
+   helpers from `ProofsSpec` and `FactsMatrixSpec`, with request-builder unit
+   expectations updated to assert the bounded funding behavior directly.
 
 ## Verification
 
@@ -136,6 +146,10 @@ amending the worker commit, and pushes.
   `nix develop --quiet -c just e2e-facts-matrix`
 - Proof-envelope regression proof:
   `nix develop --quiet -c just e2e "read and write envelopes"`
+- Request-funding wart proof:
+  `nix develop --quiet -c just unit-client`, then focused e2e runs
+  `nix develop --quiet -c just e2e "read and write envelopes"` and
+  `nix develop --quiet -c just e2e "facts API coverage matrix"`
 - Final PR gate:
   `./gate.sh`
 - Static verifier-surface check before finalization:

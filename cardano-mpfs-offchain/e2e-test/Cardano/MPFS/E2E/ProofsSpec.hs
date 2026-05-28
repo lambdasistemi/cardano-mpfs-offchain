@@ -46,17 +46,11 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
-import Data.Foldable (toList)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Traversable (mapAccumL)
-import Lens.Micro
-    ( (&)
-    , (.~)
-    , (^.)
-    )
+import Lens.Micro ((^.))
 import Network.HTTP.Types
     ( hContentType
     , methodPost
@@ -93,19 +87,12 @@ import Cardano.Ledger.Address (Addr, serialiseAddr)
 import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body
     ( mintTxBodyL
-    , outputsTxBodyL
-    )
-import Cardano.Ledger.Api.Tx.Out
-    ( TxOut
-    , coinTxOutL
-    , valueTxOutL
     )
 import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Binary (decodeFull, natVersion)
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
-    , MaryValue (..)
     , MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
@@ -123,7 +110,6 @@ import Cardano.MPFS.Core.Blueprint
     ( CageScripts
     , loadCageScripts
     )
-import Cardano.MPFS.Core.OnChain (CageDatum (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
@@ -152,7 +138,6 @@ import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
     , computeScriptHash
-    , extractCageDatum
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -239,13 +224,6 @@ factKey = "hello"
 factValue :: ByteString
 factValue = "world"
 
--- | Extra lovelace moved from the request transaction's
--- change output into the request output. This mirrors the facts
--- matrix e2e and keeps wallet-side update refunds non-negative
--- without changing the request datum.
-updateRequestExtraAda :: Integer
-updateRequestExtraAda = 5_000_000
-
 proofsSpec :: CageScripts -> Spec
 proofsSpec scripts =
     it "read and write envelopes carry verifiable proofs"
@@ -296,11 +274,7 @@ proofsSpec scripts =
             -- /requests endpoint returns a non-empty
             -- witnessed list.
             _ <-
-                signSubmitAwaitOverfundedRequest
-                    updateRequestExtraAda
-                    awaitTimeout
-                    app
-                    ctx
+                submit
                     $ requestInsert
                         tb
                         emptySnap
@@ -680,88 +654,6 @@ signSubmitAwait timeout app ctx buildBundle = do
     assertSubmitted result
     awaitTx timeout app (txIdTx signed)
     pure signed
-
-signSubmitAwaitOverfundedRequest
-    :: Integer
-    -> Int
-    -> Application
-    -> Context IO
-    -> IO (ProofEnvelope p)
-    -> IO (Tx ConwayEra)
-signSubmitAwaitOverfundedRequest extra timeout app ctx buildBundle = do
-    bundle <- buildBundle
-    unsigned <- overfundRequestOutput extra (envTx bundle)
-    let signed =
-            addKeyWitness genesisSignKey unsigned
-    result <- submitTx (submitter ctx) signed
-    assertSubmitted result
-    awaitTx timeout app (txIdTx signed)
-    pure signed
-
-overfundRequestOutput :: Integer -> Tx ConwayEra -> IO (Tx ConwayEra)
-overfundRequestOutput extra tx
-    | extra <= 0 = pure tx
-    | otherwise =
-        case (requestIndexes, changeCandidates) of
-            ([requestIx], (changeIx, _) : _) ->
-                pure
-                    $ tx
-                    & bodyTxL
-                        . outputsTxBodyL
-                        .~ fmap
-                            (adjustOutputPair requestIx changeIx)
-                            (zipOutputIndexes outputsSeq)
-            _ ->
-                expectationFailure
-                    ( "expected one request output and one \
-                      \sufficiently funded change output, got "
-                        <> show (length requestIndexes)
-                        <> " request outputs and "
-                        <> show (length changeCandidates)
-                        <> " change candidates"
-                    )
-                    *> error "unreachable"
-  where
-    outputsSeq = tx ^. bodyTxL . outputsTxBodyL
-    outputs = toList outputsSeq
-    requestIndexes =
-        [ ix
-        | (ix, out) <- zip [0 :: Int ..] outputs
-        , isRequestOutput out
-        ]
-    changeCandidates =
-        [ (ix, out)
-        | (ix, out) <- zip [0 :: Int ..] outputs
-        , not (isRequestOutput out)
-        , let Coin coin = out ^. coinTxOutL
-        , coin > extra
-        ]
-    adjustOutput
-        :: Int -> Int -> Int -> TxOut ConwayEra -> TxOut ConwayEra
-    adjustOutput requestIx changeIx ix out
-        | ix == requestIx =
-            addAda extra out
-        | ix == changeIx =
-            addAda (negate extra) out
-        | otherwise = out
-    adjustOutputPair
-        :: Int -> Int -> (Int, TxOut ConwayEra) -> TxOut ConwayEra
-    adjustOutputPair requestIx changeIx (ix, out) =
-        adjustOutput requestIx changeIx ix out
-    addAda :: Integer -> TxOut ConwayEra -> TxOut ConwayEra
-    addAda delta out =
-        let Coin coin = out ^. coinTxOutL
-        in  out & valueTxOutL .~ MaryValue (Coin (coin + delta)) mempty
-
-zipOutputIndexes :: (Traversable f) => f a -> f (Int, a)
-zipOutputIndexes =
-    snd . mapAccumL (\ix out -> (ix + 1, (ix, out))) 0
-
-isRequestOutput :: TxOut ConwayEra -> Bool
-isRequestOutput out =
-    case extractCageDatum out of
-        Just (RequestDatum _) -> True
-        _ -> False
 
 -- | Placeholder snapshot used by e2e tests. The
 -- builder embeds it verbatim but does not yet use

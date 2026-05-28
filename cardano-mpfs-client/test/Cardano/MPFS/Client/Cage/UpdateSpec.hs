@@ -15,6 +15,7 @@ import Data.ByteString qualified as BS
 import Data.Coerce (coerce)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
+import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Data.Word (Word32)
 import Lens.Micro ((&), (.~), (^.))
@@ -52,6 +53,7 @@ import Cardano.Crypto.Hash
 import Cardano.Ledger.Address
     ( Addr (..)
     , Withdrawals (..)
+    , serialiseAddr
     )
 import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
@@ -67,6 +69,9 @@ import Cardano.Ledger.Api.PParams
     ( emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
+    , ppMinFeeAL
+    , ppMinFeeBL
+    , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
     ( Data (..)
@@ -93,7 +98,9 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , addrTxOutL
+    , coinTxOutL
     , datumTxOutL
+    , getMinCoinTxOut
     , mkBasicTxOut
     )
 import Cardano.Ledger.Api.Tx.Wits
@@ -106,8 +113,10 @@ import Cardano.Ledger.Babbage.PParams
     ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
-    ( Inject (..)
+    ( BoundedRational (..)
+    , Inject (..)
     , Network (..)
+    , NonNegativeInterval
     , StrictMaybe (..)
     , TxIx (..)
     )
@@ -144,6 +153,7 @@ import Cardano.Ledger.Mary.Value
 import Cardano.Ledger.Plutus.ExUnits
     ( ExUnits (..)
     , Prices (..)
+    , txscriptfee
     )
 import Cardano.Ledger.Plutus.Language
     ( Language (..)
@@ -164,7 +174,8 @@ import Cardano.MPFS.API.Types.Common
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.API.Types.Facts
-    ( TrieFact (..)
+    ( RequestUpdateFacts (..)
+    , TrieFact (..)
     , UpdateFacts (..)
     )
 import Cardano.MPFS.Cage.Blueprint
@@ -204,12 +215,16 @@ import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
     )
+import Cardano.MPFS.Client.Cage.Request
+    ( requestUpdateCageTx
+    )
 import Cardano.MPFS.Client.Cage.Update
     ( foldUpdateTrieFacts
     , updateCageTx
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedUpdateFacts
+    , verifyRequestUpdateFacts
     , verifyUpdateFacts
     )
 import Cardano.MPFS.Client.TrustedRoot
@@ -358,6 +373,49 @@ spec = describe "updateCageTx" $ do
                 SNothing
                 (SJust $ SlotNo $ fromIntegral factSlot)
 
+    it "processes a request funded at the bounded request fee envelope" $ do
+        cfg <- testCageConfig
+        requestOut <- requestUpdateOutputFromRequestBuilder cfg
+        requestOut ^. coinTxOutL
+            `shouldBe` minFundedRequestCoin cfg
+        let UpdateFixture{trustedRoot, facts} =
+                honestUpdateFixtureWithRequestOut
+                    cfg
+                    requestOut
+                    [(walletTxId, 2, walletTxOutBytes)]
+        verified <- expectVerified trustedRoot facts
+        tx <- expectUpdateTx cfg verified
+        let refundOut = singleRequestRefundOutput tx
+        refundOut ^. addrTxOutL `shouldBe` ownerAddr
+        refundOut ^. coinTxOutL
+            `shouldSatisfy` (>= refundMinCoin)
+
+    it "keeps the bounded request fee envelope above measured update fee" $ do
+        cfg <- testCageConfig
+        let UpdateFixture{trustedRoot, facts} =
+                honestUpdateFixtureWithRequestCoin
+                    cfg
+                    (minFundedRequestCoin cfg)
+                    [(walletTxId, 2, walletTxOutBytes)]
+        verified <- expectVerified trustedRoot facts
+        tx <- expectUpdateTx cfg verified
+        let Coin perReqFee = tx ^. bodyTxL . feeTxBodyL
+            Coin feeBound = feeBufferUpperBound realisticPParams
+        feeBound `shouldSatisfy` (>= perReqFee)
+
+    it "keeps the refund non-negative at minimum request funding" $ do
+        cfg <- testCageConfig
+        let UpdateFixture{trustedRoot, facts} =
+                honestUpdateFixtureWithRequestCoin
+                    cfg
+                    (minFundedRequestCoin cfg)
+                    [(walletTxId, 2, walletTxOutBytes)]
+        verified <- expectVerified trustedRoot facts
+        tx <- expectUpdateTx cfg verified
+        let Coin refundCoin =
+                singleRequestRefundOutput tx ^. coinTxOutL
+        refundCoin `shouldSatisfy` (>= 0)
+
     it "matches fact-derived legacy update structure" $ do
         cfg <- testCageConfig
         let UpdateFixture
@@ -394,10 +452,11 @@ spec = describe "updateCageTx" $ do
             expectedStateOut =
                 stateTxOut cfg (unTokenId token) expectedNewRoot
             Coin txFee = body ^. feeTxBodyL
+            Coin requestCoin = minFundedRequestCoin cfg
             expectedRefund =
                 mkBasicTxOut
                     ownerAddr
-                    (inject $ Coin $ 2_500_000 - 1_000_000 - txFee)
+                    (inject $ Coin $ requestCoin - 1_000_000 - txFee)
         -- Q-001 now excludes only provider-runtime per-redeemer ExUnits;
         -- S4b makes the validity upper slot a verified fact.
         inputs
@@ -465,20 +524,40 @@ honestUpdateFixture
     :: CageConfig
     -> [(ByteString, Word, ByteString)]
     -> UpdateFixture
-honestUpdateFixture cfg walletRows =
+honestUpdateFixture cfg =
+    honestUpdateFixtureWithRequestCoin cfg (minFundedRequestCoin cfg)
+
+honestUpdateFixtureWithRequestCoin
+    :: CageConfig
+    -> Coin
+    -> [(ByteString, Word, ByteString)]
+    -> UpdateFixture
+honestUpdateFixtureWithRequestCoin cfg requestCoin =
+    honestUpdateFixtureWithRequestOut
+        cfg
+        (requestTxOut requestCoin requestAddr requestDatum)
+  where
+    token = tokenIdFromJSON sampleToken
+    requestAddr =
+        requestAddrFromCfg cfg token Testnet
+    requestDatum = updateRequestDatum token
+
+honestUpdateFixtureWithRequestOut
+    :: CageConfig
+    -> TxOut ConwayEra
+    -> [(ByteString, Word, ByteString)]
+    -> UpdateFixture
+honestUpdateFixtureWithRequestOut cfg requestOut walletRows =
     let TrieFixture{oldRoot, trieFact, newRoot} =
             deterministicTrieFixture
         token = tokenIdFromJSON sampleToken
         asset = unTokenId token
-        requestAddr =
-            requestAddrFromCfg cfg token Testnet
         stateBytes =
             serialize' (natVersion @11)
                 $ stateTxOut cfg asset oldRoot
         requestDatum = updateRequestDatum token
         requestBytes =
-            serialize' (natVersion @11)
-                $ requestTxOut requestAddr requestDatum
+            serialize' (natVersion @11) requestOut
         rows =
             [ (stateTxId, 0, stateBytes)
             , (requestTxId, 1, requestBytes)
@@ -581,6 +660,94 @@ expectUpdateTx cfg verified =
             expectationFailure ("updateCageTx failed: " <> show err)
                 *> error "unreachable"
         Right tx -> pure tx
+
+requestUpdateOutputFromRequestBuilder
+    :: CageConfig -> IO (TxOut ConwayEra)
+requestUpdateOutputFromRequestBuilder cfg = do
+    let (root, entries) =
+            csmtEntries [(walletTxId, 2, walletTxOutBytes)]
+        requestFacts =
+            RequestUpdateFacts
+                { rufSnapshot = snapshotWithRoot root
+                , rufToken = sampleToken
+                , rufKey = Hex updateKey
+                , rufOldValue = Hex oldValue
+                , rufNewValue = Hex newValue
+                , rufAddress = Hex (serialiseAddr fundingAddr)
+                , rufSubmittedAt = submittedAt
+                , rufWalletUtxos = entries
+                , rufProtocolParameters =
+                    pparamsFacts realisticPParams
+                }
+        trusted = TrustedRoot (Hex root)
+    verified <-
+        case verifyRequestUpdateFacts trusted requestFacts of
+            Left err ->
+                expectationFailure
+                    ( "verifyRequestUpdateFacts failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right value -> pure value
+    tx <-
+        case requestUpdateCageTx cfg permissiveWalletPolicy verified of
+            Left err ->
+                expectationFailure
+                    ("requestUpdateCageTx failed: " <> show err)
+                    *> error "unreachable"
+            Right value -> pure value
+    let requestAddr =
+            requestAddrFromCfg
+                cfg
+                (tokenIdFromJSON sampleToken)
+                Testnet
+        requestOutputs =
+            [ out
+            | out <- txOutputs tx
+            , out ^. addrTxOutL == requestAddr
+            ]
+    case requestOutputs of
+        [out] -> pure out
+        outs ->
+            expectationFailure
+                ( "expected one request output, got "
+                    <> show (length outs)
+                )
+                *> error "unreachable"
+
+minFundedRequestCoin :: CageConfig -> Coin
+minFundedRequestCoin cfg =
+    let Coin tipAmount = defaultTip cfg
+        Coin feeBound = feeBufferUpperBound realisticPParams
+        Coin refMin = refundMinCoin
+    in  Coin (tipAmount + feeBound + refMin)
+
+refundMinCoin :: Coin
+refundMinCoin =
+    getMinCoinTxOut
+        realisticPParams
+        (mkBasicTxOut ownerAddr (inject (Coin 0)))
+
+feeBufferUpperBound :: PParams ConwayEra -> Coin
+feeBufferUpperBound pp =
+    let Coin minFeeA = pp ^. ppMinFeeAL
+        Coin minFeeB = pp ^. ppMinFeeBL
+        Coin scriptFee =
+            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+    in  Coin
+            ( minFeeB
+                + minFeeA * maxUpdateTxBytes
+                + scriptFee
+            )
+
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 8192
+
+singleRequestRefundOutput :: Tx ConwayEra -> TxOut ConwayEra
+singleRequestRefundOutput tx =
+    case drop 1 (txOutputs tx) of
+        out : _ -> out
+        [] -> error "UpdateSpec expected a refund output"
 
 csmtEntries
     :: [(ByteString, Word, ByteString)]
@@ -685,9 +852,9 @@ stateTxOut cfg asset root =
                 , stateRetractTime = 30_000
                 }
 
-requestTxOut :: Addr -> OnChainRequest -> TxOut ConwayEra
-requestTxOut requestAddr requestDatum =
-    mkBasicTxOut requestAddr (inject (Coin 2_500_000))
+requestTxOut :: Coin -> Addr -> OnChainRequest -> TxOut ConwayEra
+requestTxOut requestCoin requestAddr requestDatum =
+    mkBasicTxOut requestAddr (inject requestCoin)
         & datumTxOutL .~ mkInlineDatum (RequestDatum requestDatum)
 
 updateRequestDatum :: TokenId -> OnChainRequest
@@ -791,10 +958,20 @@ permissiveWalletPolicy =
 realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
+        & ppMinFeeAL .~ Coin 44
+        & ppMinFeeBL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (Coin 4_310)
+        & ppPricesL
+            .~ Prices
+                (unsafeNonNegativeInterval (577 % 10_000))
+                (unsafeNonNegativeInterval (721 % 10_000_000))
         & ppMaxTxExUnitsL
             .~ ExUnits 140_000_000 10_000_000_000
+
+unsafeNonNegativeInterval :: Rational -> NonNegativeInterval
+unsafeNonNegativeInterval r =
+    fromJust (boundRational r)
 
 testCageConfig :: IO CageConfig
 testCageConfig = do

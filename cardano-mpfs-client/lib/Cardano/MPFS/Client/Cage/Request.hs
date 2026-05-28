@@ -33,6 +33,9 @@ import Cardano.Ledger.Allegra.Scripts
     )
 import Cardano.Ledger.Api.PParams
     ( ppCoinsPerUTxOByteL
+    , ppMaxTxExUnitsL
+    , ppMinFeeAL
+    , ppMinFeeBL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -86,6 +89,9 @@ import Cardano.Ledger.Hashes
     )
 import Cardano.Ledger.Keys
     ( KeyHash (..)
+    )
+import Cardano.Ledger.Plutus.ExUnits
+    ( txscriptfee
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
@@ -457,7 +463,7 @@ requestLockedAda
 requestLockedAda pp reqDraft refDraft tip =
     let Coin refMin =
             getMinCoinTxOut pp refDraft
-        feeBuffer = 1_000_000
+        Coin feeBuffer = requestFeeBufferUpperBound pp
         locked = tip + feeBuffer + refMin
         adjusted =
             getMinCoinTxOut
@@ -467,6 +473,29 @@ requestLockedAda pp reqDraft refDraft tip =
                         .~ inject (Coin locked)
                 )
     in  max adjusted (Coin locked)
+
+-- Keep this in lockstep with
+-- Cardano.MPFS.TxBuilder.Real.Request.requestFeeBufferUpperBound.
+requestFeeBufferUpperBound :: PParams ConwayEra -> Coin
+requestFeeBufferUpperBound pp =
+    let Coin minFeeA = pp ^. ppMinFeeAL
+        Coin minFeeB = pp ^. ppMinFeeBL
+        Coin scriptFee =
+            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+    in  Coin
+            ( minFeeB
+                + minFeeA * maxUpdateTxBytes
+                + scriptFee
+            )
+
+-- Note [size bound]
+-- The request UTxO pre-pays the oracle's later update transaction. We do
+-- not know that future transaction's exact CBOR size when building the
+-- request, so this uses an 8 KiB envelope for a single-request update with
+-- state, request, wallet, scripts, redeemers, one state output, one refund,
+-- and change. Excess lovelace is returned by the positioned refund output.
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 8192
 
 enforcePParamsPolicy
     :: WalletPolicy
