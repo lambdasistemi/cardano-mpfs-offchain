@@ -25,14 +25,14 @@ module Cardano.MPFS.Client
     , RequestInsertParams (..)
     , RequestDeleteParams (..)
     , RequestUpdateParams (..)
-    , RejectParams (..)
+    , RejectFactsParams (..)
     , UpdateFactsParams (..)
     , bootFacts
     , requestInsertFacts
     , requestDeleteFacts
     , requestUpdateFacts
     , updateFacts
-    , rejectTx
+    , rejectFacts
 
       -- * Response envelopes
     , TxIn (..)
@@ -234,7 +234,7 @@ import Cardano.MPFS.Client.Http
     , BootFactsParams (..)
     , ClientError (..)
     , MpfsHttp (..)
-    , RejectParams (..)
+    , RejectFactsParams (..)
     , RequestDeleteParams (..)
     , RequestInsertParams (..)
     , RequestUpdateParams (..)
@@ -242,7 +242,7 @@ import Cardano.MPFS.Client.Http
     , UpdateFactsParams (..)
     , VerifierMode (..)
     , bootFacts
-    , rejectTx
+    , rejectFacts
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateFacts

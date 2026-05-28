@@ -75,6 +75,7 @@ import Cardano.Ledger.TxIn
 
 import Cardano.MPFS.API.Types.Facts
     ( EndFacts
+    , RejectFacts
     , RequestDeleteFacts
     , RequestInsertFacts
     , RequestUpdateFacts
@@ -111,7 +112,6 @@ import Cardano.MPFS.HTTP.Types
     , InsertRequest (..)
     , ProofResponse (..)
     , RejectRequest (..)
-    , RejectTxResponse
     , RequestsResponse (..)
     , RetractRequest (..)
     , StatusResponse (..)
@@ -128,7 +128,6 @@ import Cardano.MPFS.HTTP.Types
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
     , bundleSnapshotToJSON
-    , mkRejectTxResponse
     , mkSweepTxResponse
     , parseAddr
     , requestToJSON
@@ -140,6 +139,7 @@ import Cardano.MPFS.HTTP.Types
     )
 import Cardano.MPFS.HTTP.Types.Facts
     ( mkEndFacts
+    , mkRejectFacts
     , mkRequestDeleteFacts
     , mkRequestInsertFacts
     , mkRequestUpdateFacts
@@ -214,8 +214,8 @@ mkApp ctx =
             :<|> factsRequestUpdateHandler ctx
             :<|> factsUpdateHandler ctx
             :<|> factsRetractHandler ctx
+            :<|> factsRejectHandler ctx
             :<|> factsEndHandler ctx
-            :<|> txRejectHandler ctx
             :<|> txSweepHandler ctx
             :<|> txSubmitHandler ctx
 
@@ -345,33 +345,6 @@ requireSnapshot ctx = do
                             { cpSlot = s
                             , cpBlockId = Hex b
                             }
-                    }
-        _ ->
-            throwError
-                err503
-                    { errBody =
-                        "Verification snapshot \
-                        \not yet available"
-                    }
-
--- | Read the current ledger-native 'BundleSnapshot'
--- from context, or 503 if the indexer has not yet
--- produced a UTxO-CSMT root or a checkpoint.
-requireBundleSnapshot
-    :: Context IO -> Handler BundleSnapshot
-requireBundleSnapshot ctx = do
-    mRoot <- liftIO $ utxoRoot ctx
-    mCp <-
-        liftIO
-            $ St.getCheckpoint
-                (St.checkpoints (state ctx))
-    case (mRoot, mCp) of
-        (Just r, Just (slot, blk)) ->
-            pure
-                BundleSnapshot
-                    { snapshotUtxoRoot = r
-                    , snapshotSlot = slot
-                    , snapshotBlockId = blk
                     }
         _ ->
             throwError
@@ -1278,21 +1251,29 @@ rejectableRequestUtxos stateOutBytes requestUtxos = do
 -- transaction:
 --
 --   * Lower slot — strictly after the latest Phase 3
---     deadline among the rejected requests, mirroring
---     @Real.Reject.computeLowerSlot@.
---   * Upper slot — explicit TTL above the lower bound.
---     Set to @lowerSlot + 600 s@-worth of slots (the
---     legacy reject path leaves @validTo@ unset; per
---     Q-S2-001 the explicit TTL is shipped as a fact so
---     the S4 builder can wire it into @Tx.validTo@). The
---     exact 600 s figure can be adjusted by S5 if the
---     wallet policy demands a tighter bound.
+--     deadline among the rejected requests AND strictly
+--     after the snapshot slot. For an expired request the
+--     deadline POSIX timestamp is in the past, so we
+--     POSIX → slot-convert it (cheap, always inside the
+--     era horizon) and then bump to @snapshotSlot + 1@ if
+--     the resulting slot would land at or before the
+--     snapshot. The latter is what the S3 verifier
+--     enforces with the "must be greater than the
+--     snapshot slot" guard.
+--   * Upper slot — fixed slot offset above the lower
+--     bound (@lowerSlot + 'rejectTtlSlots'@). We do NOT
+--     POSIX → slot-convert @latestDeadline + 600 s@,
+--     because devnet's hard-fork forecast horizon (~50 s
+--     in the live e2e) trips a 'PastHorizon' on any
+--     conversion that far in the future. A slot-offset
+--     keeps the TTL deterministic and era-agnostic.
 rejectValiditySlots
     :: Context IO
+    -> BundleSnapshot
     -> ByteString
     -> [ResolvedWalletInput]
     -> Handler (Integer, Integer)
-rejectValiditySlots ctx stateOutBytes rejectableUtxos = do
+rejectValiditySlots ctx snap stateOutBytes rejectableUtxos = do
     stateOut <-
         decodeIndexedTxOut
             "facts/reject.state_utxo"
@@ -1308,19 +1289,14 @@ rejectValiditySlots ctx stateOutBytes rejectableUtxos = do
                 "facts/reject.state_utxo missing state datum"
     deadlines <- traverse (extractDeadline pt rt) rejectableUtxos
     let latest = maximum (0 : deadlines)
-    lowerSlot <-
+        SlotNo snapSlot = snapshotSlot snap
+    deadlineSlot <-
         liftIO
             (Prov.posixMsCeilSlot (provider ctx) latest)
-    upperSlot <-
-        liftIO
-            ( Prov.posixMsCeilSlot
-                (provider ctx)
-                (latest + rejectTtlMs)
-            )
-    pure
-        ( toInteger (unSlotNo lowerSlot)
-        , toInteger (unSlotNo upperSlot)
-        )
+    let SlotNo deadlineRaw = deadlineSlot
+        lowerRaw = max (deadlineRaw + 1) (snapSlot + 1)
+        upperRaw = lowerRaw + rejectTtlSlots
+    pure (toInteger lowerRaw, toInteger upperRaw)
   where
     extractDeadline pt rt (_, outBytes, _) = do
         out <-
@@ -1336,12 +1312,19 @@ rejectValiditySlots ctx stateOutBytes rejectableUtxos = do
                     "facts/reject.request_utxos[] missing \
                     \request datum"
 
--- | TTL (ms) added to the latest deadline to derive the
--- reject upper validity slot. 600 seconds chosen as a
--- defensible default; the legacy reject leaves @validTo@
--- unset entirely.
-rejectTtlMs :: Integer
-rejectTtlMs = 600 * 1000
+-- | TTL (in slots) added to the lower validity slot to
+-- derive the reject upper validity slot. Kept small so
+-- @upper@ stays inside the current era's forecast
+-- horizon (devnet's safe zone is ~30 slots; the Plutus
+-- script context translates @validTo@ to time at phase-2
+-- and trips 'TimeTranslationPastHorizon' if @upper@ is
+-- past the safe zone). 20 slots is comfortably inside
+-- every supported era's safe zone while still giving a
+-- non-zero TTL above @validFrom@. Well within the S3
+-- verifier's 660-slot @rejectValidityHorizonSlots@
+-- ceiling.
+rejectTtlSlots :: Word64
+rejectTtlSlots = 20
 
 -- | Extract @submitted_at@ from the inline datum of an
 -- indexed request UTxO. 500 if the output is missing a
@@ -1488,27 +1471,93 @@ factsEndHandler
                                         ]
                                     }
 
-txRejectHandler
+-- | @POST \/facts\/reject@. Reads snapshot, cage state UTxO,
+-- pending request UTxOs at the per-cage request address, and
+-- requester wallet UTxOs inside ONE indexer transaction, filters
+-- the rejectable subset against the server clock, derives Phase 3
+-- validity slot bounds from the on-chain datums, and returns
+-- facts for wallet-side reject transaction construction.
+factsRejectHandler
     :: Context IO
     -> RejectRequest
-    -> Handler RejectTxResponse
-txRejectHandler
+    -> Handler RejectFacts
+factsRejectHandler
     ctx
     RejectRequest
         { rejToken = tokenId
         , rejAddr = addrHex
         } = do
         let tid = tokenIdFromJSON tokenId
+            cfg = cfgCage ctx
+            cageAddr = cageAddrFromCfg cfg (network cfg)
+            requestAddr =
+                requestAddrFromCfg cfg tid (network cfg)
+            policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
-        snap <- requireBundleSnapshot ctx
-        bundle <-
+        (mSnap, mStateUtxo, requestUtxos, walletInputs) <-
             liftIO
-                $ Tx.rejectRequests
-                    (txBuilder ctx)
-                    snap
-                    tid
-                    addr
-        pure (mkRejectTxResponse bundle)
+                $ runIndexerTx ctx
+                $ do
+                    snap <- readSnapshot
+                    stateUtxo <-
+                        readStateUtxoAt
+                            cageAddr
+                            policyId
+                            tid
+                    reqs <- readRequestUtxosAt requestAddr
+                    wallet <- readWalletInputsAt addr
+                    pure (snap, stateUtxo, reqs, wallet)
+        snap <- case mSnap of
+            Nothing ->
+                throwError
+                    err503
+                        { errBody =
+                            "Indexer not ready: \
+                            \snapshot unavailable"
+                        }
+            Just s -> pure s
+        stateUtxo@(_, stateOutBytes, _) <-
+            case mStateUtxo of
+                Nothing ->
+                    throwError
+                        err404
+                            { errBody =
+                                "State UTxO not \
+                                \found for token"
+                            }
+                Just row -> pure row
+        when (null walletInputs)
+            $ throwError
+                err400
+                    { errBody =
+                        "No wallet UTxOs at \
+                        \address"
+                    }
+        rejectable <-
+            rejectableRequestUtxos stateOutBytes requestUtxos
+        when (null rejectable)
+            $ throwError
+                err400
+                    { errBody =
+                        "No rejectable request UTxOs \
+                        \at request address"
+                    }
+        (lowerSlot, upperSlot) <-
+            rejectValiditySlots ctx snap stateOutBytes rejectable
+        pp <-
+            liftIO
+                $ queryProtocolParams
+                    (provider ctx)
+        pure
+            $ mkRejectFacts
+                snap
+                tid
+                stateUtxo
+                rejectable
+                walletInputs
+                lowerSlot
+                upperSlot
+                pp
 
 txSweepHandler
     :: Context IO

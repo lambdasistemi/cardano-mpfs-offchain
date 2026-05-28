@@ -122,6 +122,7 @@ import Cardano.MPFS.API.Types
     , FactResponse (..)
     , InsertRequest (..)
     , ProofResponse (..)
+    , RejectRequest (..)
     , RequestDeleteFacts
     , RequestInsertFacts
     , RequestUpdateFacts
@@ -136,7 +137,8 @@ import Cardano.MPFS.API.Types.Common
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.API.Types.Facts
-    ( UpdateFacts
+    ( RejectFacts
+    , UpdateFacts
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -146,6 +148,7 @@ import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
 import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
@@ -160,6 +163,7 @@ import Cardano.MPFS.Client.Facts
     , verifyEndFacts
     , verifyFactAbsentFacts
     , verifyFactPresentFacts
+    , verifyRejectFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
@@ -274,6 +278,16 @@ matrixSpec scripts =
                 tokenId
                 matrixRetractKey
                 matrixRetractValue
+            -- Reject row: re-insert a fresh request, wait
+            -- past the Phase 3 deadline, then exercise the
+            -- /facts/reject flow.
+            runRejectRow
+                cfg
+                ctx
+                app
+                tokenId
+                matrixRejectKey
+                matrixRejectValue
             -- End requires an empty request set, but
             -- driving boot+insert+process+delete+process
             -- on a single token exhausts the wallet's
@@ -304,6 +318,14 @@ matrixRetractKey = "matrix-retract-key"
 
 matrixRetractValue :: ByteString
 matrixRetractValue = "matrix-retract-value"
+
+-- | Key/value pair the matrix uses for the reject row's
+-- throwaway insert.
+matrixRejectKey :: ByteString
+matrixRejectKey = "matrix-reject-key"
+
+matrixRejectValue :: ByteString
+matrixRejectValue = "matrix-reject-value"
 
 -- ---------------------------------------------------------
 -- Row helpers
@@ -633,6 +655,98 @@ runRetractRow cfg ctx app tokenId key value = do
     awaitTx app (txIdTx signedRetract)
     pendingRequestsEmpty app tokenId
 
+-- | Reject row: insert a fresh request, wait past the
+-- Phase 3 deadline (@submitted_at + process_time +
+-- retract_time@), then run
+-- @POST \/facts\/reject \-> verifyRejectFacts \->
+-- rejectCageTx \-> submit \-> pending request consumed@.
+-- The matrix cage's @process_time@ and @retract_time@ are
+-- both 5 s, so an 11 s real-time wait lands clearly past
+-- the deadline.
+runRejectRow
+    :: CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> IO ()
+runRejectRow cfg ctx app tokenId key value = do
+    trusted <- waitForTrustedRoot app
+    insertFacts <-
+        postRequestInsertFacts
+            app
+            tokenId
+            key
+            value
+            genesisAddr
+    insertVerified <-
+        case verifyRequestInsertFacts trusted insertFacts of
+            Left err ->
+                expectationFailure
+                    ( "reject row: verifyRequestInsertFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    insertTx <-
+        case requestInsertCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            insertVerified of
+            Left err ->
+                expectationFailure
+                    ( "reject row: requestInsertCageTx \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signedInsert = addKeyWitness genesisSignKey insertTx
+        insertTxId = txIdTx signedInsert
+    insertResult <-
+        submitTx (submitter ctx) signedInsert
+    assertSubmitted "reject row insert" insertResult
+    awaitTx app insertTxId
+    pendingRequestsNonEmpty app tokenId
+    -- 2. Wait past the Phase 3 deadline. process_time and
+    -- retract_time are both 5 s; an 11 s wall-clock wait
+    -- crosses the deadline with a small safety margin.
+    threadDelay 11_000_000
+    -- 3. Reject via the facts flow.
+    rejectTrusted <- waitForTrustedRoot app
+    rejectFactsResp <-
+        postRejectFacts app tokenId genesisAddr
+    rejectVerified <-
+        case verifyRejectFacts rejectTrusted rejectFactsResp of
+            Left err ->
+                expectationFailure
+                    ( "reject row: verifyRejectFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    rejectTx <-
+        case rejectCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            rejectVerified of
+            Left err ->
+                expectationFailure
+                    ( "reject row: rejectCageTx failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signedReject = addKeyWitness genesisSignKey rejectTx
+    rejectResult <-
+        submitTx (submitter ctx) signedReject
+    assertSubmitted "reject row submit" rejectResult
+    awaitTx app (txIdTx signedReject)
+    pendingRequestsEmpty app tokenId
+
 -- | End row: @POST \/facts\/end \-> verifyEndFacts \->
 -- endCageTx \-> submit \-> token removed@.
 runEndRow
@@ -683,6 +797,7 @@ assertLegacyRoutesGone app =
         , "/tx/request/update"
         , "/tx/update"
         , "/tx/retract"
+        , "/tx/reject"
         , "/tx/end"
         ]
 
@@ -834,6 +949,19 @@ postRetractFacts app reqTxIn addr =
             }
         "retract row"
         "RetractFacts"
+
+postRejectFacts
+    :: Application -> TokenId -> Addr -> IO RejectFacts
+postRejectFacts app tokenId addr =
+    postFactsRequest
+        app
+        "/facts/reject"
+        RejectRequest
+            { rejToken = tokenIdJSON tokenId
+            , rejAddr = Hex (serialiseAddr addr)
+            }
+        "reject row"
+        "RejectFacts"
 
 -- | Format a 'TxIn' as the @txhash#ix@ string expected by
 -- the retract request body.

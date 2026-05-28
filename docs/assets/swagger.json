@@ -352,29 +352,49 @@
             ],
             "type": "object"
         },
-        "RejectProofJSON": {
-            "description": "Proof payload for POST /tx/reject",
+        "RejectFacts": {
+            "description": "Facts-only reject response. Carries the cage state UTxO, the batch of rejectable request UTxOs, wallet funding UTxO witnesses, server-derived Phase 3 validity slot bounds, and unverified protocol parameters, with no unsigned transaction CBOR.",
             "properties": {
-                "funding": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_utxos": {
                     "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
+                        "$ref": "#/definitions/UtxoEntry"
                     },
                     "type": "array"
                 },
-                "request_ins": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "validity_lower_slot": {
+                    "type": "integer"
+                },
+                "validity_upper_slot": {
+                    "type": "integer"
+                },
+                "wallet_utxos": {
                     "items": {
-                        "$ref": "#/definitions/WitnessedUtxo"
+                        "$ref": "#/definitions/UtxoEntry"
                     },
                     "type": "array"
-                },
-                "state": {
-                    "$ref": "#/definitions/WitnessedUtxo"
                 }
             },
             "required": [
-                "state",
-                "request_ins",
-                "funding"
+                "snapshot",
+                "token",
+                "state_utxo",
+                "request_utxos",
+                "wallet_utxos",
+                "validity_lower_slot",
+                "validity_upper_slot",
+                "protocol_parameters"
             ],
             "type": "object"
         },
@@ -391,26 +411,6 @@
             "required": [
                 "token",
                 "address"
-            ],
-            "type": "object"
-        },
-        "RejectTxResponse": {
-            "description": "Proof-bearing response for POST /tx/reject",
-            "properties": {
-                "proof": {
-                    "$ref": "#/definitions/RejectProofJSON"
-                },
-                "snapshot": {
-                    "$ref": "#/definitions/VerificationSnapshot"
-                },
-                "tx": {
-                    "$ref": "#/definitions/Hex"
-                }
-            },
-            "required": [
-                "tx",
-                "snapshot",
-                "proof"
             ],
             "type": "object"
         },
@@ -1162,6 +1162,37 @@
                 }
             }
         },
+        "/facts/reject": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RejectFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/facts/request/delete": {
             "post": {
                 "consumes": [
@@ -1518,37 +1549,6 @@
                     },
                     "400": {
                         "description": "Invalid `id`"
-                    }
-                }
-            }
-        },
-        "/tx/reject": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/RejectRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/RejectTxResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
                     }
                 }
             }

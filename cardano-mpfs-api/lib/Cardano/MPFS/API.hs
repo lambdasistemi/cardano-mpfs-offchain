@@ -40,10 +40,10 @@ module Cardano.MPFS.API
     , FactsRequestUpdateAPI
     , FactsUpdateAPI
     , FactsRetractAPI
+    , FactsRejectAPI
     , FactsEndAPI
 
       -- * Transaction endpoints
-    , TxRejectAPI
     , TxSweepAPI
     , TxWriteAPI
     , TxSubmitAPI
@@ -72,7 +72,6 @@ import Cardano.MPFS.API.Types
     , InsertRequest
     , ProofResponse
     , RejectRequest
-    , RejectTxResponse
     , RequestsResponse
     , RetractRequest
     , StatusResponse
@@ -87,6 +86,7 @@ import Cardano.MPFS.API.Types.Common (TokenIdJSON)
 import Cardano.MPFS.API.Types.Facts
     ( BootFacts
     , EndFacts
+    , RejectFacts
     , RequestDeleteFacts
     , RequestInsertFacts
     , RequestUpdateFacts
@@ -236,6 +236,15 @@ type FactsRetractAPI =
         :> ReqBody '[JSON] RetractRequest
         :> Post '[JSON] RetractFacts
 
+-- | @POST \/facts\/reject@ — return indexed facts
+-- required by wallet-side Phase 3 reject transaction
+-- construction.
+type FactsRejectAPI =
+    "facts"
+        :> "reject"
+        :> ReqBody '[JSON] RejectRequest
+        :> Post '[JSON] RejectFacts
+
 -- | @POST \/facts\/end@ — return indexed facts
 -- required by wallet-side end transaction
 -- construction.
@@ -244,14 +253,6 @@ type FactsEndAPI =
         :> "end"
         :> ReqBody '[JSON] EndRequest
         :> Post '[JSON] EndFacts
-
--- | @POST \/tx\/reject@ — build a reject
--- transaction for Phase 3 requests.
-type TxRejectAPI =
-    "tx"
-        :> "reject"
-        :> ReqBody '[JSON] RejectRequest
-        :> Post '[JSON] RejectTxResponse
 
 -- | @POST \/tx\/sweep@ — build an owner-only sweep
 -- transaction that spends a non-legitimate UTxO at
@@ -266,9 +267,7 @@ type TxSweepAPI =
 -- transactions. This subset is used by native clients
 -- deriving a Servant client without depending on the
 -- server package.
-type TxWriteAPI =
-    TxRejectAPI
-        :<|> TxSweepAPI
+type TxWriteAPI = TxSweepAPI
 
 -- | @POST \/tx\/submit@ — submit a signed
 -- transaction.
@@ -301,7 +300,7 @@ type API =
         :<|> FactsRequestUpdateAPI
         :<|> FactsUpdateAPI
         :<|> FactsRetractAPI
+        :<|> FactsRejectAPI
         :<|> FactsEndAPI
-        :<|> TxRejectAPI
         :<|> TxSweepAPI
         :<|> TxSubmitAPI

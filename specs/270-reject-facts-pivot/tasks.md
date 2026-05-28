@@ -61,7 +61,7 @@
 
 ## Slice S5 - HTTP Hard Swap, Swagger, Matrix, ProofsSpec Smoke, MOOG Boundary
 
-- [ ] T005-S5 [US1] RED HTTP/Swagger tests proving `POST
+- [X] T005-S5 [US1] RED HTTP/Swagger tests proving `POST
       /facts/reject` exists, returns facts without transaction CBOR,
       and `/tx/reject` is absent. GREEN by:
       (a) Adding the facts route + handler wiring

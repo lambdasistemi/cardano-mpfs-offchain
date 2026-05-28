@@ -193,15 +193,17 @@ spec = describe "RejectFacts" $ do
                 runHandler'
                     ( rejectValiditySlots
                         ctx
+                        sampleSnapshot
                         stateBs
                         rejectableReqs
                     )
             -- pt + rt = 10000 ms, latest deadline = 2000 + 10000
-            --                                    = 12000 ms.
-            -- Mock posixMsCeilSlot maps ms → ms / 1000:
-            -- lower = 12, upper = (12000 + 600000) / 1000 = 612.
-            lower `shouldBe` 12
-            upper `shouldBe` 612
+            --                                    = 12000 ms. Mock
+            -- posixMsCeilSlot maps ms → ms / 1000 → deadlineSlot
+            -- = 12; snapshotSlot = 42, so lower = max(13, 43) =
+            -- 43; upper = lower + 20 = 63.
+            lower `shouldBe` 43
+            upper `shouldBe` 63
             upper `shouldSatisfy` (> lower)
 
 -- ---------------------------------------------------------------

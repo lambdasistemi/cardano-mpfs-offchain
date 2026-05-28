@@ -63,7 +63,6 @@ library
     , mts:mpf-write
     , operational                >=0.2  && <0.3
     , plutus-tx
-    , servant                    >=0.20 && <0.21
     , servant-client             >=0.20 && <0.21
     , servant-client-core        >=0.20 && <0.21
     , text                       >=2.0  && <2.2
