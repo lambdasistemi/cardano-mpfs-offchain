@@ -14,6 +14,7 @@ module Cardano.MPFS.API.Types.Facts
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
     , RequestUpdateFacts (..)
+    , RejectFacts (..)
     , RetractFacts (..)
     , EndFacts (..)
     , TrieFact (..)
@@ -703,6 +704,120 @@ instance ToSchema RetractFacts where
                    \funding UTxO witnesses, server-derived Phase 2 \
                    \validity slot bounds, and unverified protocol \
                    \parameters, with no unsigned transaction CBOR."
+
+-- | Facts-only reject response.
+--
+-- Carries the cage state UTxO, the batch of rejectable request
+-- UTxOs, requester wallet UTxOs for fees and collateral, the
+-- server-derived Phase 3 validity slot bounds, and unverified
+-- protocol parameters. The verifier proves the UTxO witnesses
+-- against the trusted snapshot; the slot bounds and protocol
+-- parameters are unverified inputs whose tampering causes the
+-- locally-built transaction to fail Phase 2 ledger validation.
+--
+-- Per Q-S2-001, this envelope carries no @trie_root@ or
+-- @trie_facts@ because a reject leaves the state root unchanged
+-- and folds no MPF proofs.
+data RejectFacts = RejectFacts
+    { rfSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target.
+    , rfToken :: TokenIdJSON
+    -- ^ Cage token whose pending requests are being rejected.
+    , rfStateUtxo :: UtxoEntry
+    -- ^ Cage state UTxO with CSMT inclusion proof. The
+    -- builder consumes its inline datum and re-outputs the
+    -- same state with the same root.
+    , rfRequestUtxos :: [UtxoEntry]
+    -- ^ Batch of rejectable request UTxOs with CSMT
+    -- inclusion proofs.
+    , rfWalletUtxos :: [UtxoEntry]
+    -- ^ Requester wallet UTxOs with CSMT inclusion proofs.
+    , rfValidityLowerSlot :: Integer
+    -- ^ Server-derived Phase 3 validity lower slot:
+    -- strictly after the latest deadline among the
+    -- rejected requests.
+    , rfValidityUpperSlot :: Integer
+    -- ^ Server-derived validity upper slot (explicit TTL
+    -- above 'rfValidityLowerSlot').
+    , rfProtocolParameters :: UnverifiedPParams
+    -- ^ Unverified protocol parameter bytes.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RejectFacts where
+    toJSON RejectFacts{..} =
+        object
+            [ "snapshot" .= rfSnapshot
+            , "token" .= rfToken
+            , "state_utxo" .= rfStateUtxo
+            , "request_utxos" .= rfRequestUtxos
+            , "wallet_utxos" .= rfWalletUtxos
+            , "validity_lower_slot" .= rfValidityLowerSlot
+            , "validity_upper_slot" .= rfValidityUpperSlot
+            , "protocol_parameters" .= rfProtocolParameters
+            ]
+
+instance FromJSON RejectFacts where
+    parseJSON =
+        withObject "RejectFacts" $ \o ->
+            RejectFacts
+                <$> o .: "snapshot"
+                <*> o .: "token"
+                <*> o .: "state_utxo"
+                <*> o .: "request_utxos"
+                <*> o .: "wallet_utxos"
+                <*> o .: "validity_lower_slot"
+                <*> o .: "validity_upper_slot"
+                <*> o .: "protocol_parameters"
+
+instance ToSchema RejectFacts where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef (Proxy @VerificationSnapshot)
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        utxoSchema <-
+            declareSchemaRef (Proxy @UtxoEntry)
+        utxoListSchema <-
+            declareSchemaRef (Proxy @[UtxoEntry])
+        integerSchema <-
+            declareSchemaRef (Proxy @Integer)
+        ppSchema <-
+            declareSchemaRef (Proxy @UnverifiedPParams)
+        pure
+            $ Swagger.NamedSchema (Just "RejectFacts")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("token", tokenSchema)
+                    , ("state_utxo", utxoSchema)
+                    , ("request_utxos", utxoListSchema)
+                    , ("wallet_utxos", utxoListSchema)
+                    , ("validity_lower_slot", integerSchema)
+                    , ("validity_upper_slot", integerSchema)
+                    , ("protocol_parameters", ppSchema)
+                    ]
+            & required
+                .~ [ "snapshot"
+                   , "token"
+                   , "state_utxo"
+                   , "request_utxos"
+                   , "wallet_utxos"
+                   , "validity_lower_slot"
+                   , "validity_upper_slot"
+                   , "protocol_parameters"
+                   ]
+            & description
+                ?~ "Facts-only reject response. Carries the \
+                   \cage state UTxO, the batch of rejectable \
+                   \request UTxOs, wallet funding UTxO \
+                   \witnesses, server-derived Phase 3 validity \
+                   \slot bounds, and unverified protocol \
+                   \parameters, with no unsigned transaction \
+                   \CBOR."
 
 -- | Facts-only end response.
 --

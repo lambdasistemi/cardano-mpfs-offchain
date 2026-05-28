@@ -16,6 +16,7 @@ import Cardano.MPFS.Trie.PureManager
 import Cardano.MPFS.BalanceSpec qualified as BalanceSpec
 import Cardano.MPFS.HTTP.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.HTTP.EndFactsSpec qualified as EndFactsSpec
+import Cardano.MPFS.HTTP.RejectFactsSpec qualified as RejectFactsSpec
 import Cardano.MPFS.HTTP.RequestDeleteFactsSpec qualified as RequestDeleteFactsSpec
 import Cardano.MPFS.HTTP.RequestInsertFactsSpec qualified as RequestInsertFactsSpec
 import Cardano.MPFS.HTTP.RequestUpdateFactsSpec qualified as RequestUpdateFactsSpec
@@ -78,6 +79,7 @@ main =
                 RequestDeleteFactsSpec.spec
                 RequestUpdateFactsSpec.spec
                 RetractFactsSpec.spec
+                RejectFactsSpec.spec
                 EndFactsSpec.spec
                 RequestsSpec.spec
                 StatusSpec.spec

@@ -20,6 +20,10 @@ module Cardano.MPFS.HTTP.Server
     , mkUpdateFacts
     , mkRetractFacts
     , mkEndFacts
+
+      -- * Reject helpers (consumed by the S5 reject handler)
+    , rejectableRequestUtxos
+    , rejectValiditySlots
     ) where
 
 import Control.Applicative ((<|>))
@@ -1224,6 +1228,120 @@ updateValidityUpperSlot ctx stateOutBytes requestUtxos = do
                     "facts/update.request_utxos[]"
                     bytes
             pure (txIn, out)
+
+-- | Filter the indexer-returned request UTxO set for the
+-- rejectable subset. Mirrors the legacy @isRejectable@
+-- predicate from
+-- @Cardano.MPFS.TxBuilder.Real.Reject.queryRejectContext@:
+-- a request is rejectable when @now > submitted_at +
+-- process_time + retract_time@ or when the request is
+-- registered in the future (@submitted_at > now@).
+--
+-- The helper decodes the state UTxO once to extract the
+-- process- and retract-time windows, then decodes each
+-- request UTxO once. The S5 reject handler is responsible
+-- for treating an empty result as a 400.
+rejectableRequestUtxos
+    :: ByteString
+    -> [ResolvedWalletInput]
+    -> Handler [ResolvedWalletInput]
+rejectableRequestUtxos stateOutBytes requestUtxos = do
+    stateOut <-
+        decodeIndexedTxOut
+            "facts/reject.state_utxo"
+            stateOutBytes
+    (pt, rt) <- case extractCageDatum stateOut of
+        Just (StateDatum s) ->
+            pure
+                ( OnChain.stateProcessTime s
+                , OnChain.stateRetractTime s
+                )
+        _ ->
+            throwInternal
+                "facts/reject.state_utxo missing state datum"
+    now <- liftIO currentPosixMs
+    let isRejectable (_, outBytes, _) = do
+            rOut <-
+                decodeIndexedTxOut
+                    "facts/reject.request_utxos[]"
+                    outBytes
+            case extractCageDatum rOut of
+                Just (RequestDatum r) ->
+                    let sa = OnChain.requestSubmittedAt r
+                        deadline = sa + pt + rt
+                    in  pure (now > deadline || sa > now)
+                _ -> pure False
+    flags <- mapM isRejectable requestUtxos
+    pure [u | (u, True) <- zip requestUtxos flags]
+
+-- | Compute the validity slot bounds for a reject
+-- transaction:
+--
+--   * Lower slot — strictly after the latest Phase 3
+--     deadline among the rejected requests, mirroring
+--     @Real.Reject.computeLowerSlot@.
+--   * Upper slot — explicit TTL above the lower bound.
+--     Set to @lowerSlot + 600 s@-worth of slots (the
+--     legacy reject path leaves @validTo@ unset; per
+--     Q-S2-001 the explicit TTL is shipped as a fact so
+--     the S4 builder can wire it into @Tx.validTo@). The
+--     exact 600 s figure can be adjusted by S5 if the
+--     wallet policy demands a tighter bound.
+rejectValiditySlots
+    :: Context IO
+    -> ByteString
+    -> [ResolvedWalletInput]
+    -> Handler (Integer, Integer)
+rejectValiditySlots ctx stateOutBytes rejectableUtxos = do
+    stateOut <-
+        decodeIndexedTxOut
+            "facts/reject.state_utxo"
+            stateOutBytes
+    (pt, rt) <- case extractCageDatum stateOut of
+        Just (StateDatum s) ->
+            pure
+                ( OnChain.stateProcessTime s
+                , OnChain.stateRetractTime s
+                )
+        _ ->
+            throwInternal
+                "facts/reject.state_utxo missing state datum"
+    deadlines <- traverse (extractDeadline pt rt) rejectableUtxos
+    let latest = maximum (0 : deadlines)
+    lowerSlot <-
+        liftIO
+            (Prov.posixMsCeilSlot (provider ctx) latest)
+    upperSlot <-
+        liftIO
+            ( Prov.posixMsCeilSlot
+                (provider ctx)
+                (latest + rejectTtlMs)
+            )
+    pure
+        ( toInteger (unSlotNo lowerSlot)
+        , toInteger (unSlotNo upperSlot)
+        )
+  where
+    extractDeadline pt rt (_, outBytes, _) = do
+        out <-
+            decodeIndexedTxOut
+                "facts/reject.request_utxos[]"
+                outBytes
+        case extractCageDatum out of
+            Just (RequestDatum r) ->
+                pure
+                    (OnChain.requestSubmittedAt r + pt + rt)
+            _ ->
+                throwInternal
+                    "facts/reject.request_utxos[] missing \
+                    \request datum"
+
+-- | TTL (ms) added to the latest deadline to derive the
+-- reject upper validity slot. 600 seconds chosen as a
+-- defensible default; the legacy reject leaves @validTo@
+-- unset entirely.
+rejectTtlMs :: Integer
+rejectTtlMs = 600 * 1000
 
 -- | Extract @submitted_at@ from the inline datum of an
 -- indexed request UTxO. 500 if the output is missing a

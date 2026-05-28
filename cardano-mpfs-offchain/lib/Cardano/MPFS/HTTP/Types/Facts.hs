@@ -13,6 +13,7 @@ module Cardano.MPFS.HTTP.Types.Facts
     , mkRequestUpdateFacts
     , mkUpdateFacts
     , mkRetractFacts
+    , mkRejectFacts
     , mkEndFacts
     ) where
 
@@ -36,6 +37,7 @@ import Cardano.MPFS.API.Types.Common
     )
 import Cardano.MPFS.API.Types.Facts
     ( EndFacts (..)
+    , RejectFacts (..)
     , RequestDeleteFacts (..)
     , RequestInsertFacts (..)
     , RequestUpdateFacts (..)
@@ -245,6 +247,47 @@ mkRetractFacts
                 map resolvedWalletInputToUtxoEntry walletUtxos
             , rfValidityStartSlot = startSlot
             , rfValidityEndSlot = endSlot
+            , rfProtocolParameters =
+                pparamsToJSON pparams
+            }
+
+-- | Build the facts-only reject response from one atomic
+-- indexer snapshot, the cage state UTxO, the rejectable
+-- request UTxOs, the requester funding UTxOs, the
+-- server-derived Phase 3 validity slot bounds, and node
+-- protocol parameters. Per Q-S2-001 no trie root or trie
+-- facts are emitted because reject leaves the state root
+-- unchanged.
+mkRejectFacts
+    :: BundleSnapshot
+    -> TokenId
+    -> ResolvedWalletInput
+    -> [ResolvedWalletInput]
+    -> [ResolvedWalletInput]
+    -> Integer
+    -> Integer
+    -> PParams ConwayEra
+    -> RejectFacts
+mkRejectFacts
+    snap
+    tid
+    stateUtxo
+    requestUtxos
+    walletUtxos
+    lowerSlot
+    upperSlot
+    pparams =
+        RejectFacts
+            { rfSnapshot = bundleSnapshotToJSON snap
+            , rfToken = tokenIdToJSON tid
+            , rfStateUtxo =
+                resolvedWalletInputToUtxoEntry stateUtxo
+            , rfRequestUtxos =
+                map resolvedWalletInputToUtxoEntry requestUtxos
+            , rfWalletUtxos =
+                map resolvedWalletInputToUtxoEntry walletUtxos
+            , rfValidityLowerSlot = lowerSlot
+            , rfValidityUpperSlot = upperSlot
             , rfProtocolParameters =
                 pparamsToJSON pparams
             }
