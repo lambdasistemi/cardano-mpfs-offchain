@@ -10,6 +10,7 @@ import Cardano.MPFS.Client.Cage.RetractSpec qualified as CageRetractSpec
 import Cardano.MPFS.Client.Cage.UpdateSpec qualified as CageUpdateSpec
 import Cardano.MPFS.Client.EndFactsSpec qualified as EndFactsSpec
 import Cardano.MPFS.Client.HttpSpec qualified as HttpSpec
+import Cardano.MPFS.Client.RejectFactsSpec qualified as RejectFactsSpec
 import Cardano.MPFS.Client.RequestDeleteFactsSpec qualified as RequestDeleteFactsSpec
 import Cardano.MPFS.Client.RequestInsertFactsSpec qualified as RequestInsertFactsSpec
 import Cardano.MPFS.Client.RequestUpdateFactsSpec qualified as RequestUpdateFactsSpec
@@ -30,6 +31,7 @@ main = hspec $ do
     RequestDeleteFactsSpec.spec
     RequestUpdateFactsSpec.spec
     RetractFactsSpec.spec
+    RejectFactsSpec.spec
     EndFactsSpec.spec
     UpdateFactsSpec.spec
     BootSpec.spec
