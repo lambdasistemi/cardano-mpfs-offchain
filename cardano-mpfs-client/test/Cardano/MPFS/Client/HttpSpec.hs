@@ -48,7 +48,7 @@ import Cardano.MPFS.Client
     , ClientError (..)
     , Hex (..)
     , MpfsHttp (..)
-    , RejectParams (..)
+    , RejectFactsParams (..)
     , RequestDeleteParams (..)
     , RequestInsertParams (..)
     , RequestUpdateParams (..)
@@ -57,7 +57,7 @@ import Cardano.MPFS.Client
     , VerifierMode (..)
     , VerifyError (..)
     , bootFacts
-    , rejectTx
+    , rejectFacts
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateFacts
@@ -65,7 +65,6 @@ import Cardano.MPFS.Client
     )
 import Cardano.MPFS.Client.Fixtures
     ( honestBootTrustedRoot
-    , honestRejectResponse
     , honestUnsignedBootResponse
     )
 
@@ -239,10 +238,17 @@ writeEndpointCases =
                 )
         )
     , EndpointCase
-        ["tx", "reject"]
-        (Aeson.toJSON rejectParams)
-        (Aeson.encode honestRejectResponse)
-        (voidRight . (`rejectTx` rejectParams))
+        ["facts", "reject"]
+        (Aeson.toJSON rejectFactsParams)
+        (Aeson.encode honestRejectFacts)
+        ( \http ->
+            voidRight
+                ( rejectFacts
+                    http
+                    honestBootTrustedRoot
+                    rejectFactsParams
+                )
+        )
     , EndpointCase
         ["facts", "update"]
         (Aeson.toJSON updateFactsParams)
@@ -349,8 +355,8 @@ requestUpdateParams =
         sampleNewValue
         sampleAddress
 
-rejectParams :: RejectParams
-rejectParams = RejectParams sampleToken sampleAddress
+rejectFactsParams :: RejectFactsParams
+rejectFactsParams = RejectFactsParams sampleToken sampleAddress
 
 updateFactsParams :: UpdateFactsParams
 updateFactsParams = UpdateFactsParams sampleToken sampleAddress
@@ -397,6 +403,33 @@ honestUpdateFacts =
             ]
         , FactsWire.ufValidityUpperSlot = 100
         , FactsWire.ufProtocolParameters =
+            Wire.UnverifiedPParams
+                { Wire.uppVerified = False
+                , Wire.uppCbor = Wire.Hex "\x82\x01\x02"
+                }
+        }
+
+honestRejectFacts :: FactsWire.RejectFacts
+honestRejectFacts =
+    FactsWire.RejectFacts
+        { FactsWire.rfSnapshot =
+            Wire.VerificationSnapshot
+                { Wire.vsUtxoRoot =
+                    Wire.Hex (BS.replicate 32 0x11)
+                , Wire.vsChainPoint =
+                    Wire.ChainPointJSON
+                        { Wire.cpSlot = 42
+                        , Wire.cpBlockId =
+                            Wire.Hex (BS.replicate 32 0x22)
+                        }
+                }
+        , FactsWire.rfToken = Wire.TokenIdJSON "\x00"
+        , FactsWire.rfStateUtxo = sampleUtxoEntry 0
+        , FactsWire.rfRequestUtxos = [sampleUtxoEntry 1]
+        , FactsWire.rfWalletUtxos = [sampleUtxoEntry 2]
+        , FactsWire.rfValidityLowerSlot = 100
+        , FactsWire.rfValidityUpperSlot = 200
+        , FactsWire.rfProtocolParameters =
             Wire.UnverifiedPParams
                 { Wire.uppVerified = False
                 , Wire.uppCbor = Wire.Hex "\x82\x01\x02"

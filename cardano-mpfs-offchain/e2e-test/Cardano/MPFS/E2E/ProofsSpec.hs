@@ -89,7 +89,7 @@ import Cardano.Ledger.Api.Tx.Body
     ( mintTxBodyL
     )
 import Cardano.Ledger.BaseTypes (Network (..))
-import Cardano.Ledger.Binary (decodeFull, natVersion)
+import Cardano.Ledger.Binary (decodeFull, natVersion, serialize')
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
@@ -157,21 +157,22 @@ import Cardano.MPFS.Client
     ( EndFacts (..)
     , FactPresentFacts (..)
     , Hex (..)
-    , RejectTxResponse (..)
+    , RejectFacts (..)
     , UpdateFacts (..)
     , VerificationSnapshot (..)
     , VerifiedEndFacts
+    , VerifiedRejectFacts
     , VerifiedUpdateFacts
     , csmtReplayFailedAt
     , flipProof
-    , runForgeReject
+    , runForgeRejectFacts
     , runForgeUpdateFacts
     , shouldAccept
     , shouldRejectWith
     , updateCageTx
     , verifyEndFacts
     , verifyFactPresentFacts
-    , verifyRejectTxResponse
+    , verifyRejectFacts
     , verifyUpdateFacts
     , verifyVerificationSnapshot
     , withReason
@@ -179,6 +180,7 @@ import Cardano.MPFS.Client
 import Cardano.MPFS.Client.Cage.Config qualified as Client
 import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -357,38 +359,42 @@ proofsSpec scripts =
                     updateFacts
             void (buildUpdateTx cfg verifiedUpdateFacts)
 
-            -- Remaining legacy tx endpoints still pair a
-            -- positive `shouldAccept` against the honest server
-            -- response with a negative `shouldRejectWith`
-            -- driven by the CSMT forgery DSL. One tampered
-            -- field per program, explicit dotted field path
-            -- + reason on every rejection.
-
-            -- The retract write path is facts-only after
-            -- #267; the legacy /tx/retract route is gone.
-            -- Retract forgery coverage now lives in the
-            -- client unit suite against the new
-            -- 'RetractFacts' shape, and the live retract
-            -- flow is exercised by the local-cluster facts
-            -- API matrix (#278) extended in this PR.
+            -- Reject (Addendum 001): wait past the Phase 3
+            -- deadline, fetch facts via /facts/reject, verify
+            -- the bundled witnesses, then build, sign, and
+            -- submit the reject tx with rejectCageTx.
 
             threadDelay (rejectDeadlineDelay cfg)
 
-            rejectResp <-
-                postJSON app "/tx/reject"
+            rejectFactsResp <-
+                postJSON app "/facts/reject"
                     $ object
                         [ "token" .= Hex (TE.decodeUtf8 tidHex)
                         , "address" .= addrHex
                         ]
-            (rejectResp :: RejectTxResponse)
-                `shouldAccept` verifyRejectTxResponse
-            runForgeReject (flipProof "request_ins[0]") rejectResp
-                `shouldRejectWith` verifyRejectTxResponse
+            let rejectTrusted =
+                    rejectFactsTrustedRoot rejectFactsResp
+                verifyRejectFactsUnit =
+                    void . verifyRejectFacts rejectTrusted
+            (rejectFactsResp :: RejectFacts)
+                `shouldAccept` verifyRejectFactsUnit
+            runForgeRejectFacts
+                (flipProof "state_utxo")
+                rejectFactsResp
+                `shouldRejectWith` verifyRejectFactsUnit
                 $ csmtReplayFailedAt
-                    "reject.request_ins[0].utxo_proof"
-
+                    "reject.state_utxo.inclusion_proof"
+            verifiedRejectFacts <-
+                expectRejectFactsVerified
+                    rejectTrusted
+                    rejectFactsResp
+            rejectTx <- buildRejectTx cfg verifiedRejectFacts
             _ <-
-                submitResponseTx awaitTimeout app ctx (tx rejectResp)
+                submitResponseTx
+                    awaitTimeout
+                    app
+                    ctx
+                    (encodeTxHex rejectTx)
 
             endFacts <-
                 postJSON app "/facts/end"
@@ -566,6 +572,49 @@ buildUpdateTx cfg verified =
             expectationFailure
                 ("updateCageTx failed: " <> show err)
                 *> error "unreachable"
+
+-- | The trusted root for facts-only reject verification is
+-- supplied externally by the caller; in this e2e harness the
+-- app itself is that trusted source, so we pin it to the
+-- snapshot returned by the same facts response.
+rejectFactsTrustedRoot :: RejectFacts -> TrustedRoot
+rejectFactsTrustedRoot RejectFacts{rfSnapshot} =
+    TrustedRoot (Common.vsUtxoRoot rfSnapshot)
+
+expectRejectFactsVerified
+    :: TrustedRoot
+    -> RejectFacts
+    -> IO VerifiedRejectFacts
+expectRejectFactsVerified trusted facts =
+    case verifyRejectFacts trusted facts of
+        Right verified -> pure verified
+        Left err ->
+            expectationFailure
+                ("verifyRejectFacts failed: " <> show err)
+                *> error "unreachable"
+
+buildRejectTx
+    :: CageConfig
+    -> VerifiedRejectFacts
+    -> IO (Tx ConwayEra)
+buildRejectTx cfg verified =
+    case rejectCageTx
+        (toClientCageConfig cfg)
+        permissiveWalletPolicy
+        verified of
+        Right tx -> pure tx
+        Left err ->
+            expectationFailure
+                ("rejectCageTx failed: " <> show err)
+                *> error "unreachable"
+
+encodeTxHex :: Tx ConwayEra -> Hex
+encodeTxHex tx =
+    Hex
+        ( TE.decodeUtf8
+            $ B16.encode
+            $ serialize' (natVersion @11) tx
+        )
 
 buildEndTx
     :: CageConfig

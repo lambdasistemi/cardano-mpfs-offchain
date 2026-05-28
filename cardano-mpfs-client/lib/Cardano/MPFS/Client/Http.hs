@@ -21,7 +21,7 @@ module Cardano.MPFS.Client.Http
     , RequestInsertParams (..)
     , RequestDeleteParams (..)
     , RequestUpdateParams (..)
-    , RejectParams (..)
+    , RejectFactsParams (..)
     , UpdateFactsParams (..)
 
       -- * Write endpoints
@@ -30,7 +30,7 @@ module Cardano.MPFS.Client.Http
     , requestDeleteFacts
     , requestUpdateFacts
     , updateFacts
-    , rejectTx
+    , rejectFacts
     , sweepTx
     , SweepParams (..)
     ) where
@@ -50,7 +50,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Network.HTTP.Client (Manager)
 import Network.HTTP.Types.Status (statusCode)
-import Servant.API ((:<|>) (..))
 import Servant.Client
     ( BaseUrl (..)
     , ClientM
@@ -67,6 +66,7 @@ import Servant.Client.Core.Response
 
 import Cardano.MPFS.API
     ( FactsBootAPI
+    , FactsRejectAPI
     , FactsRequestDeleteAPI
     , FactsRequestInsertAPI
     , FactsRequestUpdateAPI
@@ -75,13 +75,12 @@ import Cardano.MPFS.API
     )
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.API.Types.Facts qualified as FactsWire
-import Cardano.MPFS.Client.Bundle (RejectTxResponse)
 import Cardano.MPFS.Client.Snapshot (Hex)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
     ( VerifyError
     , verifyBootFacts
-    , verifyRejectTxResponse
+    , verifyRejectFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
@@ -177,18 +176,18 @@ instance ToJSON RequestUpdateParams where
             , "address" .= requestUpdateAddress
             ]
 
--- | @POST /tx/reject@ request body.
-data RejectParams = RejectParams
-    { rejectToken :: Hex
-    , rejectAddress :: Hex
+-- | @POST /facts/reject@ request body.
+data RejectFactsParams = RejectFactsParams
+    { rejectFactsToken :: Hex
+    , rejectFactsAddress :: Hex
     }
     deriving stock (Eq, Show)
 
-instance ToJSON RejectParams where
-    toJSON RejectParams{..} =
+instance ToJSON RejectFactsParams where
+    toJSON RejectFactsParams{..} =
         object
-            [ "token" .= rejectToken
-            , "address" .= rejectAddress
+            [ "token" .= rejectFactsToken
+            , "address" .= rejectFactsAddress
             ]
 
 -- | @POST /facts/update@ request body.
@@ -278,13 +277,20 @@ updateFacts http trustedRoot params =
         factsUpdateClient
         (verifyUpdateFacts trustedRoot)
 
--- | Build a reject transaction.
-rejectTx
+-- | Fetch reject facts and verify the bundled state,
+-- request, and wallet UTxO witnesses against the
+-- externally-trusted CSMT root.
+rejectFacts
     :: MpfsHttp
-    -> RejectParams
-    -> IO (Either ClientError RejectTxResponse)
-rejectTx http params =
-    runWriteEndpoint http params txRejectClient verifyRejectTxResponse
+    -> TrustedRoot
+    -> RejectFactsParams
+    -> IO (Either ClientError FactsWire.RejectFacts)
+rejectFacts http trustedRoot params =
+    runWriteEndpoint
+        http
+        params
+        factsRejectClient
+        (verifyRejectFacts trustedRoot)
 
 runWriteEndpoint
     :: ( ToJSON params
@@ -358,8 +364,8 @@ factsRequestUpdateClient
     :: Wire.UpdateValueRequest -> ClientM FactsWire.RequestUpdateFacts
 factsUpdateClient
     :: Wire.UpdateRequest -> ClientM FactsWire.UpdateFacts
-txRejectClient
-    :: Wire.RejectRequest -> ClientM Wire.RejectTxResponse
+factsRejectClient
+    :: Wire.RejectRequest -> ClientM FactsWire.RejectFacts
 txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 factsBootClient =
@@ -377,9 +383,11 @@ factsRequestUpdateClient =
 factsUpdateClient =
     client (Proxy :: Proxy FactsUpdateAPI)
 
-txRejectClient
-    :<|> txSweepClient =
-        client (Proxy :: Proxy TxWriteAPI)
+factsRejectClient =
+    client (Proxy :: Proxy FactsRejectAPI)
+
+txSweepClient =
+    client (Proxy :: Proxy TxWriteAPI)
 
 -- | @POST /tx/sweep@ request body.
 data SweepParams = SweepParams
