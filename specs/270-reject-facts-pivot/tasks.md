@@ -59,20 +59,33 @@
       inputs. Exclude only per-redeemer ExUnits from structural
       parity. Do not edit server route wiring in this slice.
 
-## Slice S5 - HTTP Hard Swap, Swagger, Matrix, MOOG Boundary
+## Slice S5 - HTTP Hard Swap, Swagger, Matrix, ProofsSpec Smoke, MOOG Boundary
 
 - [ ] T005-S5 [US1] RED HTTP/Swagger tests proving `POST
       /facts/reject` exists, returns facts without transaction CBOR,
-      and `/tx/reject` is absent. GREEN by adding the facts route,
-      removing `TxRejectAPI`/`txRejectHandler`/typed `rejectTx`,
-      regenerating `docs/assets/swagger.json`, extending the
-      local-cluster facts matrix with a reject row that proves
-      `POST /facts/reject -> verifyRejectFacts -> rejectCageTx ->
-      submit -> reject indexed`, adding a ProofsSpec negative e2e for
-      reject using `runForgeRejectFacts`, and recording the MOOG
-      boundary status in the PR body. Keep update legacy-route
-      assertions intact. Run the focused commands and `./gate.sh`;
-      do not drop `gate.sh` here.
+      and `/tx/reject` is absent. GREEN by:
+      (a) Adding the facts route + handler wiring
+          `rejectableRequestUtxos` and `rejectValiditySlots` from S2.
+      (b) Removing `TxRejectAPI`/`txRejectHandler`/typed `rejectTx`.
+      (c) Regenerating `docs/assets/swagger.json`.
+      (d) Extending the local-cluster facts matrix with a reject row
+          that proves `POST /facts/reject -> verifyRejectFacts ->
+          rejectCageTx -> submit -> reject indexed`.
+      (e) **Adding reject to the proof-bearing-envelopes smoke
+          (`ProofsSpec.hs`, "read and write envelopes carry
+          verifiable proofs") as a first-class boot → request →
+          wait-past-Phase-3-deadline → reject → refund step (steps
+          1-8 of Addendum 001 in spec.md).** Add a real time-advance
+          helper as production code if the existing e2e harness
+          doesn't expose one at the required resolution.
+      (f) Adding a ProofsSpec negative assertion against the honest
+          reject facts response using `runForgeRejectFacts (flipProof
+          "state_utxo")` (step 9 of Addendum 001).
+      (g) Recording the MOOG boundary status in the PR body.
+      Keep update legacy-route assertions intact. Run the focused
+      commands and `./gate.sh`; do not drop `gate.sh` here. S7
+      finalize cannot begin until (d), (e), and (f) are all
+      present.
 
 ## Slice S7 - Finalize
 
@@ -232,17 +245,43 @@ Exclude only provider-runtime validity upper slot and per-redeemer
 ExUnits from structural parity. Do not edit server route wiring in
 this slice.
 
-### Slice S5: HTTP Hard Swap, Swagger, Matrix, MOOG Boundary
+### Slice S5: HTTP Hard Swap, Swagger, Matrix, ProofsSpec Smoke, MOOG Boundary
 
-Worker owns T005-S5. Write RED HTTP/Swagger tests proving `POST
-/facts/reject` exists, returns facts without transaction CBOR, and
-`/tx/reject` is absent. Then add the facts route, remove
-`TxRejectAPI`/`txRejectHandler`/typed `rejectTx`, regenerate
-`docs/assets/swagger.json`, extend the local-cluster facts matrix
-with a reject row that proves `POST /facts/reject ->
-verifyRejectFacts -> rejectCageTx -> submit -> reject indexed`, add
-a ProofsSpec negative e2e for reject using `runForgeRejectFacts`,
-and record the MOOG boundary status in the PR body as deferred to
+Worker owns T005-S5. Three legs must all be present:
+
+1. **Wire & swap.** RED HTTP/Swagger tests proving `POST
+   /facts/reject` exists, returns facts without transaction CBOR,
+   and `/tx/reject` is absent. Then add the facts route (wiring
+   `rejectableRequestUtxos` + `rejectValiditySlots` from S2), remove
+   `TxRejectAPI`/`txRejectHandler`/typed `rejectTx`, and regenerate
+   `docs/assets/swagger.json`.
+2. **Matrix row.** Extend the local-cluster facts matrix in
+   `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`
+   with a reject row that proves `POST /facts/reject ->
+   verifyRejectFacts -> rejectCageTx -> submit -> reject indexed`.
+3. **ProofsSpec smoke (Addendum 001).** Add reject to the proof-
+   bearing-envelopes smoke in `ProofsSpec.hs` "read and write
+   envelopes carry verifiable proofs" as a first-class step in the
+   boot → request → wait-past-Phase-3 → reject → refund flow.
+
+For leg 3:
+
+- Positive (steps 1-8 of Addendum 001 in spec.md): insert request,
+  drive time past Phase-3 deadline using the e2e harness's existing
+  `awaitSlot`/`awaitTime` primitive (or add a real time-advance
+  helper as production code if the harness doesn't expose one at
+  the required resolution — no test-only datum mutation, the #269
+  S8 wart rule applies), POST `/facts/reject`, `shouldAccept`,
+  build with `rejectCageTx`, sign + submit, await acceptance,
+  assert the request UTxO is gone from the pending set, assert the
+  wallet received the refund at the expected tip.
+- Negative (step 9): take the honest reject facts response, apply
+  `runForgeRejectFacts (flipProof "state_utxo")`, assert
+  `shouldRejectWith verifyRejectFactsUnit $ csmtReplayFailedAt
+    "<verifier's actual reported path>"`. Read the verifier source
+  to confirm the path string.
+
+Record the MOOG boundary status in the PR body as deferred to
 cardano-foundation/moog#96 unless a real reject canary/staged-port
 proof exists. Run the focused commands and `./gate.sh`; do not drop
 `gate.sh` here.

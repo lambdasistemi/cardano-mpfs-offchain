@@ -70,6 +70,12 @@ accepted on-chain and indexed.
 - Extend the facts API local-cluster matrix with a reject row that
   proves `POST /facts/reject -> verifyRejectFacts -> rejectCageTx ->
   submit -> reject indexed`.
+- Add reject to the proof-bearing-envelopes smoke scenario in
+  `cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs` as
+  a first-class step in the boot → request → wait → reject → refund
+  flow, with both a positive (verify + build + submit + assert
+  refund) and a negative (`runForgeRejectFacts` + `csmtReplayFailedAt`)
+  assertion. See "Addendum 001" below for the contract.
 - Record MOOG boundary status through cardano-foundation/moog#96 or an
   operation-specific canary/staged-port proof.
 
@@ -93,6 +99,10 @@ accepted on-chain and indexed.
 - `POST /facts/reject` is the only reject API path; the legacy
   transaction route is absent from API code, server wiring, typed
   client wrappers, Swagger, and live boundary checks.
+- The proof-bearing-envelopes smoke (`ProofsSpec.hs` "read and write
+  envelopes carry verifiable proofs") includes a reject lifecycle
+  flow (positive + negative) as a first-class step alongside boot,
+  request, update, and end. See Addendum 001.
 - Verifier surface for reject has zero `Cardano.Ledger.Api.Tx`
   imports.
 - The cage helper inside `rejectCageTx` agrees with the legacy
@@ -161,6 +171,48 @@ consumed; reject is not one of those cases.
   adds `/facts/reject`.
 - MOOG is treated as a boundary/canary or staged-port decision, not as
   a legacy call-site migration.
+
+## Addendum 001 — Reject in proof-bearing smoke
+
+Operator instruction (2026-05-28): reject must be a first-class step
+in the proof-bearing-envelopes smoke scenario in
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs`, not
+only a matrix row in `FactsMatrixSpec.hs`. The matrix proves the
+endpoint works in isolation; the smoke proves it works as part of
+the full proof-bearing flow against a live cluster. This is the
+#269 S7/S8 lesson: live-flow smoke surfaces what isolated matrix
+rows can't.
+
+The smoke flow extension:
+
+1. Insert a request via the existing request path.
+2. Drive time past the request's Phase-3 deadline using the e2e
+   harness's existing `awaitSlot`/`awaitTime` primitive. If the
+   resolution required is not exposed by the e2e helpers, add a
+   real time-advance helper as production code, not a test-only
+   mutator (the #269 S8 wart-removal rule applies).
+3. `POST /facts/reject` → `RejectFacts` (Option C, per
+   A-S2-001).
+4. `shouldAccept` against `verifyRejectFacts`.
+5. Extract `VerifiedRejectFacts` and call `rejectCageTx` to build
+   the unsigned tx.
+6. Sign + submit + await acceptance on the local cluster.
+7. Assert the request UTxO is no longer in the pending set.
+8. Assert the wallet received the per-request refund at the
+   expected `requestFee` tip.
+
+Plus a negative case in the same scenario:
+
+9. Take the honest `/facts/reject` response, apply
+   `runForgeRejectFacts (flipProof "state_utxo")` (or
+   `flipProof "request_utxos[0]"`), assert
+   `shouldRejectWith verifyRejectFactsUnit $ csmtReplayFailedAt
+     "<verifier's actual reported path>"`.
+
+S5 has three legs that must all be present before S7 finalize can
+begin: matrix row, smoke positive (steps 1-8), smoke negative
+(step 9). No test-only datum mutation to fake Phase-3 reachability;
+no skipping the live submit step.
 
 ## MOOG Boundary Status
 
