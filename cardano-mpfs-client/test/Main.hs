@@ -5,6 +5,7 @@ import Cardano.MPFS.Client.BootFactsSpec qualified as BootFactsSpec
 import Cardano.MPFS.Client.BundleSpec qualified as BundleSpec
 import Cardano.MPFS.Client.Cage.BootSpec qualified as BootSpec
 import Cardano.MPFS.Client.Cage.EndSpec qualified as EndSpec
+import Cardano.MPFS.Client.Cage.RejectSpec qualified as CageRejectSpec
 import Cardano.MPFS.Client.Cage.RequestSpec qualified as RequestSpec
 import Cardano.MPFS.Client.Cage.RetractSpec qualified as CageRetractSpec
 import Cardano.MPFS.Client.Cage.UpdateSpec qualified as CageUpdateSpec
@@ -37,6 +38,7 @@ main = hspec $ do
     BootSpec.spec
     RequestSpec.spec
     CageRetractSpec.spec
+    CageRejectSpec.spec
     EndSpec.spec
     CageUpdateSpec.spec
     VerifySpec.spec
