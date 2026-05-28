@@ -46,6 +46,15 @@
       verifier/cage/HTTP/matrix commands plus `./gate.sh`, and leave the
       branch ready for final gate removal.
 
+## Slice S7 - Proof-Envelope Regression Repair
+
+- [X] T007-S7 [US1] Repair the pre-existing proof-bearing envelope e2e test:
+      prove the current failure on `POST /tx/update`, then migrate that update
+      assertion to `POST /facts/update -> verifyUpdateFacts -> updateCageTx`
+      without restoring `/tx/update`, keep reject/end coverage intact, run the
+      focused proof-envelope e2e and `./gate.sh`, and commit one recovery
+      slice.
+
 ## Worker Slice Briefs
 
 ### Slice S1: Wire Types And Indexer Reads
@@ -104,3 +113,17 @@ absence at the live WAI boundary. Record the update MOOG boundary status in
 the PR body as deferred to cardano-foundation/moog#96 unless a real update
 canary/staged-port proof exists. Run the focused commands and `./gate.sh`; do
 not drop `gate.sh` here.
+
+### Slice S7: Proof-Envelope Regression Repair
+
+Worker owns T007-S7. The focused e2e regression reproduces locally in
+`ProofsSpec.hs`: `POST "/tx/update"` returns 400 with body
+`"invalid character at offset: 0"` because `/tx/update` was intentionally
+removed and Servant now parses `update` as the `/tx/:txId` capture before
+rejecting it as non-hex. Write RED by preserving that failing focused e2e
+evidence, then GREEN by migrating the update section of
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs` to
+`POST /facts/update -> verifyUpdateFacts -> updateCageTx`. Keep the existing
+`/tx/reject` proof-envelope verification and `/facts/end` facts verification.
+Do not restore `/tx/update`, do not weaken the legacy-route absence matrix, and
+do not edit production routes for this regression.
