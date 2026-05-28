@@ -60,6 +60,7 @@ module Cardano.MPFS.Client
     , VerifiedRequestDeleteFacts
     , VerifiedRequestUpdateFacts
     , VerifiedUpdateFacts
+    , VerifiedRejectFacts
     , VerifiedEndFacts
     , VerifiedFactPresentFacts
     , VerifiedFactAbsentFacts
@@ -68,6 +69,7 @@ module Cardano.MPFS.Client
     , verifiedRequestDeleteFacts
     , verifiedRequestUpdateFacts
     , verifiedUpdateFacts
+    , verifiedRejectFacts
     , verifiedEndFacts
     , verifiedFactPresentFacts
     , verifiedFactAbsentFacts
@@ -85,6 +87,7 @@ module Cardano.MPFS.Client
     , verifyRequestDeleteFacts
     , verifyRequestUpdateFacts
     , verifyUpdateFacts
+    , verifyRejectFacts
     , verifyEndFacts
     , verifyFactPresentFacts
     , verifyFactAbsentFacts
@@ -140,6 +143,7 @@ module Cardano.MPFS.Client
     , runForgeUpdateTrie
     , runForgeUpdateFacts
     , runForgeUpdateFactsTrie
+    , runForgeRejectFacts
 
       -- * Local cage builders
     , CageConfig (..)
@@ -247,11 +251,14 @@ import Cardano.MPFS.Client.Snapshot
     , statusSnapshot
     )
 import Cardano.MPFS.Client.Verify
-    ( VerifyError (..)
+    ( VerifiedRejectFacts
+    , VerifyError (..)
+    , verifiedRejectFacts
     , verifyBootFacts
     , verifyBootTxResponse
     , verifyEndFacts
     , verifyEndTxResponse
+    , verifyRejectFacts
     , verifyRejectTxResponse
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
@@ -290,6 +297,7 @@ import Cardano.MPFS.Client.Verify.DSL
     , runForgeBoot
     , runForgeEnd
     , runForgeReject
+    , runForgeRejectFacts
     , runForgeRequest
     , runForgeRetract
     , runForgeUpdate

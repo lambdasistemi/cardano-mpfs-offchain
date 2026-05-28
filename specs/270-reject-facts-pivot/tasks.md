@@ -32,7 +32,7 @@
 
 ## Slice S3 - Reject Facts Verifier (with DSL completion)
 
-- [ ] T003-S3 [US1] Add the reject runner to the forgery DSL
+- [X] T003-S3 [US1] Add the reject runner to the forgery DSL
       (`runForgeRejectFacts` for CSMT — no trie-level runner since
       reject has no trie facts), then RED client verifier tests in
       `cardano-mpfs-client/test/Cardano/MPFS/Client/RejectFactsSpec.hs`

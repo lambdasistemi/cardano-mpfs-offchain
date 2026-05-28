@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- |
 -- Module      : Cardano.MPFS.Client.Verify.DSL
@@ -150,6 +151,7 @@ module Cardano.MPFS.Client.Verify.DSL
     , runForgeUpdateTrie
     , runForgeUpdateFacts
     , runForgeUpdateFactsTrie
+    , runForgeRejectFacts
     ) where
 
 import Control.Monad.Operational
@@ -176,7 +178,13 @@ import Cardano.MPFS.API.Types.Common
     )
 import Cardano.MPFS.API.Types.Common qualified as ApiC
 import Cardano.MPFS.API.Types.Facts
-    ( tfMpfProof
+    ( RejectFacts
+        ( rfRequestUtxos
+        , rfSnapshot
+        , rfStateUtxo
+        , rfWalletUtxos
+        )
+    , tfMpfProof
     , tfValue
     , ufRequestUtxos
     , ufSnapshot
@@ -1020,3 +1028,60 @@ tamperFactsTrie i f facts =
         { ufTrieFacts =
             tamperListAt i f (ufTrieFacts facts)
         }
+
+-- | Interpret a 'CsmtForge' program against an
+-- 'ApiF.RejectFacts' envelope. Path grammar:
+--
+-- > "state_utxo"            -- rfStateUtxo
+-- > "request_utxos[<i>]"    -- rfRequestUtxos!!i
+-- > "wallet_utxos[<i>]"     -- rfWalletUtxos!!i
+--
+-- 'FlipSnapshotRoot' replaces @rfSnapshot.vsUtxoRoot@
+-- with the deterministic wrong-root bytes.
+--
+-- Per Q-S2-001 the reject envelope carries no trie
+-- facts, so there is no companion 'TrieForge' runner for
+-- 'ApiF.RejectFacts'.
+runForgeRejectFacts
+    :: CsmtForge () -> ApiF.RejectFacts -> ApiF.RejectFacts
+runForgeRejectFacts prog facts = case view prog of
+    Return () -> facts
+    FlipSnapshotRoot :>>= k ->
+        runForgeRejectFacts
+            (k ())
+            ( facts
+                { rfSnapshot = swapApiSnapRoot facts.rfSnapshot
+                }
+            )
+    FlipProof path :>>= k ->
+        runForgeRejectFacts
+            (k ())
+            (tamperRejectFactsEntry path forgeEntryProof facts)
+    FlipTxOut path :>>= k ->
+        runForgeRejectFacts
+            (k ())
+            (tamperRejectFactsEntry path forgeEntryTxOut facts)
+
+tamperRejectFactsEntry
+    :: (HasCallStack)
+    => Text
+    -> (ApiC.UtxoEntry -> ApiC.UtxoEntry)
+    -> ApiF.RejectFacts
+    -> ApiF.RejectFacts
+tamperRejectFactsEntry path f facts =
+    case parseIndexedRole path of
+        ("state_utxo", Nothing) ->
+            facts{rfStateUtxo = f facts.rfStateUtxo}
+        ("request_utxos", Just i) ->
+            facts
+                { rfRequestUtxos =
+                    tamperListAt i f facts.rfRequestUtxos
+                }
+        ("wallet_utxos", Just i) ->
+            facts
+                { rfWalletUtxos =
+                    tamperListAt i f facts.rfWalletUtxos
+                }
+        _ ->
+            error
+                $ "runForgeRejectFacts: bad path " <> show path

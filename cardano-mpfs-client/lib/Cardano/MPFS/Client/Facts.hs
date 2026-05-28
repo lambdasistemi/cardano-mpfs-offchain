@@ -24,6 +24,7 @@ module Cardano.MPFS.Client.Facts
     , VerifiedRequestUpdateFacts
     , VerifiedUpdateFacts
     , VerifiedRetractFacts
+    , VerifiedRejectFacts
     , VerifiedEndFacts
     , VerifiedFactPresentFacts
     , VerifiedFactAbsentFacts
@@ -33,6 +34,7 @@ module Cardano.MPFS.Client.Facts
     , verifiedRequestUpdateFacts
     , verifiedUpdateFacts
     , verifiedRetractFacts
+    , verifiedRejectFacts
     , verifiedEndFacts
     , verifiedFactPresentFacts
     , verifiedFactAbsentFacts
@@ -42,6 +44,7 @@ module Cardano.MPFS.Client.Facts
     , verifyRequestUpdateFacts
     , verifyUpdateFacts
     , verifyRetractFacts
+    , verifyRejectFacts
     , verifyEndFacts
     , verifyFactPresentFacts
     , verifyFactAbsentFacts
@@ -150,6 +153,13 @@ newtype VerifiedRetractFacts
     = VerifiedRetractFacts RetractFacts
     deriving stock (Eq, Show)
 
+-- | Opaque witness that reject facts have been checked
+-- against the caller-supplied trusted root. Constructor is
+-- not exported; public callers go through 'verifyRejectFacts'.
+newtype VerifiedRejectFacts
+    = VerifiedRejectFacts RejectFacts
+    deriving stock (Eq, Show)
+
 -- | Opaque witness that end facts have been checked against the
 -- caller-supplied trusted root and locally-derived request prefix.
 newtype VerifiedEndFacts = VerifiedEndFacts EndFacts
@@ -223,6 +233,14 @@ verifiedUpdateFacts (VerifiedUpdateFacts facts) = facts
 verifiedRetractFacts
     :: VerifiedRetractFacts -> RetractFacts
 verifiedRetractFacts (VerifiedRetractFacts facts) =
+    facts
+
+-- | Extract the verified facts after 'verifyRejectFacts'
+-- has established the trusted-root, CSMT proof, and
+-- validity-slot checks.
+verifiedRejectFacts
+    :: VerifiedRejectFacts -> RejectFacts
+verifiedRejectFacts (VerifiedRejectFacts facts) =
     facts
 
 -- | Extract the verified facts after 'verifyEndFacts' has
@@ -708,6 +726,114 @@ verifyRetractFacts
                         entry
                 )
                 (zip [0 ..] entries)
+
+-- | Verify a facts-only reject response against an
+-- externally-supplied trusted UTxO-CSMT root. Replays the
+-- inclusion proofs for the cage state UTxO, every rejectable
+-- request UTxO, and every requester wallet UTxO, then checks
+-- that the server-derived Phase 3 validity bounds are
+-- internally consistent (lower > snapshot slot, upper > lower,
+-- upper within the bounded horizon). Per Q-S2-001 the reject
+-- envelope carries no trie facts, so no MPF replay runs here.
+verifyRejectFacts
+    :: TrustedRoot
+    -> RejectFacts
+    -> Either VerifyError VerifiedRejectFacts
+verifyRejectFacts
+    (TrustedRoot (Hex trustedBs))
+    facts@RejectFacts{..} = do
+        checkLength "reject.trusted_root" trustedBs
+        let snapshotPath = "reject.snapshot.utxo_root"
+            Hex snapshotBs = vsUtxoRoot rfSnapshot
+        checkLength snapshotPath snapshotBs
+        if snapshotBs == trustedBs
+            then Right ()
+            else Left (TrustedRootMismatch snapshotPath)
+        case rfRequestUtxos of
+            [] ->
+                Left
+                    $ TxBindingFailed
+                        "reject.request_utxos"
+                        "must not be empty"
+            _ -> Right ()
+        replayUtxoEntry "reject.state_utxo" trustedBs rfStateUtxo
+        replayRequestUtxos trustedBs rfRequestUtxos
+        replayWalletUtxos trustedBs rfWalletUtxos
+        checkRejectValiditySlots
+            rfSnapshot
+            rfValidityLowerSlot
+            rfValidityUpperSlot
+        Right (VerifiedRejectFacts facts)
+      where
+        checkLength field bs
+            | BS.length bs == 32 = Right ()
+            | otherwise =
+                Left (WrongHexLength field 32 (BS.length bs))
+        replayRequestUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "reject.request_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+        replayWalletUtxos root entries =
+            mapM_
+                ( \(ix, entry) ->
+                    replayUtxoEntry
+                        ( "reject.wallet_utxos["
+                            <> T.pack (show (ix :: Int))
+                            <> "]"
+                        )
+                        root
+                        entry
+                )
+                (zip [0 ..] entries)
+
+-- | Internal consistency checks on the server-derived reject
+-- validity slot bounds. The constants below match the shape
+-- 'verifyUpdateFacts' uses: 60 s grace + 600 s TTL = 660
+-- slot-seconds. If the server picks a tighter bound the
+-- envelope still passes; if it picks a looser one the verifier
+-- fails fast so a Phase 2-rejecting tx is never built.
+checkRejectValiditySlots
+    :: VerificationSnapshot
+    -> Integer
+    -> Integer
+    -> Either VerifyError ()
+checkRejectValiditySlots snap lower upper = do
+    let snapshotSlot =
+            fromIntegral (cpSlot (vsChainPoint snap))
+    if lower > snapshotSlot
+        then Right ()
+        else
+            Left
+                $ TxBindingFailed
+                    "reject.validity_lower_slot"
+                    "must be greater than the snapshot slot"
+    if upper > lower
+        then Right ()
+        else
+            Left
+                $ TxBindingFailed
+                    "reject.validity_upper_slot"
+                    "must be greater than the lower slot"
+    if upper - snapshotSlot <= rejectValidityHorizonSlots
+        then Right ()
+        else
+            Left
+                $ TxBindingFailed
+                    "reject.validity_upper_slot"
+                    "too far beyond the snapshot slot"
+
+-- | 60 s grace + 600 s TTL converted to slots (1 slot per
+-- second, matching the legacy reject and update settings).
+rejectValidityHorizonSlots :: Integer
+rejectValidityHorizonSlots = 60 + 600
 
 -- | Verify a facts-only end response against an externally-supplied
 -- trusted UTxO-CSMT root and a client-owned cage configuration.
