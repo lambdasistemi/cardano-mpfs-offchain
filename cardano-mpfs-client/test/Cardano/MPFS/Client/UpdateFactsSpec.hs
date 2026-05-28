@@ -53,7 +53,12 @@ import Cardano.MPFS.Client.Verify
 import Cardano.MPFS.Client.Verify.DSL
     ( csmtReplayFailedAt
     , flipApiHexMidByte
+    , flipProof
+    , flipTrieProof
+    , flipTrieValue
     , mpfReplayFailedAt
+    , runForgeUpdateFacts
+    , runForgeUpdateFactsTrie
     , shouldRejectWith
     , trustedRootMismatchAt
     )
@@ -157,10 +162,9 @@ spec = describe "verifyUpdateFacts" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
             forged =
-                facts
-                    { ufStateUtxo =
-                        tamperEntryProof (ufStateUtxo facts)
-                    }
+                runForgeUpdateFacts
+                    (flipProof "state_utxo")
+                    facts
         forged
             `shouldRejectWith` verifyUpdateUnit trustedRoot
             $ csmtReplayFailedAt
@@ -170,13 +174,9 @@ spec = describe "verifyUpdateFacts" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
             forged =
-                facts
-                    { ufRequestUtxos =
-                        tamperListAt
-                            1
-                            tamperEntryProof
-                            (ufRequestUtxos facts)
-                    }
+                runForgeUpdateFacts
+                    (flipProof "request_utxos[1]")
+                    facts
         forged
             `shouldRejectWith` verifyUpdateUnit trustedRoot
             $ csmtReplayFailedAt
@@ -186,13 +186,9 @@ spec = describe "verifyUpdateFacts" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
             forged =
-                facts
-                    { ufWalletUtxos =
-                        tamperListAt
-                            0
-                            tamperEntryProof
-                            (ufWalletUtxos facts)
-                    }
+                runForgeUpdateFacts
+                    (flipProof "wallet_utxos[0]")
+                    facts
         forged
             `shouldRejectWith` verifyUpdateUnit trustedRoot
             $ csmtReplayFailedAt
@@ -202,13 +198,9 @@ spec = describe "verifyUpdateFacts" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
             forged =
-                facts
-                    { ufTrieFacts =
-                        tamperListAt
-                            1
-                            tamperTrieProof
-                            (ufTrieFacts facts)
-                    }
+                runForgeUpdateFactsTrie
+                    (flipTrieProof 1)
+                    facts
         forged
             `shouldRejectWith` verifyUpdateUnit trustedRoot
             $ mpfReplayFailedAt
@@ -218,13 +210,9 @@ spec = describe "verifyUpdateFacts" $ do
         let UpdateFactsFixture{trustedRoot, facts} =
                 honestUpdateFactsFixture
             forged =
-                facts
-                    { ufTrieFacts =
-                        tamperListAt
-                            0
-                            tamperTrieValue
-                            (ufTrieFacts facts)
-                    }
+                runForgeUpdateFactsTrie
+                    (flipTrieValue 0)
+                    facts
         forged
             `shouldRejectWith` verifyUpdateUnit trustedRoot
             $ mpfReplayFailedAt
@@ -332,24 +320,6 @@ toApiHex (ClientSnapshot.Hex txt) =
                 ( "UpdateFactsSpec.toApiHex: malformed fixture hex: "
                     <> err
                 )
-
-tamperEntryProof :: UtxoEntry -> UtxoEntry
-tamperEntryProof entry =
-    entry{ueInclusionProof = flipApiHexMidByte (ueInclusionProof entry)}
-
-tamperTrieProof :: TrieFact -> TrieFact
-tamperTrieProof fact =
-    fact{tfMpfProof = flipApiHexMidByte (tfMpfProof fact)}
-
-tamperTrieValue :: TrieFact -> TrieFact
-tamperTrieValue fact =
-    fact{tfValue = flipApiHexMidByte <$> tfValue fact}
-
-tamperListAt :: Int -> (a -> a) -> [a] -> [a]
-tamperListAt 0 f (x : xs) = f x : xs
-tamperListAt n f (x : xs) = x : tamperListAt (n - 1) f xs
-tamperListAt n _ [] =
-    error ("UpdateFactsSpec.tamperListAt: missing index " <> show n)
 
 sampleToken :: TokenIdJSON
 sampleToken = TokenIdJSON (BS.replicate 32 0xE4)

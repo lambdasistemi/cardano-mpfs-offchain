@@ -115,6 +115,10 @@ module Cardano.MPFS.Client
     , forgeTrieFactValue
     , dropTrieFactToExclusion
     , promoteTrieFactToInclusion
+    , forgeEntryProof
+    , forgeEntryTxOut
+    , forgeFactsTrieValue
+    , forgeFactsTrieProof
 
       -- * Forgery DSL (operational free-monad)
     , CsmtForge
@@ -125,6 +129,7 @@ module Cardano.MPFS.Client
     , flipTrieValue
     , dropToExclusion
     , flipTrieRoot
+    , flipTrieProof
     , runForgeBoot
     , runForgeRequest
     , runForgeRetract
@@ -132,6 +137,8 @@ module Cardano.MPFS.Client
     , runForgeEnd
     , runForgeUpdate
     , runForgeUpdateTrie
+    , runForgeUpdateFacts
+    , runForgeUpdateFactsTrie
 
       -- * Local cage builders
     , CageConfig (..)
@@ -264,9 +271,14 @@ import Cardano.MPFS.Client.Verify.DSL
     , flipByteInHex
     , flipProof
     , flipSnapshotRoot
+    , flipTrieProof
     , flipTrieRoot
     , flipTrieValue
     , flipTxOut
+    , forgeEntryProof
+    , forgeEntryTxOut
+    , forgeFactsTrieProof
+    , forgeFactsTrieValue
     , forgeTrieFactValue
     , forgeWitnessedUtxoProof
     , forgeWitnessedUtxoTxOut
@@ -279,6 +291,8 @@ import Cardano.MPFS.Client.Verify.DSL
     , runForgeRequest
     , runForgeRetract
     , runForgeUpdate
+    , runForgeUpdateFacts
+    , runForgeUpdateFactsTrie
     , runForgeUpdateTrie
     , shouldAccept
     , shouldRejectWith

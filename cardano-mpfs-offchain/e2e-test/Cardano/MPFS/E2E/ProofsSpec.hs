@@ -165,6 +165,7 @@ import Cardano.MPFS.Client
     , csmtReplayFailedAt
     , flipProof
     , runForgeReject
+    , runForgeUpdateFacts
     , shouldAccept
     , shouldRejectWith
     , updateCageTx
@@ -344,6 +345,12 @@ proofsSpec scripts =
                     void . verifyUpdateFacts updateTrusted
             (updateFacts :: UpdateFacts)
                 `shouldAccept` verifyUpdateFactsUnit
+            runForgeUpdateFacts
+                (flipProof "state_utxo")
+                updateFacts
+                `shouldRejectWith` verifyUpdateFactsUnit
+                $ csmtReplayFailedAt
+                    "update.state_utxo.inclusion_proof"
             verifiedUpdateFacts <-
                 expectUpdateFactsVerified
                     updateTrusted
