@@ -109,6 +109,12 @@ amending the worker commit, and pushes.
    facts matrix, prove live legacy-route absence, record MOOG boundary status
    in the PR body, run the focused commands and final gate, then leave the PR
    ready for the final gate drop.
+7. **Proof-Envelope Regression Repair**: migrate the pre-existing proof-bearing
+   envelope e2e coverage off the removed `/tx/update` route. The test must
+   prove the facts-only `/facts/update` response is still verifiable with the
+   client verifier and can build a wallet-side update transaction, while
+   retaining legacy `/tx/reject` proof-envelope coverage and `/facts/end`
+   facts coverage. Do not restore `/tx/update`.
 
 ## Verification
 
@@ -128,6 +134,8 @@ amending the worker commit, and pushes.
   `nix develop --quiet -c just update-swagger`
 - Matrix proof:
   `nix develop --quiet -c just e2e-facts-matrix`
+- Proof-envelope regression proof:
+  `nix develop --quiet -c just e2e "read and write envelopes"`
 - Final PR gate:
   `./gate.sh`
 - Static verifier-surface check before finalization:
