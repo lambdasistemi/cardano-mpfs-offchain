@@ -2,7 +2,7 @@
 
 ## Slice S1 - Forgery DSL Port For UpdateFacts
 
-- [ ] T001-S1 [US1] Port the forgery DSL to the facts-shape envelope:
+- [X] T001-S1 [US1] Port the forgery DSL to the facts-shape envelope:
       RED a UpdateFactsSpec test that uses
       `runForgeUpdateFacts (flipProof "state_utxo")` and expects
       `csmtReplayFailedAt "update.state_utxo.inclusion_proof"`,

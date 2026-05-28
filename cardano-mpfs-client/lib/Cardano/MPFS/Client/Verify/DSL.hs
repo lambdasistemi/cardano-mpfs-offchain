@@ -124,6 +124,10 @@ module Cardano.MPFS.Client.Verify.DSL
     , forgeTrieFactValue
     , dropTrieFactToExclusion
     , promoteTrieFactToInclusion
+    , forgeEntryProof
+    , forgeEntryTxOut
+    , forgeFactsTrieValue
+    , forgeFactsTrieProof
 
       -- * Forgery DSL (operational free-monad)
     , CsmtForge
@@ -134,6 +138,7 @@ module Cardano.MPFS.Client.Verify.DSL
     , flipTrieValue
     , dropToExclusion
     , flipTrieRoot
+    , flipTrieProof
 
       -- * DSL runners (per-endpoint)
     , runForgeBoot
@@ -143,6 +148,8 @@ module Cardano.MPFS.Client.Verify.DSL
     , runForgeEnd
     , runForgeUpdate
     , runForgeUpdateTrie
+    , runForgeUpdateFacts
+    , runForgeUpdateFactsTrie
     ) where
 
 import Control.Monad.Operational
@@ -162,6 +169,23 @@ import GHC.Stack (HasCallStack)
 import Test.Hspec (Expectation, expectationFailure)
 
 import Cardano.MPFS.API.Encoding qualified as ApiHex
+import Cardano.MPFS.API.Types.Common
+    ( ueInclusionProof
+    , ueTxOutCbor
+    , vsUtxoRoot
+    )
+import Cardano.MPFS.API.Types.Common qualified as ApiC
+import Cardano.MPFS.API.Types.Facts
+    ( tfMpfProof
+    , tfValue
+    , ufRequestUtxos
+    , ufSnapshot
+    , ufStateUtxo
+    , ufTrieFacts
+    , ufTrieRoot
+    , ufWalletUtxos
+    )
+import Cardano.MPFS.API.Types.Facts qualified as ApiF
 import Cardano.MPFS.Client.Bundle
     ( BootProof (..)
     , BootTxResponse (..)
@@ -472,15 +496,21 @@ data CsmtForgeI a where
 -- | A program of CSMT-layer forgeries.
 type CsmtForge = Program CsmtForgeI
 
--- | MPF-layer forgery instructions, valid only against an
--- 'UpdateTxResponse'. A 'TrieForge' is a 'Program' over
--- these instructions.
+-- | MPF-layer forgery instructions, valid against an
+-- 'UpdateTxResponse' or an 'ApiF.UpdateFacts'. A
+-- 'TrieForge' is a 'Program' over these instructions.
 data TrieForgeI a where
-    -- | Flip the last byte of @trie_read[i].value@.
+    -- | Flip the last byte of @trie_read[i].value@
+    -- (legacy) or @trie_facts[i].value@ (facts).
     FlipTrieValue :: Int -> TrieForgeI ()
-    -- | Drop @trie_read[i].value@ to 'Nothing' while
-    -- leaving the inclusion proof bytes intact.
+    -- | Drop @trie_read[i].value@ \/ @trie_facts[i].value@
+    -- to 'Nothing' while leaving the inclusion proof
+    -- bytes intact.
     DropToExclusion :: Int -> TrieForgeI ()
+    -- | Flip the body byte of @trie_read[i].mpf_proof@
+    -- (legacy) or @trie_facts[i].mpf_proof@ (facts) so
+    -- the proof CBOR decodes but the hash chain breaks.
+    FlipTrieProof :: Int -> TrieForgeI ()
     -- | Flip the last byte of the advertised @trie_root@.
     FlipTrieRoot :: TrieForgeI ()
 
@@ -503,6 +533,9 @@ flipTrieValue = singleton . FlipTrieValue
 
 dropToExclusion :: Int -> TrieForge ()
 dropToExclusion = singleton . DropToExclusion
+
+flipTrieProof :: Int -> TrieForge ()
+flipTrieProof = singleton . FlipTrieProof
 
 flipTrieRoot :: TrieForge ()
 flipTrieRoot = singleton FlipTrieRoot
@@ -777,6 +810,10 @@ runForgeUpdateTrie prog r = case view prog of
         runForgeUpdateTrie
             (k ())
             (tamperTrie i dropTrieFactToExclusion r)
+    FlipTrieProof i :>>= k ->
+        runForgeUpdateTrie
+            (k ())
+            (tamperTrie i forgeBundleTrieProof r)
     FlipTrieRoot :>>= k ->
         let UpdateTxResponse tx sn (UpdateProof st rs fs tr tread) = r
         in  runForgeUpdateTrie
@@ -792,6 +829,13 @@ runForgeUpdateTrie prog r = case view prog of
                         tread
                     )
                 )
+
+-- | Flip the last byte of a Bundle 'TrieFact'\'s @mpf_proof@
+-- bytes. The hash chain breaks while the CBOR remains
+-- structurally valid.
+forgeBundleTrieProof :: TrieFact -> TrieFact
+forgeBundleTrieProof f =
+    f{mpfProof = flipByteInHex (mpfProof f)}
 
 tamperTrie
     :: Int
@@ -833,3 +877,146 @@ flipUtxoProof = forgeWitnessedUtxoProof
 -- | Alias for 'forgeWitnessedUtxoTxOut' scoped to the DSL.
 flipTxOutField :: WitnessedUtxo -> WitnessedUtxo
 flipTxOutField = forgeWitnessedUtxoTxOut
+
+-- ---------------------------------------------------------------
+-- Facts-shape forgery helpers and runners
+-- ---------------------------------------------------------------
+
+-- | Flip a 'ApiC.UtxoEntry'\'s @inclusion_proof@ mid-byte
+-- so the post-split CBOR still decodes but the CSMT hash
+-- chain breaks.
+forgeEntryProof :: ApiC.UtxoEntry -> ApiC.UtxoEntry
+forgeEntryProof entry =
+    entry
+        { ueInclusionProof =
+            flipApiHexMidByte (ueInclusionProof entry)
+        }
+
+-- | Flip a 'ApiC.UtxoEntry'\'s @txout_cbor@ mid-byte so
+-- the CBOR still decodes but the bound value no longer
+-- matches the CSMT @proofValue@.
+forgeEntryTxOut :: ApiC.UtxoEntry -> ApiC.UtxoEntry
+forgeEntryTxOut entry =
+    entry
+        { ueTxOutCbor = flipApiHexMidByte (ueTxOutCbor entry)
+        }
+
+-- | Flip the body byte of an 'ApiF.TrieFact'\'s @value@
+-- (no-op for an absence fact). The CBOR still decodes
+-- but the value binding mismatches the MPF proof.
+forgeFactsTrieValue :: ApiF.TrieFact -> ApiF.TrieFact
+forgeFactsTrieValue fact =
+    fact{tfValue = flipApiHexMidByte <$> tfValue fact}
+
+-- | Flip the body byte of an 'ApiF.TrieFact'\'s
+-- @mpf_proof@. CBOR still decodes; the hash chain
+-- breaks.
+forgeFactsTrieProof :: ApiF.TrieFact -> ApiF.TrieFact
+forgeFactsTrieProof fact =
+    fact{tfMpfProof = flipApiHexMidByte (tfMpfProof fact)}
+
+-- | Drop an 'ApiF.TrieFact'\'s @value@ to 'Nothing' while
+-- leaving the inclusion-shaped proof intact. The envelope
+-- now claims absence but the proof witnesses presence.
+dropFactsTrieToExclusion :: ApiF.TrieFact -> ApiF.TrieFact
+dropFactsTrieToExclusion fact = fact{tfValue = Nothing}
+
+-- | Replace an API snapshot's @utxo_root@ with the same
+-- deterministic 32-byte \"wrong root\" used by
+-- 'swapSnapRoot'.
+swapApiSnapRoot
+    :: ApiC.VerificationSnapshot -> ApiC.VerificationSnapshot
+swapApiSnapRoot s =
+    s{vsUtxoRoot = ApiHex.Hex wrongRootBytes}
+
+-- | Interpret a 'CsmtForge' program against an
+-- 'ApiF.UpdateFacts' envelope. Path grammar:
+--
+-- > "state_utxo"            -- ufStateUtxo
+-- > "request_utxos[<i>]"    -- ufRequestUtxos!!i
+-- > "wallet_utxos[<i>]"     -- ufWalletUtxos!!i
+--
+-- 'FlipSnapshotRoot' replaces @ufSnapshot.vsUtxoRoot@
+-- with the deterministic wrong-root bytes.
+runForgeUpdateFacts
+    :: CsmtForge () -> ApiF.UpdateFacts -> ApiF.UpdateFacts
+runForgeUpdateFacts prog facts = case view prog of
+    Return () -> facts
+    FlipSnapshotRoot :>>= k ->
+        runForgeUpdateFacts
+            (k ())
+            ( facts
+                { ufSnapshot = swapApiSnapRoot (ufSnapshot facts)
+                }
+            )
+    FlipProof path :>>= k ->
+        runForgeUpdateFacts
+            (k ())
+            (tamperUpdateFactsEntry path forgeEntryProof facts)
+    FlipTxOut path :>>= k ->
+        runForgeUpdateFacts
+            (k ())
+            (tamperUpdateFactsEntry path forgeEntryTxOut facts)
+
+tamperUpdateFactsEntry
+    :: (HasCallStack)
+    => Text
+    -> (ApiC.UtxoEntry -> ApiC.UtxoEntry)
+    -> ApiF.UpdateFacts
+    -> ApiF.UpdateFacts
+tamperUpdateFactsEntry path f facts =
+    case parseIndexedRole path of
+        ("state_utxo", Nothing) ->
+            facts{ufStateUtxo = f (ufStateUtxo facts)}
+        ("request_utxos", Just i) ->
+            facts
+                { ufRequestUtxos =
+                    tamperListAt i f (ufRequestUtxos facts)
+                }
+        ("wallet_utxos", Just i) ->
+            facts
+                { ufWalletUtxos =
+                    tamperListAt i f (ufWalletUtxos facts)
+                }
+        _ ->
+            error
+                $ "runForgeUpdateFacts: bad path " <> show path
+
+-- | Interpret a 'TrieForge' program against an
+-- 'ApiF.UpdateFacts' envelope. 'FlipTrieValue',
+-- 'DropToExclusion', and 'FlipTrieProof' index into
+-- 'ufTrieFacts'; 'FlipTrieRoot' targets 'ufTrieRoot'.
+runForgeUpdateFactsTrie
+    :: TrieForge () -> ApiF.UpdateFacts -> ApiF.UpdateFacts
+runForgeUpdateFactsTrie prog facts = case view prog of
+    Return () -> facts
+    FlipTrieValue i :>>= k ->
+        runForgeUpdateFactsTrie
+            (k ())
+            (tamperFactsTrie i forgeFactsTrieValue facts)
+    DropToExclusion i :>>= k ->
+        runForgeUpdateFactsTrie
+            (k ())
+            (tamperFactsTrie i dropFactsTrieToExclusion facts)
+    FlipTrieProof i :>>= k ->
+        runForgeUpdateFactsTrie
+            (k ())
+            (tamperFactsTrie i forgeFactsTrieProof facts)
+    FlipTrieRoot :>>= k ->
+        runForgeUpdateFactsTrie
+            (k ())
+            ( facts
+                { ufTrieRoot = flipApiHexMidByte (ufTrieRoot facts)
+                }
+            )
+
+tamperFactsTrie
+    :: Int
+    -> (ApiF.TrieFact -> ApiF.TrieFact)
+    -> ApiF.UpdateFacts
+    -> ApiF.UpdateFacts
+tamperFactsTrie i f facts =
+    facts
+        { ufTrieFacts =
+            tamperListAt i f (ufTrieFacts facts)
+        }
