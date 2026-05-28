@@ -10,14 +10,13 @@ module Cardano.MPFS.Client.Cage.RequestSpec
 
 import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
-import Control.Monad (filterM)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
+import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
-import System.Directory (doesFileExist)
 import System.Environment (getEnv)
 import Test.Hspec
     ( Spec
@@ -55,6 +54,10 @@ import Cardano.Ledger.Address
 import Cardano.Ledger.Api.PParams
     ( emptyPParams
     , ppCoinsPerUTxOByteL
+    , ppMaxTxExUnitsL
+    , ppMinFeeAL
+    , ppMinFeeBL
+    , ppPricesL
     )
 import Cardano.Ledger.Api.Tx
     ( Tx
@@ -69,6 +72,8 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
     , addrTxOutL
+    , coinTxOutL
+    , getMinCoinTxOut
     , mkBasicTxOut
     )
 import Cardano.Ledger.Api.Tx.Wits
@@ -79,8 +84,10 @@ import Cardano.Ledger.Babbage.PParams
     ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
-    ( Inject (..)
+    ( BoundedRational (..)
+    , Inject (..)
     , Network (..)
+    , NonNegativeInterval
     , TxIx (..)
     )
 import Cardano.Ledger.Binary
@@ -105,7 +112,9 @@ import Cardano.Ledger.Keys
     , KeyRole (..)
     )
 import Cardano.Ledger.Plutus.ExUnits
-    ( Prices (..)
+    ( ExUnits (..)
+    , Prices (..)
+    , txscriptfee
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
@@ -236,7 +245,7 @@ insertSpec = describe "requestInsertCageTx" $ do
         tx ^. witsTxL . rdmrsTxWitsL `shouldBe` mempty
         txOutputAddresses tx `shouldSatisfy` elem requestAddr
 
-    it "matches the legacy request-insert CBOR vector" $ do
+    it "locks insert request funding from the bounded fee envelope" $ do
         cfg <- testCageConfig
         let RequestInsertFixture{trustedRoot, facts} =
                 deterministicRequestInsertFixture
@@ -252,8 +261,7 @@ insertSpec = describe "requestInsertCageTx" $ do
                         ("requestInsertCageTx failed: " <> show err)
                         *> error "unreachable"
                 Right tx -> pure tx
-        expected <- BS.readFile =<< legacyRequestInsertVectorPath
-        serialize' (natVersion @11) tx `shouldBe` expected
+        assertBoundedRequestOutput cfg tx
 
 deleteSpec :: Spec
 deleteSpec = describe "requestDeleteCageTx" $ do
@@ -321,7 +329,7 @@ deleteSpec = describe "requestDeleteCageTx" $ do
         tx ^. witsTxL . rdmrsTxWitsL `shouldBe` mempty
         txOutputAddresses tx `shouldSatisfy` elem requestAddr
 
-    it "matches the legacy request-delete CBOR vector" $ do
+    it "locks delete request funding from the bounded fee envelope" $ do
         cfg <- testCageConfig
         let RequestDeleteFixture{deleteTrustedRoot, deleteFacts} =
                 deterministicRequestDeleteFixture
@@ -338,8 +346,7 @@ deleteSpec = describe "requestDeleteCageTx" $ do
                         ("requestDeleteCageTx failed: " <> show err)
                         *> error "unreachable"
                 Right tx -> pure tx
-        expected <- BS.readFile =<< legacyRequestDeleteVectorPath
-        serialize' (natVersion @11) tx `shouldBe` expected
+        assertBoundedRequestOutput cfg tx
 
 updateSpec :: Spec
 updateSpec = describe "requestUpdateCageTx" $ do
@@ -407,7 +414,7 @@ updateSpec = describe "requestUpdateCageTx" $ do
         tx ^. witsTxL . rdmrsTxWitsL `shouldBe` mempty
         txOutputAddresses tx `shouldSatisfy` elem requestAddr
 
-    it "matches the legacy request-update CBOR vector" $ do
+    it "locks update request funding from the bounded fee envelope" $ do
         cfg <- testCageConfig
         let RequestUpdateFixture{updateTrustedRoot, updateFacts} =
                 deterministicRequestUpdateFixture
@@ -424,8 +431,7 @@ updateSpec = describe "requestUpdateCageTx" $ do
                         ("requestUpdateCageTx failed: " <> show err)
                         *> error "unreachable"
                 Right tx -> pure tx
-        expected <- BS.readFile =<< legacyRequestUpdateVectorPath
-        serialize' (natVersion @11) tx `shouldBe` expected
+        assertBoundedRequestOutput cfg tx
 
 data RequestUpdateFixture = RequestUpdateFixture
     { updateTrustedRoot :: TrustedRoot
@@ -470,20 +476,6 @@ expectUpdateVerified trusted facts =
         Right verified ->
             pure verified
 
-legacyRequestUpdateVectorPath :: IO FilePath
-legacyRequestUpdateVectorPath = do
-    let candidates =
-            [ "specs/266-request-update-fact-provider-pivot/test-vectors/legacy-request-update.cbor"
-            , "../specs/266-request-update-fact-provider-pivot/test-vectors/legacy-request-update.cbor"
-            ]
-    existing <- filterM doesFileExist candidates
-    case existing of
-        path : _ -> pure path
-        [] ->
-            expectationFailure
-                "legacy request-update vector not found from test working directory"
-                *> error "unreachable"
-
 data RequestDeleteFixture = RequestDeleteFixture
     { deleteTrustedRoot :: TrustedRoot
     , deleteFacts :: RequestDeleteFacts
@@ -525,20 +517,6 @@ expectDeleteVerified trusted facts =
                 *> error "unreachable"
         Right verified ->
             pure verified
-
-legacyRequestDeleteVectorPath :: IO FilePath
-legacyRequestDeleteVectorPath = do
-    let candidates =
-            [ "specs/265-request-delete-fact-provider-pivot/test-vectors/legacy-request-delete.cbor"
-            , "../specs/265-request-delete-fact-provider-pivot/test-vectors/legacy-request-delete.cbor"
-            ]
-    existing <- filterM doesFileExist candidates
-    case existing of
-        path : _ -> pure path
-        [] ->
-            expectationFailure
-                "legacy request-delete vector not found from test working directory"
-                *> error "unreachable"
 
 data RequestInsertFixture = RequestInsertFixture
     { trustedRoot :: TrustedRoot
@@ -660,9 +638,59 @@ fundingAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
 
 txOutputAddresses :: Tx ConwayEra -> [Addr]
 txOutputAddresses tx =
-    fmap (^. addrTxOutL)
-        $ foldr (:) []
-        $ tx ^. bodyTxL . outputsTxBodyL
+    (^. addrTxOutL) <$> txOutputs tx
+
+txOutputs :: Tx ConwayEra -> [TxOut ConwayEra]
+txOutputs tx =
+    foldr (:) [] $ tx ^. bodyTxL . outputsTxBodyL
+
+assertBoundedRequestOutput :: CageConfig -> Tx ConwayEra -> IO ()
+assertBoundedRequestOutput cfg tx =
+    case requestOutputs of
+        [out] ->
+            out ^. coinTxOutL `shouldBe` expectedRequestCoin cfg
+        outs ->
+            expectationFailure
+                ( "expected one request output, got "
+                    <> show (length outs)
+                )
+  where
+    requestAddr =
+        requestAddrFromCfg
+            cfg
+            (tokenIdFromJSON sampleToken)
+            Testnet
+    requestOutputs =
+        [ out
+        | out <- txOutputs tx
+        , out ^. addrTxOutL == requestAddr
+        ]
+
+expectedRequestCoin :: CageConfig -> Coin
+expectedRequestCoin cfg =
+    let Coin tipAmount = defaultTip cfg
+        Coin refMin =
+            getMinCoinTxOut
+                realisticPParams
+                (mkBasicTxOut fundingAddr (inject (Coin 0)))
+        Coin feeBound =
+            feeBufferUpperBound realisticPParams
+    in  Coin (tipAmount + feeBound + refMin)
+
+feeBufferUpperBound :: PParams ConwayEra -> Coin
+feeBufferUpperBound pp =
+    let Coin minFeeA = pp ^. ppMinFeeAL
+        Coin minFeeB = pp ^. ppMinFeeBL
+        Coin scriptFee =
+            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+    in  Coin
+            ( minFeeB
+                + minFeeA * maxUpdateTxBytes
+                + scriptFee
+            )
+
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 8192
 
 expectVerified
     :: TrustedRoot
@@ -676,20 +704,6 @@ expectVerified trusted facts =
                 *> error "unreachable"
         Right verified ->
             pure verified
-
-legacyRequestInsertVectorPath :: IO FilePath
-legacyRequestInsertVectorPath = do
-    let candidates =
-            [ "specs/264-request-insert-fact-provider-pivot/test-vectors/legacy-request-insert.cbor"
-            , "../specs/264-request-insert-fact-provider-pivot/test-vectors/legacy-request-insert.cbor"
-            ]
-    existing <- filterM doesFileExist candidates
-    case existing of
-        path : _ -> pure path
-        [] ->
-            expectationFailure
-                "legacy request-insert vector not found from test working directory"
-                *> error "unreachable"
 
 testCageConfig :: IO CageConfig
 testCageConfig = do
@@ -738,8 +752,20 @@ permissiveWalletPolicy =
 realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
+        & ppMinFeeAL .~ Coin 44
+        & ppMinFeeBL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (Coin 4_310)
+        & ppPricesL
+            .~ Prices
+                (unsafeNonNegativeInterval (577 % 10_000))
+                (unsafeNonNegativeInterval (721 % 10_000_000))
+        & ppMaxTxExUnitsL
+            .~ ExUnits 140_000_000 10_000_000_000
+
+unsafeNonNegativeInterval :: Rational -> NonNegativeInterval
+unsafeNonNegativeInterval r =
+    fromJust (boundRational r)
 
 walletTxId :: ByteString
 walletTxId = BS.replicate 32 0xC2

@@ -55,6 +55,17 @@
       focused proof-envelope e2e and `./gate.sh`, and commit one recovery
       slice.
 
+## Slice S8 - Request-Funding Wart Removal
+
+- [X] T008-S8 [US1] Remove the test-only request overfunding wart: RED a
+      bounded request-side funding case where request locked ADA is derived
+      from Conway protocol parameters instead of a hardcoded 1 ADA guess,
+      GREEN by using the chain-derived worst-case fee envelope in both request
+      builders while preserving update refund output shape, drop the overfund
+      scaffolding from `ProofsSpec.hs` and `FactsMatrixSpec.hs`, update legacy
+      request-builder unit expectations that assumed the old buffer, run
+      focused unit/e2e proofs plus `./gate.sh`, and commit one recovery slice.
+
 ## Worker Slice Briefs
 
 ### Slice S1: Wire Types And Indexer Reads
@@ -127,3 +138,32 @@ evidence, then GREEN by migrating the update section of
 `/tx/reject` proof-envelope verification and `/facts/end` facts verification.
 Do not restore `/tx/update`, do not weaken the legacy-route absence matrix, and
 do not edit production routes for this regression.
+
+### Slice S8: Request-Funding Wart Removal
+
+Worker owns T008-S8. The ticket-owner diagnostic ran the focused
+proof-envelope e2e with no request overfunding and temporary instrumentation in
+`Cardano.MPFS.Client.Cage.Update.refundOutputs`. Observed values:
+`reqValue=2831830`, `tipAmount=1000000`, initial `fee=0`, `perReqFee=0`,
+`refundCoin=1831830`, `refMin=849070`; later update fee convergence attempted
+`refundCoin=-1121931`, and `mkBasicTxOut` rejected the negative `Coin`.
+A-S8 rejects Fix B because the cage validator intentionally requires one
+positioned refund output per request. Implement A-bounded instead: compute a
+`feeBufferUpperBound` from Conway protocol parameters (`minFeeB`, `minFeeA`,
+`prices`, `maxTxExUnits`) and a documented `maxUpdateTxBytes = 8192` envelope,
+use it in both request builders, and preserve update refund output shape. Add
+focused tests in
+`cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/UpdateSpec.hs` proving
+min-funded requests succeed, the fee-buffer envelope covers measured
+per-request update fees, and refund stays non-negative. Implement the request
+side in `cardano-mpfs-client/lib/Cardano/MPFS/Client/Cage/Request.hs` and
+`cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Request.hs`; update
+request-builder tests in
+`cardano-mpfs-client/test/Cardano/MPFS/Client/Cage/RequestSpec.hs` and
+`cardano-mpfs-offchain/test/Cardano/MPFS/TxBuilderSpec.hs` only where they
+assume the old hardcoded request funding; and remove the overfund
+helpers/calls/imports from
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/ProofsSpec.hs` and
+`cardano-mpfs-offchain/e2e-test/Cardano/MPFS/E2E/FactsMatrixSpec.hs`. Do not
+touch `Cage/Update.hs`, the forgery DSL, on-chain validator/blueprint code, or
+the unrelated negative-test gap.

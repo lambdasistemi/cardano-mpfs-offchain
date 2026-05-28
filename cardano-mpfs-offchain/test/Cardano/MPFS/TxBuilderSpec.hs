@@ -13,6 +13,7 @@ import Data.Foldable (for_)
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust, fromMaybe, isJust)
+import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
 import System.Directory (doesFileExist)
@@ -45,6 +46,10 @@ import Cardano.Ledger.Allegra.Scripts
 import Cardano.Ledger.Api.PParams
     ( emptyPParams
     , ppCoinsPerUTxOByteL
+    , ppMaxTxExUnitsL
+    , ppMinFeeAL
+    , ppMinFeeBL
+    , ppPricesL
     )
 import Cardano.Ledger.Api.Tx
     ( Tx
@@ -78,8 +83,10 @@ import Cardano.Ledger.Babbage.PParams
     ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
-    ( Inject (..)
+    ( BoundedRational (..)
+    , Inject (..)
     , Network (..)
+    , NonNegativeInterval
     , StrictMaybe (..)
     )
 import Cardano.Ledger.Credential
@@ -95,6 +102,11 @@ import Cardano.Ledger.Mary.Value
     ( MaryValue (..)
     , MultiAsset (..)
     , PolicyID (..)
+    )
+import Cardano.Ledger.Plutus.ExUnits
+    ( ExUnits (..)
+    , Prices (..)
+    , txscriptfee
     )
 import Cardano.Ledger.TxIn (TxIn)
 
@@ -229,8 +241,20 @@ zeroPP = emptyPParams
 realisticPP :: PParams ConwayEra
 realisticPP =
     emptyPParams
+        & ppMinFeeAL .~ Coin 44
+        & ppMinFeeBL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (Coin 4310)
+        & ppPricesL
+            .~ Prices
+                (unsafeNonNegativeInterval (577 % 10_000))
+                (unsafeNonNegativeInterval (721 % 10_000_000))
+        & ppMaxTxExUnitsL
+            .~ ExUnits 140_000_000 10_000_000_000
+
+unsafeNonNegativeInterval :: Rational -> NonNegativeInterval
+unsafeNonNegativeInterval r =
+    fromJust (boundRational r)
 
 -- | Real flat-encoded UPLC of upstream's
 -- @validators\/request.ak@ at the pinned PR #50 tip
@@ -469,33 +493,7 @@ mkTightRequestTxOut pp =
 
 -- | Build a request TxOut.
 mkRequestTxOut :: TxOut ConwayEra
-mkRequestTxOut =
-    let val = inject (Coin 3_000_000)
-        datum =
-            RequestDatum
-                OnChainRequest
-                    { requestToken =
-                        OnChainTokenId
-                            $ BuiltinByteString
-                            $ SBS.fromShort
-                            $ let AssetName sbs =
-                                    unTokenId testTid
-                              in  sbs
-                    , requestOwner =
-                        BuiltinByteString
-                            ( hashToBytes
-                                $ let KeyHash h = testKh
-                                  in  h
-                            )
-                    , requestKey = "mykey"
-                    , requestValue =
-                        OpInsert "myvalue"
-                    , requestFee = 1_000_000
-                    , requestSubmittedAt = 0
-                    }
-    in  mkBasicTxOut (cageAddr Testnet) val
-            & datumTxOutL
-                .~ mkInlineDatum (toPlcData datum)
+mkRequestTxOut = mkTightRequestTxOut realisticPP
 
 -- ---------------------------------------------------------
 -- Spec
@@ -609,14 +607,13 @@ requestInsertSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has tip+buffer (zeroPP)" $ do
+        it "cage output has tip with zero fee PParams" $ do
             tx <- runRequestInsert
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so
-                    -- locked = tip + feeBuffer
-                    outCoin `shouldBe` Coin 2_000_000
+                    -- zeroPP: minUTxO=0 and fee envelope=0.
+                    outCoin `shouldBe` Coin 1_000_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -648,14 +645,13 @@ requestDeleteSpec =
             length outList
                 `shouldSatisfy` (>= 2)
 
-        it "cage output has tip+buffer (zeroPP)" $ do
+        it "cage output has tip with zero fee PParams" $ do
             tx <- runRequestDelete
             case toOutList tx of
                 (cageOut : _) -> do
                     let outCoin = cageOut ^. coinTxOutL
-                    -- zeroPP: minUTxO=0, so
-                    -- locked = tip + feeBuffer
-                    outCoin `shouldBe` Coin 2_000_000
+                    -- zeroPP: minUTxO=0 and fee envelope=0.
+                    outCoin `shouldBe` Coin 1_000_000
                 [] -> expectationFailure "no outputs"
 
         it "has no mint field" $ do
@@ -1006,7 +1002,8 @@ requestLockedAdaProps =
                                                 realisticPP
                                                 refDraft
                                         feeBuffer =
-                                            1_000_000
+                                            feeBufferUpperBound
+                                                realisticPP
                                         locked =
                                             mf
                                                 + feeBuffer
@@ -1028,7 +1025,7 @@ requestLockedAdaProps =
                                                     locked
                                                 )
 
-        it "zeroPP backward compat"
+        it "zeroPP derives a zero fee buffer"
             $ property
             $ forAll genTokenId
             $ \tid ->
@@ -1073,10 +1070,22 @@ requestLockedAdaProps =
                                                 refDraft
                                                 mf
                                         feeBuffer =
-                                            1_000_000
+                                            feeBufferUpperBound
+                                                zeroPP
                                     in  la
                                             == Coin
                                                 (mf + feeBuffer)
+
+feeBufferUpperBound :: PParams ConwayEra -> Integer
+feeBufferUpperBound pp =
+    let Coin minFeeA = pp ^. ppMinFeeAL
+        Coin minFeeB = pp ^. ppMinFeeBL
+        Coin scriptFee =
+            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+    in  minFeeB + minFeeA * maxUpdateTxBytes + scriptFee
+
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 8192
 
 -- ---------------------------------------------------------
 -- Group A2: computeRefund (pure)
@@ -1330,10 +1339,10 @@ updateTxProps =
                         $ map
                             (\o -> let Coin c = o ^. coinTxOutL in c)
                         $ toOutList tx
-                -- state(2M) + request(3M) + fee(50M)
+                Coin reqVal = mkRequestTxOut ^. coinTxOutL
                 inSum =
                     2_000_000
-                        + 3_000_000
+                        + reqVal
                         + 50_000_000
                         :: Integer
             inSum `shouldSatisfy` (>= outSum + fee)
@@ -1382,8 +1391,11 @@ updateTxProps =
                 (refund : _) -> do
                     let Coin c =
                             refund ^. coinTxOutL
-                    -- request had 3M, tip=1M
-                    c `shouldBe` 2_000_000
+                        Coin reqVal =
+                            mkRequestTxOut ^. coinTxOutL
+                        Coin fee =
+                            tx ^. bodyTxL . feeTxBodyL
+                    c `shouldBe` reqVal - 1_000_000 - fee
                 _ ->
                     expectationFailure "no refund output"
 
@@ -1448,9 +1460,9 @@ retractTxProps =
                         $ map
                             (\o -> let Coin c = o ^. coinTxOutL in c)
                         $ toOutList tx
-                -- request(3M) + fee(50M)
+                Coin reqVal = mkRequestTxOut ^. coinTxOutL
                 inSum =
-                    3_000_000 + 50_000_000 :: Integer
+                    reqVal + 50_000_000 :: Integer
             inSum `shouldSatisfy` (>= outSum + fee)
 
         it "all outputs satisfy minUTxO" $ do

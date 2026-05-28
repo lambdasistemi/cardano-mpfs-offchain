@@ -23,6 +23,12 @@ import Data.Sequence.Strict qualified as StrictSeq
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Api.PParams
+    ( ppMaxTxExUnitsL
+    , ppMinFeeAL
+    , ppMinFeeBL
+    , ppPricesL
+    )
 import Cardano.Ledger.Api.Tx
     ( mkBasicTx
     )
@@ -39,6 +45,9 @@ import Cardano.Ledger.Api.Tx.Out
     , valueTxOutL
     )
 import Cardano.Ledger.BaseTypes (Inject (..))
+import Cardano.Ledger.Plutus.ExUnits
+    ( txscriptfee
+    )
 
 import Cardano.MPFS.Core.OnChain
     ( OnChainOperation (..)
@@ -254,9 +263,9 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
 --    remaining ADA (the refund) >= minUTxO for the
 --    refund output (a plain payment).
 --
--- A 600K lovelace fee buffer covers the
--- per-request fee share in the oracle's update tx.
--- Excess becomes a larger refund.
+-- A protocol-parameter-derived fee buffer covers a
+-- conservative per-request share of the oracle's
+-- update tx. Excess becomes a larger refund.
 --
 -- Returns @max(reqMinUTxO, tip + buffer + refundMinUTxO)@.
 requestLockedAda
@@ -272,7 +281,7 @@ requestLockedAda
 requestLockedAda pp reqDraft refDraft tip =
     let Coin refMin =
             getMinCoinTxOut pp refDraft
-        feeBuffer = 1_000_000
+        Coin feeBuffer = requestFeeBufferUpperBound pp
         locked = tip + feeBuffer + refMin
         adjusted =
             getMinCoinTxOut
@@ -282,3 +291,26 @@ requestLockedAda pp reqDraft refDraft tip =
                         .~ inject (Coin locked)
                 )
     in  max adjusted (Coin locked)
+
+-- Keep this in lockstep with
+-- Cardano.MPFS.Client.Cage.Request.requestFeeBufferUpperBound.
+requestFeeBufferUpperBound :: PParams ConwayEra -> Coin
+requestFeeBufferUpperBound pp =
+    let Coin minFeeA = pp ^. ppMinFeeAL
+        Coin minFeeB = pp ^. ppMinFeeBL
+        Coin scriptFee =
+            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+    in  Coin
+            ( minFeeB
+                + minFeeA * maxUpdateTxBytes
+                + scriptFee
+            )
+
+-- Note [size bound]
+-- The request UTxO pre-pays the oracle's later update transaction. We do
+-- not know that future transaction's exact CBOR size when building the
+-- request, so this uses an 8 KiB envelope for a single-request update with
+-- state, request, wallet, scripts, redeemers, one state output, one refund,
+-- and change. Excess lovelace is returned by the positioned refund output.
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 8192

@@ -47,17 +47,12 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (toList)
-import Data.Function ((&))
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Traversable (mapAccumL)
-import Lens.Micro
-    ( (.~)
-    , (^.)
-    )
+import Lens.Micro ((^.))
 import Network.HTTP.Types
     ( hContentType
     , methodPost
@@ -104,17 +99,11 @@ import Cardano.Ledger.Api.Tx.Body
     ( mintTxBodyL
     , outputsTxBodyL
     )
-import Cardano.Ledger.Api.Tx.Out
-    ( TxOut
-    , coinTxOutL
-    , valueTxOutL
-    )
 import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
-    , MaryValue (..)
     , MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
@@ -316,14 +305,6 @@ matrixRetractKey = "matrix-retract-key"
 matrixRetractValue :: ByteString
 matrixRetractValue = "matrix-retract-value"
 
--- | Extra lovelace moved from the request transaction's
--- change output into the request output. This keeps the
--- single-request update row viable with the current client
--- update refund calculation while preserving the request
--- datum and the facts/update boundary under test.
-updateRequestExtraAda :: Integer
-updateRequestExtraAda = 5_000_000
-
 -- ---------------------------------------------------------
 -- Row helpers
 -- ---------------------------------------------------------
@@ -387,7 +368,7 @@ runRequestInsertRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned0 <-
+    unsigned <-
         case requestInsertCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -400,7 +381,6 @@ runRequestInsertRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
-    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "insert row" result
@@ -441,7 +421,7 @@ runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned0 <-
+    unsigned <-
         case requestUpdateCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -454,7 +434,6 @@ runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
-    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "update request row" result
@@ -488,7 +467,7 @@ runRequestDeleteRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
-    unsigned0 <-
+    unsigned <-
         case requestDeleteCageTx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
@@ -501,7 +480,6 @@ runRequestDeleteRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
-    unsigned <- overfundRequestOutput updateRequestExtraAda unsigned0
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "delete row" result
@@ -557,71 +535,6 @@ expectedUpdateRoot tx =
                     <> show (length roots)
                 )
                 *> error "unreachable"
-
-overfundRequestOutput :: Integer -> Tx ConwayEra -> IO (Tx ConwayEra)
-overfundRequestOutput extra tx
-    | extra <= 0 = pure tx
-    | otherwise =
-        case (requestIndexes, changeCandidates) of
-            ([requestIx], (changeIx, _) : _) ->
-                pure
-                    $ tx
-                    & bodyTxL
-                        . outputsTxBodyL
-                        .~ fmap
-                            (adjustOutputPair requestIx changeIx)
-                            (zipOutputIndexes outputsSeq)
-            _ ->
-                expectationFailure
-                    ( "request row: expected one request output \
-                      \and one sufficiently funded change output, got "
-                        <> show (length requestIndexes)
-                        <> " request outputs and "
-                        <> show (length changeCandidates)
-                        <> " change candidates"
-                    )
-                    *> error "unreachable"
-  where
-    outputsSeq = tx ^. bodyTxL . outputsTxBodyL
-    outputs = toList outputsSeq
-    requestIndexes =
-        [ ix
-        | (ix, out) <- zip [0 :: Int ..] outputs
-        , isRequestOutput out
-        ]
-    changeCandidates =
-        [ (ix, out)
-        | (ix, out) <- zip [0 :: Int ..] outputs
-        , not (isRequestOutput out)
-        , let Coin coin = out ^. coinTxOutL
-        , coin > extra
-        ]
-    adjustOutput
-        :: Int -> Int -> Int -> TxOut ConwayEra -> TxOut ConwayEra
-    adjustOutput requestIx changeIx ix out
-        | ix == requestIx =
-            addAda extra out
-        | ix == changeIx =
-            addAda (negate extra) out
-        | otherwise = out
-    adjustOutputPair
-        :: Int -> Int -> (Int, TxOut ConwayEra) -> TxOut ConwayEra
-    adjustOutputPair requestIx changeIx (ix, out) =
-        adjustOutput requestIx changeIx ix out
-    addAda :: Integer -> TxOut ConwayEra -> TxOut ConwayEra
-    addAda delta out =
-        let Coin coin = out ^. coinTxOutL
-        in  out & valueTxOutL .~ MaryValue (Coin (coin + delta)) mempty
-
-zipOutputIndexes :: (Traversable f) => f a -> f (Int, a)
-zipOutputIndexes =
-    snd . mapAccumL (\ix out -> (ix + 1, (ix, out))) 0
-
-isRequestOutput :: TxOut ConwayEra -> Bool
-isRequestOutput out =
-    case extractCageDatum out of
-        Just (RequestDatum _) -> True
-        _ -> False
 
 -- | Retract row: insert a fresh pending request, wait for
 -- Phase 2 validity, then run
