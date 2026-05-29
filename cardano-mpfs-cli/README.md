@@ -107,6 +107,15 @@ the environment it expects.
 nix develop -c cardano-mpfs-cli/e2e/walkthrough.sh
 ```
 
+The script asserts the requester write path (boot → list → request),
+which is verified green against a live devnet. `fact get` after an
+insert returns 404 until an oracle materializes the request (see Scope),
+and `fact retract` currently hits a server-side 500 in `/facts/retract`
+(tracked as
+[#299](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/299));
+the CLI's `fact retract` command is correct and will work once #299
+lands.
+
 ## Key format
 
 Bech32 ed25519 signing keys only (CIP-5 `ed25519_sk1…`). No hardware
