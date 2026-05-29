@@ -697,12 +697,24 @@
         "SubmitRequest": {
             "description": "Submit a signed transaction",
             "properties": {
-                "tx": {
+                "signedTxCbor": {
                     "$ref": "#/definitions/Hex"
                 }
             },
             "required": [
-                "tx"
+                "signedTxCbor"
+            ],
+            "type": "object"
+        },
+        "SubmitResponse": {
+            "description": "Accepted transaction id",
+            "properties": {
+                "txId": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "txId"
             ],
             "type": "object"
         },
@@ -1393,6 +1405,37 @@
                 }
             }
         },
+        "/submit": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SubmitRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/SubmitResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
         "/tokens": {
             "get": {
                 "produces": [
@@ -1549,37 +1592,6 @@
                     },
                     "400": {
                         "description": "Invalid `id`"
-                    }
-                }
-            }
-        },
-        "/tx/submit": {
-            "post": {
-                "consumes": [
-                    "application/json;charset=utf-8"
-                ],
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/SubmitRequest"
-                        }
-                    }
-                ],
-                "produces": [
-                    "application/json;charset=utf-8"
-                ],
-                "responses": {
-                    "200": {
-                        "description": "",
-                        "schema": {
-                            "$ref": "#/definitions/Hex"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid `body`"
                     }
                 }
             }

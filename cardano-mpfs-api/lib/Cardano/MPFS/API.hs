@@ -76,6 +76,7 @@ import Cardano.MPFS.API.Types
     , RetractRequest
     , StatusResponse
     , SubmitRequest
+    , SubmitResponse
     , SweepRequest
     , SweepTxResponse
     , TokenResponse
@@ -269,13 +270,12 @@ type TxSweepAPI =
 -- server package.
 type TxWriteAPI = TxSweepAPI
 
--- | @POST \/tx\/submit@ — submit a signed
+-- | @POST \/submit@ — submit a signed
 -- transaction.
 type TxSubmitAPI =
-    "tx"
-        :> "submit"
+    "submit"
         :> ReqBody '[JSON] SubmitRequest
-        :> Post '[JSON] Hex
+        :> Post '[JSON] SubmitResponse
 
 -- | Proxy for the complete API.
 api :: Proxy API
