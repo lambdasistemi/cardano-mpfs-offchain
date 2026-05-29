@@ -53,12 +53,17 @@ that the orchestrator accepts.
   `verifyEndFacts wcCage wcTrustedRoot`, `endCageTx`). Tests: routing +
   body + verify-error propagation.
 
-## Deferred (NOT in this PR — gated on #288)
+## Slice S7 — live-boundary integration through /submit
 
-- [ ] T289-S7 Live integration test: run a server, exercise each
-  workflow end-to-end with real proofs, sign the `UnsignedTx`, POST to
-  `/submit`, assert acceptance. **Blocked by #288 (`/submit`).** File
-  as a follow-on issue / add when #288 merges. Do not fake submission.
+- [X] T289-S7 `Cardano.MPFS.E2E.WorkflowsIntegrationSpec`: one e2e row
+  per workflow, each driving the real `cardano-mpfs-workflows.<name>`
+  against a live devnet via an in-process WAI `HttpClient`, decoding
+  the `UnsignedTx`, signing with the genesis key, POSTing to `/submit`
+  (#288), awaiting the txId, and asserting the on-chain effect (token
+  indexed / request queued / fact materialised / request drained /
+  token burned). No scaffolding fakes. Run:
+  `just e2e WorkflowsIntegration` (8 examples, 0 failures). #288 merged
+  to main, so this landed in this PR rather than as a follow-on.
 
 ## Notes
 

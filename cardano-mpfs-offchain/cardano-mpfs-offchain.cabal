@@ -357,6 +357,7 @@ test-suite e2e-tests
     , cardano-mpfs-api
     , cardano-mpfs-client
     , cardano-mpfs-offchain
+    , cardano-mpfs-workflows
     , cardano-node-clients
     , cardano-node-clients:devnet
     , cardano-utxo-csmt:library
@@ -389,3 +390,4 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.ProviderSpec
     Cardano.MPFS.E2E.SubmitEndpointSpec
     Cardano.MPFS.E2E.SubmitterSpec
+    Cardano.MPFS.E2E.WorkflowsIntegrationSpec
