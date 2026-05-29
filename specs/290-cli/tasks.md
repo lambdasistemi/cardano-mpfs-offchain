@@ -38,9 +38,9 @@ slice is accepted (commit reviewed, gate green, pushed).
 
 ## Slice S4 — flip write subcommands to real workflows
 
-- [ ] T290-S4 Replace each stub with `Cardano.MPFS.Workflows.<fn>` →
+- [X] T290-S4 Replace each stub with `Cardano.MPFS.Workflows.<fn>` →
       sign → submit → await → JSON, as #289 publishes each function.
-- [ ] T290-S4 (per-workflow sub-commits allowed; depends on #289.)
+- [X] T290-S4 (per-workflow sub-commits allowed; depends on #289.)
 
 ## Slice S5 — E2E walkthrough + README
 
