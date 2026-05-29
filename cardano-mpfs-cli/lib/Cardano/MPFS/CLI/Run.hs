@@ -14,25 +14,74 @@ module Cardano.MPFS.CLI.Run
 
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types (TokenIdJSON (..))
-import Cardano.MPFS.CLI.Hex (decodeHexText, hexArgText, hexBytes)
+import Cardano.MPFS.CLI.Cage (ownerAddressBytes, resolveCageConfig)
+import Cardano.MPFS.CLI.Hex
+    ( decodeHexText
+    , encodeHexText
+    , hexArgText
+    , hexBytes
+    )
+import Cardano.MPFS.CLI.Key (loadSigningKey)
 import Cardano.MPFS.CLI.Options (Command (..))
 import Cardano.MPFS.CLI.Output (die, emitJson, emitResult, logErr)
-import Cardano.MPFS.CLI.Submit (getFact, listTokens, mkServerEnv)
+import Cardano.MPFS.CLI.Sign (signTx)
+import Cardano.MPFS.CLI.Submit
+    ( awaitTx
+    , getFact
+    , listTokens
+    , mkServerEnv
+    , mkServerParts
+    , submitSignedTx
+    )
+import Cardano.MPFS.CLI.Workflow
+    ( defaultWalletPolicy
+    , mkHttpClient
+    , resolveTrustedRoot
+    )
+import Cardano.MPFS.Client.Cage.Config (network)
+import Cardano.MPFS.Workflows
+    ( BootRequest (..)
+    , UnsignedTx (..)
+    , WorkflowsConfig (..)
+    , registerToken
+    )
 import Data.Aeson (ToJSON, Value, object, (.=))
 import Data.Aeson.Types (Pair)
-import Servant.Client (ClientEnv, ClientError)
+import Data.Word (Word64)
+import Servant.Client (ClientEnv, ClientError, mkClientEnv)
 
 -- | Dispatch a parsed command.
 run :: Command -> IO ()
 run cmd = case cmd of
-    RegisterToken{..} ->
-        writeStub
-            "register-token"
-            "Workflows.registerToken"
-            [ "server" .= server
-            , "ownerKey" .= ownerKey
-            , "cageConfig" .= cageConfig
-            ]
+    RegisterToken{..} -> do
+        (manager, base) <- mkServerParts server >>= orDie "server"
+        sk <- loadSigningKey ownerKey >>= orDieShow "owner-key"
+        cage <- resolveCageConfig cageConfig >>= orDie "cage-config"
+        troot <-
+            resolveTrustedRoot manager base (hexBytes <$> trustedRoot)
+                >>= orDie "trusted-root"
+        let config =
+                WorkflowsConfig
+                    { wcCage = cage
+                    , wcPolicy = defaultWalletPolicy
+                    , wcTrustedRoot = troot
+                    }
+            httpClient = mkHttpClient manager base
+            request =
+                BootRequest (Hex (ownerAddressBytes (network cage) sk))
+        UnsignedTx cbor <-
+            registerToken httpClient config request >>= orDieShow "workflow"
+        signed <- orDieShow "sign" (signTx sk cbor)
+        let env = mkClientEnv manager base
+        txId <- submitSignedTx env signed >>= orDieShow "submit"
+        _ <- awaitTx env txId defaultAwaitTimeout >>= orDieShow "await"
+        emitJson
+            ( object
+                [ "command" .= ("register-token" :: String)
+                , "status" .= ("submitted" :: String)
+                , "txId" .= encodeHexText txId
+                ]
+            )
     FactInsert{..} ->
         writeStub
             "fact insert"
@@ -103,6 +152,18 @@ run cmd = case cmd of
         withEnv server $ \env -> do
             res <- listTokens env
             emitOrDie "token list" res
+
+-- | Await timeout (seconds) for a submitted tx to be indexed.
+defaultAwaitTimeout :: Word64
+defaultAwaitTimeout = 60
+
+-- | Unwrap an 'Either String' or exit with a contextual error.
+orDie :: String -> Either String a -> IO a
+orDie ctx = either (\e -> die (ctx <> ": " <> e)) pure
+
+-- | Unwrap an 'Either' whose error only has a 'Show', or exit.
+orDieShow :: Show e => String -> Either e a -> IO a
+orDieShow ctx = either (\e -> die (ctx <> ": " <> show e)) pure
 
 -- | Emit the stub envelope for a write subcommand and log to stderr.
 writeStub :: String -> String -> [Pair] -> IO ()
