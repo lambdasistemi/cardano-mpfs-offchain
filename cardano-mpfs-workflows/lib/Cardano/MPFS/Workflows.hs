@@ -25,6 +25,7 @@ module Cardano.MPFS.Workflows
     , applyRequests
     , retractRequest
     , rejectExpired
+    , endCage
 
       -- * Re-exported request types
     , BootRequest (..)
@@ -34,11 +35,13 @@ module Cardano.MPFS.Workflows
     , UpdateRequest (..)
     , RetractRequest (..)
     , RejectRequest (..)
+    , EndRequest (..)
     ) where
 
 import Cardano.MPFS.API.Types
     ( BootRequest (..)
     , DeleteRequest (..)
+    , EndRequest (..)
     , InsertRequest (..)
     , RejectRequest (..)
     , RetractRequest (..)
@@ -46,6 +49,7 @@ import Cardano.MPFS.API.Types
     , UpdateValueRequest (..)
     )
 import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
@@ -57,6 +61,7 @@ import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
 import Cardano.MPFS.Client.Cage.Update (updateCageTx)
 import Cardano.MPFS.Client.Verify
     ( verifyBootFacts
+    , verifyEndFacts
     , verifyRejectFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
@@ -192,3 +197,21 @@ rejectExpired http WorkflowsConfig{..} req =
         req
         (verifyRejectFacts wcTrustedRoot)
         (fmap serializeCageTx . rejectCageTx wcCage wcPolicy)
+
+-- | End a cage (the @end@ operation): POST the token to
+-- @\/facts\/end@, verify the returned facts against the trusted root
+-- and the cage configuration (the request-set completeness prefix is
+-- derived from the config), and build the end transaction locally for
+-- the cage owner to sign. This burns the cage token.
+endCage
+    :: HttpClient
+    -> WorkflowsConfig
+    -> EndRequest
+    -> IO (Either WorkflowError UnsignedTx)
+endCage http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/end"
+        req
+        (verifyEndFacts wcCage wcTrustedRoot)
+        (fmap serializeCageTx . endCageTx wcCage wcPolicy)

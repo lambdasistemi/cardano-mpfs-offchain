@@ -8,6 +8,7 @@ module Main
 import Test.Hspec (hspec)
 
 import Cardano.MPFS.Workflows.ApplyRequestsSpec qualified as ApplyRequestsSpec
+import Cardano.MPFS.Workflows.EndCageSpec qualified as EndCageSpec
 import Cardano.MPFS.Workflows.RegisterTokenSpec qualified as RegisterTokenSpec
 import Cardano.MPFS.Workflows.RequestWorkflowsSpec qualified as RequestWorkflowsSpec
 import Cardano.MPFS.Workflows.RetractRejectSpec qualified as RetractRejectSpec
@@ -18,3 +19,4 @@ main = hspec $ do
     RequestWorkflowsSpec.spec
     ApplyRequestsSpec.spec
     RetractRejectSpec.spec
+    EndCageSpec.spec
