@@ -5,7 +5,18 @@ repo_url: https://github.com/lambdasistemi/cardano-mpfs-offchain
 theme:
   name: material
   palette:
-    scheme: slate
+    # Light mode (follows OS preference on first visit, then remembers)
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - navigation.indexes
     - navigation.sections
@@ -16,6 +27,7 @@ theme:
 plugins:
   - search
   - swagger-ui-tag
+  - asciinema-player
 
 markdown_extensions:
   - admonition
@@ -42,6 +54,10 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - CLI:
+      - Overview: cli/index.md
+      - Walkthrough: cli/walkthrough.md
+      - Troubleshooting: cli/troubleshooting.md
   - Architecture:
       - Overview: architecture/overview.md
       - Block Processing: architecture/block-processing.md

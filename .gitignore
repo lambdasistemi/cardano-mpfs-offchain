@@ -8,3 +8,6 @@ WIP.md
 result-docker
 .claude/
 .orch/
+
+# MkDocs build output
+site/
