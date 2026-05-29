@@ -69,6 +69,7 @@ test-suite unit-tests
 
   other-modules:
     Cardano.MPFS.Workflows.ApplyRequestsSpec
+    Cardano.MPFS.Workflows.EndCageSpec
     Cardano.MPFS.Workflows.RegisterTokenSpec
     Cardano.MPFS.Workflows.RequestWorkflowsSpec
     Cardano.MPFS.Workflows.RetractRejectSpec

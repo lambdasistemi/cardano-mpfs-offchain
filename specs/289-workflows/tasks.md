@@ -49,7 +49,7 @@ that the orchestrator accepts.
 
 ## Slice S6 — end cage
 
-- [ ] T289-S6 `endCage` (`/facts/end`, `EndRequest`,
+- [X] T289-S6 `endCage` (`/facts/end`, `EndRequest`,
   `verifyEndFacts wcCage wcTrustedRoot`, `endCageTx`). Tests: routing +
   body + verify-error propagation.
 
