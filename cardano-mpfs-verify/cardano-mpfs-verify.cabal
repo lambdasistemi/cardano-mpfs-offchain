@@ -1,0 +1,88 @@
+cabal-version: 3.4
+name:          cardano-mpfs-verify
+version:       0.0.0
+synopsis:      Pure cross-target verifier for the Cardano MPFS API
+description:
+  The single Haskell implementation of every MPFS client-side verifier
+  (@verify*Facts@, snapshot replay, completeness), plus the
+  @runEnvelope@ reactor that drives them. This package is pure
+  (constitution VIII): no IO, networking, servant, http-client, or
+  node-clients. It is the package compiled to native, WASM
+  (wasm32-wasi), and GHC-JS so the verdict is byte-identical on every
+  backend (constitution IX, "One Verifier, Many Targets").
+  .
+  @cardano-mpfs-client@ depends on this package and re-exports its
+  modules, so the verifier surface remains importable from
+  @cardano-mpfs-client@ unchanged.
+
+license:       Apache-2.0
+license-file:  LICENSE
+author:        Paolo Veronelli
+maintainer:    paolo.veronelli@gmail.com
+category:      Cardano
+build-type:    Simple
+
+common warnings
+  ghc-options:
+    -Wall -Werror -Wunused-imports -Wunused-packages
+    -Wmissing-export-lists -Wname-shadowing
+    -Wdeferred-out-of-scope-variables -Wpartial-type-signatures
+    -Wredundant-constraints
+
+  default-extensions:
+    DerivingStrategies
+    DuplicateRecordFields
+    OverloadedStrings
+    RecordWildCards
+    StrictData
+
+library
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   lib
+  build-depends:
+    , aeson              >=2.1  && <2.3
+    , base               >=4.18 && <5
+    , base16-bytestring  >=1.0  && <1.1
+    , bytestring         >=0.11 && <0.13
+    , cardano-crypto-class
+    , cardano-ledger-alonzo
+    , cardano-ledger-core
+    , cardano-ledger-mary
+    , cardano-mpfs-api
+    , cardano-mpfs-cage
+    , cborg              >=0.2  && <0.3
+    , mts:csmt-core
+    , mts:csmt-verify
+    , mts:mpf-write
+    , plutus-tx
+    , text               >=2.0  && <2.2
+
+  exposed-modules:
+    Cardano.MPFS.Client.Bundle
+    Cardano.MPFS.Client.Cage.Config
+    Cardano.MPFS.Client.Cage.Identity
+    Cardano.MPFS.Client.Facts
+    Cardano.MPFS.Client.Snapshot
+    Cardano.MPFS.Client.TrustedRoot
+    Cardano.MPFS.Client.Verify
+    Cardano.MPFS.Client.Verify.Completeness
+    Cardano.MPFS.Client.Verify.Reactor
+    Cardano.MPFS.Client.Verify.Read
+    Cardano.MPFS.Client.Verify.Replay
+    Cardano.MPFS.Client.Verify.Snapshot
+    Cardano.MPFS.Client.Verify.TxView
+    Cardano.MPFS.Client.Verify.Write
+
+-- | Cross-target reactor: reads a JSON request envelope on stdin and
+-- writes a one-line verdict on stdout via 'runEnvelope'. This is the
+-- executable compiled to WASM (wasm32-wasi) and GHC-JS.
+executable mpfs-verify-reactor
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-mpfs-verify
