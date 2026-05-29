@@ -7,13 +7,7 @@
 #
 # Bump forks.json / cabal-wasm.project -> recompute dependenciesHash by
 # setting it to pkgs.lib.fakeHash and replacing with the hash Nix prints.
-{ pkgs
-, libWasm
-, ghcWasmMeta
-, wasiSdk
-, chap
-, src
-}:
+{ pkgs, libWasm, ghcWasmMeta, wasiSdk, chap, src }:
 let
   verifyForks = [
     "cborg"
@@ -29,8 +23,7 @@ let
     "aiken-codegen"
     "cardano-tx-tools"
   ];
-in
-{
+in {
   wasm-mpfs-verify = libWasm.mkCardanoLedgerWasm {
     inherit pkgs ghcWasmMeta wasiSdk chap src;
     projectFile = "cabal-wasm.project";
