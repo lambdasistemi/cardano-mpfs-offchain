@@ -58,12 +58,23 @@ unit-workflows match="":
     fi
     nix run --quiet .#workflows-unit-tests -- "${args[@]}"
 
+# Run CLI unit tests with optional match
+unit-cli match="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=()
+    if [[ '{{ match }}' != "" ]]; then
+        args+=(--match "{{ match }}")
+    fi
+    nix run --quiet .#cli-unit-tests -- "${args[@]}"
+
 # Non-Docker CI gate (mirrors .github/workflows/ci.yml)
 ci:
     nix build --quiet .#cardano-mpfs-offchain .#checks.x86_64-linux.swagger-up-to-date
     just unit
     just unit-client
     just unit-workflows
+    just unit-cli
     just format-check
     just hlint
 

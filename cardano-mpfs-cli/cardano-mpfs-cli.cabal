@@ -35,18 +35,28 @@ library
   default-language: GHC2021
   hs-source-dirs:   lib
   build-depends:
-    , aeson                 >=2.1  && <2.3
-    , base                  >=4.18 && <5
-    , base16-bytestring     >=1.0  && <1.1
-    , bytestring            >=0.11 && <0.13
-    , optparse-applicative  >=0.18 && <0.20
-    , text                  >=2.0  && <2.2
+    , aeson                  >=2.1  && <2.3
+    , base                   >=4.18 && <5
+    , base16-bytestring      >=1.0  && <1.1
+    , bech32                 >=1.1  && <1.2
+    , bytestring             >=0.11 && <0.13
+    , cardano-crypto-class
+    , cardano-ledger-api
+    , cardano-ledger-binary
+    , cardano-ledger-conway
+    , cardano-ledger-core
+    , containers             >=0.6  && <0.8
+    , microlens
+    , optparse-applicative   >=0.18 && <0.20
+    , text                   >=2.0  && <2.2
 
   exposed-modules:
     Cardano.MPFS.CLI.Hex
+    Cardano.MPFS.CLI.Key
     Cardano.MPFS.CLI.Options
     Cardano.MPFS.CLI.Output
     Cardano.MPFS.CLI.Run
+    Cardano.MPFS.CLI.Sign
 
 executable mpfs-cli
   import:           warnings
@@ -58,4 +68,27 @@ executable mpfs-cli
     , cardano-mpfs-cli
     , optparse-applicative
 
+  ghc-options:      -threaded -with-rtsopts=-N
+
+test-suite unit-tests
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , bech32
+    , bytestring
+    , cardano-crypto-class
+    , cardano-ledger-api
+    , cardano-ledger-binary
+    , cardano-ledger-core
+    , cardano-mpfs-cli
+    , containers             >=0.6  && <0.8
+    , hspec                  >=2.11 && <2.12
+    , microlens
+    , text
+
+  other-modules:    Cardano.MPFS.CLI.SignSpec
   ghc-options:      -threaded -with-rtsopts=-N

@@ -61,6 +61,7 @@ let
     project.hsPkgs.cardano-mpfs-client.components.tests.unit-tests;
   workflows-unit-tests =
     project.hsPkgs.cardano-mpfs-workflows.components.tests.unit-tests;
+  cli-unit-tests = project.hsPkgs.cardano-mpfs-cli.components.tests.unit-tests;
   e2e-tests = project.hsPkgs.cardano-mpfs-offchain.components.tests.e2e-tests;
   format-runner = pkgs.writeShellApplication {
     name = "format";
@@ -115,6 +116,12 @@ let
       exec ${workflows-unit-tests}/bin/unit-tests "$@"
     '';
   };
+  cli-unit-tests-runner = pkgs.writeShellApplication {
+    name = "cli-unit-tests";
+    text = ''
+      exec ${cli-unit-tests}/bin/unit-tests "$@"
+    '';
+  };
   e2e-tests-runner = pkgs.writeShellApplication {
     name = "e2e-tests";
     runtimeInputs = [
@@ -152,6 +159,7 @@ in {
   packages.hlint = hlint-runner;
   packages.unit-tests-runner = unit-tests-runner;
   packages.client-unit-tests-runner = client-unit-tests-runner;
+  packages.cli-unit-tests-runner = cli-unit-tests-runner;
   packages.e2e-tests-runner = e2e-tests-runner;
   packages.haddock = haddock;
   packages.cardano-mpfs-swagger =
@@ -194,5 +202,9 @@ in {
   apps.workflows-unit-tests = {
     type = "app";
     program = "${workflows-unit-tests-runner}/bin/workflows-unit-tests";
+  };
+  apps.cli-unit-tests = {
+    type = "app";
+    program = "${cli-unit-tests-runner}/bin/cli-unit-tests";
   };
 }

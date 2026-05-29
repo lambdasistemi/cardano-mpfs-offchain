@@ -18,13 +18,13 @@ slice is accepted (commit reviewed, gate green, pushed).
 
 ## Slice S2 — Bech32 .skey loading + signing
 
-- [ ] T290-S2 `Key.hs`: decode `ed25519_sk1…` → `SignKeyDSIGN
+- [X] T290-S2 `Key.hs`: decode `ed25519_sk1…` → `SignKeyDSIGN
       Ed25519DSIGN`; clear error on malformed key.
-- [ ] T290-S2 `Sign.hs`: unsigned CBOR → witnessed CBOR (addKeyWitness
+- [X] T290-S2 `Sign.hs`: unsigned CBOR → witnessed CBOR (addKeyWitness
       shape + `serialize'`).
-- [ ] T290-S2 Unit test: known key decodes; signed tx carries a vkey
+- [X] T290-S2 Unit test: known key decodes; signed tx carries a vkey
       witness for the derived key hash.
-- [ ] T290-S2 Gate: unit test + build green.
+- [X] T290-S2 Gate: unit test + build green.
 
 ## Slice S3 — submission glue + read-only commands
 
