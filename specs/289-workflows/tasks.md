@@ -42,7 +42,7 @@ that the orchestrator accepts.
 
 ## Slice S5 — retract + reject
 
-- [ ] T289-S5 `retractRequest` (`/facts/retract`, `RetractRequest`,
+- [X] T289-S5 `retractRequest` (`/facts/retract`, `RetractRequest`,
   `verifyRetractFacts`, `retractCageTx`) and `rejectExpired`
   (`/facts/reject`, `RejectRequest`, `verifyRejectFacts`,
   `rejectCageTx`). Tests: routing + body + verify-error per op.
