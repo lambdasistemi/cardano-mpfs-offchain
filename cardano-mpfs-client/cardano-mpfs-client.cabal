@@ -29,6 +29,49 @@ common warnings
     RecordWildCards
     StrictData
 
+-- | Pure, cross-target verifier surface. No IO, networking, servant,
+-- or test framework: this sublibrary is the one compiled to WASM and
+-- GHC-JS (Principle IX). Everything here folds over proof-bearing wire
+-- types and returns @Either VerifyError@. Kept free of @http-client@,
+-- @servant-client@, @cardano-node-clients@, and @hspec@.
+library verify
+  import:           warnings
+  visibility:       public
+  default-language: GHC2021
+  hs-source-dirs:   lib-verify
+  build-depends:
+    , aeson                      >=2.1  && <2.3
+    , base                       >=4.18 && <5
+    , base16-bytestring          >=1.0  && <1.1
+    , bytestring                 >=0.11 && <0.13
+    , cardano-crypto-class
+    , cardano-ledger-alonzo
+    , cardano-ledger-core
+    , cardano-ledger-mary
+    , cardano-mpfs-api
+    , cardano-mpfs-cage
+    , cborg                      >=0.2  && <0.3
+    , mts:csmt-core
+    , mts:csmt-verify
+    , mts:mpf-write
+    , plutus-tx
+    , text                       >=2.0  && <2.2
+
+  exposed-modules:
+    Cardano.MPFS.Client.Bundle
+    Cardano.MPFS.Client.Cage.Config
+    Cardano.MPFS.Client.Cage.Identity
+    Cardano.MPFS.Client.Facts
+    Cardano.MPFS.Client.Snapshot
+    Cardano.MPFS.Client.TrustedRoot
+    Cardano.MPFS.Client.Verify
+    Cardano.MPFS.Client.Verify.Completeness
+    Cardano.MPFS.Client.Verify.Read
+    Cardano.MPFS.Client.Verify.Replay
+    Cardano.MPFS.Client.Verify.Snapshot
+    Cardano.MPFS.Client.Verify.TxView
+    Cardano.MPFS.Client.Verify.Write
+
 library
   import:           warnings
   default-language: GHC2021
@@ -49,17 +92,15 @@ library
     , cardano-ledger-mary
     , cardano-mpfs-api
     , cardano-mpfs-cage
+    , cardano-mpfs-client:verify
     , cardano-node-clients
     , cardano-slotting
     , cardano-strict-containers
-    , cborg                      >=0.2  && <0.3
     , containers                 >=0.6  && <0.8
     , hspec                      >=2.11 && <2.12
     , http-client                >=0.7  && <0.8
     , http-types                 >=0.12 && <0.13
     , microlens
-    , mts:csmt-core
-    , mts:csmt-verify
     , mts:mpf-write
     , operational                >=0.2  && <0.3
     , plutus-tx
@@ -67,32 +108,36 @@ library
     , servant-client-core        >=0.20 && <0.21
     , text                       >=2.0  && <2.2
 
+  -- Re-export the pure verifier surface so existing consumers that
+  -- import these from @cardano-mpfs-client@ keep working unchanged.
+  reexported-modules:
+    , Cardano.MPFS.Client.Bundle
+    , Cardano.MPFS.Client.Cage.Config
+    , Cardano.MPFS.Client.Cage.Identity
+    , Cardano.MPFS.Client.Facts
+    , Cardano.MPFS.Client.Snapshot
+    , Cardano.MPFS.Client.TrustedRoot
+    , Cardano.MPFS.Client.Verify
+    , Cardano.MPFS.Client.Verify.Completeness
+    , Cardano.MPFS.Client.Verify.Read
+    , Cardano.MPFS.Client.Verify.Replay
+    , Cardano.MPFS.Client.Verify.Snapshot
+    , Cardano.MPFS.Client.Verify.TxView
+    , Cardano.MPFS.Client.Verify.Write
+
   exposed-modules:
     Cardano.MPFS.Client
-    Cardano.MPFS.Client.Bundle
     Cardano.MPFS.Client.Cage.Boot
     Cardano.MPFS.Client.Cage.BuildError
-    Cardano.MPFS.Client.Cage.Config
     Cardano.MPFS.Client.Cage.End
-    Cardano.MPFS.Client.Cage.Identity
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Cage.Reject
     Cardano.MPFS.Client.Cage.Request
     Cardano.MPFS.Client.Cage.Retract
     Cardano.MPFS.Client.Cage.Update
-    Cardano.MPFS.Client.Facts
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
-    Cardano.MPFS.Client.Snapshot
-    Cardano.MPFS.Client.TrustedRoot
-    Cardano.MPFS.Client.Verify
-    Cardano.MPFS.Client.Verify.Completeness
     Cardano.MPFS.Client.Verify.DSL
-    Cardano.MPFS.Client.Verify.Read
-    Cardano.MPFS.Client.Verify.Replay
-    Cardano.MPFS.Client.Verify.Snapshot
-    Cardano.MPFS.Client.Verify.TxView
-    Cardano.MPFS.Client.Verify.Write
     Cardano.MPFS.Client.Write
 
 executable mpfs-verify
