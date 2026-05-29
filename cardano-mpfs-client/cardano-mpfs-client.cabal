@@ -66,6 +66,7 @@ library verify
     Cardano.MPFS.Client.TrustedRoot
     Cardano.MPFS.Client.Verify
     Cardano.MPFS.Client.Verify.Completeness
+    Cardano.MPFS.Client.Verify.Reactor
     Cardano.MPFS.Client.Verify.Read
     Cardano.MPFS.Client.Verify.Replay
     Cardano.MPFS.Client.Verify.Snapshot
@@ -119,6 +120,7 @@ library
     , Cardano.MPFS.Client.TrustedRoot
     , Cardano.MPFS.Client.Verify
     , Cardano.MPFS.Client.Verify.Completeness
+    , Cardano.MPFS.Client.Verify.Reactor
     , Cardano.MPFS.Client.Verify.Read
     , Cardano.MPFS.Client.Verify.Replay
     , Cardano.MPFS.Client.Verify.Snapshot
@@ -153,6 +155,20 @@ executable mpfs-verify
     , text
 
   ghc-options:      -threaded -with-rtsopts=-N
+
+-- | Cross-target reactor: reads a JSON request envelope on stdin and
+-- writes a one-line verdict on stdout via 'runEnvelope'. Depends ONLY on
+-- the pure 'verify' sublibrary, so it is the executable compiled to WASM
+-- (wasm32-wasi) and GHC-JS. Native build is kept for parity/manual use.
+executable mpfs-verify-reactor
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   app-reactor
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-mpfs-client:verify
 
 test-suite unit-tests
   import:           warnings
@@ -217,6 +233,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.RetractFactsSpec
     Cardano.MPFS.Client.SnapshotSpec
     Cardano.MPFS.Client.UpdateFactsSpec
+    Cardano.MPFS.Client.Verify.ReactorSpec
     Cardano.MPFS.Client.Verify.WriteSpec
     Cardano.MPFS.Client.VerifySpec
 
