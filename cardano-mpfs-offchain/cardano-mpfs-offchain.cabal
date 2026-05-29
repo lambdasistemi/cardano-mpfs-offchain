@@ -387,4 +387,5 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.IndexerSpec
     Cardano.MPFS.E2E.ProofsSpec
     Cardano.MPFS.E2E.ProviderSpec
+    Cardano.MPFS.E2E.SubmitEndpointSpec
     Cardano.MPFS.E2E.SubmitterSpec
