@@ -58,6 +58,8 @@ module Cardano.MPFS.HTTP.Types
     , SweepRequest (..)
     , EndRequest (..)
     , SubmitRequest (..)
+    , SubmitResponse (..)
+    , SubmitError (..)
 
       -- * Proof-bearing tx responses
     , TrieFactJSON (..)
@@ -127,7 +129,9 @@ import Cardano.MPFS.API.Types
     , RetractRequest (..)
     , RetractTxResponse (..)
     , StatusResponse (..)
+    , SubmitError (..)
     , SubmitRequest (..)
+    , SubmitResponse (..)
     , SweepRequest (..)
     , SweepTxResponse (..)
     , TokenIdJSON (..)

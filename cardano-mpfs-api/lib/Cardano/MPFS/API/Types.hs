@@ -63,6 +63,8 @@ module Cardano.MPFS.API.Types
     , SweepRequest (..)
     , EndRequest (..)
     , SubmitRequest (..)
+    , SubmitResponse (..)
+    , SubmitError (..)
 
       -- * Proof-bearing tx responses
     , TrieFactJSON (..)
@@ -740,20 +742,58 @@ instance FromJSON EndRequest where
             <$> o .: "token"
             <*> o .: "address"
 
--- | @POST \/tx\/submit@ request body.
+-- | @POST \/submit@ request body.
 -- Accepts a hex-encoded signed transaction CBOR.
 newtype SubmitRequest = SubmitRequest
-    { srTxCbor :: Hex
+    { srSignedTxCbor :: Hex
     -- ^ Signed transaction CBOR (hex)
     }
 
 instance ToJSON SubmitRequest where
     toJSON SubmitRequest{..} =
-        object ["tx" .= srTxCbor]
+        object ["signedTxCbor" .= srSignedTxCbor]
 
 instance FromJSON SubmitRequest where
     parseJSON = withObject "SubmitRequest" $ \o ->
-        SubmitRequest <$> o .: "tx"
+        SubmitRequest <$> o .: "signedTxCbor"
+
+-- | @POST \/submit@ success body. Carries the
+-- accepted transaction id as hex.
+newtype SubmitResponse = SubmitResponse
+    { srTxId :: Hex
+    -- ^ Accepted transaction id (hex)
+    }
+
+instance ToJSON SubmitResponse where
+    toJSON SubmitResponse{..} =
+        object ["txId" .= srTxId]
+
+instance FromJSON SubmitResponse where
+    parseJSON = withObject "SubmitResponse" $ \o ->
+        SubmitResponse <$> o .: "txId"
+
+-- | @POST \/submit@ structured error body. Returned
+-- on a 400 (undecodable CBOR) or 502 (node-side
+-- rejection).
+data SubmitError = SubmitError
+    { seError :: Text
+    -- ^ Short error code
+    , seDetail :: Text
+    -- ^ Human-readable detail
+    }
+
+instance ToJSON SubmitError where
+    toJSON SubmitError{..} =
+        object
+            [ "error" .= seError
+            , "detail" .= seDetail
+            ]
+
+instance FromJSON SubmitError where
+    parseJSON = withObject "SubmitError" $ \o ->
+        SubmitError
+            <$> o .: "error"
+            <*> o .: "detail"
 
 -- ---------------------------------------------------------
 -- Proof-bearing tx envelope responses
@@ -1445,10 +1485,27 @@ instance ToSchema SubmitRequest where
             & Swagger.type_
                 ?~ Swagger.SwaggerObject
             & properties
-                .~ fromList [("tx", hexSchema)]
-            & required .~ ["tx"]
+                .~ fromList
+                    [("signedTxCbor", hexSchema)]
+            & required .~ ["signedTxCbor"]
             & description
                 ?~ "Submit a signed transaction"
+
+instance ToSchema SubmitResponse where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "SubmitResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList [("txId", hexSchema)]
+            & required .~ ["txId"]
+            & description
+                ?~ "Accepted transaction id"
 
 instance ToSchema TxInJSON where
     declareNamedSchema _ = do

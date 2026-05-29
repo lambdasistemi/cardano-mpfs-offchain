@@ -29,6 +29,7 @@ module Cardano.MPFS.HTTP.Server
 import Control.Applicative ((<|>))
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.Proxy (Proxy (..))
@@ -115,7 +116,9 @@ import Cardano.MPFS.HTTP.Types
     , RequestsResponse (..)
     , RetractRequest (..)
     , StatusResponse (..)
+    , SubmitError (..)
     , SubmitRequest (..)
+    , SubmitResponse (..)
     , SweepRequest (..)
     , SweepTxResponse (..)
     , TokenIdJSON
@@ -1583,29 +1586,45 @@ txSweepHandler
                     addr
         pure (mkSweepTxResponse tx)
 
+-- | Build a structured JSON error body for the
+-- @POST \/submit@ endpoint.
+submitError
+    :: ServerError -> Text -> Text -> ServerError
+submitError base errTxt detailTxt =
+    base
+        { errBody =
+            Aeson.encode
+                (SubmitError errTxt detailTxt)
+        , errHeaders =
+            [("Content-Type", "application/json")]
+        }
+
 txSubmitHandler
-    :: Context IO -> SubmitRequest -> Handler Hex
+    :: Context IO -> SubmitRequest -> Handler SubmitResponse
 txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
     tx <- case decodeTx txCbor of
         Right t -> pure t
         Left msg ->
             throwError
-                err400
-                    { errBody =
-                        BL.pack (show msg)
-                    }
+                $ submitError
+                    err400
+                    "decode failed"
+                    (T.pack (show msg))
     result <-
         liftIO
             $ Sub.submitTx (submitter ctx) tx
     case result of
         Sub.Submitted txId ->
-            pure (Hex (txIdToBytes txId))
+            pure
+                ( SubmitResponse
+                    (Hex (txIdToBytes txId))
+                )
         Sub.Rejected reason ->
             throwError
-                err502
-                    { errBody =
-                        BL.fromStrict reason
-                    }
+                $ submitError
+                    err502
+                    "submission rejected"
+                    (TE.decodeUtf8 reason)
 
 -- ---------------------------------------------------------
 -- Helpers
