@@ -55,14 +55,27 @@
     },
     "cardano-mpfs-onchain": {
       "location": "https://github.com/cardano-foundation/cardano-mpfs-onchain",
-      "rev": "023d352e850f866752927818da44861478ae99e5",
-      "sha256": "1w1i4a00m08r0hf4bn6dwvmka1qibrchdz06l9bck8xzzvyn69k1",
+      "comment": "Validate-ahead (#258): bumped from native pin 023d352e to 457c1cb, where cardano-mpfs-cage:lib drops cardano-node-clients in favour of cardano-tx-tools (the #294 migration). Realign with native once #294 bumps the onchain pin repo-wide.",
+      "rev": "457c1cbcbbf622d0e583a3e9c0b413de079f315a",
+      "sha256": "19m88h0ga5s09vrqqglj0wbwy4knvi9yy4mab9hwdb8mrrfdh5ig",
       "subdirs": ["haskell"]
     },
     "haskell-mts": {
       "location": "https://github.com/lambdasistemi/haskell-mts",
       "rev": "13264a52b47e3a1f43a6ebeebd424a10f9e4466a",
       "sha256": "1bqgpxdy79ncsz8hyg2qyd7jnm8hqj4q8rq8mhr3iirix66c77fb",
+      "subdirs": []
+    },
+    "aiken-codegen": {
+      "location": "https://github.com/paolino/aiken-codegen",
+      "rev": "74f364c10e930ce2bf47e64b755ede4424733325",
+      "sha256": "0rg5hqjix9bs9radzib1ppy09qamxkkqr0hdvc8qm907c21cy2g8",
+      "subdirs": []
+    },
+    "cardano-tx-tools": {
+      "location": "https://github.com/lambdasistemi/cardano-tx-tools",
+      "rev": "69ef635b1bd4815c7d5f718de738dd9ec4a9d61e",
+      "sha256": "06xply3i1s1h6kivyng5dx4j8yk5zzhvmdhcgc3dz90h2c0zr7np",
       "subdirs": []
     }
   },
