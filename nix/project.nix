@@ -59,6 +59,8 @@ let
     project.hsPkgs.cardano-mpfs-offchain.components.tests.unit-tests;
   client-unit-tests =
     project.hsPkgs.cardano-mpfs-client.components.tests.unit-tests;
+  workflows-unit-tests =
+    project.hsPkgs.cardano-mpfs-workflows.components.tests.unit-tests;
   e2e-tests = project.hsPkgs.cardano-mpfs-offchain.components.tests.e2e-tests;
   format-runner = pkgs.writeShellApplication {
     name = "format";
@@ -107,6 +109,12 @@ let
       exec ${client-unit-tests}/bin/unit-tests "$@"
     '';
   };
+  workflows-unit-tests-runner = pkgs.writeShellApplication {
+    name = "workflows-unit-tests";
+    text = ''
+      exec ${workflows-unit-tests}/bin/unit-tests "$@"
+    '';
+  };
   e2e-tests-runner = pkgs.writeShellApplication {
     name = "e2e-tests";
     runtimeInputs = [
@@ -135,6 +143,8 @@ in {
   packages.devnet-genesis = devnet-genesis;
   packages.offchain-tests = offchain-unit-tests;
   packages.client-tests = client-unit-tests;
+  packages.workflows-tests = workflows-unit-tests;
+  packages.workflows-unit-tests-runner = workflows-unit-tests-runner;
   packages.e2e-tests = e2e-tests;
   packages.format = format-runner;
   packages.format-check = format-check-runner;
@@ -179,5 +189,9 @@ in {
   apps.client-unit-tests = {
     type = "app";
     program = "${client-unit-tests-runner}/bin/client-unit-tests";
+  };
+  apps.workflows-unit-tests = {
+    type = "app";
+    program = "${workflows-unit-tests-runner}/bin/workflows-unit-tests";
   };
 }

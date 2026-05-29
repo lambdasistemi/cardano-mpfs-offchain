@@ -14,7 +14,7 @@ that the orchestrator accepts.
 
 ## Slice S2 — workflows package + `registerToken`
 
-- [ ] T289-S2 Create `cardano-mpfs-workflows/` (cabal: lib + hspec
+- [X] T289-S2 Create `cardano-mpfs-workflows/` (cabal: lib + hspec
   test). Wire into `cabal.project`, `nix/project.nix` (component +
   runner + package + app), `flake.nix` packages, `justfile`
   (`unit-workflows` recipe + add to `ci`). Implement

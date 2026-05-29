@@ -1,0 +1,71 @@
+cabal-version: 3.4
+name:          cardano-mpfs-workflows
+version:       0.0.0
+synopsis:      Transport-agnostic facts-to-transaction workflows
+description:
+  Thin, transport-agnostic orchestration over the
+  @cardano-mpfs-client@ verifiers and cage builders. Each workflow
+  posts a request to a facts endpoint, decodes the proof-bearing
+  response, verifies it against a trusted root, and builds a
+  submission-ready unsigned transaction locally. The HTTP transport
+  is injected as a record of functions so the same workflows run in
+  a CLI or a browser SPA.
+
+license:       Apache-2.0
+license-file:  LICENSE
+author:        Paolo Veronelli
+maintainer:    paolo.veronelli@gmail.com
+category:      Cardano
+build-type:    Simple
+
+common warnings
+  ghc-options:
+    -Wall -Werror -Wunused-imports -Wunused-packages
+    -Wmissing-export-lists -Wname-shadowing
+    -Wdeferred-out-of-scope-variables -Wpartial-type-signatures
+    -Wredundant-constraints
+
+  default-extensions:
+    DerivingStrategies
+    DuplicateRecordFields
+    OverloadedStrings
+    RecordWildCards
+    StrictData
+
+library
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   lib
+  build-depends:
+    , aeson                >=2.1  && <2.3
+    , base                 >=4.18 && <5
+    , bytestring           >=0.11 && <0.13
+    , cardano-mpfs-api
+    , cardano-mpfs-client
+    , text                 >=2.0  && <2.2
+
+  exposed-modules:
+    Cardano.MPFS.Workflows
+    Cardano.MPFS.Workflows.Internal
+
+test-suite unit-tests
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , cardano-crypto-class
+    , cardano-ledger-core
+    , cardano-mpfs-api
+    , cardano-mpfs-client
+    , cardano-mpfs-workflows
+    , cardano-slotting
+    , hspec                   >=2.11 && <2.12
+    , text
+
+  other-modules:    Cardano.MPFS.Workflows.RegisterTokenSpec
+  ghc-options:      -threaded -with-rtsopts=-N
