@@ -30,6 +30,8 @@ data Command
         , key :: HexArg
         , value :: HexArg
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
     | -- | @fact update@ — request a change of an existing fact value.
       FactUpdate
@@ -39,26 +41,37 @@ data Command
         , oldValue :: HexArg
         , newValue :: HexArg
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact delete@ — request deletion of an existing fact.
+    | -- | @fact delete@ — request deletion of an existing fact. The
+      -- current value is required: deletion proves the existing
+      -- key→value leaf.
       FactDelete
         { server :: String
         , token :: Text
         , key :: HexArg
+        , value :: HexArg
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact retract@ — retract a pending request by id.
+    | -- | @fact retract@ — retract a pending request by its UTxO ref.
       FactRetract
         { server :: String
         , token :: Text
         , requestId :: Text
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
     | -- | @fact reject@ — reject pending requests past their deadline.
       FactReject
         { server :: String
         , token :: Text
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
     | -- | @fact get@ — read-only fact lookup with proof.
       FactGet
@@ -71,6 +84,8 @@ data Command
         { server :: String
         , token :: Text
         , ownerKey :: FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
     | -- | @token list@ — read-only listing of known token ids.
       TokenList
@@ -228,7 +243,14 @@ trustedRootP =
 
 factInsertP :: Parser Command
 factInsertP =
-    FactInsert <$> serverP <*> tokenP <*> keyP <*> valueP <*> ownerKeyP
+    FactInsert
+        <$> serverP
+        <*> tokenP
+        <*> keyP
+        <*> valueP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 factUpdateP :: Parser Command
 factUpdateP =
@@ -246,10 +268,19 @@ factUpdateP =
                 <> help "Replacement fact value (hex)"
             )
         <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 factDeleteP :: Parser Command
 factDeleteP =
-    FactDelete <$> serverP <*> tokenP <*> keyP <*> ownerKeyP
+    FactDelete
+        <$> serverP
+        <*> tokenP
+        <*> keyP
+        <*> valueP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 factRetractP :: Parser Command
 factRetractP =
@@ -259,13 +290,20 @@ factRetractP =
         <*> strOption
             ( long "request-id"
                 <> metavar "REQ_ID"
-                <> help "Identifier of the pending request to retract"
+                <> help "UTxO reference (txhash#ix) of the pending request"
             )
         <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 factRejectP :: Parser Command
 factRejectP =
-    FactReject <$> serverP <*> tokenP <*> ownerKeyP
+    FactReject
+        <$> serverP
+        <*> tokenP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 factGetP :: Parser Command
 factGetP =
@@ -273,7 +311,12 @@ factGetP =
 
 tokenEndP :: Parser Command
 tokenEndP =
-    TokenEnd <$> serverP <*> tokenP <*> ownerKeyP
+    TokenEnd
+        <$> serverP
+        <*> tokenP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 tokenListP :: Parser Command
 tokenListP =
