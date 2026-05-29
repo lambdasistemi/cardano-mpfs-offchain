@@ -18,11 +18,11 @@ One commit per slice. Each commit body carries `Tasks: T###-S<n>`.
 
 ## Slice S2 — HTTP-level e2e submit test
 
-- [ ] T288-S2 Add an e2e spec that starts the app under `withDevnet`,
+- [X] T288-S2 Add an e2e spec that starts the app under `withDevnet`,
       balances+signs a genesis ADA-transfer tx (reuse `balanceTx`,
       `genesisSignKey`, `addKeyWitness`, `genesisAddr`), POSTs
       `{"signedTxCbor": …}` to `/submit`, asserts `200` + `txId`.
-- [ ] T288-S2 Await the returned `txId` against the node and assert
+- [X] T288-S2 Await the returned `txId` against the node and assert
       success (live-boundary proof the tx reached the mempool).
-- [ ] T288-S2 Wire the spec into the e2e suite (`main.hs`).
-- [ ] T288-S2 Proof: `just e2e` green for the new row.
+- [X] T288-S2 Wire the spec into the e2e suite (`main.hs`).
+- [X] T288-S2 Proof: `just e2e` green for the new row.
