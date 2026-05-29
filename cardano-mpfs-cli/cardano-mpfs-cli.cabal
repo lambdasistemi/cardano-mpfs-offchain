@@ -1,0 +1,61 @@
+cabal-version: 3.4
+name:          cardano-mpfs-cli
+version:       0.0.0
+synopsis:      Command-line front-end for the Cardano MPFS server
+description:
+  mpfs-cli drives MPFS token registration and fact management
+  end-to-end against a running server using a local Bech32 .skey.
+  Protocol logic (fetch/verify/build) comes from
+  cardano-mpfs-workflows; the CLI owns argument parsing, key
+  loading, local signing, submission, and JSON output.
+
+license:       Apache-2.0
+license-file:  LICENSE
+author:        Paolo Veronelli
+maintainer:    paolo.veronelli@gmail.com
+category:      Cardano
+build-type:    Simple
+
+common warnings
+  ghc-options:
+    -Wall -Werror -Wunused-imports -Wunused-packages
+    -Wmissing-export-lists -Wname-shadowing
+    -Wdeferred-out-of-scope-variables -Wpartial-type-signatures
+    -Wredundant-constraints
+
+  default-extensions:
+    DerivingStrategies
+    DuplicateRecordFields
+    OverloadedStrings
+    RecordWildCards
+    StrictData
+
+library
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   lib
+  build-depends:
+    , aeson                 >=2.1  && <2.3
+    , base                  >=4.18 && <5
+    , base16-bytestring     >=1.0  && <1.1
+    , bytestring            >=0.11 && <0.13
+    , optparse-applicative  >=0.18 && <0.20
+    , text                  >=2.0  && <2.2
+
+  exposed-modules:
+    Cardano.MPFS.CLI.Hex
+    Cardano.MPFS.CLI.Options
+    Cardano.MPFS.CLI.Output
+    Cardano.MPFS.CLI.Run
+
+executable mpfs-cli
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , cardano-mpfs-cli
+    , optparse-applicative
+
+  ghc-options:      -threaded -with-rtsopts=-N

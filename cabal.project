@@ -9,6 +9,7 @@ packages:
   cardano-mpfs-client/
   cardano-mpfs-verify/
   cardano-mpfs-workflows/
+  cardano-mpfs-cli/
 
 repository cardano-haskell-packages
   url: https://chap.intersectmbo.org/
