@@ -19,15 +19,36 @@ module Cardano.MPFS.Workflows
 
       -- * Workflows
     , registerToken
+    , insertFact
+    , updateFact
+    , deleteFact
 
       -- * Re-exported request types
     , BootRequest (..)
+    , InsertRequest (..)
+    , UpdateValueRequest (..)
+    , DeleteRequest (..)
     ) where
 
-import Cardano.MPFS.API.Types (BootRequest (..))
+import Cardano.MPFS.API.Types
+    ( BootRequest (..)
+    , DeleteRequest (..)
+    , InsertRequest (..)
+    , UpdateValueRequest (..)
+    )
 import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Request
+    ( requestDeleteCageTx
+    , requestInsertCageTx
+    , requestUpdateCageTx
+    )
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
-import Cardano.MPFS.Client.Verify (verifyBootFacts)
+import Cardano.MPFS.Client.Verify
+    ( verifyBootFacts
+    , verifyRequestDeleteFacts
+    , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
+    )
 import Cardano.MPFS.Workflows.Internal
     ( HttpClient (..)
     , HttpError (..)
@@ -53,3 +74,54 @@ registerToken http WorkflowsConfig{..} req =
         req
         (verifyBootFacts wcTrustedRoot)
         (fmap serializeCageTx . bootCageTx wcCage wcPolicy)
+
+-- | Request a key insertion (the @request\/insert@ operation): POST
+-- the insert request to @\/facts\/request\/insert@, verify the
+-- returned facts against the trusted root, and build the request
+-- transaction locally for the requester to sign.
+insertFact
+    :: HttpClient
+    -> WorkflowsConfig
+    -> InsertRequest
+    -> IO (Either WorkflowError UnsignedTx)
+insertFact http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/request/insert"
+        req
+        (verifyRequestInsertFacts wcTrustedRoot)
+        (fmap serializeCageTx . requestInsertCageTx wcCage wcPolicy)
+
+-- | Request a key update (the @request\/update@ operation): POST the
+-- update request to @\/facts\/request\/update@, verify the returned
+-- facts against the trusted root, and build the request transaction
+-- locally for the requester to sign.
+updateFact
+    :: HttpClient
+    -> WorkflowsConfig
+    -> UpdateValueRequest
+    -> IO (Either WorkflowError UnsignedTx)
+updateFact http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/request/update"
+        req
+        (verifyRequestUpdateFacts wcTrustedRoot)
+        (fmap serializeCageTx . requestUpdateCageTx wcCage wcPolicy)
+
+-- | Request a key deletion (the @request\/delete@ operation): POST
+-- the delete request to @\/facts\/request\/delete@, verify the
+-- returned facts against the trusted root, and build the request
+-- transaction locally for the requester to sign.
+deleteFact
+    :: HttpClient
+    -> WorkflowsConfig
+    -> DeleteRequest
+    -> IO (Either WorkflowError UnsignedTx)
+deleteFact http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/request/delete"
+        req
+        (verifyRequestDeleteFacts wcTrustedRoot)
+        (fmap serializeCageTx . requestDeleteCageTx wcCage wcPolicy)
