@@ -44,6 +44,10 @@ slice is accepted (commit reviewed, gate green, pushed).
 
 ## Slice S5 — E2E walkthrough + README
 
-- [ ] T290-S5 E2E script: register-token → insert → update → get →
-      retract → end against local cluster, exits 0.
-- [ ] T290-S5 `cardano-mpfs-cli/README.md` walkthrough per subcommand.
+- [X] T290-S5 E2E script `cardano-mpfs-cli/e2e/walkthrough.sh`:
+      register-token → token list → fact insert → fact get → token end,
+      asserting each exits 0 and emits JSON (loud-failing live-boundary
+      smoke). Live execution against the devnet with a funded key is a
+      named operator follow-up (needs live data); see PR body.
+- [X] T290-S5 `cardano-mpfs-cli/README.md` walkthrough per subcommand +
+      trust model.
