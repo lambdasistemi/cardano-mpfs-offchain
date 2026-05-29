@@ -23,6 +23,8 @@ module Cardano.MPFS.Workflows
     , updateFact
     , deleteFact
     , applyRequests
+    , retractRequest
+    , rejectExpired
 
       -- * Re-exported request types
     , BootRequest (..)
@@ -30,28 +32,36 @@ module Cardano.MPFS.Workflows
     , UpdateValueRequest (..)
     , DeleteRequest (..)
     , UpdateRequest (..)
+    , RetractRequest (..)
+    , RejectRequest (..)
     ) where
 
 import Cardano.MPFS.API.Types
     ( BootRequest (..)
     , DeleteRequest (..)
     , InsertRequest (..)
+    , RejectRequest (..)
+    , RetractRequest (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
     )
 import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
     , requestUpdateCageTx
     )
+import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
 import Cardano.MPFS.Client.Cage.Update (updateCageTx)
 import Cardano.MPFS.Client.Verify
     ( verifyBootFacts
+    , verifyRejectFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
+    , verifyRetractFacts
     , verifyUpdateFacts
     )
 import Cardano.MPFS.Workflows.Internal
@@ -148,3 +158,37 @@ applyRequests http WorkflowsConfig{..} req =
         req
         (verifyUpdateFacts wcTrustedRoot)
         (fmap serializeCageTx . updateCageTx wcCage wcPolicy)
+
+-- | Retract a pending request (the @retract@ operation): POST the
+-- request UTxO reference to @\/facts\/retract@, verify the returned
+-- facts against the trusted root, and build the retract transaction
+-- locally for the original requester to sign.
+retractRequest
+    :: HttpClient
+    -> WorkflowsConfig
+    -> RetractRequest
+    -> IO (Either WorkflowError UnsignedTx)
+retractRequest http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/retract"
+        req
+        (verifyRetractFacts wcTrustedRoot)
+        (fmap serializeCageTx . retractCageTx wcCage wcPolicy)
+
+-- | Reject expired pending requests (the @reject@ operation): POST
+-- the token to @\/facts\/reject@, verify the returned facts against
+-- the trusted root, and build the reject transaction locally for the
+-- cage owner to sign.
+rejectExpired
+    :: HttpClient
+    -> WorkflowsConfig
+    -> RejectRequest
+    -> IO (Either WorkflowError UnsignedTx)
+rejectExpired http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/reject"
+        req
+        (verifyRejectFacts wcTrustedRoot)
+        (fmap serializeCageTx . rejectCageTx wcCage wcPolicy)

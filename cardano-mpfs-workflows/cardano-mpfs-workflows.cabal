@@ -71,5 +71,6 @@ test-suite unit-tests
     Cardano.MPFS.Workflows.ApplyRequestsSpec
     Cardano.MPFS.Workflows.RegisterTokenSpec
     Cardano.MPFS.Workflows.RequestWorkflowsSpec
+    Cardano.MPFS.Workflows.RetractRejectSpec
 
   ghc-options:      -threaded -with-rtsopts=-N
