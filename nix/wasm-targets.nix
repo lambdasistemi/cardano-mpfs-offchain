@@ -26,6 +26,8 @@ let
     "haskell-lmdb-mock"
     "cardano-mpfs-onchain"
     "haskell-mts"
+    "aiken-codegen"
+    "cardano-tx-tools"
   ];
 in
 {
