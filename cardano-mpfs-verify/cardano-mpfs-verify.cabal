@@ -41,22 +41,22 @@ library
   default-language: GHC2021
   hs-source-dirs:   lib
   build-depends:
-    , aeson              >=2.1  && <2.3
-    , base               >=4.18 && <5
-    , base16-bytestring  >=1.0  && <1.1
-    , bytestring         >=0.11 && <0.13
+    , aeson                  >=2.1  && <2.3
+    , base                   >=4.18 && <5
+    , base16-bytestring      >=1.0  && <1.1
+    , bytestring             >=0.11 && <0.13
     , cardano-crypto-class
     , cardano-ledger-alonzo
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-api
     , cardano-mpfs-cage
-    , cborg              >=0.2  && <0.3
+    , cborg                  >=0.2  && <0.3
     , mts:csmt-core
     , mts:csmt-verify
     , mts:mpf-write
     , plutus-tx
-    , text               >=2.0  && <2.2
+    , text                   >=2.0  && <2.2
 
   exposed-modules:
     Cardano.MPFS.Client.Bundle

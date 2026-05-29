@@ -30,9 +30,9 @@ common warnings
     StrictData
 
 library
-  import:           warnings
-  default-language: GHC2021
-  hs-source-dirs:   lib
+  import:             warnings
+  default-language:   GHC2021
+  hs-source-dirs:     lib
   build-depends:
     , aeson                      >=2.1  && <2.3
     , base                       >=4.18 && <5
