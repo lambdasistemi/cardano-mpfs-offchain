@@ -31,8 +31,9 @@ basicTx = mkBasicTx mkBasicTxBody
 
 spec :: Spec
 spec = describe "serializeCageTx" $ do
-    it "matches the ledger CBOR encoding at protocol version 11" $
-        serializeCageTx basicTx
-            `shouldBe` serialize' (natVersion @11) basicTx
-    it "produces non-empty CBOR" $
-        serializeCageTx basicTx `shouldSatisfy` ((> 0) . BS.length)
+    it "matches the ledger CBOR encoding at protocol version 11"
+        $ serializeCageTx basicTx
+        `shouldBe` serialize' (natVersion @11) basicTx
+    it "produces non-empty CBOR"
+        $ serializeCageTx basicTx
+        `shouldSatisfy` ((> 0) . BS.length)
