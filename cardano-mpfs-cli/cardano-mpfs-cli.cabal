@@ -45,9 +45,13 @@ library
     , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
+    , cardano-mpfs-api
     , containers             >=0.6  && <0.8
+    , http-client-tls        >=0.3  && <0.4
     , microlens
     , optparse-applicative   >=0.18 && <0.20
+    , servant                >=0.20 && <0.21
+    , servant-client         >=0.20 && <0.21
     , text                   >=2.0  && <2.2
 
   exposed-modules:
@@ -57,6 +61,7 @@ library
     Cardano.MPFS.CLI.Output
     Cardano.MPFS.CLI.Run
     Cardano.MPFS.CLI.Sign
+    Cardano.MPFS.CLI.Submit
 
 executable mpfs-cli
   import:           warnings

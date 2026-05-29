@@ -12,11 +12,15 @@ module Cardano.MPFS.CLI.Run
     ( run
     ) where
 
-import Cardano.MPFS.CLI.Hex (hexArgText)
+import Cardano.MPFS.API.Encoding (Hex (..))
+import Cardano.MPFS.API.Types (TokenIdJSON (..))
+import Cardano.MPFS.CLI.Hex (decodeHexText, hexArgText, hexBytes)
 import Cardano.MPFS.CLI.Options (Command (..))
-import Cardano.MPFS.CLI.Output (emitJson, logErr)
-import Data.Aeson (Value, object, (.=))
+import Cardano.MPFS.CLI.Output (die, emitJson, emitResult, logErr)
+import Cardano.MPFS.CLI.Submit (getFact, listTokens, mkServerEnv)
+import Data.Aeson (ToJSON, Value, object, (.=))
 import Data.Aeson.Types (Pair)
+import Servant.Client (ClientEnv, ClientError)
 
 -- | Dispatch a parsed command.
 run :: Command -> IO ()
@@ -85,18 +89,20 @@ run cmd = case cmd of
             , "ownerKey" .= ownerKey
             ]
     FactGet{..} ->
-        readStub
-            "fact get"
-            "GET /tokens/:id/facts/:key"
-            [ "server" .= server
-            , "token" .= token
-            , "key" .= hexArgText key
-            ]
+        withEnv server $ \env ->
+            case decodeHexText token of
+                Left e -> die ("invalid --token hex: " <> e)
+                Right tokenBytes -> do
+                    res <-
+                        getFact
+                            env
+                            (TokenIdJSON tokenBytes)
+                            (Hex (hexBytes key))
+                    emitOrDie "fact get" res
     TokenList{..} ->
-        readStub
-            "token list"
-            "GET /tokens"
-            ["server" .= server]
+        withEnv server $ \env -> do
+            res <- listTokens env
+            emitOrDie "token list" res
 
 -- | Emit the stub envelope for a write subcommand and log to stderr.
 writeStub :: String -> String -> [Pair] -> IO ()
@@ -108,15 +114,18 @@ writeStub name workflow args = do
             <> " (cardano-mpfs-workflows #289 not yet wired)"
     emitJson (stubEnvelope name (Just workflow) args)
 
--- | Emit the stub envelope for a read-only subcommand and log to stderr.
-readStub :: String -> String -> [Pair] -> IO ()
-readStub name endpoint args = do
-    logErr
-        $ name
-            <> ": would call "
-            <> endpoint
-            <> " (read endpoint wiring lands in slice S3)"
-    emitJson (stubEnvelope name Nothing (("endpoint" .= endpoint) : args))
+-- | Resolve a server env or exit, then run the action against it.
+withEnv :: String -> (ClientEnv -> IO ()) -> IO ()
+withEnv server k = do
+    eEnv <- mkServerEnv server
+    case eEnv of
+        Left err -> die err
+        Right env -> k env
+
+-- | Emit a successful client result as JSON, or exit on a client error.
+emitOrDie :: ToJSON a => String -> Either ClientError a -> IO ()
+emitOrDie name =
+    either (\e -> die (name <> " failed: " <> show e)) emitResult
 
 stubEnvelope :: String -> Maybe String -> [Pair] -> Value
 stubEnvelope name mWorkflow args =

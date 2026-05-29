@@ -9,6 +9,7 @@ module Cardano.MPFS.CLI.Hex
     ( HexArg (..)
     , hexReader
     , hexArgText
+    , decodeHexText
     ) where
 
 import Data.ByteString (ByteString)
@@ -34,3 +35,8 @@ hexReader = eitherReader $ \s ->
 -- | Re-encode a 'HexArg' to its lowercase hex text (for JSON output).
 hexArgText :: HexArg -> Text
 hexArgText = TE.decodeUtf8 . B16.encode . hexBytes
+
+-- | Decode hex text to bytes, for arguments validated outside the
+-- parser (e.g. @--token@).
+decodeHexText :: Text -> Either String ByteString
+decodeHexText = B16.decode . TE.encodeUtf8
