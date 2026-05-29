@@ -29,50 +29,6 @@ common warnings
     RecordWildCards
     StrictData
 
--- | Pure, cross-target verifier surface. No IO, networking, servant,
--- or test framework: this sublibrary is the one compiled to WASM and
--- GHC-JS (Principle IX). Everything here folds over proof-bearing wire
--- types and returns @Either VerifyError@. Kept free of @http-client@,
--- @servant-client@, @cardano-node-clients@, and @hspec@.
-library verify
-  import:           warnings
-  visibility:       public
-  default-language: GHC2021
-  hs-source-dirs:   lib-verify
-  build-depends:
-    , aeson                      >=2.1  && <2.3
-    , base                       >=4.18 && <5
-    , base16-bytestring          >=1.0  && <1.1
-    , bytestring                 >=0.11 && <0.13
-    , cardano-crypto-class
-    , cardano-ledger-alonzo
-    , cardano-ledger-core
-    , cardano-ledger-mary
-    , cardano-mpfs-api
-    , cardano-mpfs-cage
-    , cborg                      >=0.2  && <0.3
-    , mts:csmt-core
-    , mts:csmt-verify
-    , mts:mpf-write
-    , plutus-tx
-    , text                       >=2.0  && <2.2
-
-  exposed-modules:
-    Cardano.MPFS.Client.Bundle
-    Cardano.MPFS.Client.Cage.Config
-    Cardano.MPFS.Client.Cage.Identity
-    Cardano.MPFS.Client.Facts
-    Cardano.MPFS.Client.Snapshot
-    Cardano.MPFS.Client.TrustedRoot
-    Cardano.MPFS.Client.Verify
-    Cardano.MPFS.Client.Verify.Completeness
-    Cardano.MPFS.Client.Verify.Reactor
-    Cardano.MPFS.Client.Verify.Read
-    Cardano.MPFS.Client.Verify.Replay
-    Cardano.MPFS.Client.Verify.Snapshot
-    Cardano.MPFS.Client.Verify.TxView
-    Cardano.MPFS.Client.Verify.Write
-
 library
   import:           warnings
   default-language: GHC2021
@@ -93,7 +49,7 @@ library
     , cardano-ledger-mary
     , cardano-mpfs-api
     , cardano-mpfs-cage
-    , cardano-mpfs-client:verify
+    , cardano-mpfs-verify
     , cardano-node-clients
     , cardano-slotting
     , cardano-strict-containers
@@ -155,20 +111,6 @@ executable mpfs-verify
     , text
 
   ghc-options:      -threaded -with-rtsopts=-N
-
--- | Cross-target reactor: reads a JSON request envelope on stdin and
--- writes a one-line verdict on stdout via 'runEnvelope'. Depends ONLY on
--- the pure 'verify' sublibrary, so it is the executable compiled to WASM
--- (wasm32-wasi) and GHC-JS. Native build is kept for parity/manual use.
-executable mpfs-verify-reactor
-  import:           warnings
-  default-language: GHC2021
-  hs-source-dirs:   app-reactor
-  main-is:          Main.hs
-  build-depends:
-    , base
-    , bytestring
-    , cardano-mpfs-client:verify
 
 test-suite unit-tests
   import:           warnings
