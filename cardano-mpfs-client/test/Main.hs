@@ -8,6 +8,7 @@ import Cardano.MPFS.Client.Cage.EndSpec qualified as EndSpec
 import Cardano.MPFS.Client.Cage.RejectSpec qualified as CageRejectSpec
 import Cardano.MPFS.Client.Cage.RequestSpec qualified as RequestSpec
 import Cardano.MPFS.Client.Cage.RetractSpec qualified as CageRetractSpec
+import Cardano.MPFS.Client.Cage.SerializeSpec qualified as SerializeSpec
 import Cardano.MPFS.Client.Cage.UpdateSpec qualified as CageUpdateSpec
 import Cardano.MPFS.Client.EndFactsSpec qualified as EndFactsSpec
 import Cardano.MPFS.Client.HttpSpec qualified as HttpSpec
@@ -37,6 +38,7 @@ main = hspec $ do
     EndFactsSpec.spec
     UpdateFactsSpec.spec
     BootSpec.spec
+    SerializeSpec.spec
     RequestSpec.spec
     CageRetractSpec.spec
     CageRejectSpec.spec

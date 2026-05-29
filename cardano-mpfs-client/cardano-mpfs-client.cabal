@@ -92,6 +92,7 @@ library
     Cardano.MPFS.Client.Cage.Reject
     Cardano.MPFS.Client.Cage.Request
     Cardano.MPFS.Client.Cage.Retract
+    Cardano.MPFS.Client.Cage.Serialize
     Cardano.MPFS.Client.Cage.Update
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
@@ -164,6 +165,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.Cage.RejectSpec
     Cardano.MPFS.Client.Cage.RequestSpec
     Cardano.MPFS.Client.Cage.RetractSpec
+    Cardano.MPFS.Client.Cage.SerializeSpec
     Cardano.MPFS.Client.Cage.UpdateSpec
     Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures
