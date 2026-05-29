@@ -61,16 +61,29 @@ mpfs-cli token list      --server URL
 mpfs-cli fact get        --server URL --token TOKEN --key HEX
 ```
 
-Notes:
+Notes (protocol requirements, not CLI ergonomics):
 
-- `fact delete` requires `--value`: the deletion proves the existing
-  key→value leaf, so the current value must be supplied.
-- `fact retract --request-id` is the pending request's UTxO reference in
-  `txhash#ix` form.
+- `fact delete` requires `--value`: the on-chain request datum binds to
+  the value being deleted, so the cage helper needs the current value to
+  build a valid request.
+- `fact retract --request-id` is the pending request's UTxO reference
+  (`txhash#ix`): a retract spends one specific request UTxO, so the user
+  identifies which by its `TxIn`.
 - Each write command prints `{"command":…,"status":"submitted","txId":…}`
   on success.
 
 Every subcommand has `--help` (e.g. `mpfs-cli register-token --help`).
+
+## Scope
+
+`mpfs-cli` is **requester-facing**. Its subcommands are the requester's
+surface: request operations (insert/update/delete), inspection
+(list/get), wind-down (retract/reject/end), and booting a cage you own.
+
+`insert → get` will not surface the fact until an oracle service
+processes the pending request via the server's `applyRequests` path
+(which advances the trie root). That oracle path is a separate,
+non-CLI concern.
 
 ## Output contract
 
