@@ -22,18 +22,21 @@ module Cardano.MPFS.Workflows
     , insertFact
     , updateFact
     , deleteFact
+    , applyRequests
 
       -- * Re-exported request types
     , BootRequest (..)
     , InsertRequest (..)
     , UpdateValueRequest (..)
     , DeleteRequest (..)
+    , UpdateRequest (..)
     ) where
 
 import Cardano.MPFS.API.Types
     ( BootRequest (..)
     , DeleteRequest (..)
     , InsertRequest (..)
+    , UpdateRequest (..)
     , UpdateValueRequest (..)
     )
 import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
@@ -43,11 +46,13 @@ import Cardano.MPFS.Client.Cage.Request
     , requestUpdateCageTx
     )
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
+import Cardano.MPFS.Client.Cage.Update (updateCageTx)
 import Cardano.MPFS.Client.Verify
     ( verifyBootFacts
     , verifyRequestDeleteFacts
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
+    , verifyUpdateFacts
     )
 import Cardano.MPFS.Workflows.Internal
     ( HttpClient (..)
@@ -125,3 +130,21 @@ deleteFact http WorkflowsConfig{..} req =
         req
         (verifyRequestDeleteFacts wcTrustedRoot)
         (fmap serializeCageTx . requestDeleteCageTx wcCage wcPolicy)
+
+-- | Apply pending requests (the oracle @update@ operation): POST the
+-- token to @\/facts\/update@, verify the returned update facts
+-- against the trusted root, and build the batch update transaction
+-- locally for the cage owner to sign. This advances the trie root by
+-- folding the pending requests' MPF proofs.
+applyRequests
+    :: HttpClient
+    -> WorkflowsConfig
+    -> UpdateRequest
+    -> IO (Either WorkflowError UnsignedTx)
+applyRequests http WorkflowsConfig{..} req =
+    runFactsWorkflow
+        http
+        "/facts/update"
+        req
+        (verifyUpdateFacts wcTrustedRoot)
+        (fmap serializeCageTx . updateCageTx wcCage wcPolicy)

@@ -36,7 +36,7 @@ that the orchestrator accepts.
 
 ## Slice S4 — oracle apply
 
-- [ ] T289-S4 `applyRequests` (`/facts/update`, `UpdateRequest`,
+- [X] T289-S4 `applyRequests` (`/facts/update`, `UpdateRequest`,
   `verifyUpdateFacts`, `updateCageTx`). Tests: routing + body +
   verify-error propagation.
 

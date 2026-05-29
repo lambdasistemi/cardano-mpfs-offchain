@@ -7,6 +7,7 @@ module Main
 
 import Test.Hspec (hspec)
 
+import Cardano.MPFS.Workflows.ApplyRequestsSpec qualified as ApplyRequestsSpec
 import Cardano.MPFS.Workflows.RegisterTokenSpec qualified as RegisterTokenSpec
 import Cardano.MPFS.Workflows.RequestWorkflowsSpec qualified as RequestWorkflowsSpec
 
@@ -14,3 +15,4 @@ main :: IO ()
 main = hspec $ do
     RegisterTokenSpec.spec
     RequestWorkflowsSpec.spec
+    ApplyRequestsSpec.spec
