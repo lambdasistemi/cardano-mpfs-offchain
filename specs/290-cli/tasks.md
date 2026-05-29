@@ -5,15 +5,15 @@ slice is accepted (commit reviewed, gate green, pushed).
 
 ## Slice S1 — package skeleton + arg parsing
 
-- [ ] T290-S1 Create `cardano-mpfs-cli` package (cabal file, common
+- [X] T290-S1 Create `cardano-mpfs-cli` package (cabal file, common
       warnings stanza, `werror` flag) and add to `cabal.project`.
-- [ ] T290-S1 `Options.hs`: `Command` ADT + `optparse-applicative`
+- [X] T290-S1 `Options.hs`: `Command` ADT + `optparse-applicative`
       parsers for all 9 subcommands with `--help` text.
-- [ ] T290-S1 `Hex.hs`: hex arg reader rejecting non-hex pre-network.
-- [ ] T290-S1 `Run.hs` + `app/Main.hs`: handlers route writes to stub
+- [X] T290-S1 `Hex.hs`: hex arg reader rejecting non-hex pre-network.
+- [X] T290-S1 `Run.hs` + `app/Main.hs`: handlers route writes to stub
       emitting `{"stub":"Workflows.<fn>","args":{…}}` on stdout, log on
       stderr.
-- [ ] T290-S1 Gate: `cabal build mpfs-cli` + `--help` smoke per
+- [X] T290-S1 Gate: `cabal build mpfs-cli` + `--help` smoke per
       subcommand recorded in WIP.md.
 
 ## Slice S2 — Bech32 .skey loading + signing
