@@ -67,5 +67,8 @@ test-suite unit-tests
     , hspec                   >=2.11 && <2.12
     , text
 
-  other-modules:    Cardano.MPFS.Workflows.RegisterTokenSpec
+  other-modules:
+    Cardano.MPFS.Workflows.RegisterTokenSpec
+    Cardano.MPFS.Workflows.RequestWorkflowsSpec
+
   ghc-options:      -threaded -with-rtsopts=-N

@@ -28,7 +28,7 @@ that the orchestrator accepts.
 
 ## Slice S3 — requester request workflows
 
-- [ ] T289-S3 `insertFact` (`/facts/request/insert`), `updateFact`
+- [X] T289-S3 `insertFact` (`/facts/request/insert`), `updateFact`
   (`/facts/request/update`), `deleteFact` (`/facts/request/delete`)
   over `runFactsWorkflow`; re-export `InsertRequest`,
   `UpdateValueRequest`, `DeleteRequest`. Tests: routing + body per op,
