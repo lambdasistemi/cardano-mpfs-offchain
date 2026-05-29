@@ -49,7 +49,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
 import GHC.IsList (IsList (..))
-import Servant.API (FromHttpApiData (..))
+import Servant.API (FromHttpApiData (..), ToHttpApiData (..))
 
 import Cardano.MPFS.API.Encoding (Hex (..))
 
@@ -125,6 +125,9 @@ instance FromHttpApiData TokenIdJSON where
         case B16.decode (TE.encodeUtf8 t) of
             Right bs -> Right (TokenIdJSON bs)
             Left err -> Left (T.pack err)
+
+instance ToHttpApiData TokenIdJSON where
+    toUrlPiece (TokenIdJSON bs) = TE.decodeUtf8 (B16.encode bs)
 
 -- | UTxO reference (@{ tx_id, tx_ix }@).
 data UtxoRef = UtxoRef

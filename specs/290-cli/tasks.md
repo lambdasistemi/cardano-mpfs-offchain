@@ -28,12 +28,12 @@ slice is accepted (commit reviewed, gate green, pushed).
 
 ## Slice S3 — submission glue + read-only commands
 
-- [ ] T290-S3 `Submit.hs`: POST `/submit`, parse txId/error, await via
+- [X] T290-S3 `Submit.hs`: POST `/submit`, parse txId/error, await via
       `GET /tx/:txId`.
-- [ ] T290-S3 `Output.hs`: JSON-on-stdout / log-on-stderr helpers.
-- [ ] T290-S3 Wire `token list` (`GET /tokens`) and `fact get`
+- [X] T290-S3 `Output.hs`: JSON-on-stdout / log-on-stderr helpers.
+- [X] T290-S3 Wire `token list` (`GET /tokens`) and `fact get`
       (`GET /tokens/:id/facts/:key`) to real read endpoints.
-- [ ] T290-S3 Gate: build green; live read/submit proof deferred to S5
+- [X] T290-S3 Gate: build green; live read/submit proof deferred to S5
       e2e (documented live-boundary follow-up).
 
 ## Slice S4 — flip write subcommands to real workflows

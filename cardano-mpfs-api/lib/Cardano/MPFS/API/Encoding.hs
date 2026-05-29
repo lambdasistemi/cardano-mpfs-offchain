@@ -32,7 +32,7 @@ import Data.Swagger
 import Data.Swagger qualified as Swagger
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Servant.API (FromHttpApiData (..))
+import Servant.API (FromHttpApiData (..), ToHttpApiData (..))
 
 -- | A 'ByteString' that serialises to\/from JSON
 -- as a hex-encoded string.
@@ -56,6 +56,9 @@ instance FromHttpApiData Hex where
         case B16.decode (TE.encodeUtf8 t) of
             Right bs -> Right (Hex bs)
             Left err -> Left (T.pack err)
+
+instance ToHttpApiData Hex where
+    toUrlPiece (Hex bs) = TE.decodeUtf8 (B16.encode bs)
 
 instance ToSchema Hex where
     declareNamedSchema _ =
