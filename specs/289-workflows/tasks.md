@@ -6,7 +6,7 @@ that the orchestrator accepts.
 
 ## Slice S1 — client `serializeCageTx` export
 
-- [ ] T289-S1 Add `Cardano.MPFS.Client.Cage.Serialize` exporting
+- [X] T289-S1 Add `Cardano.MPFS.Client.Cage.Serialize` exporting
   `serializeCageTx :: Tx ConwayEra -> ByteString`
   (`serialize' (natVersion @11)`); list it in
   `cardano-mpfs-client.cabal` `exposed-modules`; add a client unit test
