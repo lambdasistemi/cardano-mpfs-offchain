@@ -1,122 +1,31 @@
 # mpfs-cli
 
-A command-line front-end for the [MPFS](../README.md) server. With a
-Bech32 `.skey` file and a running server, `mpfs-cli` registers tokens
-and manages facts end-to-end — fetch facts, verify the proof-bearing
-response, build the transaction, sign locally, submit, and await — and
-prints structured JSON to stdout (logs go to stderr, so it scripts
-cleanly).
+A scriptable command-line front-end for the
+[MPFS](https://lambdasistemi.github.io/cardano-mpfs-offchain/) server:
+register tokens and manage facts with a local Bech32 `.skey`. Protocol
+logic comes from [`cardano-mpfs-workflows`](../cardano-mpfs-workflows);
+the CLI owns argument parsing, key loading, signing, submission, and
+JSON output.
 
-All MPFS protocol logic lives in
-[`cardano-mpfs-workflows`](../cardano-mpfs-workflows); the CLI only owns
-argument parsing, key loading, local signing, submission, and output
-formatting.
-
-## Build
+## Quick start
 
 ```bash
 nix develop
-cabal build mpfs-cli
-# or: nix build .#mpfs-cli
+cabal build mpfs-cli                          # or: nix build .#mpfs-cli
+mpfs-cli register-token --server http://localhost:3000 --owner-key owner.skey
+mpfs-cli token list      --server http://localhost:3000 | jq
 ```
 
-## Anchors and the trust model
+`--owner-key` is a Bech32 ed25519 signing key (`ed25519_sk1…`) funded on
+the target network. Write commands resolve the cage blueprint from
+`--cage-config` or `$MPFS_BLUEPRINT`, and the trusted root from
+`--trusted-root` or the server's `/status`.
 
-`mpfs-cli` resolves two anchors for write commands:
+## Documentation
 
-- **Trusted UTxO root** — `--trusted-root HEX`, or, by default, fetched
-  from the server's `GET /status`. The default trusts the server to
-  report a faithful snapshot, which is appropriate when running against
-  your own server. For third-party deployments, pass `--trusted-root` to
-  verify the proof-bearing facts against an independently-obtained
-  anchor — the verifier then earns its keep.
-- **Cage blueprint** — `--cage-config FILE`, or, by default, the path in
-  `$MPFS_BLUEPRINT`. The blueprint carries the validator scripts; the CLI
-  parses it locally and derives the script hash, so the client owns
-  validator-script provenance and never trusts the server for it. If
-  neither the flag nor the env var is set, write commands fail with a
-  clear message.
+Full docs — overview, command cheat sheet, an asciinema walkthrough, the
+trust model, and troubleshooting — live on the documentation site:
 
-Network and timing default to a testnet/devnet profile; a mainnet flag
-is a future addition.
+**https://lambdasistemi.github.io/cardano-mpfs-offchain/cli/**
 
-## Subcommands
-
-Write commands (need `--owner-key`; resolve both anchors above):
-
-```
-mpfs-cli register-token --server URL --owner-key KEYFILE [--cage-config FILE] [--trusted-root HEX]
-mpfs-cli fact insert    --server URL --token TOKEN --key HEX --value HEX --owner-key KEYFILE [...]
-mpfs-cli fact update    --server URL --token TOKEN --key HEX --old-value HEX --new-value HEX --owner-key KEYFILE [...]
-mpfs-cli fact delete    --server URL --token TOKEN --key HEX --value HEX --owner-key KEYFILE [...]
-mpfs-cli fact retract   --server URL --token TOKEN --request-id TXHASH#IX --owner-key KEYFILE [...]
-mpfs-cli fact reject    --server URL --token TOKEN --owner-key KEYFILE [...]
-mpfs-cli token end       --server URL --token TOKEN --owner-key KEYFILE [...]
-```
-
-Read-only commands (no key, no anchors):
-
-```
-mpfs-cli token list      --server URL
-mpfs-cli fact get        --server URL --token TOKEN --key HEX
-```
-
-Notes (protocol requirements, not CLI ergonomics):
-
-- `fact delete` requires `--value`: the on-chain request datum binds to
-  the value being deleted, so the cage helper needs the current value to
-  build a valid request.
-- `fact retract --request-id` is the pending request's UTxO reference
-  (`txhash#ix`): a retract spends one specific request UTxO, so the user
-  identifies which by its `TxIn`.
-- Each write command prints `{"command":…,"status":"submitted","txId":…}`
-  on success.
-
-Every subcommand has `--help` (e.g. `mpfs-cli register-token --help`).
-
-## Scope
-
-`mpfs-cli` is **requester-facing**. Its subcommands are the requester's
-surface: request operations (insert/update/delete), inspection
-(list/get), wind-down (retract/reject/end), and booting a cage you own.
-
-`insert → get` will not surface the fact until an oracle service
-processes the pending request via the server's `applyRequests` path
-(which advances the trie root). That oracle path is a separate,
-non-CLI concern.
-
-## Output contract
-
-- **stdout**: exactly one JSON object per successful invocation.
-- **stderr**: all diagnostics.
-- **exit code**: non-zero on any failure, with stdout left empty so a
-  caller never parses a half-result.
-
-```bash
-mpfs-cli token list --server http://localhost:3000 | jq '.[]'
-```
-
-## End-to-end walkthrough
-
-`e2e/walkthrough.sh` runs a full session against a local devnet:
-register a token, insert a fact, and end the cage, asserting each step
-exits 0 and emits JSON. See the script header for what it launches and
-the environment it expects.
-
-```bash
-nix develop -c cardano-mpfs-cli/e2e/walkthrough.sh
-```
-
-The script asserts the requester write path (boot → list → request),
-which is verified green against a live devnet. `fact get` after an
-insert returns 404 until an oracle materializes the request (see Scope),
-and `fact retract` currently hits a server-side 500 in `/facts/retract`
-(tracked as
-[#299](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/299));
-the CLI's `fact retract` command is correct and will work once #299
-lands.
-
-## Key format
-
-Bech32 ed25519 signing keys only (CIP-5 `ed25519_sk1…`). No hardware
-wallet, no encrypted keystore, no TextEnvelope JSON.
+Every subcommand also has `--help`.

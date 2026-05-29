@@ -51,3 +51,13 @@ slice is accepted (commit reviewed, gate green, pushed).
       named operator follow-up (needs live data); see PR body.
 - [X] T290-S5 `cardano-mpfs-cli/README.md` walkthrough per subcommand +
       trust model.
+
+## Docs — MkDocs CLI section + screencast
+
+- [X] T290-docs Integrate the CLI into the MkDocs site: `docs/cli/`
+      (index overview + cheat sheet, walkthrough with the asciinema-player
+      cast, troubleshooting incl. #299); `mkdocs.yml` gains the
+      `asciinema-player` plugin, a light/dark palette toggle, and a CLI
+      nav section. The recorded `docs/cli/assets/walkthrough.cast` is the
+      source; `cardano-mpfs-cli/README.md` is trimmed to a short package
+      README linking the docs site. `mkdocs build --strict` passes.
