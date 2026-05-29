@@ -27,11 +27,13 @@
       url =
         "github:cardano-foundation/cardano-mpfs-onchain/023d352e850f866752927818da44861478ae99e5";
     };
+    ghc-wasm-meta.url =
+      "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
     , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
-    , ... }:
+    , ghc-wasm-meta, ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -58,12 +60,21 @@
               mkdocs = mkdocs.packages.${system};
               asciinema = asciinema.packages.${system};
             };
+            wasmTargets = import ./nix/wasm-targets.nix {
+              inherit pkgs;
+              libWasm = import ./nix/wasm { lib = pkgs.lib; };
+              ghcWasmMeta = ghc-wasm-meta.packages.${system}.all_9_12;
+              wasiSdk = ghc-wasm-meta.packages.${system}.wasi-sdk;
+              chap = CHaP;
+              src = ./.;
+            };
           in {
             packages = {
               inherit (project.packages)
                 offchain-tests client-tests e2e-tests cardano-mpfs-offchain
                 mpfs-serve mpfs-devnet-server mpfs-bootstrap-genesis
                 docker-image haddock;
+              inherit (wasmTargets) wasm-mpfs-verify;
               default = project.packages.cardano-mpfs-offchain;
             };
             inherit (project) devShells checks apps;
