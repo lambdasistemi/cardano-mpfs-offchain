@@ -10,6 +10,7 @@ module Cardano.MPFS.CLI.Hex
     , hexReader
     , hexArgText
     , decodeHexText
+    , encodeHexText
     ) where
 
 import Data.ByteString (ByteString)
@@ -40,3 +41,7 @@ hexArgText = TE.decodeUtf8 . B16.encode . hexBytes
 -- parser (e.g. @--token@).
 decodeHexText :: Text -> Either String ByteString
 decodeHexText = B16.decode . TE.encodeUtf8
+
+-- | Encode raw bytes to lowercase hex text (for JSON output).
+encodeHexText :: ByteString -> Text
+encodeHexText = TE.decodeUtf8 . B16.encode

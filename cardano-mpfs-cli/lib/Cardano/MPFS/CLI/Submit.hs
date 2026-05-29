@@ -11,6 +11,7 @@
 -- cardano-mpfs-workflows; this module is plain transport.
 module Cardano.MPFS.CLI.Submit
     ( mkServerEnv
+    , mkServerParts
     , listTokens
     , getFact
     , submitSignedTx
@@ -33,10 +34,12 @@ import Cardano.MPFS.API.Types
 import Data.ByteString (ByteString)
 import Data.Proxy (Proxy (..))
 import Data.Word (Word64)
+import Network.HTTP.Client (Manager)
 import Network.HTTP.Client.TLS (newTlsManager)
 import Servant.API (NoContent)
 import Servant.Client
-    ( ClientEnv
+    ( BaseUrl
+    , ClientEnv
     , ClientError
     , ClientM
     , client
@@ -48,12 +51,18 @@ import Servant.Client
 -- | Build a client environment from a server base-URL string. Returns
 -- 'Left' with a message if the URL does not parse.
 mkServerEnv :: String -> IO (Either String ClientEnv)
-mkServerEnv url =
+mkServerEnv url = fmap (fmap (uncurry mkClientEnv)) (mkServerParts url)
+
+-- | Resolve the TLS manager and base URL for a server, so callers that
+-- need raw http-client transport (the workflows 'HttpClient') and a
+-- servant 'ClientEnv' can share one manager.
+mkServerParts :: String -> IO (Either String (Manager, BaseUrl))
+mkServerParts url =
     case parseBaseUrl url of
         Nothing -> pure (Left ("invalid server URL: " <> url))
         Just base -> do
             manager <- newTlsManager
-            pure (Right (mkClientEnv manager base))
+            pure (Right (manager, base))
 
 -- | @GET \/tokens@ — list known token ids.
 listTokens :: ClientEnv -> IO (Either ClientError [TokenIdJSON])

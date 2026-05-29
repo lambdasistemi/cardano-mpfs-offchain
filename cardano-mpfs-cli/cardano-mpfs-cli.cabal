@@ -46,6 +46,7 @@ library
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-mpfs-api
+    , cardano-mpfs-cage
     , cardano-mpfs-client
     , cardano-mpfs-workflows
     , cardano-slotting
@@ -60,6 +61,7 @@ library
     , text                    >=2.0  && <2.2
 
   exposed-modules:
+    Cardano.MPFS.CLI.Cage
     Cardano.MPFS.CLI.Hex
     Cardano.MPFS.CLI.Key
     Cardano.MPFS.CLI.Options

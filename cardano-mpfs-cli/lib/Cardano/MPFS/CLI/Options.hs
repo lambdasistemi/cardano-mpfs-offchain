@@ -21,6 +21,7 @@ data Command
         { server :: String
         , ownerKey :: FilePath
         , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
         }
     | -- | @fact insert@ — request insertion of a new key/value fact.
       FactInsert
@@ -193,13 +194,37 @@ registerTokenP =
     RegisterToken
         <$> serverP
         <*> ownerKeyP
-        <*> optional
-            ( strOption
-                ( long "cage-config"
-                    <> metavar "FILE"
-                    <> help "Optional cage configuration file"
-                )
+        <*> cageConfigP
+        <*> trustedRootP
+
+-- | @--cage-config FILE@: the cage blueprint JSON. Optional; defaults to
+-- @$MPFS_BLUEPRINT@. One of the two must be set for write commands.
+cageConfigP :: Parser (Maybe FilePath)
+cageConfigP =
+    optional
+        ( strOption
+            ( long "cage-config"
+                <> metavar "FILE"
+                <> help
+                    "Cage blueprint JSON. Optional; defaults to \
+                    \$MPFS_BLUEPRINT."
             )
+        )
+
+-- | @--trusted-root HEX@: independently-obtained UTxO-CSMT root.
+-- Optional; without it the CLI trusts the server's /status root.
+trustedRootP :: Parser (Maybe HexArg)
+trustedRootP =
+    optional
+        ( option
+            hexReader
+            ( long "trusted-root"
+                <> metavar "HEX"
+                <> help
+                    "Trusted UTxO root (hex). Optional; defaults to the \
+                    \server's /status root."
+            )
+        )
 
 factInsertP :: Parser Command
 factInsertP =
