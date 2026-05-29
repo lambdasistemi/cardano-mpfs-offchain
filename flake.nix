@@ -71,9 +71,9 @@
           in {
             packages = {
               inherit (project.packages)
-                offchain-tests client-tests e2e-tests cardano-mpfs-offchain
-                mpfs-serve mpfs-devnet-server mpfs-bootstrap-genesis
-                docker-image haddock;
+                offchain-tests client-tests workflows-tests e2e-tests
+                cardano-mpfs-offchain mpfs-serve mpfs-devnet-server
+                mpfs-bootstrap-genesis docker-image haddock;
               inherit (wasmTargets) wasm-mpfs-verify;
               default = project.packages.cardano-mpfs-offchain;
             };
