@@ -1,6 +1,7 @@
 -- WASM (wasm32-wasi) / GHC-JS build configuration for the pure MPFS
--- verifier. Self-contained: only cardano-mpfs-verify + cardano-mpfs-api
--- are in the package set, so the solver never touches cardano-mpfs-client's
+-- verifier and cage transaction builders. Self-contained: only
+-- cardano-mpfs-verify, cardano-mpfs-cage-tx, and cardano-mpfs-api are in
+-- the package set, so the solver never touches cardano-mpfs-client's
 -- IO main library (http-client, servant-client, cardano-node-clients,
 -- rocksdb). Fork overrides + index-state mirror nix/wasm/forks.json; the
 -- source-repository-package stanzas below are pre-fetched and rewritten to
@@ -29,6 +30,7 @@ index-state:
 
 packages:
   cardano-mpfs-verify/
+  cardano-mpfs-cage-tx/
   cardano-mpfs-api/
 
 -- Package flags mirrored from nix/wasm/forks.json.

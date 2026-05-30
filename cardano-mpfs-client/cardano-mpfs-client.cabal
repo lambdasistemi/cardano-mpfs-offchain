@@ -34,40 +34,36 @@ library
   default-language:   GHC2021
   hs-source-dirs:     lib
   build-depends:
-    , aeson                   >=2.1  && <2.3
-    , base                    >=4.18 && <5
-    , base16-bytestring       >=1.0  && <1.1
-    , bytestring              >=0.11 && <0.13
-    , cardano-crypto-class
-    , cardano-ledger-allegra
-    , cardano-ledger-alonzo
-    , cardano-ledger-api
-    , cardano-ledger-binary
-    , cardano-ledger-core
-    , cardano-ledger-mary
+    , aeson                 >=2.1  && <2.3
+    , base                  >=4.18 && <5
+    , base16-bytestring     >=1.0  && <1.1
+    , bytestring            >=0.11 && <0.13
     , cardano-mpfs-api
-    , cardano-mpfs-cage
+    , cardano-mpfs-cage-tx
     , cardano-mpfs-verify
-    , cardano-slotting
-    , cardano-tx-tools
-    , containers              >=0.6  && <0.8
-    , hspec                   >=2.11 && <2.12
-    , http-client             >=0.7  && <0.8
-    , http-types              >=0.12 && <0.13
-    , microlens
-    , mts:mpf-write
-    , operational             >=0.2  && <0.3
-    , plutus-tx
-    , servant-client          >=0.20 && <0.21
-    , servant-client-core     >=0.20 && <0.21
-    , text                    >=2.0  && <2.2
+    , hspec                 >=2.11 && <2.12
+    , http-client           >=0.7  && <0.8
+    , http-types            >=0.12 && <0.13
+    , operational           >=0.2  && <0.3
+    , servant-client        >=0.20 && <0.21
+    , servant-client-core   >=0.20 && <0.21
+    , text                  >=2.0  && <2.2
 
   -- Re-export the pure verifier surface so existing consumers that
   -- import these from @cardano-mpfs-client@ keep working unchanged.
   reexported-modules:
     , Cardano.MPFS.Client.Bundle
+    , Cardano.MPFS.Client.Cage.Boot
+    , Cardano.MPFS.Client.Cage.BuildError
     , Cardano.MPFS.Client.Cage.Config
+    , Cardano.MPFS.Client.Cage.End
     , Cardano.MPFS.Client.Cage.Identity
+    , Cardano.MPFS.Client.Cage.Policy
+    , Cardano.MPFS.Client.Cage.Reject
+    , Cardano.MPFS.Client.Cage.Request
+    , Cardano.MPFS.Client.Cage.Retract
+    , Cardano.MPFS.Client.Cage.Serialize
+    , Cardano.MPFS.Client.Cage.Update
     , Cardano.MPFS.Client.Facts
     , Cardano.MPFS.Client.Snapshot
     , Cardano.MPFS.Client.TrustedRoot
@@ -82,15 +78,6 @@ library
 
   exposed-modules:
     Cardano.MPFS.Client
-    Cardano.MPFS.Client.Cage.Boot
-    Cardano.MPFS.Client.Cage.BuildError
-    Cardano.MPFS.Client.Cage.End
-    Cardano.MPFS.Client.Cage.Policy
-    Cardano.MPFS.Client.Cage.Reject
-    Cardano.MPFS.Client.Cage.Request
-    Cardano.MPFS.Client.Cage.Retract
-    Cardano.MPFS.Client.Cage.Serialize
-    Cardano.MPFS.Client.Cage.Update
     Cardano.MPFS.Client.Http
     Cardano.MPFS.Client.Read
     Cardano.MPFS.Client.Verify.DSL
