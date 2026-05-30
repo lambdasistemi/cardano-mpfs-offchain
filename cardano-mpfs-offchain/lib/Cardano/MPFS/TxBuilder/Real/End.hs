@@ -12,37 +12,10 @@ module Cardano.MPFS.TxBuilder.Real.End
     ) where
 
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
-import Lens.Micro ((&), (.~), (^.))
+import Data.Void (Void)
+import Lens.Micro ((^.))
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
-import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
-    )
-import Cardano.Ledger.Api.Tx
-    ( mkBasicTx
-    , witsTxL
-    )
-import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , inputsTxBodyL
-    , mintTxBodyL
-    , mkBasicTxBody
-    )
-import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
-    , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
-import Cardano.Ledger.Core (hashScript)
-import Cardano.Ledger.Mary.Value
-    ( MultiAsset (..)
-    )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -71,11 +44,14 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
+import Cardano.Tx.Build qualified as Tx
 
 import Data.List (sortOn)
 import Data.Ord (Down (..))
 
 import Cardano.Ledger.Api.Tx.Out (coinTxOutL)
+
+data NoCtx a
 
 -- | Build an end-token (burn) transaction.
 --
@@ -130,19 +106,8 @@ endTokenImpl cfg prov proofFn snap tid addr = do
         walletUtxos of
         [] -> error "endToken: no UTxOs"
         (u : _) -> pure u
-    -- 5. Build mint value (-1 token)
     let assetName = unTokenId tid
-        burnMA =
-            MultiAsset
-                $ Map.singleton policyId
-                $ Map.singleton assetName (-1)
-    -- 6. Build redeemers
-    let script = mkCageScript cfg
-        scriptHash = hashScript script
-        allInputs =
-            Set.fromList [stateIn, fst feeUtxo]
-        stateIx =
-            spendingIndex stateIn allInputs
+        script = mkCageScript cfg
         spendRedeemer = End
         onChainTid =
             OnChainTokenId
@@ -151,55 +116,36 @@ endTokenImpl cfg prov proofFn snap tid addr = do
                 $ let AssetName sbs = unTokenId tid
                   in  sbs
         mintRedeemer = Burning onChainTid
-        redeemers =
-            Redeemers
-                $ Map.fromList
-                    [
-                        ( ConwaySpending
-                            (AsIx stateIx)
-                        ,
-                            ( toLedgerData spendRedeemer
-                            , placeholderExUnits
-                            )
-                        )
-                    ,
-                        ( ConwayMinting (AsIx 0)
-                        ,
-                            ( toLedgerData mintRedeemer
-                            , placeholderExUnits
-                            )
-                        )
-                    ]
-        integrity =
-            computeScriptIntegrity pp redeemers
-    -- 7. Build tx body
-    let body =
-            mkBasicTxBody
-                & inputsTxBodyL
-                    .~ Set.singleton stateIn
-                & mintTxBodyL .~ burnMA
-                & collateralInputsTxBodyL
-                    .~ Set.singleton
-                        (fst feeUtxo)
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerKh
-                & scriptIntegrityHashTxBodyL
-                    .~ integrity
-        tx =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton
-                        scriptHash
-                        script
-                & witsTxL . rdmrsTxWitsL
-                    .~ redeemers
-    balanced <-
-        evaluateAndBalance
-            prov
-            pp
+        prog = do
+            _ <- Tx.spendScript stateIn spendRedeemer
+            Tx.attachScript script
+            Tx.mint
+                policyId
+                (Map.singleton assetName (-1))
+                mintRedeemer
+            Tx.requireSignature
+                (witnessKeyHashToGuard ownerKh)
+            Tx.collateral (fst feeUtxo)
+        evalTx tx =
+            Map.map
+                (either (Left . show) Right)
+                <$> evaluateTx prov tx
+    result <-
+        Tx.build
+            (Tx.mkPParamsBound pp)
+            (Tx.InterpretIO (const (pure undefined)))
+            evalTx
             [feeUtxo, stateUtxo]
+            []
             addr
-            tx
+            (prog :: Tx.TxBuild NoCtx Void ())
+    balanced <-
+        case result of
+            Right tx -> pure tx
+            Left err ->
+                error
+                    $ "endToken: TxBuild failed: "
+                        <> show err
     stateWitness <- witness proofFn stateUtxo
     fundingWitnesses <- witnesses proofFn [feeUtxo]
     pure

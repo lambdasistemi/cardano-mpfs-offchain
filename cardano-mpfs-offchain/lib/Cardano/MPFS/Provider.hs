@@ -28,10 +28,10 @@ import Cardano.Ledger.Alonzo.Scripts
     ( AsIx
     , PlutusPurpose
     )
-import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.Plutus (ExUnits)
 import Cardano.Slotting.Slot (SlotNo (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Core.Types
     ( Addr
@@ -76,7 +76,7 @@ data Provider m = Provider
         :: m (PParams ConwayEra)
     -- ^ Fetch current protocol parameters
     , evaluateTx
-        :: Tx ConwayEra
+        :: ConwayTx
         -> m (EvaluateTxResult ConwayEra)
     -- ^ Evaluate script execution units
     , posixMsToSlot

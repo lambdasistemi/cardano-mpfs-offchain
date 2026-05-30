@@ -57,10 +57,12 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
-import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.Binary
-    ( DecoderError
-    , decodeFull'
+    ( Annotator
+    , Decoder
+    , DecoderError
+    , decCBOR
+    , decodeFullAnnotator
     , natVersion
     , serialize'
     )
@@ -73,6 +75,7 @@ import Cardano.Ledger.TxIn
     , TxIn
     , mkTxInPartial
     )
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.API.Types.Facts
     ( EndFacts
@@ -1669,8 +1672,13 @@ parseUtxoRef t =
                         \expected txhash#ix"
                     }
 
--- | Decode CBOR bytes to a 'Tx ConwayEra'.
+-- | Decode CBOR bytes to a 'ConwayTx'.
 decodeTx
     :: ByteString
-    -> Either DecoderError (Tx ConwayEra)
-decodeTx = decodeFull' (natVersion @11)
+    -> Either DecoderError ConwayTx
+decodeTx =
+    decodeFullAnnotator
+        (natVersion @11)
+        "Conway transaction"
+        (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
+        . BL.fromStrict

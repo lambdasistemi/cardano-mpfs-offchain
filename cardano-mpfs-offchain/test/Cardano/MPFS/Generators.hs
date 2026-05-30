@@ -93,7 +93,7 @@ genRoot = Root . BS.pack <$> vectorOf 32 arbitrary
 
 -- | Generate a 'KeyHash' ''Payment' from a random
 -- 28-byte Blake2b-224 hash.
-genKeyHash :: Gen (KeyHash 'Payment)
+genKeyHash :: Gen (KeyHash Payment)
 genKeyHash = do
     hex <- genHex 28
     pure

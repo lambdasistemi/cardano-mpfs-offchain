@@ -26,7 +26,6 @@ import Data.Coerce (coerce)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
-import Data.Sequence.Strict qualified as StrictSeq
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -49,11 +48,11 @@ import Cardano.Ledger.Alonzo.Scripts
     , mkPlutusScript
     )
 import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
+    ( scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( ppCoinsPerUTxOByteL
+    ( CoinPerByte (..)
+    , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
     , ppPricesL
     )
@@ -64,17 +63,12 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
-    , mkBasicTx
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , feeTxBodyL
+    ( feeTxBodyL
     , inputsTxBodyL
-    , mkBasicTxBody
-    , outputsTxBodyL
     , vldtTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -87,12 +81,10 @@ import Cardano.Ledger.Api.Tx.Out
     , valueTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
+    ( ConwayPlutusPurpose (..)
+    , Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
@@ -106,13 +98,10 @@ import Cardano.Ledger.Binary
     , natVersion
     )
 import Cardano.Ledger.Coin (Coin (..))
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     , Script
-    , hashScript
     )
 import Cardano.Ledger.Credential
     ( Credential (..)
@@ -141,6 +130,7 @@ import Cardano.Ledger.TxIn
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -193,12 +183,15 @@ import Cardano.MPFS.Client.Facts
     ( VerifiedRejectFacts
     , verifiedRejectFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
     , evalBudgetExUnits
     )
+import Cardano.Tx.Build qualified as TxBuild
+
+data NoCtx a
 
 -- | Build an unsigned reject transaction from already
 -- verified reject facts. The function decodes the supplied
@@ -211,7 +204,7 @@ rejectCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRejectFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 rejectCageTx cfg policy verified = do
     let facts = verifiedRejectFacts verified
         token = tokenIdFromJSON (rfToken facts)
@@ -377,12 +370,15 @@ extractCageDatum txOut =
         _ -> Nothing
 
 ownerWitnessKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Witness)
+    :: ByteString -> Either BuildError (KeyHash Witness)
 ownerWitnessKeyHash ownerBytes =
     coerce <$> ownerPaymentKeyHash ownerBytes
 
+witnessKeyHashToGuard :: KeyHash Witness -> KeyHash Guard
+witnessKeyHashToGuard (KeyHash h) = KeyHash h
+
 ownerPaymentKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Payment)
+    :: ByteString -> Either BuildError (KeyHash Payment)
 ownerPaymentKeyHash ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> Right (KeyHash hash)
@@ -405,9 +401,9 @@ buildRejectTx
     -> InputRow
     -> Addr
     -> OnChainTokenState
-    -> KeyHash 'Witness
+    -> KeyHash Witness
     -> ValidityInterval
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 buildRejectTx
     cfg
     pp
@@ -432,69 +428,63 @@ buildRejectTx
                         else converge (Set.insert finalFee seenFees) finalFee
 
         buildWithFee feeForRefunds =
-            case balanceTx pp ledgerPairs changeAddr draft of
+            case balanceTx pp ledgerPairs [] changeAddr draft of
                 Left err ->
                     Left (DSLBuildFailed $ T.pack $ show err)
                 Right BalanceResult{balancedTx} ->
-                    Right balancedTx
+                    Right
+                        $ patchRejectRedeemers
+                            pp
+                            budget
+                            stateRef
+                            (map fst requestRefs)
+                            balancedTx
           where
             draft =
-                mkBasicTx body
-                    & witsTxL . scriptTxWitsL .~ scripts
-                    & witsTxL . rdmrsTxWitsL .~ redeemers
-            body =
-                mkBasicTxBody
-                    & inputsTxBodyL .~ allInputs
-                    & collateralInputsTxBodyL
-                        .~ Set.singleton feeRef
-                    & outputsTxBodyL
-                        .~ StrictSeq.fromList outputs
-                    & reqSignerHashesTxBodyL
-                        .~ Set.singleton ownerSigner
-                    & vldtTxBodyL .~ validity
-                    & scriptIntegrityHashTxBodyL
-                        .~ computeScriptIntegrity PlutusV3 pp redeemers
+                patchRedeemerBudgets pp budget
+                    $ TxBuild.draft
+                        pp
+                        ( program
+                            :: TxBuild.TxBuild NoCtx BuildError ()
+                        )
+            program = do
+                _ <-
+                    TxBuild.spendScript
+                        stateRef
+                        ( Modify
+                            $ replicate
+                                (length requestRows)
+                                Rejected
+                        )
+                mapM_
+                    ( \(ref, _) ->
+                        TxBuild.spendScript
+                            ref
+                            ( Contribute
+                                $ txInToOnChainRef stateRef
+                            )
+                    )
+                    requestRefs
+                mapM_ TxBuild.output outputs
+                TxBuild.attachScript stateScript
+                TxBuild.attachScript requestScript
+                TxBuild.collateral feeRef
+                TxBuild.requireSignature
+                    (witnessKeyHashToGuard ownerSigner)
+                applyValidity validity
             outputs =
                 newStateOut : refundOutputs feeForRefunds
 
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
         allRows = stateRow : requestRows <> [feeRow]
-        allInputs = Set.fromList (map rowRef allRows)
+        requestRefs =
+            [(rowRef row, rowOut row) | row <- requestRows]
         ledgerPairs =
             [(rowRef row, rowOut row) | row <- allRows]
         stateScript = mkCageScript cfg
         requestScript = mkRequestScript cfg token
-        scripts =
-            Map.fromList
-                [ (hashScript stateScript, stateScript)
-                , (hashScript requestScript, requestScript)
-                ]
         budget = rejectRedeemerBudget pp
-        redeemers =
-            Redeemers
-                $ Map.fromList
-                $ stateRedeemer : requestRedeemers
-        stateRedeemer =
-            ( ConwaySpending (AsIx $ spendingIndex stateRef allInputs)
-            ,
-                ( toLedgerData
-                    $ Modify
-                    $ replicate (length requestRows) Rejected
-                , budget
-                )
-            )
-        requestRedeemers =
-            [ ( ConwaySpending (AsIx $ spendingIndex ref allInputs)
-              ,
-                  ( toLedgerData
-                        $ Contribute
-                        $ txInToOnChainRef stateRef
-                  , budget
-                  )
-              )
-            | ref <- map rowRef requestRows
-            ]
         newStateOut =
             mkBasicTxOut
                 (cageAddrFromCfg cfg (network cfg))
@@ -519,6 +509,94 @@ buildRejectTx
                       extra = if ix == 0 then remainder else 0
                 ]
 
+applyValidity :: ValidityInterval -> TxBuild.TxBuild q e ()
+applyValidity ValidityInterval{invalidBefore, invalidHereafter} = do
+    case invalidBefore of
+        SNothing -> pure ()
+        SJust slot -> TxBuild.validFrom slot
+    case invalidHereafter of
+        SNothing -> pure ()
+        SJust slot -> TxBuild.validTo slot
+
+patchRedeemerBudgets
+    :: PParams ConwayEra
+    -> ExUnits
+    -> ConwayTx
+    -> ConwayTx
+patchRedeemerBudgets pp budget tx =
+    tx
+        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                (Set.singleton PlutusV3)
+                pp
+                budgetedRedeemers
+                (TxDats mempty)
+  where
+    Redeemers rdmrs =
+        tx ^. witsTxL . rdmrsTxWitsL
+    budgetedRedeemers =
+        Redeemers
+            $ fmap
+                ( \(dat, _) ->
+                    (dat, budget)
+                )
+                rdmrs
+
+patchRejectRedeemers
+    :: PParams ConwayEra
+    -> ExUnits
+    -> TxIn
+    -> [TxIn]
+    -> ConwayTx
+    -> ConwayTx
+patchRejectRedeemers pp budget stateRef requestRefs tx =
+    tx
+        & witsTxL . rdmrsTxWitsL .~ redeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                (Set.singleton PlutusV3)
+                pp
+                redeemers
+                (TxDats mempty)
+  where
+    allInputs =
+        tx ^. bodyTxL . inputsTxBodyL
+    redeemers =
+        Redeemers
+            $ Map.fromList
+            $ stateRedeemer
+                : map requestRedeemer requestRefs
+    stateRedeemer =
+        ( spendingPurpose stateRef
+        ,
+            ( toLedgerData
+                (Modify $ replicate (length requestRefs) Rejected)
+            , budget
+            )
+        )
+    requestRedeemer ref =
+        ( spendingPurpose ref
+        ,
+            ( toLedgerData
+                (Contribute $ txInToOnChainRef stateRef)
+            , budget
+            )
+        )
+    spendingPurpose ref =
+        ConwaySpending
+            (AsIx $ spendingIndex ref allInputs)
+
+spendingIndex :: TxIn -> Set.Set TxIn -> Word32
+spendingIndex needle inputs =
+    go 0 (Set.toAscList inputs)
+  where
+    go _ [] =
+        error "rejectCageTx: script input missing from balanced tx"
+    go n (x : xs)
+        | x == needle = n
+        | otherwise = go (n + 1) xs
+
 -- | Build a refund output, bumping the coin to satisfy the
 -- minUTxO floor when the raw refund would underpay it.
 refundOutput :: PParams ConwayEra -> Addr -> Coin -> TxOut ConwayEra
@@ -534,7 +612,7 @@ refundAddress net OnChainRequest{requestOwner = BuiltinByteString ownerBytes} =
         (KeyHashObj $ unsafeOwnerPaymentKeyHash ownerBytes)
         StakeRefNull
 
-unsafeOwnerPaymentKeyHash :: ByteString -> KeyHash 'Payment
+unsafeOwnerPaymentKeyHash :: ByteString -> KeyHash Payment
 unsafeOwnerPaymentKeyHash ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> KeyHash hash
@@ -590,22 +668,13 @@ halfExUnits :: ExUnits -> ExUnits
 halfExUnits (ExUnits mem steps) =
     ExUnits (mem `div` 2) (steps `div` 2)
 
-spendingIndex :: TxIn -> Set.Set TxIn -> Word32
-spendingIndex needle inputs =
-    go 0 (Set.toAscList inputs)
-  where
-    go _ [] =
-        error "spendingIndex: TxIn not in input set"
-    go n (x : xs)
-        | x == needle = n
-        | otherwise = go (n + 1) xs
-
 enforcePParamsPolicy
     :: WalletPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -623,7 +692,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

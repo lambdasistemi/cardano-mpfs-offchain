@@ -84,12 +84,19 @@ import Test.Hspec
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (Addr, serialiseAddr)
-import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
+import Cardano.Ledger.Api.Tx (bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body
     ( mintTxBodyL
     )
 import Cardano.Ledger.BaseTypes (Network (..))
-import Cardano.Ledger.Binary (decodeFull, natVersion, serialize')
+import Cardano.Ledger.Binary
+    ( Annotator
+    , Decoder
+    , decCBOR
+    , decodeFullAnnotator
+    , natVersion
+    , serialize'
+    )
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
     ( AssetName (..)
@@ -97,6 +104,7 @@ import Cardano.Ledger.Mary.Value
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Ledger.TxIn (TxId (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -113,7 +121,6 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
-    , ConwayEra
     , TokenId (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
@@ -561,7 +568,7 @@ expectUpdateFactsVerified trusted facts =
 buildUpdateTx
     :: CageConfig
     -> VerifiedUpdateFacts
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 buildUpdateTx cfg verified =
     case updateCageTx
         (toClientCageConfig cfg)
@@ -596,7 +603,7 @@ expectRejectFactsVerified trusted facts =
 buildRejectTx
     :: CageConfig
     -> VerifiedRejectFacts
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 buildRejectTx cfg verified =
     case rejectCageTx
         (toClientCageConfig cfg)
@@ -608,7 +615,7 @@ buildRejectTx cfg verified =
                 ("rejectCageTx failed: " <> show err)
                 *> error "unreachable"
 
-encodeTxHex :: Tx ConwayEra -> Hex
+encodeTxHex :: ConwayTx -> Hex
 encodeTxHex tx =
     Hex
         ( TE.decodeUtf8
@@ -619,7 +626,7 @@ encodeTxHex tx =
 buildEndTx
     :: CageConfig
     -> VerifiedEndFacts
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 buildEndTx cfg verified =
     case endCageTx
         (toClientCageConfig cfg)
@@ -636,7 +643,7 @@ submitResponseTx
     -> Application
     -> Context IO
     -> Hex
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 submitResponseTx timeout app ctx txHex = do
     unsigned <- decodeResponseTx txHex
     let signed =
@@ -646,7 +653,7 @@ submitResponseTx timeout app ctx txHex = do
     awaitTx timeout app (txIdTx signed)
     pure signed
 
-decodeResponseTx :: Hex -> IO (Tx ConwayEra)
+decodeResponseTx :: Hex -> IO ConwayTx
 decodeResponseTx (Hex txText) =
     case B16.decode (TE.encodeUtf8 txText) of
         Left err ->
@@ -654,7 +661,11 @@ decodeResponseTx (Hex txText) =
                 ("response tx hex decode failed: " <> err)
                 *> error "unreachable"
         Right txBytes ->
-            case decodeFull (natVersion @11) (BSL.fromStrict txBytes) of
+            case decodeFullAnnotator
+                (natVersion @11)
+                "Conway transaction"
+                (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
+                (BSL.fromStrict txBytes) of
                 Left err ->
                     expectationFailure
                         ("response tx CBOR decode failed: " <> show err)
@@ -700,7 +711,7 @@ signSubmitAwait
     -> Application
     -> Context IO
     -> IO (ProofEnvelope p)
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 signSubmitAwait timeout app ctx buildBundle = do
     bundle <- buildBundle
     let unsigned = envTx bundle
@@ -822,7 +833,7 @@ txIdHex (TxId sh) =
 
 -- | Extract the sole minted 'TokenId'.
 extractTokenId
-    :: CageConfig -> Tx ConwayEra -> TokenId
+    :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma =
             tx ^. bodyTxL . mintTxBodyL

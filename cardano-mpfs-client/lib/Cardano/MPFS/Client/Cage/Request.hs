@@ -13,7 +13,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
 import Data.List (sortOn)
 import Data.Ord (Down (..))
-import Data.Sequence.Strict qualified as StrictSeq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word64)
@@ -32,11 +31,12 @@ import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
     )
 import Cardano.Ledger.Api.PParams
-    ( ppCoinsPerUTxOByteL
+    ( CoinPerByte (..)
+    , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
-    , ppMinFeeAL
-    , ppMinFeeBL
     , ppPricesL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Scripts.Data
     ( Data (..)
@@ -44,14 +44,10 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
-    , mkBasicTx
+    ( bodyTxL
     )
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
-    , mkBasicTxBody
-    , outputsTxBodyL
     , vldtTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -61,9 +57,6 @@ import Cardano.Ledger.Api.Tx.Out
     , getMinCoinTxOut
     , mkBasicTxOut
     , valueTxOutL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
@@ -78,6 +71,7 @@ import Cardano.Ledger.Binary
 import Cardano.Ledger.Coin
     ( Coin (..)
     )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     )
@@ -142,13 +136,15 @@ import Cardano.MPFS.Client.Facts
     , verifiedRequestInsertFacts
     , verifiedRequestUpdateFacts
     )
-import Cardano.Node.Client.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Balance
+    ( BalanceResult (..)
+    , balanceTx
+    )
+import Cardano.Tx.Build qualified as TxBuild
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -157,6 +153,8 @@ import PlutusTx.IsData.Class
     ( ToData (..)
     )
 
+data NoCtx a
+
 -- | Build an unsigned request-insert transaction from already-verified
 -- request-insert facts. The function decodes ledger facts, enforces
 -- wallet caps, and returns a transaction ready for requester signing.
@@ -164,7 +162,7 @@ requestInsertCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestInsertFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 requestInsertCageTx cfg policy verified =
     let facts = verifiedRequestInsertFacts verified
     in  buildRequestCageTx
@@ -186,7 +184,7 @@ requestDeleteCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestDeleteFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 requestDeleteCageTx cfg policy verified =
     let facts = verifiedRequestDeleteFacts verified
     in  buildRequestCageTx
@@ -208,7 +206,7 @@ requestUpdateCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRequestUpdateFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 requestUpdateCageTx cfg policy verified =
     let facts = verifiedRequestUpdateFacts verified
     in  buildRequestCageTx
@@ -237,7 +235,7 @@ buildRequestCageTx
     -> ByteString
     -> OnChainOperation
     -> Integer
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 buildRequestCageTx
     label
     cfg
@@ -367,7 +365,7 @@ buildRequestTx
     -> ByteString
     -> OnChainOperation
     -> Integer
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 buildRequestTx
     cfg
     pp
@@ -380,6 +378,7 @@ buildRequestTx
         case balanceTx
             pp
             [(rowRef fundingRow, rowOut fundingRow)]
+            []
             requesterAddr
             draft of
             Left err ->
@@ -412,11 +411,14 @@ buildRequestTx
                 scriptAddr
                 (inject lockedAda)
                 & datumTxOutL .~ datum
-        body =
-            mkBasicTxBody
-                & outputsTxBodyL
-                    .~ StrictSeq.singleton txOut
-        draft = mkBasicTx body
+        program = do
+            _ <- TxBuild.spend (rowRef fundingRow)
+            _ <- TxBuild.output txOut
+            pure ()
+        draft =
+            TxBuild.draft
+                pp
+                (program :: TxBuild.TxBuild NoCtx BuildError ())
 
 requestDatum
     :: TokenId
@@ -478,8 +480,9 @@ requestLockedAda pp reqDraft refDraft tip =
 -- Cardano.MPFS.TxBuilder.Real.Request.requestFeeBufferUpperBound.
 requestFeeBufferUpperBound :: PParams ConwayEra -> Coin
 requestFeeBufferUpperBound pp =
-    let Coin minFeeA = pp ^. ppMinFeeAL
-        Coin minFeeB = pp ^. ppMinFeeBL
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
             txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
     in  Coin
@@ -502,7 +505,8 @@ enforcePParamsPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -520,7 +524,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

@@ -45,12 +45,11 @@ module Cardano.MPFS.TxBuilder
 
 import Data.ByteString (ByteString)
 
-import Cardano.Ledger.Api.Tx (Tx)
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId
-    , ConwayEra
     , SlotNo
     , TokenId
     , TxIn
@@ -201,7 +200,7 @@ data TrieFact = TrieFact
 -- The type parameter @p@ selects the proof shape, and
 -- with it the verifier's fixed-shape traversal.
 data ProofEnvelope p = ProofEnvelope
-    { envTx :: Tx ConwayEra
+    { envTx :: ConwayTx
     -- ^ Unsigned transaction ready for key witnesses
     , envSnapshot :: BundleSnapshot
     -- ^ UTxO-CSMT root and chain point all proofs in

@@ -121,7 +121,7 @@ data LocatedRequest = LocatedRequest
 data Request = Request
     { requestToken :: !TokenId
     -- ^ The token whose trie is being modified
-    , requestOwner :: !(KeyHash 'Payment)
+    , requestOwner :: !(KeyHash Payment)
     -- ^ The owner's payment key hash
     , requestKey :: !ByteString
     -- ^ The key to operate on
@@ -148,7 +148,7 @@ data LocatedTokenState = LocatedTokenState
 
 -- | Current on-chain state of a token.
 data TokenState = TokenState
-    { owner :: !(KeyHash 'Payment)
+    { owner :: !(KeyHash Payment)
     -- ^ Owner's payment key hash
     , root :: !Root
     -- ^ Current root hash of the token's trie

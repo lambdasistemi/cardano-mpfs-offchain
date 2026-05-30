@@ -91,8 +91,7 @@ import Cardano.Ledger.Address
     , serialiseAddr
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -108,6 +107,7 @@ import Cardano.Ledger.Mary.Value
     )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -182,8 +182,7 @@ import Cardano.MPFS.Core.OnChain
     , OnChainTokenState (..)
     )
 import Cardano.MPFS.Core.Types
-    ( ConwayEra
-    , SlotNo (..)
+    ( SlotNo (..)
     , TokenId (..)
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -543,7 +542,7 @@ runUpdateRow cfg ctx app tokenId = do
     pendingRequestsEmpty app tokenId
     tokenRootIndexed app tokenId expectedRoot
 
-expectedUpdateRoot :: Tx ConwayEra -> IO ByteString
+expectedUpdateRoot :: ConwayTx -> IO ByteString
 expectedUpdateRoot tx =
     case [ r
          | out <- toList (tx ^. bodyTxL . outputsTxBodyL)
@@ -1265,7 +1264,7 @@ pollUntilJust timeoutSec action = go (timeoutSec * 2)
             Nothing ->
                 threadDelay 500_000 >> go (n - 1)
 
-extractTokenId :: CageConfig -> Tx ConwayEra -> TokenId
+extractTokenId :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma = tx ^. bodyTxL . mintTxBodyL
         pid = cagePolicyIdFromCfg cfg

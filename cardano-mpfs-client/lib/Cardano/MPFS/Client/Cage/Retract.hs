@@ -35,11 +35,11 @@ import Cardano.Ledger.Alonzo.Scripts
     , mkPlutusScript
     )
 import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
+    ( scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( ppCoinsPerUTxOByteL
+    ( CoinPerByte (..)
+    , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
     , ppPricesL
     )
@@ -49,17 +49,14 @@ import Cardano.Ledger.Api.Scripts.Data
     , binaryDataToData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
-    , mkBasicTx
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
+    ( collateralReturnTxBodyL
     , feeTxBodyL
     , inputsTxBodyL
-    , mkBasicTxBody
-    , referenceInputsTxBodyL
+    , totalCollateralTxBodyL
     , vldtTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -69,12 +66,10 @@ import Cardano.Ledger.Api.Tx.Out
     , datumTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
+    ( ConwayPlutusPurpose (..)
+    , Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( StrictMaybe (..)
@@ -85,13 +80,10 @@ import Cardano.Ledger.Binary
     , decodeFull
     , natVersion
     )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     , Script
-    , hashScript
     )
 import Cardano.Ledger.Hashes
     ( extractHash
@@ -116,6 +108,7 @@ import Cardano.Ledger.TxIn
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -164,12 +157,14 @@ import Cardano.MPFS.Client.Facts
     ( VerifiedRetractFacts
     , verifiedRetractFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
-    , evalBudgetExUnits
     )
+import Cardano.Tx.Build qualified as TxBuild
+
+data NoCtx a
 
 -- | Build an unsigned retract transaction from already-verified
 -- retract facts. The function decodes the supplied ledger facts,
@@ -180,7 +175,7 @@ retractCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedRetractFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 retractCageTx cfg policy verified = do
     let facts = verifiedRetractFacts verified
     pp <- decodePParams (rfProtocolParameters facts)
@@ -322,12 +317,15 @@ requestOwnerBytes row =
                     \request datum"
 
 ownerWitnessKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Witness)
+    :: ByteString -> Either BuildError (KeyHash Witness)
 ownerWitnessKeyHash ownerBytes =
     coerce <$> ownerPaymentKeyHash ownerBytes
 
+witnessKeyHashToGuard :: KeyHash Witness -> KeyHash Guard
+witnessKeyHashToGuard (KeyHash h) = KeyHash h
+
 ownerPaymentKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Payment)
+    :: ByteString -> Either BuildError (KeyHash Payment)
 ownerPaymentKeyHash ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> Right (KeyHash hash)
@@ -354,9 +352,9 @@ buildRetractTx
     -> InputRow
     -> InputRow
     -> Addr
-    -> KeyHash 'Witness
+    -> KeyHash Witness
     -> ValidityInterval
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 buildRetractTx
     cfg
     pp
@@ -367,50 +365,121 @@ buildRetractTx
     changeAddr
     ownerSigner
     validity =
-        case balanceTx pp ledgerPairs changeAddr draft of
+        case balanceTx pp ledgerPairs [] changeAddr draft of
             Left err ->
                 Left (DSLBuildFailed $ T.pack $ show err)
             Right BalanceResult{balancedTx} ->
-                Right balancedTx
+                Right
+                    $ stripBalancingCollateralFields
+                    $ patchRetractRedeemers
+                        pp
+                        budget
+                        requestRef
+                        redeemer
+                        balancedTx
       where
         requestRef = rowRef requestRow
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
         script = mkRequestScript cfg token
-        scriptHash = hashScript script
-        allInputs = Set.fromList [requestRef, feeRef]
-        reqIx = spendingIndex requestRef allInputs
         budget = retractRedeemerBudget pp
         redeemer = Retract (txInToOnChainRef stateRef)
-        redeemers =
-            Redeemers
-                $ Map.singleton
-                    (ConwaySpending (AsIx reqIx))
-                    (toLedgerData redeemer, budget)
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL .~ Set.singleton requestRef
-                & referenceInputsTxBodyL
-                    .~ Set.singleton stateRef
-                & collateralInputsTxBodyL
-                    .~ Set.singleton feeRef
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerSigner
-                & vldtTxBodyL .~ validity
-                & scriptIntegrityHashTxBodyL
-                    .~ computeScriptIntegrity
-                        PlutusV3
-                        pp
-                        redeemers
+        program = do
+            _ <- TxBuild.spendScript requestRef redeemer
+            TxBuild.reference stateRef
+            TxBuild.attachScript script
+            TxBuild.collateral feeRef
+            TxBuild.requireSignature
+                (witnessKeyHashToGuard ownerSigner)
+            applyValidity validity
         draft =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton scriptHash script
-                & witsTxL . rdmrsTxWitsL .~ redeemers
+            patchRedeemerBudgets pp budget
+                $ TxBuild.draft
+                    pp
+                    ( program
+                        :: TxBuild.TxBuild NoCtx BuildError ()
+                    )
         ledgerPairs =
             [ (rowRef requestRow, rowOut requestRow)
             , (rowRef feeRow, rowOut feeRow)
             ]
+
+applyValidity :: ValidityInterval -> TxBuild.TxBuild q e ()
+applyValidity ValidityInterval{invalidBefore, invalidHereafter} = do
+    case invalidBefore of
+        SNothing -> pure ()
+        SJust slot -> TxBuild.validFrom slot
+    case invalidHereafter of
+        SNothing -> pure ()
+        SJust slot -> TxBuild.validTo slot
+
+patchRedeemerBudgets
+    :: PParams ConwayEra
+    -> ExUnits
+    -> ConwayTx
+    -> ConwayTx
+patchRedeemerBudgets pp budget tx =
+    tx
+        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                (Set.singleton PlutusV3)
+                pp
+                budgetedRedeemers
+                (TxDats mempty)
+  where
+    Redeemers rdmrs =
+        tx ^. witsTxL . rdmrsTxWitsL
+    budgetedRedeemers =
+        Redeemers
+            $ fmap
+                ( \(dat, _) ->
+                    (dat, budget)
+                )
+                rdmrs
+
+patchRetractRedeemers
+    :: PParams ConwayEra
+    -> ExUnits
+    -> TxIn
+    -> UpdateRedeemer
+    -> ConwayTx
+    -> ConwayTx
+patchRetractRedeemers pp budget requestRef redeemer tx =
+    tx
+        & witsTxL . rdmrsTxWitsL .~ redeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                (Set.singleton PlutusV3)
+                pp
+                redeemers
+                (TxDats mempty)
+  where
+    allInputs =
+        tx ^. bodyTxL . inputsTxBodyL
+    redeemers =
+        Redeemers
+            $ Map.singleton
+                ( ConwaySpending
+                    (AsIx $ spendingIndex requestRef allInputs)
+                )
+                (toLedgerData redeemer, budget)
+
+spendingIndex :: TxIn -> Set.Set TxIn -> Word32
+spendingIndex needle inputs =
+    go 0 (Set.toAscList inputs)
+  where
+    go _ [] =
+        error "retractCageTx: script input missing from balanced tx"
+    go n (x : xs)
+        | x == needle = n
+        | otherwise = go (n + 1) xs
+
+stripBalancingCollateralFields :: ConwayTx -> ConwayTx
+stripBalancingCollateralFields tx =
+    tx
+        & bodyTxL . totalCollateralTxBodyL .~ SNothing
+        & bodyTxL . collateralReturnTxBodyL .~ SNothing
 
 mkRequestScript
     :: CageConfig -> TokenId -> Script ConwayEra
@@ -440,9 +509,12 @@ toLedgerData value =
 
 retractRedeemerBudget :: PParams ConwayEra -> ExUnits
 retractRedeemerBudget pp =
-    capExUnits evalBudgetExUnits
+    capExUnits legacyEvalBudgetExUnits
         $ halfExUnits
         $ pp ^. ppMaxTxExUnitsL
+
+legacyEvalBudgetExUnits :: ExUnits
+legacyEvalBudgetExUnits = ExUnits 14_000_000 10_000_000_000
 
 capExUnits :: ExUnits -> ExUnits -> ExUnits
 capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
@@ -452,22 +524,13 @@ halfExUnits :: ExUnits -> ExUnits
 halfExUnits (ExUnits mem steps) =
     ExUnits (mem `div` 2) (steps `div` 2)
 
-spendingIndex :: TxIn -> Set.Set TxIn -> Word32
-spendingIndex needle inputs =
-    go 0 (Set.toAscList inputs)
-  where
-    go _ [] =
-        error "spendingIndex: TxIn not in input set"
-    go n (x : xs)
-        | x == needle = n
-        | otherwise = go (n + 1) xs
-
 enforcePParamsPolicy
     :: WalletPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -485,7 +548,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

@@ -34,18 +34,11 @@ import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
-import Cardano.Ledger.Alonzo.TxWits (Redeemers (..))
-import Cardano.Ledger.Api.PParams (ppProtocolVersionL)
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
-    , estimateMinFeeTx
-    , sizeTxF
-    , witsTxL
+    ( bodyTxL
     )
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
-    , inputsTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
@@ -54,27 +47,22 @@ import Cardano.Ledger.Api.Tx.Out
     , mkBasicTxOut
     , valueTxOutL
     )
-import Cardano.Ledger.Api.Tx.Wits (rdmrsTxWitsL)
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
-    , pvMajor
     )
-import Cardano.Ledger.Binary (serialize)
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose
     )
-import Cardano.Ledger.Core (Script, getMinFeeTx)
+import Cardano.Ledger.Core (Script)
 import Cardano.Ledger.Keys
     ( KeyHash
     , KeyRole (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (ExUnits)
+import Cardano.Tx.Ledger (ConwayTx)
 import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString qualified as BS
-import Data.ByteString.Base16 qualified as B16
-import Data.ByteString.Lazy qualified as BSL
-import Data.Set qualified as Set
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -117,8 +105,8 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.TxBuild qualified as Tx
 import Cardano.Slotting.Slot (SlotNo)
+import Cardano.Tx.Build qualified as Tx
 
 -- | Empty query GADT (no context needed).
 data NoCtx a
@@ -188,10 +176,11 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                 upperSlot
     result <-
         Tx.build
-            pp
+            (Tx.mkPParamsBound pp)
             (Tx.InterpretIO (const (pure undefined)))
             evalTx
             (feeUtxo : stateUtxo : reqUtxos)
+            []
             addr
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
@@ -200,49 +189,6 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
             reqWitnesses <- witnesses proofFn reqUtxos
             fundingWitnesses <-
                 witnesses proofFn [feeUtxo]
-            let Coin fee =
-                    tx ^. bodyTxL . feeTxBodyL
-                unsignedSize =
-                    tx ^. sizeTxF
-                estFee =
-                    estimateMinFeeTx pp tx 1 0 0
-                getMin =
-                    getMinFeeTx pp tx 0
-            -- Also dump what estimateMinFeeTx
-            -- sees inside balanceTx: the tx
-            -- that was passed to balanceTx is
-            -- the BUILD-RESULT tx. If it has
-            -- ExUnits 0, patchExUnits failed.
-            let Redeemers rdmrs =
-                    tx ^. witsTxL . rdmrsTxWitsL
-                rdmrEUs =
-                    [ (show p, show eu)
-                    | (p, (_, eu)) <-
-                        Map.toList rdmrs
-                    ]
-            appendFile "/tmp/mpfs-dsl.log"
-                $ "RESULT-EUS: "
-                    <> show rdmrEUs
-                    <> "\n"
-            let ver = pvMajor (pp ^. ppProtocolVersionL)
-                txHex =
-                    B16.encode
-                        ( BSL.toStrict
-                            (serialize ver tx)
-                        )
-            BS.writeFile
-                "/tmp/mpfs-unsigned.cbor.hex"
-                txHex
-            appendFile "/tmp/mpfs-dsl.log"
-                $ "BUILD: fee="
-                    <> show fee
-                    <> " unsignedSize="
-                    <> show unsignedSize
-                    <> " estimateMinFee(1)="
-                    <> show estFee
-                    <> " getMinFee(0)="
-                    <> show getMin
-                    <> "\n"
             pure
                 ProofEnvelope
                     { envTx = tx
@@ -339,7 +285,7 @@ prepareState
        , TxOut ConwayEra
        , Script ConwayEra
        , Script ConwayEra
-       , KeyHash 'Witness
+       , KeyHash Witness
        )
 prepareState cfg tid stateOut newRoot =
     let scriptAddr =
@@ -422,7 +368,7 @@ computeUpperSlot prov oldState reqUtxos = do
 -- | Wrap the Provider's evaluateTx for the DSL.
 mkEvalTx
     :: Provider IO
-    -> Tx ConwayEra
+    -> ConwayTx
     -> IO
         ( Map.Map
             ( ConwayPlutusPurpose
@@ -432,16 +378,7 @@ mkEvalTx
             (Either String ExUnits)
         )
 mkEvalTx prov tx = do
-    let ins = tx ^. bodyTxL . inputsTxBodyL
     r <- evaluateTx prov tx
-    appendFile "/tmp/mpfs-dsl.log"
-        $ "EVAL: ins="
-            <> show (Set.size ins)
-            <> " sorted="
-            <> show (Set.toAscList ins)
-            <> " result="
-            <> show (Map.keys r)
-            <> "\n"
     pure
         $ Map.map
             ( \case
@@ -466,7 +403,7 @@ buildProgram
     -> TxOut ConwayEra
     -> Script ConwayEra
     -> Script ConwayEra
-    -> KeyHash 'Witness
+    -> KeyHash Witness
     -> [[ProofStep]]
     -> SlotNo
     -> Tx.TxBuild NoCtx Void ()
@@ -545,7 +482,7 @@ buildProgram
         -- Constraints — both validators witness this tx
         Tx.attachScript stateScript
         Tx.attachScript requestScript
-        Tx.requireSignature ownerKh
+        Tx.requireSignature (witnessKeyHashToGuard ownerKh)
         Tx.collateral (fst feeUtxo)
         Tx.validTo upperSlot
 

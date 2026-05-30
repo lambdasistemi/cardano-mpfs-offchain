@@ -55,7 +55,8 @@ import Cardano.Ledger.Alonzo.TxBody
     ( scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     )
 import Cardano.Ledger.Api.Tx
@@ -69,16 +70,16 @@ import Cardano.Ledger.Api.Tx.Body
 import Cardano.Ledger.Api.Tx.Out (TxOut, mkBasicTxOut)
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams (CoinPerByte (..))
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
     , TxIx (..)
     )
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.Ledger.Coin (Coin (..))
+import Cardano.Ledger.Coin (Coin (..), compactCoinOrError)
 import Cardano.Ledger.Core (PParams)
 import Cardano.Ledger.Credential
     ( Credential (..)
@@ -133,11 +134,11 @@ import Cardano.MPFS.Client.Facts
     , verifyBootFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
-import Cardano.Node.Client.Balance
+import Cardano.Slotting.Slot (SlotNo (..))
+import Cardano.Tx.Balance
     ( computeScriptIntegrity
     , evalBudgetExUnits
     )
-import Cardano.Slotting.Slot (SlotNo (..))
 
 spec :: Spec
 spec = describe "bootCageTx" $ do
@@ -245,9 +246,10 @@ spec = describe "bootCageTx" $ do
                 tx ^. bodyTxL . scriptIntegrityHashTxBodyL
             expectedIntegrity =
                 computeScriptIntegrity
-                    PlutusV3
+                    (Set.singleton PlutusV3)
                     realisticPParams
                     redeemers
+                    (TxDats mempty)
         Map.size rdmrs `shouldBe` 1
         budgets `shouldBe` [evalBudgetExUnits]
         budgets `shouldSatisfy` all nonZeroExUnits
@@ -459,7 +461,7 @@ realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4_310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4_310))
 
 testTxId1Bytes :: ByteString
 testTxId1Bytes = BS.replicate 32 0x11
@@ -467,7 +469,7 @@ testTxId1Bytes = BS.replicate 32 0x11
 testTxId2Bytes :: ByteString
 testTxId2Bytes = BS.replicate 32 0x22
 
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust

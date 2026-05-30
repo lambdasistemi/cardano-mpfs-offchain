@@ -6,7 +6,8 @@
       [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" ];
   };
   inputs = {
-    haskellNix.url = "github:input-output-hk/haskell.nix";
+    haskellNix.url =
+      "github:input-output-hk/haskell.nix/8b447d7f57d62fab9249f79bb916bc891e29b9d0";
     nixpkgs.follows = "haskellNix/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     mkdocs.url = "github:paolino/dev-assets?dir=mkdocs";
@@ -20,12 +21,13 @@
       flake = false;
     };
     cardano-node-clients = {
-      url = "github:lambdasistemi/cardano-node-clients";
+      url =
+        "github:lambdasistemi/cardano-node-clients/e4b01cb9efdf88e99934cf7a09fed0e25bad1019";
     };
     cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = {
       url =
-        "github:cardano-foundation/cardano-mpfs-onchain/023d352e850f866752927818da44861478ae99e5";
+        "github:cardano-foundation/cardano-mpfs-onchain/457c1cbcbbf622d0e583a3e9c0b413de079f315a";
     };
     ghc-wasm-meta.url =
       "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
@@ -46,6 +48,7 @@
                 haskellNix.overlay
                 iohkNix.overlays.haskell-nix-crypto
                 iohkNix.overlays.cardano-lib
+                (_final: prev: { lzma = prev.xz; })
               ];
               inherit system;
             };
@@ -54,9 +57,9 @@
             devnet-genesis =
               cardano-node-clients.packages.${system}.devnet-genesis;
             project = import ./nix/project.nix {
-              indexState = "2025-12-07T00:00:00Z";
-              inherit CHaP pkgs cardano-node-pkgs mpfs-blueprint devnet-genesis
-                version;
+              indexState = "2026-04-17T00:00:00Z";
+              inherit CHaP pkgs system cardano-node-pkgs mpfs-blueprint
+                devnet-genesis version;
               mkdocs = mkdocs.packages.${system};
               asciinema = asciinema.packages.${system};
             };

@@ -33,8 +33,7 @@ import Test.Hspec
     )
 
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -48,6 +47,7 @@ import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
     )
 import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -64,7 +64,6 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
-    , ConwayEra
     , LocatedTokenState (..)
     , Root (..)
     , TokenId (..)
@@ -731,7 +730,7 @@ pollUntilJust timeoutSec action = go attempts
 buildAndSubmit
     :: Context IO
     -> IO (ProofEnvelope p)
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 buildAndSubmit ctx buildBundle = do
     bundle <- buildBundle
     let unsigned = envTx bundle
@@ -769,7 +768,7 @@ awaitTx = threadDelay 5_000_000
 -- | Extract the 'TokenId' from a boot
 -- transaction's mint field.
 extractTokenId
-    :: CageConfig -> Tx ConwayEra -> TokenId
+    :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma =
             tx ^. bodyTxL . mintTxBodyL

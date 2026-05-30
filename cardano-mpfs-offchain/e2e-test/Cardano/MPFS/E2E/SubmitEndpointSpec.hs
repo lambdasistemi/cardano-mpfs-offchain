@@ -79,6 +79,7 @@ import Cardano.Ledger.Binary
     ( natVersion
     , serialize'
     )
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -106,10 +107,6 @@ import Cardano.MPFS.TxBuilder.Config
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( computeScriptHash
     )
-import Cardano.Node.Client.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    )
 import Cardano.Node.Client.E2E.Devnet
     ( withCardanoNode
     )
@@ -118,6 +115,10 @@ import Cardano.Node.Client.E2E.Setup
     , genesisAddr
     , genesisDir
     , genesisSignKey
+    )
+import Cardano.Tx.Balance
+    ( BalanceResult (..)
+    , balanceTx
     )
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -164,10 +165,12 @@ submitEndpointSpec scripts =
                         body =
                             mkBasicTxBody
                                 & vldtTxBodyL .~ vldt
+                        tx :: ConwayTx
                         tx = mkBasicTx body
                     case balanceTx
                         pp
                         [feeUtxo]
+                        []
                         genesisAddr
                         tx of
                         Left err ->

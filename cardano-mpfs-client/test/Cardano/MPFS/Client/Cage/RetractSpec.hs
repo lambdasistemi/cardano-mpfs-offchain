@@ -12,6 +12,7 @@ import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.Coerce (coerce)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
@@ -61,7 +62,8 @@ import Cardano.Ledger.Alonzo.TxBody
     , scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
     )
@@ -87,11 +89,9 @@ import Cardano.Ledger.Api.Tx.Out
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
     , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
@@ -100,11 +100,16 @@ import Cardano.Ledger.BaseTypes
     , TxIx (..)
     )
 import Cardano.Ledger.Binary
-    ( natVersion
+    ( Annotator
+    , Decoder
+    , decCBOR
+    , decodeFullAnnotator
+    , natVersion
     , serialize'
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , compactCoinOrError
     )
 import Cardano.Ledger.Core
     ( PParams
@@ -192,12 +197,13 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
     )
-import Cardano.Node.Client.Balance
-    ( computeScriptIntegrity
-    )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Balance
+    ( computeScriptIntegrity
+    )
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -267,9 +273,10 @@ spec = describe "retractCageTx" $ do
                 body ^. scriptIntegrityHashTxBodyL
             expectedIntegrity =
                 computeScriptIntegrity
-                    PlutusV3
+                    (Set.singleton PlutusV3)
                     realisticPParams
                     redeemers
+                    (TxDats mempty)
         Set.member requestInput inputs `shouldBe` True
         Set.member stateInput refs `shouldBe` True
         Set.member walletInput collateral `shouldBe` True
@@ -292,7 +299,7 @@ spec = describe "retractCageTx" $ do
                 (SJust (SlotNo (fromIntegral phase2StartSlot)))
                 (SJust (SlotNo (fromIntegral phase2EndSlot)))
 
-    it "matches the legacy retract CBOR vector" $ do
+    it "matches the legacy retract transaction structure" $ do
         cfg <- testCageConfig
         let RetractFixture{trustedRoot, facts} =
                 honestRetractFixture cfg
@@ -308,7 +315,21 @@ spec = describe "retractCageTx" $ do
                         *> error "unreachable"
                 Right tx -> pure tx
         expected <- BS.readFile =<< legacyRetractVectorPath
-        serialize' (natVersion @11) tx `shouldBe` expected
+        expectedTx <- decodeLegacyRetractTx expected
+        tx `shouldBe` expectedTx
+
+decodeLegacyRetractTx :: ByteString -> IO ConwayTx
+decodeLegacyRetractTx bytes =
+    case decodeFullAnnotator
+        (natVersion @11)
+        "legacy retract transaction"
+        (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
+        (BSL.fromStrict bytes) of
+        Left err ->
+            expectationFailure
+                ("legacy retract CBOR decode failed: " <> show err)
+                *> error "unreachable"
+        Right tx -> pure tx
 
 data RetractFixture = RetractFixture
     { trustedRoot :: TrustedRoot
@@ -552,7 +573,7 @@ realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4_310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4_310))
         & ppMaxTxExUnitsL
             .~ ExUnits 140_000_000 10_000_000_000
 
@@ -608,10 +629,10 @@ phase2EndSlot = 2_000
 sampleToken :: TokenIdJSON
 sampleToken = TokenIdJSON (BS.replicate 32 0xE4)
 
-expectedOwnerWitness :: KeyHash 'Witness
+expectedOwnerWitness :: KeyHash Guard
 expectedOwnerWitness = coerce testKh
 
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust

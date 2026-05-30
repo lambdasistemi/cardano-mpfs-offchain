@@ -7,7 +7,7 @@
 -- Description : Test transaction builders for cage event detection
 -- License     : Apache-2.0
 --
--- Builds minimal @Tx ConwayEra@ values encoding cage
+-- Builds minimal @ConwayTx@ values encoding cage
 -- events (boot, burn, request, update, retract) for
 -- property tests of 'detectCageEvents' and
 -- 'detectFromTx'.
@@ -45,8 +45,7 @@ import Cardano.Crypto.Hash
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , mkBasicTx
     , witsTxL
     )
@@ -83,6 +82,7 @@ import Cardano.Ledger.Mary.Value
     , PolicyID (..)
     )
 import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -100,7 +100,6 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
-    , ConwayEra
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -152,7 +151,7 @@ mkBootTx
     -> TokenState
     -> TxIn
     -- ^ Seed input
-    -> Tx ConwayEra
+    -> ConwayTx
 mkBootTx tid ts@TokenState{..} seedInput =
     let assetName = unTokenId tid
         mintMA =
@@ -181,7 +180,7 @@ mkBurnTx
     :: TokenId
     -> TxIn
     -- ^ Dummy input
-    -> Tx ConwayEra
+    -> ConwayTx
 mkBurnTx tid dummyInput =
     let assetName = unTokenId tid
         burnMA =
@@ -201,7 +200,7 @@ mkRequestTx
     :: Request
     -> TxIn
     -- ^ Dummy input
-    -> Tx ConwayEra
+    -> ConwayTx
 mkRequestTx Request{..} dummyInput =
     let onChainTid = mkOnChainTid requestToken
         KeyHash ownerH = requestOwner
@@ -247,7 +246,7 @@ mkUpdateTx
     -- ^ Consumed request inputs
     -> TxIn
     -- ^ State input
-    -> Tx ConwayEra
+    -> ConwayTx
 mkUpdateTx tid ts _newRoot reqInputs stateInput =
     let assetName = unTokenId tid
         newStateDatum =
@@ -293,7 +292,7 @@ mkRetractTx
     -- ^ Request input to retract
     -> TxIn
     -- ^ Additional input (needed for spending index)
-    -> Tx ConwayEra
+    -> ConwayTx
 mkRetractTx reqInput extraInput =
     let allInputs =
             Set.fromList [reqInput, extraInput]
@@ -321,7 +320,7 @@ mkRetractTx reqInput extraInput =
 -- | Build a plain transaction with no cage-related
 -- content: no mints, no cage-address outputs, no
 -- spending redeemers.
-mkPlainTx :: TxIn -> Tx ConwayEra
+mkPlainTx :: TxIn -> ConwayTx
 mkPlainTx dummyInput =
     let body =
             mkBasicTxBody
@@ -341,7 +340,7 @@ mkBootRequestTx
     -> Request
     -> TxIn
     -- ^ Seed input
-    -> Tx ConwayEra
+    -> ConwayTx
 mkBootRequestTx tid ts req seedInput =
     let
         -- Extract the request-only tx body to get

@@ -16,45 +16,16 @@ module Cardano.MPFS.TxBuilder.Real.Retract
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
-import Data.Set qualified as Set
-import Lens.Micro ((&), (.~), (^.))
+import Data.Void (Void)
+import Lens.Micro ((^.))
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Allegra.Scripts
-    ( ValidityInterval (..)
-    )
-import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
-import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
-    )
-import Cardano.Ledger.Api.Tx
-    ( mkBasicTx
-    , witsTxL
-    )
-import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , inputsTxBodyL
-    , mkBasicTxBody
-    , referenceInputsTxBodyL
-    , vldtTxBodyL
-    )
 import Cardano.Ledger.Api.Tx.Out
     ( coinTxOutL
     )
-import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
-    , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
 import Cardano.Ledger.BaseTypes
     ( SlotNo (..)
-    , StrictMaybe (SJust)
     )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
-import Cardano.Ledger.Core (hashScript)
 import Cardano.Ledger.TxIn (TxIn)
 
 import Cardano.MPFS.Core.OnChain
@@ -82,9 +53,12 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
+import Cardano.Tx.Build qualified as Tx
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
+
+data NoCtx a
 
 -- | Build a retract-request transaction.
 --
@@ -201,56 +175,37 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
         posixMsToSlot prov phase2End
     let upperSlot = SlotNo (max 0 (s - 1))
         script = mkRequestScript cfg tid
-        scriptHash = hashScript script
-        allInputs =
-            Set.fromList [reqIn, fst feeUtxo]
-        reqIx = spendingIndex reqIn allInputs
         stateRef = txInToRef stateIn
         redeemer = Retract stateRef
-        spendPurpose =
-            ConwaySpending (AsIx reqIx)
-        redeemers =
-            Redeemers
-                $ Map.singleton
-                    spendPurpose
-                    ( toLedgerData redeemer
-                    , placeholderExUnits
-                    )
-        integrity =
-            computeScriptIntegrity pp redeemers
-        vldt =
-            ValidityInterval
-                (SJust lowerSlot)
-                (SJust upperSlot)
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL
-                    .~ Set.singleton reqIn
-                & referenceInputsTxBodyL
-                    .~ Set.singleton stateIn
-                & collateralInputsTxBodyL
-                    .~ Set.singleton
-                        (fst feeUtxo)
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerKh
-                & vldtTxBodyL .~ vldt
-                & scriptIntegrityHashTxBodyL
-                    .~ integrity
-        tx =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton
-                        scriptHash
-                        script
-                & witsTxL . rdmrsTxWitsL
-                    .~ redeemers
-    balanced <-
-        evaluateAndBalance
-            prov
-            pp
+        prog = do
+            _ <- Tx.spendScript reqIn redeemer
+            Tx.reference stateIn
+            Tx.attachScript script
+            Tx.requireSignature
+                (witnessKeyHashToGuard ownerKh)
+            Tx.collateral (fst feeUtxo)
+            Tx.validFrom lowerSlot
+            Tx.validTo upperSlot
+        evalTx tx =
+            Map.map
+                (either (Left . show) Right)
+                <$> evaluateTx prov tx
+    result <-
+        Tx.build
+            (Tx.mkPParamsBound pp)
+            (Tx.InterpretIO (const (pure undefined)))
+            evalTx
             [feeUtxo, reqUtxoPair]
+            [stateUtxo]
             addr
-            tx
+            (prog :: Tx.TxBuild NoCtx Void ())
+    balanced <-
+        case result of
+            Right tx -> pure tx
+            Left err ->
+                error
+                    $ "retractRequest: TxBuild failed: "
+                        <> show err
     reqWitness <- witness proofFn reqUtxoPair
     stateWitness <- witness proofFn stateUtxo
     fundingWitnesses <- witnesses proofFn [feeUtxo]

@@ -18,23 +18,18 @@ module Cardano.MPFS.TxBuilder.Real.Request
 
 import Data.ByteString (ByteString)
 import Data.List (sortOn)
+import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
-import Data.Sequence.Strict qualified as StrictSeq
+import Data.Void (Void)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Api.PParams
-    ( ppMaxTxExUnitsL
-    , ppMinFeeAL
-    , ppMinFeeBL
+    ( CoinPerByte (..)
+    , ppMaxTxExUnitsL
     , ppPricesL
-    )
-import Cardano.Ledger.Api.Tx
-    ( mkBasicTx
-    )
-import Cardano.Ledger.Api.Tx.Body
-    ( mkBasicTxBody
-    , outputsTxBodyL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Tx.Out
     ( TxOut
@@ -45,6 +40,7 @@ import Cardano.Ledger.Api.Tx.Out
     , valueTxOutL
     )
 import Cardano.Ledger.BaseTypes (Inject (..))
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Plutus.ExUnits
     ( txscriptfee
     )
@@ -72,10 +68,9 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    )
+import Cardano.Tx.Build qualified as Tx
+
+data NoCtx a
 
 -- | Build a request-insert transaction.
 requestInsertImpl
@@ -230,21 +225,30 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
                 (inject minAda)
                 & datumTxOutL
                     .~ mkInlineDatum datum
-        body =
-            mkBasicTxBody
-                & outputsTxBodyL
-                    .~ StrictSeq.singleton txOut
-        tx = mkBasicTx body
-    case balanceTx pp [feeUtxo] addr tx of
+        prog = do
+            _ <- Tx.spend (fst feeUtxo)
+            _ <- Tx.output txOut
+            pure ()
+    result <-
+        Tx.build
+            (Tx.mkPParamsBound pp)
+            (Tx.InterpretIO (const (pure undefined)))
+            (const $ pure Map.empty)
+            [feeUtxo]
+            []
+            addr
+            (prog :: Tx.TxBuild NoCtx Void ())
+    case result of
         Left err ->
             error
-                $ "requestImpl: " <> show err
-        Right br -> do
+                $ "requestImpl: TxBuild failed: "
+                    <> show err
+        Right tx -> do
             fundingWitnesses <-
                 witnesses proofFn [feeUtxo]
             pure
                 ProofEnvelope
-                    { envTx = balancedTx br
+                    { envTx = tx
                     , envSnapshot = snap
                     , envProof =
                         RequestProof
@@ -296,8 +300,9 @@ requestLockedAda pp reqDraft refDraft tip =
 -- Cardano.MPFS.Client.Cage.Request.requestFeeBufferUpperBound.
 requestFeeBufferUpperBound :: PParams ConwayEra -> Coin
 requestFeeBufferUpperBound pp =
-    let Coin minFeeA = pp ^. ppMinFeeAL
-        Coin minFeeB = pp ^. ppMinFeeBL
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
             txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
     in  Coin

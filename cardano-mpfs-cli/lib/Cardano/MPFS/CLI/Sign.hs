@@ -20,15 +20,17 @@ import Cardano.Crypto.DSIGN
     , SignKeyDSIGN
     , deriveVerKeyDSIGN
     )
-import Cardano.Ledger.Api.Tx (Tx, addrTxWitsL, txIdTx, witsTxL)
+import Cardano.Ledger.Api.Tx (addrTxWitsL, txIdTx, witsTxL)
 import Cardano.Ledger.Api.Tx.In (TxId (..))
 import Cardano.Ledger.Binary
-    ( DecoderError
-    , decodeFull'
+    ( Annotator
+    , Decoder
+    , DecoderError
+    , decCBOR
+    , decodeFullAnnotator
     , natVersion
     , serialize'
     )
-import Cardano.Ledger.Conway (ConwayEra)
 import Cardano.Ledger.Core (extractHash)
 import Cardano.Ledger.Keys
     ( VKey (..)
@@ -36,13 +38,12 @@ import Cardano.Ledger.Keys
     , asWitness
     , signedDSIGN
     )
+import Cardano.Tx.Ledger (ConwayTx)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as BL
 import Data.Set qualified as Set
 import Lens.Micro ((%~), (&))
-
--- | A Conway-era transaction.
-type ConwayTx = Tx ConwayEra
 
 -- | Why an unsigned transaction could not be signed.
 newtype SignError
@@ -57,7 +58,13 @@ signTx
     -> ByteString
     -> Either SignError ByteString
 signTx sk unsignedCbor = do
-    tx <- first TxDecodeError (decodeFull' (natVersion @11) unsignedCbor)
+    tx <-
+        first TxDecodeError
+            $ decodeFullAnnotator
+                (natVersion @11)
+                "Conway transaction"
+                (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
+                (BL.fromStrict unsignedCbor)
     pure (serialize' (natVersion @11) (addKeyWitness sk tx))
 
 -- | Add a single vkey witness for the key to the transaction.

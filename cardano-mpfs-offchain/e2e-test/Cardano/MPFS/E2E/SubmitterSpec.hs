@@ -29,6 +29,7 @@ import Cardano.Ledger.BaseTypes
     ( SlotNo (..)
     , StrictMaybe (SJust, SNothing)
     )
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.Provider.NodeClient
@@ -39,15 +40,15 @@ import Cardano.MPFS.Submitter
     , Submitter (..)
     )
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
-import Cardano.Node.Client.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    )
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
     , genesisAddr
     , genesisSignKey
     , withDevnet
+    )
+import Cardano.Tx.Balance
+    ( BalanceResult (..)
+    , balanceTx
     )
 
 spec :: Spec
@@ -84,10 +85,12 @@ spec =
                                     mkBasicTxBody
                                         & vldtTxBodyL
                                             .~ vldt
+                                tx :: ConwayTx
                                 tx = mkBasicTx body
                             case balanceTx
                                 pp
                                 [feeUtxo]
+                                []
                                 genesisAddr
                                 tx of
                                 Left err ->

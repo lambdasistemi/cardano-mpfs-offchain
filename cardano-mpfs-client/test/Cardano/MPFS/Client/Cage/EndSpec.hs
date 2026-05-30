@@ -74,7 +74,8 @@ import Cardano.Ledger.Alonzo.TxBody
     , scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
     )
@@ -84,8 +85,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -102,11 +102,9 @@ import Cardano.Ledger.Api.Tx.Out
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
     , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
@@ -119,6 +117,7 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , compactCoinOrError
     )
 import Cardano.Ledger.Core
     ( PParams
@@ -206,13 +205,14 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
     )
-import Cardano.Node.Client.Balance
-    ( computeScriptIntegrity
-    , evalBudgetExUnits
-    )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Balance
+    ( computeScriptIntegrity
+    , evalBudgetExUnits
+    )
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -301,9 +301,10 @@ spec = describe "endCageTx" $ do
                 tx ^. bodyTxL . scriptIntegrityHashTxBodyL
             expectedIntegrity =
                 computeScriptIntegrity
-                    PlutusV3
+                    (Set.singleton PlutusV3)
                     realisticPParams
                     redeemers
+                    (TxDats mempty)
         Set.member stateInput inputs `shouldBe` True
         Set.member walletInput inputs `shouldBe` True
         Map.lookup policyId minted
@@ -666,7 +667,7 @@ fundingAddr =
         (KeyHashObj testKh)
         (StakeRefBase $ KeyHashObj stakeKh)
 
-txOutputAddresses :: Tx ConwayEra -> [Addr]
+txOutputAddresses :: ConwayTx -> [Addr]
 txOutputAddresses tx =
     fmap (^. addrTxOutL)
         $ foldr (:) []
@@ -741,7 +742,7 @@ realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4_310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4_310))
         & ppMaxTxExUnitsL
             .~ ExUnits 140_000_000 10_000_000_000
 
@@ -752,10 +753,10 @@ walletTxId = BS.replicate 32 0xC2
 sampleToken :: TokenIdJSON
 sampleToken = TokenIdJSON (BS.replicate 32 0xE4)
 
-expectedOwnerWitness :: KeyHash 'Witness
+expectedOwnerWitness :: KeyHash Guard
 expectedOwnerWitness = coerce testKh
 
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust
@@ -763,7 +764,7 @@ testKh =
             "cccccccccccccccccccccccccccc\
             \cccccccccccccccccccccccccccc"
 
-stakeKh :: KeyHash 'Staking
+stakeKh :: KeyHash Staking
 stakeKh =
     KeyHash
         $ fromJust

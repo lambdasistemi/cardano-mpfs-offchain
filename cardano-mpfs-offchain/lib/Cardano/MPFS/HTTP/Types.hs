@@ -96,13 +96,13 @@ import Data.Text (Text)
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (decodeAddrEither)
-import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary (natVersion, serialize')
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.API.Types
     ( BootFacts (..)
@@ -156,7 +156,6 @@ import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
     , Coin (..)
-    , ConwayEra
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -207,7 +206,7 @@ tokenStateToJSON
             }
 
 -- | Render a 'KeyHash' as hex text.
-hashToHex :: KeyHash 'Payment -> Text
+hashToHex :: KeyHash Payment -> Text
 hashToHex (KeyHash h) =
     Crypto.hashToTextAsHex h
 
@@ -336,7 +335,7 @@ bundleSnapshotToJSON
             }
 
 -- | Serialize a Conway-era 'Tx' to hex CBOR.
-serializeTxHex :: Tx ConwayEra -> Hex
+serializeTxHex :: ConwayTx -> Hex
 serializeTxHex = Hex . serialize' (natVersion @11)
 
 -- | Package a 'ProofEnvelope RequestProof' as the JSON response shared
@@ -365,7 +364,7 @@ mkRequestTxResponse
 -- Sweep does not bundle a proof envelope (the
 -- on-chain validator enforces the owner-signature
 -- predicate against the referenced state UTxO).
-mkSweepTxResponse :: Tx ConwayEra -> SweepTxResponse
+mkSweepTxResponse :: ConwayTx -> SweepTxResponse
 mkSweepTxResponse tx =
     SweepTxResponse{stTx = serializeTxHex tx}
 

@@ -34,8 +34,7 @@ import Lens.Micro ((&), (.~), (^.))
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     )
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
@@ -60,6 +59,7 @@ import Cardano.Ledger.Keys
     , KeyRole (..)
     )
 import Cardano.Ledger.Plutus.ExUnits (ExUnits)
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -92,8 +92,8 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Node.Client.TxBuild qualified as Tx
 import Cardano.Slotting.Slot (SlotNo)
+import Cardano.Tx.Build qualified as Tx
 
 -- | Empty query GADT (no context needed).
 data NoCtx a
@@ -148,10 +148,11 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
                 lowerSlot
     result <-
         Tx.build
-            pp
+            (Tx.mkPParamsBound pp)
             (Tx.InterpretIO (const (pure undefined)))
             evalTx
             (feeUtxo : stateUtxo : reqUtxos)
+            []
             addr
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
@@ -256,7 +257,7 @@ prepareRejectState
        , TxOut ConwayEra
        , Script ConwayEra
        , Script ConwayEra
-       , KeyHash 'Witness
+       , KeyHash Witness
        )
 prepareRejectState cfg tid stateOut =
     let scriptAddr =
@@ -336,7 +337,7 @@ computeLowerSlot prov oldState reqUtxos = do
 -- | Wrap the Provider's evaluateTx for the DSL.
 mkRejectEvalTx
     :: Provider IO
-    -> Tx ConwayEra
+    -> ConwayTx
     -> IO
         ( Map.Map
             (ConwayPlutusPurpose AsIx ConwayEra)
@@ -368,7 +369,7 @@ buildRejectProgram
     -> TxOut ConwayEra
     -> Script ConwayEra
     -> Script ConwayEra
-    -> KeyHash 'Witness
+    -> KeyHash Witness
     -> SlotNo
     -> Tx.TxBuild NoCtx Void ()
 buildRejectProgram
@@ -444,6 +445,6 @@ buildRejectProgram
         -- Constraints
         Tx.attachScript stateScript
         Tx.attachScript requestScript
-        Tx.requireSignature ownerKh
+        Tx.requireSignature (witnessKeyHashToGuard ownerKh)
         Tx.collateral (fst feeUtxo)
         Tx.validFrom lowerSlot

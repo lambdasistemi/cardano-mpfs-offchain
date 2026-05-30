@@ -19,7 +19,10 @@ import Cardano.Crypto.Seed (mkSeedFromBytes)
 import Cardano.Ledger.Api.Tx (addrTxWitsL, mkBasicTx, witsTxL)
 import Cardano.Ledger.Api.Tx.Body (mkBasicTxBody)
 import Cardano.Ledger.Binary
-    ( decodeFull'
+    ( Annotator
+    , Decoder
+    , decCBOR
+    , decodeFullAnnotator
     , natVersion
     , serialize'
     )
@@ -35,6 +38,7 @@ import Codec.Binary.Bech32
     , humanReadablePartFromText
     )
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Lens.Micro ((^.))
@@ -78,7 +82,13 @@ spec = do
             $ case signTx testKey unsignedTx of
                 Left err -> expectationFailure ("signTx failed: " <> show err)
                 Right signedCbor ->
-                    case decodeFull' (natVersion @11) signedCbor of
+                    case decodeFullAnnotator
+                        (natVersion @11)
+                        "Conway transaction"
+                        ( decCBOR
+                            :: forall s. Decoder s (Annotator ConwayTx)
+                        )
+                        (BL.fromStrict signedCbor) of
                         Left err ->
                             expectationFailure ("re-decode failed: " <> show err)
                         Right (signedTx :: ConwayTx) ->

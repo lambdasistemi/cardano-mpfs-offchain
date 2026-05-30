@@ -17,9 +17,9 @@ module Cardano.MPFS.Submitter
 
 import Data.ByteString (ByteString)
 
-import Cardano.Ledger.Api.Tx (Tx)
+import Cardano.Tx.Ledger (ConwayTx)
 
-import Cardano.MPFS.Core.Types (ConwayEra, TxId)
+import Cardano.MPFS.Core.Types (TxId)
 
 -- | Result of submitting a transaction.
 data SubmitResult
@@ -35,6 +35,6 @@ data SubmitResult
 -- blockchain.
 newtype Submitter m = Submitter
     { submitTx
-        :: Tx ConwayEra -> m SubmitResult
+        :: ConwayTx -> m SubmitResult
     -- ^ Submit a signed transaction
     }
