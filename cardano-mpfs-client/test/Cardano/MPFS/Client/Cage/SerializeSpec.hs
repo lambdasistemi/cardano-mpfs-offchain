@@ -17,16 +17,16 @@ import Test.Hspec
     , shouldSatisfy
     )
 
-import Cardano.Ledger.Api.Tx (Tx, mkBasicTx)
+import Cardano.Ledger.Api.Tx (mkBasicTx)
 import Cardano.Ledger.Api.Tx.Body (mkBasicTxBody)
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.MPFS.Cage.Ledger (ConwayEra)
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
+import Cardano.Tx.Ledger (ConwayTx)
 
 -- | A minimal, deterministic Conway transaction. Needs no proof
 -- fixtures: an empty body wrapped in a basic tx is enough to
 -- exercise serialization.
-basicTx :: Tx ConwayEra
+basicTx :: ConwayTx
 basicTx = mkBasicTx mkBasicTxBody
 
 spec :: Spec

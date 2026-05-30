@@ -30,7 +30,6 @@ import Cardano.Crypto.Hash
     ( Blake2b_256
     , hashFromStringAsHex
     )
-import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary (natVersion, serialize')
 import Cardano.Ledger.Hashes (unsafeMakeSafeHash)
@@ -39,7 +38,6 @@ import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.Core.Types
     ( Coin (..)
-    , ConwayEra
     , Operation (..)
     , Request (..)
     , Root (..)
@@ -55,13 +53,14 @@ import Cardano.MPFS.Indexer.TxFixtures
     , mkRetractTx
     , mkUpdateTx
     )
+import Cardano.Tx.Ledger (ConwayTx)
 
 -- ---------------------------------------------------------
 -- Serialization
 -- ---------------------------------------------------------
 
--- | Serialize a 'Tx ConwayEra' to hex-encoded CBOR.
-serializeTxHex :: Tx ConwayEra -> Text
+-- | Serialize a 'ConwayTx' to hex-encoded CBOR.
+serializeTxHex :: ConwayTx -> Text
 serializeTxHex =
     TE.decodeUtf8
         . B16.encode
@@ -122,7 +121,7 @@ testTokenId =
         $ BS.replicate 32 0xaa
 
 -- | Test payment key hash (28 bytes of 0xcc).
-testKeyHash :: KeyHash 'Payment
+testKeyHash :: KeyHash Payment
 testKeyHash =
     KeyHash
         $ fromJust
@@ -188,7 +187,7 @@ testUpdateRequest =
 data TxVector = TxVector
     { tvOp :: Text
     , tvDesc :: Text
-    , tvTx :: Tx ConwayEra
+    , tvTx :: ConwayTx
     }
 
 -- | All transaction vectors.

@@ -39,6 +39,7 @@ module Cardano.MPFS.TxBuilder.Real.Internal
     , addrKeyHashBytes
     , addrFromKeyHashBytes
     , addrWitnessKeyHash
+    , witnessKeyHashToGuard
 
       -- * UTxO lookup
     , findUtxoByTxIn
@@ -93,7 +94,8 @@ import Cardano.Ledger.Alonzo.Scripts
     , mkPlutusScript
     )
 import Cardano.Ledger.Alonzo.Tx
-    ( ScriptIntegrityHash
+    ( ScriptIntegrity (..)
+    , ScriptIntegrityHash
     , hashScriptIntegrity
     )
 import Cardano.Ledger.Alonzo.TxBody
@@ -110,8 +112,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -131,7 +132,7 @@ import Cardano.Ledger.Api.Tx.Wits
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network
-    , StrictMaybe
+    , StrictMaybe (SJust)
     , TxIx (..)
     )
 import Cardano.Ledger.Binary
@@ -164,6 +165,7 @@ import Cardano.Ledger.Plutus.Language
     , PlutusBinary (..)
     )
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 import Data.Coerce (coerce)
 import PlutusCore.Data qualified as PLC
 import PlutusTx.Builtins.Internal
@@ -201,11 +203,11 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
-import Cardano.Node.Client.Balance
+import Cardano.Slotting.Slot (SlotNo)
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     )
-import Cardano.Slotting.Slot (SlotNo)
 
 -- | Empty MPF root (32 zero bytes).
 emptyRoot :: ByteString
@@ -234,9 +236,9 @@ evaluateAndBalance
     -- ^ All input UTxOs (fee + script)
     -> Addr
     -- ^ Change address
-    -> Tx ConwayEra
+    -> ConwayTx
     -- ^ Unbalanced tx with placeholder ExUnits
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 evaluateAndBalance prov pp inputUtxos changeAddr tx =
     do
         -- Pre-add all input TxIns to the body so
@@ -300,6 +302,7 @@ evaluateAndBalance prov pp inputUtxos changeAddr tx =
         case balanceTx
             pp
             inputUtxos
+            []
             changeAddr
             patched' of
             Left err ->
@@ -513,15 +516,18 @@ addrFromKeyHashBytes net bs =
 -- | Extract a 'KeyHash' ''Witness' from raw
 -- payment key hash bytes (for required signers).
 addrWitnessKeyHash
-    :: ByteString -> KeyHash 'Witness
+    :: ByteString -> KeyHash Witness
 addrWitnessKeyHash bs =
     case hashFromBytes bs of
         Just h ->
-            coerce (KeyHash h :: KeyHash 'Payment)
+            coerce (KeyHash h :: KeyHash Payment)
         Nothing ->
             error
                 "addrWitnessKeyHash: \
                 \invalid hash"
+
+witnessKeyHashToGuard :: KeyHash Witness -> KeyHash Guard
+witnessKeyHashToGuard (KeyHash h) = KeyHash h
 
 -- | Find a UTxO by its 'TxIn'.
 findUtxoByTxIn
@@ -623,8 +629,11 @@ computeScriptIntegrity pp rdmrs =
         langViews =
             Set.singleton
                 (getLanguageView pp PlutusV3)
+        emptyDats :: TxDats ConwayEra
         emptyDats = TxDats mempty
-    in  hashScriptIntegrity langViews rdmrs emptyDats
+    in  SJust
+            $ hashScriptIntegrity
+            $ ScriptIntegrity rdmrs emptyDats langViews
 
 -- | Get current POSIX time in milliseconds.
 currentPosixMs :: IO Integer

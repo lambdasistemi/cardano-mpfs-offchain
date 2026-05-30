@@ -659,7 +659,7 @@ reqB =
         , requestSubmittedAt = 2000
         }
 
-testKeyHash :: KeyHash 'Payment
+testKeyHash :: KeyHash Payment
 testKeyHash =
     KeyHash
         $ fromJust

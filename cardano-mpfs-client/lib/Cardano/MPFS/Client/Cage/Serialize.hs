@@ -16,12 +16,11 @@ module Cardano.MPFS.Client.Cage.Serialize
 
 import Data.ByteString (ByteString)
 
-import Cardano.Ledger.Api.Tx (Tx)
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.MPFS.Cage.Ledger (ConwayEra)
+import Cardano.Tx.Ledger (ConwayTx)
 
 -- | Serialize a Conway cage transaction to submission-ready CBOR,
 -- using protocol version 11 (the version the on-chain validators
 -- and the rest of the client encode against).
-serializeCageTx :: Tx ConwayEra -> ByteString
+serializeCageTx :: ConwayTx -> ByteString
 serializeCageTx = serialize' (natVersion @11)

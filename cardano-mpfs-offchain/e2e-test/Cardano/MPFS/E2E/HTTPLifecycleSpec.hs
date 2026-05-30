@@ -51,8 +51,7 @@ import Test.Hspec
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -68,6 +67,7 @@ import Cardano.Ledger.Mary.Value
     , MultiAsset (..)
     )
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -84,7 +84,6 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
-    , ConwayEra
     , TokenId (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
@@ -266,7 +265,7 @@ signSubmitAwait
     -> Application
     -> Context IO
     -> IO (ProofEnvelope p)
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 signSubmitAwait timeout app ctx buildBundle = do
     bundle <- buildBundle
     let unsigned = envTx bundle
@@ -379,7 +378,7 @@ txIdHex (TxId sh) =
 
 -- | Extract the sole minted 'TokenId'.
 extractTokenId
-    :: CageConfig -> Tx ConwayEra -> TokenId
+    :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma =
             tx ^. bodyTxL . mintTxBodyL

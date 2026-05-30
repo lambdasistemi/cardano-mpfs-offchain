@@ -1,7 +1,8 @@
-index-state: 2025-12-07T00:00:00Z
+index-state: 2026-04-17T00:00:00Z
 
 index-state:
-  , hackage.haskell.org 2025-12-07T00:00:00Z
+  , hackage.haskell.org 2026-04-17T00:00:00Z
+  , cardano-haskell-packages 2026-05-25T13:25:40Z
 
 packages:
   cardano-mpfs-api/
@@ -31,14 +32,14 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/rocksdb-kv-transactions
-  tag: 44c3c2a4b7bab8ca0ca444c99977a358fc6af0ae
-  --sha256: 0rxc1g7imzlapdgab1v6cyy5nrgg8ilwbr9r015dxbdazl5rm9b9
+  tag: e2e77579888ebbd832ea750ebf2635dfc3307025
+  --sha256: 0nd1yz6k3xh1p7nlswp2jbw74bzqr7bvz11kcfyhhimqmjhkqvwm
 
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-utxo-csmt
-  tag: ccb893a16ba157e07a48e28df3c4d7eaa1fe107f
-  --sha256: 1crzbdrwbd2p35q53hmwznsk0qkh0zfik0a7dzp2kmp23bgh9qrl
+  tag: f4772f73dde0a84dff9608d6ac2b168c4315b05f
+  --sha256: 129sv2ayp7y2s5mhapx3720pr005dnfybz02nwibgyhsjqp292vz
 
 source-repository-package
   type: git
@@ -60,9 +61,9 @@ source-repository-package
 
 source-repository-package
   type: git
-  location: https://github.com/lambdasistemi/cardano-read-ledger
-  tag: 2a9521e9282e4955f5454847c3f87eb7e7ac1730
-  --sha256: 1hgs2g2ain43jy7m4h36fddwbkij4s18b9l21iya4givnpmmi2l3
+  location: https://github.com/cardano-foundation/cardano-ledger-read
+  tag: 34d0767bd5c3648ab77ecbc00db0ad0a2a5316a5
+  --sha256: 0v357pbw2s22lsizxidq67pn4dcjkajips6mlcskd1zna35nyyv6
 
 source-repository-package
   type: git
@@ -73,18 +74,47 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/cardano-node-clients
-  tag: fdf6fe114959453d46ea733536b70f2d28c9bec8
-  --sha256: 1sykch5944i117n110zs5rpa7pxx8s4ymflwx94vmb1fffw6hdi7
+  tag: e4b01cb9efdf88e99934cf7a09fed0e25bad1019
+  --sha256: 1ll7lsyfk2a8flmrlrbbvd609mk8szkjpcpd6xxnj46p9vbm5r61
+
+source-repository-package
+  type: git
+  location: https://github.com/lambdasistemi/cardano-tx-tools
+  tag: db2da7c469df782041aba2531c4abcf4c4483418
+  --sha256: 1r4y5fgahxs4mrxdijc6xa6xic9fm193blpgxf6mizaj26nghyzk
+
+source-repository-package
+  type: git
+  location: https://github.com/lambdasistemi/github-release-check
+  tag: d90131112a4d6c048d1809adaffdefed92e8e841
+  --sha256: 0ad6yi431w8h5i3x9x661b99frcgvd39gm4164y8cx1ihpsjixn3
 
 source-repository-package
   type: git
   location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  tag: 023d352e850f866752927818da44861478ae99e5
-  --sha256: 1w1i4a00m08r0hf4bn6dwvmka1qibrchdz06l9bck8xzzvyn69k1
+  tag: 457c1cbcbbf622d0e583a3e9c0b413de079f315a
+  --sha256: 19m88h0ga5s09vrqqglj0wbwy4knvi9yy4mab9hwdb8mrrfdh5ig
   subdir: haskell
 
--- Enable iohk flag for contra-tracer-contrib to use CHaP's simple API
-constraints: contra-tracer-contrib +iohk
+constraints:
+  contra-tracer-contrib +iohk,
+  cardano-ledger-allegra ==1.9.0.0,
+  cardano-ledger-alonzo ==1.15.0.0,
+  cardano-ledger-api ==1.13.0.0,
+  cardano-ledger-babbage ==1.13.0.0,
+  cardano-ledger-byron ==1.3.0.0,
+  cardano-ledger-conway ==1.21.0.0,
+  cardano-ledger-core ==1.19.0.0,
+  cardano-ledger-mary ==1.10.0.0,
+  cardano-ledger-shelley ==1.18.0.0,
+  cardano-crypto-class ==2.3.1.0,
+  cardano-crypto-praos ==2.2.2.0,
+  cardano-protocol-tpraos ==1.5.0.0,
+  cuddle ==1.1.1.0,
+  quickcheck-state-machine ==0.10.3,
+  ouroboros-consensus ==1.0.0.0,
+  ouroboros-network ==1.1.0.0,
+  typed-protocols ==1.2.0.0
 
 -- Disable pkgconfig for lzma (bundled C sources)
 package lzma
@@ -93,3 +123,4 @@ package lzma
 
 -- chain-follower has data-default <0.8 but cardano-ledger-shelley pulls 0.8
 allow-newer: chain-follower:data-default
+allow-newer: mts:containers

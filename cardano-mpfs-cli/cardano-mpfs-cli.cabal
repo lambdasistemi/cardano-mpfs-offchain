@@ -43,13 +43,13 @@ library
     , cardano-crypto-class
     , cardano-ledger-api
     , cardano-ledger-binary
-    , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-mpfs-api
     , cardano-mpfs-cage
     , cardano-mpfs-client
     , cardano-mpfs-workflows
     , cardano-slotting
+    , cardano-tx-tools
     , containers              >=0.6  && <0.8
     , http-client             >=0.7  && <0.8
     , http-client-tls         >=0.3  && <0.4

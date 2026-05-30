@@ -337,7 +337,7 @@ reqA =
 -- Crypto helpers (minimal, deterministic)
 -- ---------------------------------------------------------
 
-testKeyHash :: KeyHash 'Payment
+testKeyHash :: KeyHash Payment
 testKeyHash =
     KeyHash
         $ fromJust

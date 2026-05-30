@@ -52,16 +52,16 @@ import Cardano.Ledger.Address
     , serialiseAddr
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
-    , ppMinFeeAL
-    , ppMinFeeBL
     , ppPricesL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -80,9 +80,6 @@ import Cardano.Ledger.Api.Tx.Wits
     ( rdmrsTxWitsL
     , scriptTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( BoundedRational (..)
     , Inject (..)
@@ -96,7 +93,9 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , compactCoinOrError
     )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     )
@@ -177,6 +176,7 @@ import Cardano.MPFS.Client.TrustedRoot
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Ledger (ConwayTx)
 
 spec :: Spec
 spec = do
@@ -636,15 +636,15 @@ walletTxOut =
 fundingAddr :: Addr
 fundingAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
 
-txOutputAddresses :: Tx ConwayEra -> [Addr]
+txOutputAddresses :: ConwayTx -> [Addr]
 txOutputAddresses tx =
     (^. addrTxOutL) <$> txOutputs tx
 
-txOutputs :: Tx ConwayEra -> [TxOut ConwayEra]
+txOutputs :: ConwayTx -> [TxOut ConwayEra]
 txOutputs tx =
     foldr (:) [] $ tx ^. bodyTxL . outputsTxBodyL
 
-assertBoundedRequestOutput :: CageConfig -> Tx ConwayEra -> IO ()
+assertBoundedRequestOutput :: CageConfig -> ConwayTx -> IO ()
 assertBoundedRequestOutput cfg tx =
     case requestOutputs of
         [out] ->
@@ -679,8 +679,9 @@ expectedRequestCoin cfg =
 
 feeBufferUpperBound :: PParams ConwayEra -> Coin
 feeBufferUpperBound pp =
-    let Coin minFeeA = pp ^. ppMinFeeAL
-        Coin minFeeB = pp ^. ppMinFeeBL
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
             txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
     in  Coin
@@ -752,10 +753,11 @@ permissiveWalletPolicy =
 realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
-        & ppMinFeeAL .~ Coin 44
-        & ppMinFeeBL .~ Coin 155_381
+        & ppTxFeePerByteL
+            .~ CoinPerByte (compactCoinOrError (Coin 44))
+        & ppTxFeeFixedL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4_310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4_310))
         & ppPricesL
             .~ Prices
                 (unsafeNonNegativeInterval (577 % 10_000))
@@ -776,7 +778,7 @@ sampleToken = TokenIdJSON (BS.replicate 32 0xE4)
 submittedAt :: Integer
 submittedAt = 1_700_000_000_000
 
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust

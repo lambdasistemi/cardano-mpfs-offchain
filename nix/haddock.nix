@@ -10,7 +10,7 @@
 
 let
   haddock =
-    pkgs.buildPackages.haskell-nix.compiler.ghc984.passthru.haddock or pkgs.haskellPackages.haddock;
+    pkgs.buildPackages.haskell-nix.compiler.ghc9123.passthru.haddock or pkgs.haskellPackages.haddock;
 
   offchainDoc = project.hsPkgs.cardano-mpfs-offchain.components.library.doc;
 
@@ -19,7 +19,7 @@ let
   offchainHtml = "${offchainDoc}/share/doc/${offchainName}/html";
 
 in pkgs.runCommand "combined-haddock" {
-  nativeBuildInputs = [ pkgs.haskell-nix.compiler.ghc984 ];
+  nativeBuildInputs = [ pkgs.haskell-nix.compiler.ghc9123 ];
 } ''
   mkdir -p $out
 

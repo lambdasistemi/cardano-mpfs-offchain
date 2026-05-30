@@ -28,13 +28,14 @@ import Test.Hspec
     , shouldSatisfy
     )
 
-import Cardano.Ledger.Api.Tx (Tx, txIdTx)
+import Cardano.Ledger.Api.Tx (txIdTx)
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.BaseTypes
     ( Network (..)
     , TxIx (..)
     )
 import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -1005,7 +1006,7 @@ withE2E scripts action = do
 buildAndSubmit
     :: Context IO
     -> IO (ProofEnvelope p)
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 buildAndSubmit ctx buildBundle = do
     bundle <- buildBundle
     let unsigned = envTx bundle

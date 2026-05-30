@@ -83,11 +83,14 @@ import Test.Hspec
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (serialiseAddr)
-import Cardano.Ledger.Api.Tx (Tx, bodyTxL, txIdTx)
+import Cardano.Ledger.Api.Tx (bodyTxL, txIdTx)
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
 import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
 import Cardano.Ledger.Binary
-    ( decodeFull'
+    ( Annotator
+    , Decoder
+    , decCBOR
+    , decodeFullAnnotator
     , natVersion
     , serialize'
     )
@@ -96,6 +99,7 @@ import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value (AssetName (..), MultiAsset (..))
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -117,8 +121,7 @@ import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint (CageScripts, loadCageScripts)
 import Cardano.MPFS.Core.Types
-    ( ConwayEra
-    , SlotNo (..)
+    ( SlotNo (..)
     , TokenId (..)
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -312,7 +315,7 @@ runWorkflow
     -> String
     -> (WorkflowsConfig -> req -> IO (Either WorkflowError UnsignedTx))
     -> req
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 runWorkflow env label run req = do
     trusted <- waitForTrustedRoot (envApp env)
     result <- run (mkWorkflowsConfig (envCfg env) trusted) req
@@ -324,8 +327,12 @@ runWorkflow env label run req = do
                     (label <> ": workflow failed: " <> show err)
                     *> error "unreachable"
     tx <-
-        case decodeFull' (natVersion @11) (unsignedTxCbor unsigned) of
-            Right t -> pure (t :: Tx ConwayEra)
+        case decodeFullAnnotator
+            (natVersion @11)
+            "Conway transaction"
+            (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
+            (BSL.fromStrict (unsignedTxCbor unsigned)) of
+            Right t -> pure (t :: ConwayTx)
             Left err ->
                 expectationFailure
                     (label <> ": UnsignedTx CBOR did not decode: " <> show err)
@@ -336,7 +343,7 @@ runWorkflow env label run req = do
 
 -- | The boot row keeps its signed tx so the token id can be read off
 -- the mint.
-runBoot :: Env -> IO (Tx ConwayEra)
+runBoot :: Env -> IO ConwayTx
 runBoot env =
     runWorkflow
         env
@@ -356,7 +363,7 @@ bootToken env = do
 
 -- | Sign-already-done: serialise, POST to @\/submit@, assert the wire
 -- contract, and await the txId against the indexer.
-submitAndAwait :: Env -> String -> Tx ConwayEra -> IO ()
+submitAndAwait :: Env -> String -> ConwayTx -> IO ()
 submitAndAwait env label signed = do
     let rawCbor = serialize' (natVersion @11) signed
     resp <-
@@ -688,7 +695,7 @@ pollUntilJust timeoutSec action = go (timeoutSec * 2)
 -- Conversions / fixtures
 -- ---------------------------------------------------------
 
-extractTokenId :: CageConfig -> Tx ConwayEra -> TokenId
+extractTokenId :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma = tx ^. bodyTxL . mintTxBodyL
         pid = cagePolicyIdFromCfg cfg

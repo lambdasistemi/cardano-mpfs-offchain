@@ -17,11 +17,10 @@ import Test.QuickCheck
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Api.PParams
     ( emptyPParams
-    , ppMinFeeBL
+    , ppTxFeeFixedL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , mkBasicTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -42,6 +41,7 @@ import Cardano.Ledger.Credential
     , StakeReference (..)
     )
 import Cardano.Ledger.Keys (KeyHash, KeyRole (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Core.Types
     ( Coin (..)
@@ -52,19 +52,19 @@ import Cardano.MPFS.Generators
     ( genKeyHash
     , genTxIn
     )
-import Cardano.Node.Client.Balance
+import Cardano.Tx.Balance
     ( BalanceError (..)
     , BalanceResult (..)
     , balanceTx
     )
 
 -- | Testnet address from a payment key hash.
-testAddr :: KeyHash 'Payment -> Addr
+testAddr :: KeyHash Payment -> Addr
 testAddr kh =
     Addr Testnet (KeyHashObj kh) StakeRefNull
 
 -- | Empty transaction.
-emptyTx :: Tx ConwayEra
+emptyTx :: ConwayTx
 emptyTx = mkBasicTx mkBasicTxBody
 
 -- | Protocol params with zero fees.
@@ -74,7 +74,7 @@ zeroPP = emptyPParams
 -- | Protocol params with a large constant fee.
 highFeePP :: PParams ConwayEra
 highFeePP =
-    emptyPParams & ppMinFeeBL .~ Coin 5_000_000
+    emptyPParams & ppTxFeeFixedL .~ Coin 5_000_000
 
 spec :: Spec
 spec = describe "Cardano.MPFS.Core.Balance" $ do
@@ -108,6 +108,7 @@ propSucceeds =
                     balanceTx
                         zeroPP
                         [(txIn, feeUtxo)]
+                        []
                         changeAddr
                         emptyTx
             in  case result of
@@ -131,6 +132,7 @@ propChangeCorrect =
                     balanceTx
                         zeroPP
                         [(txIn, feeUtxo)]
+                        []
                         changeAddr
                         emptyTx
             in  case result of
@@ -172,6 +174,7 @@ propFeeSet =
                     balanceTx
                         zeroPP
                         [(txIn, feeUtxo)]
+                        []
                         changeAddr
                         emptyTx
             in  case result of
@@ -200,6 +203,7 @@ propInsufficient =
                     balanceTx
                         highFeePP
                         [(txIn, feeUtxo)]
+                        []
                         changeAddr
                         emptyTx
             in  case result of

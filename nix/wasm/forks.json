@@ -74,8 +74,8 @@
     },
     "cardano-tx-tools": {
       "location": "https://github.com/lambdasistemi/cardano-tx-tools",
-      "rev": "69ef635b1bd4815c7d5f718de738dd9ec4a9d61e",
-      "sha256": "06xply3i1s1h6kivyng5dx4j8yk5zzhvmdhcgc3dz90h2c0zr7np",
+      "rev": "db2da7c469df782041aba2531c4abcf4c4483418",
+      "sha256": "1r4y5fgahxs4mrxdijc6xa6xic9fm193blpgxf6mizaj26nghyzk",
       "subdirs": []
     }
   },

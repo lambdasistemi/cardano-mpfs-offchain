@@ -16,7 +16,7 @@ import Data.Ord (Down (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Word (Word16, Word32, Word64)
+import Data.Word (Word16, Word64)
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Crypto.Hash
@@ -28,15 +28,12 @@ import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
     )
-import Cardano.Ledger.Alonzo.Scripts
-    ( AsIx (..)
-    )
 import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
+    ( scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( ppCoinsPerUTxOByteL
+    ( CoinPerByte (..)
+    , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
     , ppPricesL
     )
@@ -46,17 +43,11 @@ import Cardano.Ledger.Api.Scripts.Data
     , binaryDataToData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
-    , mkBasicTx
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , feeTxBodyL
-    , inputsTxBodyL
-    , mintTxBodyL
-    , mkBasicTxBody
+    ( feeTxBodyL
     , vldtTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -67,11 +58,8 @@ import Cardano.Ledger.Api.Tx.Out
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , TxDats (..)
     , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( StrictMaybe (..)
@@ -82,12 +70,9 @@ import Cardano.Ledger.Binary
     , decodeFull
     , natVersion
     )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
-    , hashScript
     )
 import Cardano.Ledger.Hashes
     ( unsafeMakeSafeHash
@@ -95,9 +80,6 @@ import Cardano.Ledger.Hashes
 import Cardano.Ledger.Keys
     ( KeyHash (..)
     , KeyRole (..)
-    )
-import Cardano.Ledger.Mary.Value
-    ( MultiAsset (..)
     )
 import Cardano.Ledger.Plutus.ExUnits
     ( ExUnits (..)
@@ -150,23 +132,26 @@ import Cardano.MPFS.Client.Facts
     ( VerifiedEndFacts
     , verifiedEndFacts
     )
-import Cardano.Node.Client.Balance
+import Cardano.Slotting.Slot
+    ( SlotNo (..)
+    )
+import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
     , evalBudgetExUnits
     )
-import Cardano.Slotting.Slot
-    ( SlotNo (..)
-    )
+import Cardano.Tx.Build qualified as TxBuild
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
     )
 import PlutusTx.IsData.Class
     ( FromData (..)
-    , ToData (..)
     )
+
+data NoCtx a
 
 -- | Build an unsigned end transaction from already-verified end
 -- facts. The function decodes the supplied ledger facts, enforces
@@ -175,7 +160,7 @@ endCageTx
     :: CageConfig
     -> WalletPolicy
     -> VerifiedEndFacts
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 endCageTx cfg policy verified = do
     let facts = verifiedEndFacts verified
     pp <- decodePParams (efProtocolParameters facts)
@@ -308,12 +293,15 @@ stateOwnerBytes row =
                     "end.state_utxo.tx_out_cbor missing state datum"
 
 ownerWitnessKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Witness)
+    :: ByteString -> Either BuildError (KeyHash Witness)
 ownerWitnessKeyHash ownerBytes =
     coerce <$> ownerPaymentKeyHash ownerBytes
 
+witnessKeyHashToGuard :: KeyHash Witness -> KeyHash Guard
+witnessKeyHashToGuard (KeyHash h) = KeyHash h
+
 ownerPaymentKeyHash
-    :: ByteString -> Either BuildError (KeyHash 'Payment)
+    :: ByteString -> Either BuildError (KeyHash Payment)
 ownerPaymentKeyHash ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> Right (KeyHash hash)
@@ -338,9 +326,9 @@ buildEndTx
     -> [InputRow]
     -> InputRow
     -> Addr
-    -> KeyHash 'Witness
+    -> KeyHash Witness
     -> TokenId
-    -> Either BuildError (Tx ConwayEra)
+    -> Either BuildError ConwayTx
 buildEndTx
     cfg
     pp
@@ -350,7 +338,7 @@ buildEndTx
     ownerAddr
     ownerSigner
     token =
-        case balanceTx pp ledgerPairs ownerAddr draft of
+        case balanceTx pp ledgerPairs [] ownerAddr draft of
             Left err ->
                 Left (DSLBuildFailed $ T.pack $ show err)
             Right BalanceResult{balancedTx} ->
@@ -360,65 +348,59 @@ buildEndTx
         collateralRef = rowRef collateralRow
         policyId = cagePolicyIdFromCfg cfg
         script = mkCageScript cfg
-        scriptHash = hashScript script
         tokenAsset = unTokenId token
-        burnValue =
-            MultiAsset
-                $ Map.singleton policyId
-                $ Map.singleton tokenAsset (-1)
         allRows = stateRow : fundingRows
-        allInputs =
-            Set.fromList (map rowRef allRows)
-        stateIx =
-            spendingIndex stateRef allInputs
         endBudget =
             endRedeemerBudget pp
-        redeemers =
-            Redeemers
-                $ Map.fromList
-                    [
-                        ( ConwaySpending (AsIx stateIx)
-                        ,
-                            ( toLedgerData End
-                            , endBudget
-                            )
-                        )
-                    ,
-                        ( ConwayMinting (AsIx 0)
-                        ,
-                            ( toLedgerData
-                                (Burning $ onChainTokenId token)
-                            , endBudget
-                            )
-                        )
-                    ]
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL .~ allInputs
-                & mintTxBodyL .~ burnValue
-                & collateralInputsTxBodyL
-                    .~ Set.singleton collateralRef
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerSigner
-                & scriptIntegrityHashTxBodyL
-                    .~ computeScriptIntegrity
-                        PlutusV3
-                        pp
-                        redeemers
+        program = do
+            _ <- TxBuild.spendScript stateRef End
+            mapM_
+                (TxBuild.spend . rowRef)
+                fundingRows
+            TxBuild.attachScript script
+            TxBuild.mint
+                policyId
+                (Map.singleton tokenAsset (-1))
+                (Burning $ onChainTokenId token)
+            TxBuild.collateral collateralRef
+            TxBuild.requireSignature
+                (witnessKeyHashToGuard ownerSigner)
         draft =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton scriptHash script
-                & witsTxL . rdmrsTxWitsL .~ redeemers
+            patchRedeemerBudgets pp endBudget
+                $ TxBuild.draft
+                    pp
+                    ( program
+                        :: TxBuild.TxBuild NoCtx BuildError ()
+                    )
         ledgerPairs =
             [ (rowRef row, rowOut row)
             | row <- allRows
             ]
 
-toLedgerData :: (ToData a) => a -> Data ConwayEra
-toLedgerData value =
-    let BuiltinData d = toBuiltinData value
-    in  Data d
+patchRedeemerBudgets
+    :: PParams ConwayEra
+    -> ExUnits
+    -> ConwayTx
+    -> ConwayTx
+patchRedeemerBudgets pp budget tx =
+    tx
+        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
+        & bodyTxL . scriptIntegrityHashTxBodyL
+            .~ computeScriptIntegrity
+                (Set.singleton PlutusV3)
+                pp
+                budgetedRedeemers
+                (TxDats mempty)
+  where
+    Redeemers rdmrs =
+        tx ^. witsTxL . rdmrsTxWitsL
+    budgetedRedeemers =
+        Redeemers
+            $ fmap
+                ( \(dat, _) ->
+                    (dat, budget)
+                )
+                rdmrs
 
 endRedeemerBudget :: PParams ConwayEra -> ExUnits
 endRedeemerBudget pp =
@@ -434,22 +416,13 @@ halfExUnits :: ExUnits -> ExUnits
 halfExUnits (ExUnits mem steps) =
     ExUnits (mem `div` 2) (steps `div` 2)
 
-spendingIndex :: TxIn -> Set.Set TxIn -> Word32
-spendingIndex needle inputs =
-    go 0 (Set.toAscList inputs)
-  where
-    go _ [] =
-        error "spendingIndex: TxIn not in input set"
-    go n (x : xs)
-        | x == needle = n
-        | otherwise = go (n + 1) xs
-
 enforcePParamsPolicy
     :: WalletPolicy
     -> PParams ConwayEra
     -> Either BuildError ()
 enforcePParamsPolicy WalletPolicy{..} pp = do
-    let CoinPerByte minUtxo = pp ^. ppCoinsPerUTxOByteL
+    let CoinPerByte minUtxoCompact = pp ^. ppCoinsPerUTxOByteL
+        minUtxo = fromCompact minUtxoCompact
         prices = pp ^. ppPricesL
     if minUtxo <= wpMaxMinUtxoCoinPerByte
         then Right ()
@@ -467,7 +440,7 @@ enforcePParamsPolicy WalletPolicy{..} pp = do
                 $ ExUnitPricesTooHigh prices wpMaxExUnitPrices
 
 enforceTxPolicy
-    :: WalletPolicy -> Tx ConwayEra -> Either BuildError ()
+    :: WalletPolicy -> ConwayTx -> Either BuildError ()
 enforceTxPolicy WalletPolicy{..} tx = do
     let fee = tx ^. bodyTxL . feeTxBodyL
         width = validityWindow (tx ^. bodyTxL . vldtTxBodyL)

@@ -514,7 +514,7 @@ fixTokenId =
 
 -- | Deterministic test key hash (28-byte Blake2b-224).
 -- 56 hex chars = 28 bytes.
-fixKeyHash :: KeyHash 'Payment
+fixKeyHash :: KeyHash Payment
 fixKeyHash =
     KeyHash
         $ fromJust

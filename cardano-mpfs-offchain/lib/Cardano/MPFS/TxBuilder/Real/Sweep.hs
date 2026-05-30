@@ -23,37 +23,13 @@ module Cardano.MPFS.TxBuilder.Real.Sweep
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
-import Data.Set qualified as Set
-import Lens.Micro ((&), (.~), (^.))
+import Data.Void (Void)
+import Lens.Micro ((^.))
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Alonzo.Scripts (AsIx (..))
-import Cardano.Ledger.Alonzo.TxBody
-    ( reqSignerHashesTxBodyL
-    , scriptIntegrityHashTxBodyL
-    )
-import Cardano.Ledger.Api.Tx
-    ( Tx
-    , mkBasicTx
-    , witsTxL
-    )
-import Cardano.Ledger.Api.Tx.Body
-    ( collateralInputsTxBodyL
-    , inputsTxBodyL
-    , mkBasicTxBody
-    , referenceInputsTxBodyL
-    )
 import Cardano.Ledger.Api.Tx.Out (coinTxOutL)
-import Cardano.Ledger.Api.Tx.Wits
-    ( Redeemers (..)
-    , rdmrsTxWitsL
-    , scriptTxWitsL
-    )
-import Cardano.Ledger.Conway.Scripts
-    ( ConwayPlutusPurpose (..)
-    )
-import Cardano.Ledger.Core (hashScript)
 import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -64,14 +40,16 @@ import Cardano.MPFS.Core.OnChain
     , UpdateRedeemer (..)
     )
 import Cardano.MPFS.Core.Types
-    ( ConwayEra
-    , TokenId
+    ( TokenId
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
+import Cardano.Tx.Build qualified as Tx
+
+data NoCtx a
 
 -- | Build a standalone sweep transaction.
 --
@@ -91,7 +69,7 @@ sweepUtxoImpl
     -- ^ UTxO reference of the garbage to sweep
     -> Addr
     -- ^ State owner's address (signs and balances)
-    -> IO (Tx ConwayEra)
+    -> IO ConwayTx
 sweepUtxoImpl cfg prov tid garbTxIn addr = do
     let reqAddr =
             requestAddrFromCfg
@@ -144,47 +122,31 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
             } = stateDatum
         ownerKh = addrWitnessKeyHash ownerBs
     let script = mkRequestScript cfg tid
-        scriptHash = hashScript script
-        allInputs =
-            Set.fromList [garbIn, fst feeUtxo]
-        garbIx = spendingIndex garbIn allInputs
         stateRef = txInToRef stateIn
         redeemer = Sweep stateRef
-        spendPurpose =
-            ConwaySpending (AsIx garbIx)
-        redeemers =
-            Redeemers
-                $ Map.singleton
-                    spendPurpose
-                    ( toLedgerData redeemer
-                    , placeholderExUnits
-                    )
-        integrity =
-            computeScriptIntegrity pp redeemers
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL
-                    .~ Set.singleton garbIn
-                & referenceInputsTxBodyL
-                    .~ Set.singleton stateIn
-                & collateralInputsTxBodyL
-                    .~ Set.singleton
-                        (fst feeUtxo)
-                & reqSignerHashesTxBodyL
-                    .~ Set.singleton ownerKh
-                & scriptIntegrityHashTxBodyL
-                    .~ integrity
-        tx =
-            mkBasicTx body
-                & witsTxL . scriptTxWitsL
-                    .~ Map.singleton
-                        scriptHash
-                        script
-                & witsTxL . rdmrsTxWitsL
-                    .~ redeemers
-    evaluateAndBalance
-        prov
-        pp
-        [feeUtxo, garbUtxoPair]
-        addr
-        tx
+        prog = do
+            _ <- Tx.spendScript garbIn redeemer
+            Tx.reference stateIn
+            Tx.attachScript script
+            Tx.requireSignature
+                (witnessKeyHashToGuard ownerKh)
+            Tx.collateral (fst feeUtxo)
+        evalTx tx =
+            Map.map
+                (either (Left . show) Right)
+                <$> evaluateTx prov tx
+    result <-
+        Tx.build
+            (Tx.mkPParamsBound pp)
+            (Tx.InterpretIO (const (pure undefined)))
+            evalTx
+            [feeUtxo, garbUtxoPair]
+            [stateUtxo]
+            addr
+            (prog :: Tx.TxBuild NoCtx Void ())
+    case result of
+        Right tx -> pure tx
+        Left err ->
+            error
+                $ "sweepUtxo: TxBuild failed: "
+                    <> show err

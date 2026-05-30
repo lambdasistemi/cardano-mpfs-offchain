@@ -44,16 +44,16 @@ import Cardano.Ledger.Allegra.Scripts
     ( ValidityInterval (..)
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
-    , ppMinFeeAL
-    , ppMinFeeBL
     , ppPricesL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -79,9 +79,6 @@ import Cardano.Ledger.Api.Tx.Wits
     , rdmrsTxWitsL
     , scriptTxWitsL
     )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
-    )
 import Cardano.Ledger.BaseTypes
     ( BoundedRational (..)
     , Inject (..)
@@ -89,6 +86,8 @@ import Cardano.Ledger.BaseTypes
     , NonNegativeInterval
     , StrictMaybe (..)
     )
+import Cardano.Ledger.Coin (compactCoinOrError)
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Credential
     ( Credential (..)
     , StakeReference (..)
@@ -109,6 +108,7 @@ import Cardano.Ledger.Plutus.ExUnits
     , txscriptfee
     )
 import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
@@ -209,12 +209,12 @@ cageAddr net =
         StakeRefNull
 
 -- | Testnet address from a payment key hash.
-testAddr :: KeyHash 'Payment -> Addr
+testAddr :: KeyHash Payment -> Addr
 testAddr kh =
     Addr Testnet (KeyHashObj kh) StakeRefNull
 
 -- | A fixed test key hash.
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust
@@ -241,10 +241,11 @@ zeroPP = emptyPParams
 realisticPP :: PParams ConwayEra
 realisticPP =
     emptyPParams
-        & ppMinFeeAL .~ Coin 44
-        & ppMinFeeBL .~ Coin 155_381
+        & ppTxFeePerByteL
+            .~ CoinPerByte (compactCoinOrError (Coin 44))
+        & ppTxFeeFixedL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4310))
         & ppPricesL
             .~ Prices
                 (unsafeNonNegativeInterval (577 % 10_000))
@@ -1078,8 +1079,9 @@ requestLockedAdaProps =
 
 feeBufferUpperBound :: PParams ConwayEra -> Integer
 feeBufferUpperBound pp =
-    let Coin minFeeA = pp ^. ppMinFeeAL
-        Coin minFeeB = pp ^. ppMinFeeBL
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
             txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
     in  minFeeB + minFeeA * maxUpdateTxBytes + scriptFee
@@ -1594,18 +1596,18 @@ endTxProps =
 -- ---------------------------------------------------------
 
 -- | Convert tx outputs to a list.
-toOutList :: Tx ConwayEra -> [TxOut ConwayEra]
+toOutList :: ConwayTx -> [TxOut ConwayEra]
 toOutList tx =
     foldr (:) []
         $ tx ^. bodyTxL . outputsTxBodyL
 
 -- | Set up state + provider, run requestInsert.
-runRequestInsert :: IO (Tx ConwayEra)
+runRequestInsert :: IO ConwayTx
 runRequestInsert = fst <$> runRequestInsertWith
 
 -- | Same but also return the fee TxIn.
 runRequestInsertWith
-    :: IO (Tx ConwayEra, TxIn)
+    :: IO (ConwayTx, TxIn)
 runRequestInsertWith = do
     (_st, _prov, builder, txIn) <- mkTestFixture
     let feeAddr = testAddr testKh
@@ -1620,7 +1622,7 @@ runRequestInsertWith = do
     pure (envTx bundle, txIn)
 
 -- | Set up state + provider, run requestDelete.
-runRequestDelete :: IO (Tx ConwayEra)
+runRequestDelete :: IO ConwayTx
 runRequestDelete = do
     (_st, _prov, builder, _txIn) <- mkTestFixture
     let feeAddr = testAddr testKh
@@ -1634,14 +1636,14 @@ runRequestDelete = do
             feeAddr
 
 -- | Run retractRequest.
-runRetractRequest :: IO (Tx ConwayEra)
+runRetractRequest :: IO ConwayTx
 runRetractRequest = do
     (tx, _, _) <- runRetractRequestWith
     pure tx
 
 -- | Run retractRequest and return details.
 runRetractRequestWith
-    :: IO (Tx ConwayEra, TxIn, TxIn)
+    :: IO (ConwayTx, TxIn, TxIn)
 runRetractRequestWith = do
     st <- mkMockState
     let ts =
@@ -1703,14 +1705,14 @@ runRetractRequestWith = do
     pure (envTx bundle, reqIn, stateIn)
 
 -- | Run updateToken.
-runUpdateToken :: IO (Tx ConwayEra)
+runUpdateToken :: IO ConwayTx
 runUpdateToken = do
     (tx, _, _) <- runUpdateTokenWith
     pure tx
 
 -- | Run updateToken and return details.
 runUpdateTokenWith
-    :: IO (Tx ConwayEra, TxIn, TxIn)
+    :: IO (ConwayTx, TxIn, TxIn)
 runUpdateTokenWith = do
     st <- mkMockState
     let ts =
@@ -1766,11 +1768,11 @@ runUpdateTokenWith = do
     pure (envTx bundle, stateIn, reqIn)
 
 -- | Run endToken.
-runEndToken :: IO (Tx ConwayEra)
+runEndToken :: IO ConwayTx
 runEndToken = fst <$> runEndTokenWith
 
 -- | Run endToken and return details.
-runEndTokenWith :: IO (Tx ConwayEra, TxIn)
+runEndTokenWith :: IO (ConwayTx, TxIn)
 runEndTokenWith = do
     st <- mkMockState
     let ts =
@@ -1898,14 +1900,14 @@ mkRealisticFixture = do
 
 -- | Run requestInsert with realistic PParams.
 runRealisticRequestInsert
-    :: IO (Tx ConwayEra)
+    :: IO ConwayTx
 runRealisticRequestInsert =
     fst <$> runRealisticRequestInsertWith
 
 -- | Run requestInsert with realistic PParams,
 -- returning the fee TxIn.
 runRealisticRequestInsertWith
-    :: IO (Tx ConwayEra, TxIn)
+    :: IO (ConwayTx, TxIn)
 runRealisticRequestInsertWith = do
     (_st, _prov, builder, txIn) <-
         mkRealisticFixture
@@ -1921,7 +1923,7 @@ runRealisticRequestInsertWith = do
     pure (envTx bundle, txIn)
 
 -- | Run updateToken with realistic PParams.
-runRealisticUpdate :: IO (Tx ConwayEra)
+runRealisticUpdate :: IO ConwayTx
 runRealisticUpdate = do
     (tx, _, _) <- runRealisticUpdateWith
     pure tx
@@ -1929,7 +1931,7 @@ runRealisticUpdate = do
 -- | Run updateToken with realistic PParams
 -- and return details.
 runRealisticUpdateWith
-    :: IO (Tx ConwayEra, TxIn, TxIn)
+    :: IO (ConwayTx, TxIn, TxIn)
 runRealisticUpdateWith = do
     st <- mkMockState
     let ts =
@@ -1984,7 +1986,7 @@ runRealisticUpdateWith = do
 -- The request UTxO has the minimum locked ADA
 -- computed by 'requestLockedAda', so the refund
 -- is at the minUTxO boundary.
-runTightUpdate :: IO (Tx ConwayEra)
+runTightUpdate :: IO ConwayTx
 runTightUpdate = do
     st <- mkMockState
     let ts =
@@ -2042,7 +2044,7 @@ runTightUpdate = do
 -- | Run retractRequest with realistic PParams
 -- and return details.
 runRealisticRetractWith
-    :: IO (Tx ConwayEra, TxIn, TxIn)
+    :: IO (ConwayTx, TxIn, TxIn)
 runRealisticRetractWith = do
     st <- mkMockState
     let ts =
@@ -2099,13 +2101,13 @@ runRealisticRetractWith = do
     pure (envTx bundle, reqIn, stateIn)
 
 -- | Run endToken with realistic PParams.
-runRealisticEnd :: IO (Tx ConwayEra)
+runRealisticEnd :: IO ConwayTx
 runRealisticEnd = fst <$> runRealisticEndWith
 
 -- | Run endToken with realistic PParams
 -- and return details.
 runRealisticEndWith
-    :: IO (Tx ConwayEra, TxIn)
+    :: IO (ConwayTx, TxIn)
 runRealisticEndWith = do
     st <- mkMockState
     let ts =
@@ -2150,7 +2152,7 @@ runRealisticEndWith = do
 -- | Run rejectRequests with mock expired request.
 -- The request has submittedAt=0, processTime=300s,
 -- retractTime=600s — guaranteed expired.
-runRejectRequests :: IO (Tx ConwayEra)
+runRejectRequests :: IO ConwayTx
 runRejectRequests = do
     st <- mkMockState
     let ts =

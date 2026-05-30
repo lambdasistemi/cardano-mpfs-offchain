@@ -42,8 +42,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , binaryDataToData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , txIdTx
     , witsTxL
     )
@@ -77,6 +76,7 @@ import Cardano.Ledger.Mary.Value
 import Cardano.Ledger.TxIn
     ( TxIn (..)
     )
+import Cardano.Tx.Ledger (ConwayTx)
 import Data.Set qualified as Set
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
@@ -169,7 +169,7 @@ detectCageEvents
     -- ^ Cage script hash
     -> [(TxIn, TxOut ConwayEra)]
     -- ^ Resolved inputs (UTxOs being spent)
-    -> Tx ConwayEra
+    -> ConwayTx
     -> [CageEvent]
 detectCageEvents scriptHash resolvedInputs tx =
     mintEvents ++ requestEvents ++ spendEvents
@@ -579,7 +579,7 @@ spendingIndex needle inputs =
 -- | Convert a 'BuiltinByteString' containing a
 -- payment key hash to a 'KeyHash'.
 keyHashFromBBS
-    :: BuiltinByteString -> KeyHash 'Payment
+    :: BuiltinByteString -> KeyHash Payment
 keyHashFromBBS (BuiltinByteString bs) =
     case hashFromBytes bs of
         Just h -> KeyHash h

@@ -38,8 +38,7 @@ import Test.Hspec
     )
 
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -58,6 +57,7 @@ import Cardano.Ledger.Mary.Value
     ( MultiAsset (..)
     )
 import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
@@ -473,7 +473,7 @@ assertSubmitted (Rejected reason) =
 -- | Extract the 'TokenId' from a boot
 -- transaction's mint field.
 extractTokenId
-    :: CageConfig -> Tx ConwayEra -> TokenId
+    :: CageConfig -> ConwayTx -> TokenId
 extractTokenId cfg tx =
     let MultiAsset ma =
             tx ^. bodyTxL . mintTxBodyL
@@ -504,7 +504,7 @@ maybeDumpTxForAiken
     -> Integer
     -> FilePath
     -> String
-    -> Tx ConwayEra
+    -> ConwayTx
     -> IO ()
 maybeDumpTxForAiken prov cfg extraScriptAddrs startMs bpPath label tx = do
     enabled <-

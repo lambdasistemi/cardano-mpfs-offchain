@@ -66,12 +66,13 @@ import Cardano.Ledger.Alonzo.TxBody
     , scriptIntegrityHashTxBodyL
     )
 import Cardano.Ledger.Api.PParams
-    ( emptyPParams
+    ( CoinPerByte (..)
+    , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
-    , ppMinFeeAL
-    , ppMinFeeBL
     , ppPricesL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Scripts.Data
     ( Data (..)
@@ -79,8 +80,7 @@ import Cardano.Ledger.Api.Scripts.Data
     , dataToBinaryData
     )
 import Cardano.Ledger.Api.Tx
-    ( Tx
-    , bodyTxL
+    ( bodyTxL
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -105,12 +105,10 @@ import Cardano.Ledger.Api.Tx.Out
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
+    , TxDats (..)
     , datsTxWitsL
     , rdmrsTxWitsL
     , scriptTxWitsL
-    )
-import Cardano.Ledger.Babbage.PParams
-    ( CoinPerByte (..)
     )
 import Cardano.Ledger.BaseTypes
     ( BoundedRational (..)
@@ -126,7 +124,9 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
+    , compactCoinOrError
     )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose (..)
     )
@@ -230,12 +230,13 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
     )
-import Cardano.Node.Client.Balance
-    ( computeScriptIntegrity
-    )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
+import Cardano.Tx.Balance
+    ( computeScriptIntegrity
+    )
+import Cardano.Tx.Ledger (ConwayTx)
 import MPF.Hashes
     ( mkMPFHash
     , renderMPFHash
@@ -333,9 +334,10 @@ spec = describe "updateCageTx" $ do
                 body ^. scriptIntegrityHashTxBodyL
             expectedIntegrity =
                 computeScriptIntegrity
-                    PlutusV3
+                    (Set.singleton PlutusV3)
                     realisticPParams
                     redeemers
+                    (TxDats mempty)
         Set.member stateInput inputs `shouldBe` True
         mapM_
             ( \requestInput ->
@@ -492,9 +494,10 @@ spec = describe "updateCageTx" $ do
                 (Contribute $ txInToOnChainRef stateInput)
         body ^. scriptIntegrityHashTxBodyL
             `shouldBe` computeScriptIntegrity
-                PlutusV3
+                (Set.singleton PlutusV3)
                 realisticPParams
                 redeemers
+                (TxDats mempty)
 
     it "folds update MPF facts to the same new root as the legacy fold" $ do
         cfg <- testCageConfig
@@ -653,7 +656,7 @@ expectVerified trusted facts =
             pure verified
 
 expectUpdateTx
-    :: CageConfig -> VerifiedUpdateFacts -> IO (Tx ConwayEra)
+    :: CageConfig -> VerifiedUpdateFacts -> IO ConwayTx
 expectUpdateTx cfg verified =
     case updateCageTx cfg permissiveWalletPolicy verified of
         Left err ->
@@ -730,8 +733,9 @@ refundMinCoin =
 
 feeBufferUpperBound :: PParams ConwayEra -> Coin
 feeBufferUpperBound pp =
-    let Coin minFeeA = pp ^. ppMinFeeAL
-        Coin minFeeB = pp ^. ppMinFeeBL
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
             txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
     in  Coin
@@ -743,7 +747,7 @@ feeBufferUpperBound pp =
 maxUpdateTxBytes :: Integer
 maxUpdateTxBytes = 8192
 
-singleRequestRefundOutput :: Tx ConwayEra -> TxOut ConwayEra
+singleRequestRefundOutput :: ConwayTx -> TxOut ConwayEra
 singleRequestRefundOutput tx =
     case drop 1 (txOutputs tx) of
         out : _ -> out
@@ -894,11 +898,11 @@ ownerAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
 fundingAddr :: Addr
 fundingAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
 
-txOutputAddresses :: Tx ConwayEra -> [Addr]
+txOutputAddresses :: ConwayTx -> [Addr]
 txOutputAddresses tx =
     fmap (^. addrTxOutL) (txOutputs tx)
 
-txOutputs :: Tx ConwayEra -> [TxOut ConwayEra]
+txOutputs :: ConwayTx -> [TxOut ConwayEra]
 txOutputs tx =
     foldr (:) [] $ tx ^. bodyTxL . outputsTxBodyL
 
@@ -958,10 +962,11 @@ permissiveWalletPolicy =
 realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
-        & ppMinFeeAL .~ Coin 44
-        & ppMinFeeBL .~ Coin 155_381
+        & ppTxFeePerByteL
+            .~ CoinPerByte (compactCoinOrError (Coin 44))
+        & ppTxFeeFixedL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
-            .~ CoinPerByte (Coin 4_310)
+            .~ CoinPerByte (compactCoinOrError (Coin 4_310))
         & ppPricesL
             .~ Prices
                 (unsafeNonNegativeInterval (577 % 10_000))
@@ -1024,10 +1029,10 @@ updateKey = "mykey"
 oldValue = "oldvalue"
 newValue = "newvalue"
 
-expectedOwnerWitness :: KeyHash 'Witness
+expectedOwnerWitness :: KeyHash Guard
 expectedOwnerWitness = coerce testKh
 
-testKh :: KeyHash 'Payment
+testKh :: KeyHash Payment
 testKh =
     KeyHash
         $ fromJust

@@ -40,7 +40,6 @@ library
     , base16-bytestring                        >=1.0  && <1.1
     , bytestring                               >=0.11 && <0.13
     , cardano-crypto-class
-    , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-binary
@@ -53,7 +52,7 @@ library
     , cardano-mpfs-cage
     , cardano-node-clients
     , cardano-slotting
-    , cardano-strict-containers
+    , cardano-tx-tools
     , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library
     , cborg
@@ -71,8 +70,8 @@ library
     , mts:mpf-test-lib
     , mts:rollbacks
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
-    , ouroboros-network-api
+    , ouroboros-consensus:cardano
+    , ouroboros-network:api
     , plutus-core
     , plutus-tx
     , rocksdb-haskell-jprupp
@@ -231,6 +230,7 @@ executable mpfs-tx-vectors
     , cardano-ledger-mary
     , cardano-mpfs-offchain
     , cardano-strict-containers
+    , cardano-tx-tools
     , containers
     , microlens
     , plutus-tx
@@ -258,7 +258,6 @@ test-suite unit-tests
     , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
-    , cardano-ledger-babbage
     , cardano-ledger-binary
     , cardano-ledger-conway
     , cardano-ledger-core
@@ -266,8 +265,8 @@ test-suite unit-tests
     , cardano-mpfs-api
     , cardano-mpfs-client
     , cardano-mpfs-offchain
-    , cardano-node-clients
     , cardano-strict-containers
+    , cardano-tx-tools
     , cardano-utxo-csmt:application
     , cardano-utxo-csmt:library
     , cborg
@@ -286,7 +285,7 @@ test-suite unit-tests
     , mts:mpf
     , mts:mpf-test-lib
     , mts:rollbacks
-    , ouroboros-network-api
+    , ouroboros-network:api
     , plutus-core
     , plutus-tx
     , QuickCheck                               >=2.14 && <2.18
@@ -358,8 +357,8 @@ test-suite e2e-tests
     , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-mpfs-workflows
-    , cardano-node-clients
     , cardano-node-clients:devnet
+    , cardano-tx-tools
     , cardano-utxo-csmt:library
     , containers
     , contra-tracer

@@ -45,11 +45,12 @@ import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Lens.Micro ((^.))
 
-import Cardano.Ledger.Api.Tx (Tx, bodyTxL)
+import Cardano.Ledger.Api.Tx (bodyTxL)
 import Cardano.Ledger.Api.Tx.Body (inputsTxBodyL)
-import Cardano.Ledger.Block (bbody)
-import Cardano.Ledger.Core (fromTxSeq)
+import Cardano.Ledger.Block (blockBody)
+import Cardano.Ledger.Core (txSeqBlockBodyL)
 import Cardano.Ledger.Hashes (ScriptHash)
+import Cardano.Tx.Ledger (ConwayTx)
 import Ouroboros.Consensus.Cardano.Block qualified as O
 import Ouroboros.Consensus.Shelley.Ledger
     ( ShelleyBlock (..)
@@ -85,10 +86,10 @@ import Cardano.Node.Client.Types qualified as NodeTypes
 -- | Extract Conway-era transactions from a multi-era
 -- Cardano block. Returns empty for non-Conway blocks.
 extractConwayTxs
-    :: NodeTypes.Block -> [Tx ConwayEra]
+    :: NodeTypes.Block -> [ConwayTx]
 extractConwayTxs = \case
     O.BlockConway (ShelleyBlock raw _) ->
-        toList (fromTxSeq (bbody raw))
+        toList (blockBody raw ^. txSeqBlockBodyL)
     _ -> []
 
 -- --------------------------------------------------------
@@ -104,7 +105,7 @@ detectCageBlockEvents
     -- ^ Cage script hash
     -> (TxIn -> m (Maybe (TxOut ConwayEra)))
     -- ^ UTxO resolver for spent inputs
-    -> [Tx ConwayEra]
+    -> [ConwayTx]
     -- ^ Conway transactions from the block
     -> m [CageEvent]
 detectCageBlockEvents scriptHash resolveUtxo txs =
@@ -120,7 +121,7 @@ detectFromTx
     -- ^ Cage script hash
     -> (TxIn -> m (Maybe (TxOut ConwayEra)))
     -- ^ UTxO resolver for spent inputs
-    -> Tx ConwayEra
+    -> ConwayTx
     -- ^ Transaction to inspect
     -> m [CageEvent]
 detectFromTx scriptHash resolveUtxo tx = do

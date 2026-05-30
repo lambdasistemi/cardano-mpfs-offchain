@@ -1,24 +1,37 @@
-{ CHaP, indexState, pkgs, mkdocs, asciinema, cardano-node-pkgs, mpfs-blueprint
-, devnet-genesis, version ? "dev", ... }:
+{ CHaP, indexState, pkgs, system, mkdocs, asciinema, cardano-node-pkgs
+, mpfs-blueprint, devnet-genesis, version ? "dev", ... }:
 
 let
+  isLinux = system == "x86_64-linux";
   indexTool = { index-state = indexState; };
-  tool = name: pkgs.haskell-nix.tool "ghc984" name indexTool;
-  fix-libs = { lib, pkgs, ... }: {
-    packages.cardano-crypto-praos.components.library.pkgconfig =
-      lib.mkForce [ [ pkgs.libsodium-vrf ] ];
-    packages.cardano-crypto-class.components.library.pkgconfig =
-      lib.mkForce [[ pkgs.libsodium-vrf pkgs.secp256k1 pkgs.libblst ]];
-    packages.lzma.components.library.libs = lib.mkForce [ pkgs.xz ];
-  };
+  toolArgs = name:
+    indexTool // pkgs.lib.optionalAttrs (name == "cabal-fmt") {
+      cabalProjectLocal = ''
+        allow-newer: cabal-fmt:base
+      '';
+    };
+  tool = name: pkgs.haskell-nix.tool "ghc9123" name (toolArgs name);
+  fix-libs = { lib, pkgs, ... }:
+    {
+      packages.cardano-crypto-praos.components.library.pkgconfig =
+        lib.mkForce [ [ pkgs.libsodium-vrf ] ];
+      packages.cardano-crypto-class.components.library.pkgconfig =
+        lib.mkForce [[ pkgs.libsodium-vrf pkgs.secp256k1 pkgs.libblst ]];
+      packages.cardano-lmdb.components.library.pkgconfig =
+        lib.mkForce [ [ pkgs.lmdb ] ];
+      packages.lzma.components.library.libs = lib.mkForce [ pkgs.xz ];
+    } // lib.optionalAttrs isLinux {
+      packages.blockio-uring.components.library.pkgconfig =
+        lib.mkForce [ [ pkgs.liburing ] ];
+    };
   shell = { pkgs, ... }: {
     tools = {
-      cabal = indexTool;
-      cabal-fmt = indexTool;
-      haskell-language-server = indexTool;
-      hoogle = indexTool;
-      fourmolu = indexTool;
-      hlint = indexTool;
+      cabal = toolArgs "cabal";
+      cabal-fmt = toolArgs "cabal-fmt";
+      haskell-language-server = toolArgs "haskell-language-server";
+      hoogle = toolArgs "hoogle";
+      fourmolu = toolArgs "fourmolu";
+      hlint = toolArgs "hlint";
     };
     withHoogle = true;
     buildInputs = [
@@ -35,7 +48,9 @@ let
       cardano-node-pkgs.cardano-node
       cardano-node-pkgs.cardano-cli
       pkgs.aiken
-    ];
+      pkgs.lmdb
+      pkgs.xz
+    ] ++ pkgs.lib.optionals isLinux [ pkgs.liburing ];
     shellHook = ''
       echo "Entering cardano-mpfs-offchain dev shell"
       export MPFS_BLUEPRINT="${mpfs-blueprint}"
@@ -46,7 +61,7 @@ let
   mkProject = ctx@{ lib, pkgs, ... }: {
     name = "cardano-mpfs-offchain";
     src = ./..;
-    compiler-nix-name = "ghc984";
+    compiler-nix-name = "ghc9123";
     shell = shell { inherit pkgs; };
     modules = [ fix-libs ];
     inputMap = { "https://chap.intersectmbo.org/" = CHaP; };
