@@ -9,6 +9,7 @@ packages:
   cardano-mpfs-offchain/
   cardano-mpfs-client/
   cardano-mpfs-verify/
+  cardano-mpfs-cage-tx/
   cardano-mpfs-workflows/
   cardano-mpfs-cli/
 
