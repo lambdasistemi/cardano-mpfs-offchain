@@ -15,6 +15,7 @@ package:
     - exceptions
     - newtype
     - integers
+    - aff-promise
     - argonaut
     - argonaut-codecs
     - argonaut-core
