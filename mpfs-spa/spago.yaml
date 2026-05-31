@@ -19,7 +19,6 @@ package:
     - argonaut
     - argonaut-codecs
     - argonaut-core
-    - fetch
     - foreign
     - foreign-object
     - react-basic
