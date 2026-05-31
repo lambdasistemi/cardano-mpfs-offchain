@@ -13,6 +13,8 @@ package:
     - foldable-traversable
     - transformers
     - exceptions
+    - newtype
+    - integers
     - argonaut
     - argonaut-codecs
     - argonaut-core
