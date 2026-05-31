@@ -1,0 +1,41 @@
+package:
+  name: mpfs-spa
+  dependencies:
+    - prelude
+    - effect
+    - aff
+    - console
+    - either
+    - maybe
+    - arrays
+    - strings
+    - tuples
+    - foldable-traversable
+    - transformers
+    - exceptions
+    - argonaut
+    - argonaut-codecs
+    - argonaut-core
+    - fetch
+    - foreign
+    - foreign-object
+    - react-basic
+    - react-basic-hooks
+    - react-basic-dom
+    - web-html
+    - web-dom
+    - nullable
+  test:
+    main: Test.Main
+    dependencies:
+      - spec
+      - aff
+  bundle:
+    module: Main
+    outfile: dist/index.js
+    platform: browser
+    type: app
+
+workspace:
+  packageSet:
+    registry: 72.1.0

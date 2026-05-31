@@ -31,11 +31,19 @@
     };
     ghc-wasm-meta.url =
       "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
+    purescript-overlay = {
+      url = "github:paolino/purescript-overlay/fix/remove-nodePackages";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    mkSpagoDerivation = {
+      url = "github:jeslie0/mkSpagoDerivation";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
     , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
-    , ghc-wasm-meta, ... }:
+    , ghc-wasm-meta, purescript-overlay, mkSpagoDerivation, ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -71,6 +79,17 @@
               chap = CHaP;
               src = ./.;
             };
+            # Separate nixpkgs instance carrying the PureScript toolchain
+            # overlays; kept apart from the haskell.nix `pkgs` above to avoid
+            # cross-overlay interference (#291 browser SPA).
+            psPkgs = import nixpkgs {
+              inherit system;
+              overlays = [
+                purescript-overlay.overlays.default
+                mkSpagoDerivation.overlays.default
+              ];
+            };
+            mpfs-spa = import ./nix/mpfs-spa.nix { pkgs = psPkgs; };
           in {
             packages = {
               inherit (project.packages)
@@ -78,9 +97,23 @@
                 cardano-mpfs-offchain mpfs-serve mpfs-devnet-server
                 mpfs-bootstrap-genesis docker-image haddock;
               inherit (wasmTargets) wasm-mpfs-verify;
+              inherit mpfs-spa;
               default = project.packages.cardano-mpfs-offchain;
             };
-            inherit (project) devShells checks apps;
+            devShells = project.devShells // {
+              mpfs-spa = psPkgs.mkShell {
+                packages = [
+                  psPkgs.purs
+                  psPkgs.spago-unstable
+                  psPkgs.purs-tidy-bin.purs-tidy-0_10_0
+                  psPkgs.purescript-language-server
+                  psPkgs.esbuild
+                  psPkgs.nodejs_20
+                  psPkgs.just
+                ];
+              };
+            };
+            inherit (project) checks apps;
           };
       };
     in {
