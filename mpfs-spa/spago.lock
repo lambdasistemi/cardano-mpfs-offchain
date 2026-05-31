@@ -6,6 +6,7 @@
         "core": {
           "dependencies": [
             "aff",
+            "aff-promise",
             "argonaut",
             "argonaut-codecs",
             "argonaut-core",
