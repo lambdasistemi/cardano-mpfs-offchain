@@ -41,7 +41,7 @@ import Test.QuickCheck
 
 spec :: Spec
 spec = describe "runCageEnvelope byte identity" $ do
-    it "matches the wasm reactor for fixed boot and assemble envelopes"
+    it "matches the wasm reactor for fixed cage envelopes"
         $ property
         $ withMaxSuccess 1 byteIdentityProperty
 
@@ -92,6 +92,7 @@ fixedEnvelopes :: [ByteString]
 fixedEnvelopes =
     [ bootEnvelope
     , assembleEnvelope
+    , endEnvelope
     ]
 
 bootEnvelope :: ByteString
@@ -100,15 +101,7 @@ bootEnvelope =
         $ object
             [ "op" .= ("boot" :: Text)
             , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
-            , "cage_config"
-                .= object
-                    [ "cage_script_bytes" .= ("00" :: Text)
-                    , "request_script_bytes" .= ("00" :: Text)
-                    , "default_process_time" .= (300000 :: Integer)
-                    , "default_retract_time" .= (600000 :: Integer)
-                    , "default_tip" .= (1000000 :: Integer)
-                    , "network" .= ("preprod" :: Text)
-                    ]
+            , "cage_config" .= cageConfigValue
             , "wallet_policy" .= object []
             , "facts" .= object []
             ]
@@ -121,6 +114,28 @@ assembleEnvelope =
             , "unsigned_tx" .= hexText unsignedTx
             , "witness_set" .= hexText emptyWitnessSet
             ]
+
+endEnvelope :: ByteString
+endEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("end" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+cageConfigValue :: Value
+cageConfigValue =
+    object
+        [ "cage_script_bytes" .= ("00" :: Text)
+        , "request_script_bytes" .= ("00" :: Text)
+        , "default_process_time" .= (300000 :: Integer)
+        , "default_retract_time" .= (600000 :: Integer)
+        , "default_tip" .= (1000000 :: Integer)
+        , "network" .= ("preprod" :: Text)
+        ]
 
 unsignedTx :: ByteString
 unsignedTx =
