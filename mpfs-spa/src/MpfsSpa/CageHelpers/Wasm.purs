@@ -18,6 +18,7 @@ import Prelude
 import Control.Promise (Promise, toAffE)
 import Data.Array (head)
 import Data.Argonaut.Core (Json, fromNumber, fromObject, fromString, stringify)
+import Data.Argonaut.Encode (encodeJson)
 import Data.Either (Either(..))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -32,13 +33,14 @@ import Foreign.Object as Object
 
 import MpfsSpa.CageHelpers (CageHelpers, CageResult)
 import MpfsSpa.Config (serverConfig, walletPolicyJson)
-import MpfsSpa.Http (getTrustedRoot, postBootFacts)
+import MpfsSpa.Http (Config, getTrustedRoot, postBootFacts)
 import MpfsSpa.Types
   ( CageConfig
   , CageError(..)
+  , TokenId(..)
   , TrustedRoot(..)
   , UnsignedTxCbor(..)
-  , WalletAddr
+  , WalletAddr(..)
   )
 
 type ReactorResult =
@@ -47,7 +49,16 @@ type ReactorResult =
   , exitOk :: Boolean
   }
 
+type RawResponse =
+  { ok :: Boolean
+  , status :: Int
+  , json :: Json
+  , text :: String
+  }
+
 foreign import runCageReactorImpl :: String -> Effect (Promise ReactorResult)
+
+foreign import postJsonImpl :: String -> String -> Effect (Promise RawResponse)
 
 runCageReactor :: String -> Aff ReactorResult
 runCageReactor = toAffE <<< runCageReactorImpl
@@ -60,7 +71,7 @@ wasmCageHelpers =
   , deleteFact: \_ _ _ _ _ -> notYet "S5"
   , retractRequest: \_ _ _ _ -> notYet "S6"
   , rejectExpired: \_ _ _ -> notYet "S7"
-  , endCage: \_ _ _ -> notYet "S2"
+  , endCage
   }
 
 registerToken :: WalletAddr -> CageConfig -> CageResult
@@ -75,6 +86,18 @@ registerToken addr cfg = do
       result <- runCageReactor (buildBootEnvelope root cfg facts)
       pure (UnsignedTxCbor <$> parseCageTxOutput result)
 
+endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
+endCage addr cfg token = do
+  httpCfg <- liftEffect serverConfig
+  eroot <- getTrustedRoot httpCfg
+  efacts <- postEndFacts httpCfg addr token
+  case eroot, efacts of
+    Left err, _ -> pure (Left (CageError err))
+    _, Left err -> pure (Left (CageError err))
+    Right root, Right facts -> do
+      result <- runCageReactor (buildEndEnvelope root cfg facts)
+      pure (UnsignedTxCbor <$> parseCageTxOutput result)
+
 assembleTx :: String -> String -> Aff (Either CageError String)
 assembleTx unsignedTx witnessSet = do
   result <- runCageReactor (buildAssembleEnvelope unsignedTx witnessSet)
@@ -83,6 +106,10 @@ assembleTx unsignedTx witnessSet = do
 buildBootEnvelope :: TrustedRoot -> CageConfig -> Json -> String
 buildBootEnvelope root cfg facts =
   stringify (buildEnvelope "boot" root cfg facts)
+
+buildEndEnvelope :: TrustedRoot -> CageConfig -> Json -> String
+buildEndEnvelope root cfg facts =
+  stringify (buildEnvelope "end" root cfg facts)
 
 buildAssembleEnvelope :: String -> String -> String
 buildAssembleEnvelope unsignedTx witnessSet =
@@ -99,6 +126,18 @@ parseCageTxOutput = parsePrefixedOutput "cage_tx: "
 
 parseSignedTxOutput :: ReactorResult -> Either CageError String
 parseSignedTxOutput = parsePrefixedOutput "signed_tx: "
+
+postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
+postEndFacts cfg (WalletAddr address) (TokenId token) = do
+  res <-
+    toAffE
+      ( postJsonImpl
+          (cfg.baseUrl <> "/facts/end")
+          (stringify (encodeJson { token, address }))
+      )
+  pure
+    if res.ok then Right res.json
+    else Left ("HTTP " <> show res.status <> ": " <> res.text)
 
 notYet :: String -> CageResult
 notYet slice =
