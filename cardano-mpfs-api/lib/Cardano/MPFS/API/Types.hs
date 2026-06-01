@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -86,7 +87,9 @@ module Cardano.MPFS.API.Types
     , UpdateTxResponse (..)
     ) where
 
+#if !defined(wasm32_HOST_ARCH)
 import Control.Lens ((&), (.~), (?~))
+#endif
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
@@ -95,6 +98,7 @@ import Data.Aeson
     , (.:)
     , (.=)
     )
+#if !defined(wasm32_HOST_ARCH)
 import Data.Proxy (Proxy (..))
 import Data.Swagger
     ( ToSchema (..)
@@ -105,9 +109,12 @@ import Data.Swagger
     )
 import Data.Swagger qualified as Swagger
 import Data.Swagger.Declare (Declare)
+#endif
 import Data.Text (Text)
 import Data.Word (Word64)
+#if !defined(wasm32_HOST_ARCH)
 import GHC.IsList (IsList (..))
+#endif
 
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types.Common
@@ -1218,6 +1225,7 @@ instance FromJSON UpdateTxResponse where
                 <*> o .: "snapshot"
                 <*> o .: "proof"
 
+#if !defined(wasm32_HOST_ARCH)
 -- ---------------------------------------------------------
 -- Swagger ToSchema instances
 -- ---------------------------------------------------------
@@ -1260,8 +1268,7 @@ instance ToSchema StatusResponse where
                    , "utxo_root"
                    ]
             & description
-                ?~ "Indexer chain tip, checkpoint, \
-                   \and current UTxO-CSMT root"
+                ?~ "Indexer chain tip, checkpoint, and current UTxO-CSMT root"
 
 instance ToSchema TokenStateJSON where
     declareNamedSchema _ = do
@@ -1401,8 +1408,7 @@ instance ToSchema DeleteRequest where
             & required
                 .~ ["token", "key", "value", "address"]
             & description
-                ?~ "Delete a key (value is the \
-                   \current stored value)"
+                ?~ "Delete a key (value is the current stored value)"
 
 instance ToSchema UpdateValueRequest where
     declareNamedSchema _ = do
@@ -1432,8 +1438,7 @@ instance ToSchema UpdateValueRequest where
                    , "address"
                    ]
             & description
-                ?~ "Update a key's value \
-                   \(old and new values)"
+                ?~ "Update a key's value (old and new values)"
 
 instance ToSchema RejectRequest where
     declareNamedSchema _ = do
@@ -1455,8 +1460,7 @@ instance ToSchema RejectRequest where
             & required
                 .~ ["token", "address"]
             & description
-                ?~ "Reject Phase 3 expired \
-                   \requests for a token"
+                ?~ "Reject Phase 3 expired requests for a token"
 
 instance ToSchema UpdateRequest where
     declareNamedSchema _ = do
@@ -1500,8 +1504,7 @@ instance ToSchema RetractRequest where
             & required
                 .~ ["utxo", "address"]
             & description
-                ?~ "Retract a pending request. \
-                   \UTxO format: txhash#ix"
+                ?~ "Retract a pending request. UTxO format: txhash#ix"
 
 instance ToSchema EndRequest where
     declareNamedSchema _ = do
@@ -1548,10 +1551,7 @@ instance ToSchema SweepRequest where
             & required
                 .~ ["token", "utxo", "address"]
             & description
-                ?~ "Owner-only sweep of a \
-                   \non-legitimate UTxO at the \
-                   \per-cage request address. \
-                   \UTxO format: txhash#ix"
+                ?~ "Owner-only sweep of a non-legitimate UTxO at the per-cage request address. UTxO format: txhash#ix"
 
 instance ToSchema SubmitRequest where
     declareNamedSchema _ = do
@@ -1629,8 +1629,7 @@ instance ToSchema WitnessedUtxo where
                    , "utxo_proof"
                    ]
             & description
-                ?~ "UTxO reference, CBOR body, and \
-                   \UTxO-CSMT inclusion proof"
+                ?~ "UTxO reference, CBOR body, and UTxO-CSMT inclusion proof"
 
 instance ToSchema WitnessedTokenState where
     declareNamedSchema _ = do
@@ -1701,12 +1700,7 @@ instance ToSchema UnsignedTxResponse where
                    , "inputs"
                    ]
             & description
-                ?~ "Uniform proof-bearing response for \
-                   \write endpoints. Carries the \
-                   \unsigned transaction CBOR plus a \
-                   \snapshot and a flat list of spent \
-                   \and reference inputs, each with its \
-                   \CSMT inclusion proof."
+                ?~ "Uniform proof-bearing response for write endpoints. Carries the unsigned transaction CBOR plus a snapshot and a flat list of spent and reference inputs, each with its CSMT inclusion proof."
 
 instance ToSchema FactWitness where
     declareNamedSchema _ = do
@@ -1727,8 +1721,7 @@ instance ToSchema FactWitness where
                     ]
             & required .~ ["state", "mpf_proof"]
             & description
-                ?~ "State witness plus MPF inclusion \
-                   \proof"
+                ?~ "State witness plus MPF inclusion proof"
 
 instance ToSchema TokenResponse where
     declareNamedSchema _ = do
@@ -1897,8 +1890,7 @@ instance ToSchema RequestsResponse where
             & required
                 .~ ["snapshot", "request_set", "requests"]
             & description
-                ?~ "Proof-bearing pending requests \
-                   \response"
+                ?~ "Proof-bearing pending requests response"
 
 instance ToSchema TrieFactJSON where
     declareNamedSchema _ = do
@@ -1921,8 +1913,7 @@ instance ToSchema TrieFactJSON where
             & required
                 .~ ["key", "value", "mpf_proof"]
             & description
-                ?~ "Trie read: key, optional value, and \
-                   \MPF proof against a trie root"
+                ?~ "Trie read: key, optional value, and MPF proof against a trie root"
 
 instance ToSchema BootProofJSON where
     declareNamedSchema _ = do
@@ -1958,8 +1949,7 @@ instance ToSchema RequestProofJSON where
                     [("funding", utxoListSchema)]
             & required .~ ["funding"]
             & description
-                ?~ "Proof payload for POST \
-                   \/tx/request/{insert,delete,update}"
+                ?~ "Proof payload for POST /tx/request/{insert,delete,update}"
 
 instance ToSchema RetractProofJSON where
     declareNamedSchema _ = do
@@ -2086,16 +2076,14 @@ instance ToSchema RequestTxResponse where
         txEnvelopeSchema
             "RequestTxResponse"
             (Proxy @RequestProofJSON)
-            "Proof-bearing response for POST \
-            \/tx/request/{insert,delete,update}"
+            "Proof-bearing response for POST /tx/request/{insert,delete,update}"
 
 instance ToSchema RetractTxResponse where
     declareNamedSchema _ =
         txEnvelopeSchema
             "RetractTxResponse"
             (Proxy @RetractProofJSON)
-            "Proof-bearing response for POST \
-            \/tx/retract"
+            "Proof-bearing response for POST /tx/retract"
 
 instance ToSchema RejectTxResponse where
     declareNamedSchema _ =
@@ -2126,12 +2114,7 @@ instance ToSchema SweepTxResponse where
             & required
                 .~ ["tx"]
             & description
-                ?~ "Unsigned sweep transaction. \
-                   \Sweep does not bundle a proof \
-                   \envelope (the on-chain validator \
-                   \enforces the owner-signature \
-                   \predicate against the referenced \
-                   \state UTxO)."
+                ?~ "Unsigned sweep transaction. Sweep does not bundle a proof envelope (the on-chain validator enforces the owner-signature predicate against the referenced state UTxO)."
 
 instance ToSchema UpdateTxResponse where
     declareNamedSchema _ =
@@ -2169,3 +2152,4 @@ txEnvelopeSchema name proofProxy desc = do
                 ]
         & required .~ ["tx", "snapshot", "proof"]
         & description ?~ desc
+#endif

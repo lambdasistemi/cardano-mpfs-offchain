@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -24,7 +25,9 @@ module Cardano.MPFS.API.Types.Common
     , UnverifiedPParams (..)
     ) where
 
+#if !defined(wasm32_HOST_ARCH)
 import Control.Lens ((&), (.~), (?~))
+#endif
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
@@ -34,6 +37,7 @@ import Data.Aeson
     , (.=)
     )
 import Data.ByteString (ByteString)
+#if !defined(wasm32_HOST_ARCH)
 import Data.ByteString.Base16 qualified as B16
 import Data.Proxy (Proxy (..))
 import Data.Swagger
@@ -47,9 +51,12 @@ import Data.Swagger
 import Data.Swagger qualified as Swagger
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+#endif
 import Data.Word (Word64)
+#if !defined(wasm32_HOST_ARCH)
 import GHC.IsList (IsList (..))
 import Servant.API (FromHttpApiData (..), ToHttpApiData (..))
+#endif
 
 import Cardano.MPFS.API.Encoding (Hex (..))
 
@@ -120,6 +127,7 @@ instance FromJSON TokenIdJSON where
         Hex bs <- parseJSON value
         pure (TokenIdJSON bs)
 
+#if !defined(wasm32_HOST_ARCH)
 instance FromHttpApiData TokenIdJSON where
     parseUrlPiece t =
         case B16.decode (TE.encodeUtf8 t) of
@@ -128,6 +136,7 @@ instance FromHttpApiData TokenIdJSON where
 
 instance ToHttpApiData TokenIdJSON where
     toUrlPiece (TokenIdJSON bs) = TE.decodeUtf8 (B16.encode bs)
+#endif
 
 -- | UTxO reference (@{ tx_id, tx_ix }@).
 data UtxoRef = UtxoRef
@@ -264,6 +273,7 @@ instance FromJSON UnverifiedPParams where
                 <$> o .: "verified"
                 <*> o .: "cbor"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema ChainPointJSON where
     declareNamedSchema _ = do
         word64Schema <-
@@ -283,8 +293,7 @@ instance ToSchema ChainPointJSON where
                     ]
             & required .~ ["slot", "block_id"]
             & description
-                ?~ "Indexed chain point baked into \
-                   \proof-bearing responses"
+                ?~ "Indexed chain point baked into proof-bearing responses"
 
 instance ToSchema VerificationSnapshot where
     declareNamedSchema _ = do
@@ -306,9 +315,7 @@ instance ToSchema VerificationSnapshot where
             & required
                 .~ ["utxo_root", "chainpoint"]
             & description
-                ?~ "UTxO-CSMT root and indexed chain \
-                   \point against which bundled \
-                   \proofs are valid"
+                ?~ "UTxO-CSMT root and indexed chain point against which bundled proofs are valid"
 
 instance ToSchema TokenIdJSON where
     declareNamedSchema _ =
@@ -365,9 +372,7 @@ instance ToSchema UtxoEntry where
                    , "inclusion_proof"
                    ]
             & description
-                ?~ "UTxO ref, CBOR body, and CSMT \
-                   \inclusion proof against the \
-                   \enclosing snapshot's utxo_root"
+                ?~ "UTxO ref, CBOR body, and CSMT inclusion proof against the enclosing snapshot's utxo_root"
 
 instance ToSchema UtxoEntryRefOnly where
     declareNamedSchema _ = do
@@ -388,9 +393,7 @@ instance ToSchema UtxoEntryRefOnly where
                     ]
             & required .~ ["ref", "txout_cbor"]
             & description
-                ?~ "UTxO ref and CBOR body, without a \
-                   \per-entry inclusion proof. Used \
-                   \inside a UtxoSetWitness."
+                ?~ "UTxO ref and CBOR body, without a per-entry inclusion proof. Used inside a UtxoSetWitness."
 
 instance ToSchema UtxoSetWitness where
     declareNamedSchema _ = do
@@ -415,11 +418,7 @@ instance ToSchema UtxoSetWitness where
                    , "completeness_proof"
                    ]
             & description
-                ?~ "Enumerated UTxOs at a known \
-                   \script-hash prefix, with a single \
-                   \CSMT prefix-completeness proof \
-                   \attesting the set is exactly the \
-                   \leaves under that prefix."
+                ?~ "Enumerated UTxOs at a known script-hash prefix, with a single CSMT prefix-completeness proof attesting the set is exactly the leaves under that prefix."
 
 instance ToSchema UnverifiedPParams where
     declareNamedSchema _ = do
@@ -440,5 +439,5 @@ instance ToSchema UnverifiedPParams where
                     ]
             & required .~ ["verified", "cbor"]
             & description
-                ?~ "CBOR-encoded protocol parameters \
-                   \reported as unverified facts."
+                ?~ "CBOR-encoded protocol parameters reported as unverified facts."
+#endif
