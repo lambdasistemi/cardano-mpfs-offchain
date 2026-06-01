@@ -47,17 +47,22 @@ import Cardano.MPFS.Client.Cage.BuildError (BuildError)
 import Cardano.MPFS.Client.Cage.Config (CageConfig (..))
 import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
-import Cardano.MPFS.Client.Cage.Request (requestInsertCageTx)
+import Cardano.MPFS.Client.Cage.Request
+    ( requestInsertCageTx
+    , requestUpdateCageTx
+    )
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify
     ( VerifiedBootFacts
     , VerifiedEndFacts
     , VerifiedRequestInsertFacts
+    , VerifiedRequestUpdateFacts
     , VerifyError
     , verifyBootFacts
     , verifyEndFacts
     , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
     )
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Ledger (ConwayTx)
@@ -119,7 +124,7 @@ dispatch = withObject "Envelope" $ \o -> do
             witnessSet <- o .: "witness_set"
             pure (assembleTx unsignedTx witnessSet)
         "request_insert" -> dispatchRequestInsert o
-        "request_update" -> pure ("unknown_op: " <> op)
+        "request_update" -> dispatchRequestUpdate o
         "request_delete" -> pure ("unknown_op: " <> op)
         "retract" -> pure ("unknown_op: " <> op)
         "reject" -> pure ("unknown_op: " <> op)
@@ -162,6 +167,18 @@ dispatchRequestInsert o = do
             policy <- parseWalletPolicyMaybe policyValue
             pure (buildRequestInsert cfg policy verified)
 
+dispatchRequestUpdate :: Object -> Parser Text
+dispatchRequestUpdate o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRequestUpdateFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildRequestUpdate cfg policy verified)
+
 runVerified
     :: (FromJSON facts)
     => (facts -> Either VerifyError verified)
@@ -201,6 +218,16 @@ buildRequestInsert
     -> Text
 buildRequestInsert cfg policy verified =
     case requestInsertCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildRequestUpdate
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestUpdateFacts
+    -> Text
+buildRequestUpdate cfg policy verified =
+    case requestUpdateCageTx cfg policy verified of
         Left err -> renderBuildError err
         Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
 
