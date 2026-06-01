@@ -43,12 +43,12 @@ One commit per slice. Each commit body carries `Tasks: T305-S<n>`.
 
 ## Slice S3 — e2e completeness proof + README
 
-- [ ] T305-S3 e2e spec under `withDevnet`: boot a token, insert N facts
+- [X] T305-S3 e2e spec under `withDevnet`: boot a token, insert N facts
       via the request/update lifecycle, GET `/tokens/:id/facts`.
-- [ ] T305-S3 Assert all N `(key, value)` returned.
-- [ ] T305-S3 Reconstruct the MPF root from `facts` and assert it is
+- [X] T305-S3 Assert all N `(key, value)` returned.
+- [X] T305-S3 Reconstruct the MPF root from `facts` and assert it is
       byte-equal to the on-chain MPF root carried in `state`
       (completeness proof).
-- [ ] T305-S3 Add the README HTTP API table row; wire the spec into the
+- [X] T305-S3 Add the README HTTP API table row; wire the spec into the
       e2e suite (`main.hs`).
-- [ ] T305-S3 Proof: `just e2e` green for the new row.
+- [X] T305-S3 Proof: `just e2e` green for the new row.

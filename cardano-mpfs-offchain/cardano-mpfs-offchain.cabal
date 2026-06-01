@@ -390,4 +390,5 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.ProviderSpec
     Cardano.MPFS.E2E.SubmitEndpointSpec
     Cardano.MPFS.E2E.SubmitterSpec
+    Cardano.MPFS.E2E.TokenFactsCompletenessSpec
     Cardano.MPFS.E2E.WorkflowsIntegrationSpec
