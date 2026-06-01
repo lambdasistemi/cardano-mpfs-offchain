@@ -89,6 +89,21 @@
                 mkSpagoDerivation.overlays.default
               ];
             };
+            cardanoAddressPkgs = import nixpkgs {
+              inherit system;
+              config.allowBroken = true;
+            };
+            cardanoAddressHaskellPackages =
+              cardanoAddressPkgs.haskellPackages.override {
+                overrides = _hfinal: hprev: {
+                  bech32 =
+                    cardanoAddressPkgs.haskell.lib.dontCheck hprev.bech32;
+                  cardano-addresses =
+                    cardanoAddressPkgs.haskell.lib.dontCheck
+                    hprev.cardano-addresses;
+                };
+              };
+            cardanoAddress = cardanoAddressHaskellPackages.cardano-addresses;
             mpfs-spa = import ./nix/mpfs-spa.nix {
               pkgs = psPkgs;
               # Integration (298): feed the real reactor wasm built by the
@@ -119,6 +134,26 @@
                 exec bash ${./scripts/e2e-spa-devnet.sh}
               '';
             };
+            test-playwright-spa-preprod = pkgs.writeShellApplication {
+              name = "test-playwright-spa-preprod";
+              runtimeInputs = [
+                pkgs.playwright-test
+                pkgs.nodejs_20
+                pkgs.python3
+                pkgs.coreutils
+                pkgs.bash
+                cardano-node-pkgs.cardano-cli
+                cardanoAddress
+              ];
+              text = ''
+                export MPFS_SPA_SITE_DIR="${mpfs-spa}"
+                export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
+                export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+                export MPFS_BASE_URL="''${MPFS_BASE_URL:-https://umpfs.plutimus.com}"
+                export MPFS_SIGNER_WALLET="''${MPFS_SIGNER_WALLET:-/code/moog/tmp/requester.json}"
+                exec bash ${./scripts/e2e-spa-preprod.sh}
+              '';
+            };
           in {
             packages = {
               inherit (project.packages)
@@ -147,6 +182,11 @@
               test-playwright-spa = {
                 type = "app";
                 program = "${test-playwright-spa}/bin/test-playwright-spa";
+              };
+              test-playwright-spa-preprod = {
+                type = "app";
+                program =
+                  "${test-playwright-spa-preprod}/bin/test-playwright-spa-preprod";
               };
             };
           };
