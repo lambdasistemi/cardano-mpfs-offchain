@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 const walletAddressHex = "addr_test_wallet_hex";
+const tokenId =
+  "2222222222222222222222222222222222222222222222222222222222222222";
 const trustedRoot =
   "1111111111111111111111111111111111111111111111111111111111111111";
 
@@ -28,7 +30,15 @@ async function installWallet(page) {
 }
 
 async function installServerRoutes(page) {
-  const seen = { bootBodies: [], submitBodies: [] };
+  const seen = { bootBodies: [], endBodies: [], submitBodies: [] };
+
+  await page.route("**/tokens", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([tokenId]),
+    });
+  });
 
   await page.route("**/status", async (route) => {
     await route.fulfill({
@@ -57,6 +67,21 @@ async function installServerRoutes(page) {
     });
   });
 
+  await page.route("**/facts/end", async (route) => {
+    seen.endBodies.push(JSON.parse(route.request().postData() || "{}"));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        snapshot: { utxo_root: trustedRoot, chainpoint: "stub" },
+        token: tokenId,
+        owner: walletAddressHex,
+        cage_utxo: { ref: "cage#0", txout_cbor: "00", inclusion_proof: "proof" },
+        protocol_parameters: { cbor: "00", verified: false },
+      }),
+    });
+  });
+
   await page.route("**/submit", async (route) => {
     seen.submitBodies.push(JSON.parse(route.request().postData() || "{}"));
     await route.fulfill({
@@ -78,6 +103,10 @@ async function installReactorStub(page) {
 
       if (envelope.op === "boot") {
         return { stdout: "cage_tx: cafe01", stderr: "", exitOk: true };
+      }
+
+      if (envelope.op === "end") {
+        return { stdout: "cage_tx: cafe02", stderr: "", exitOk: true };
       }
 
       if (envelope.op === "assemble") {
@@ -133,6 +162,57 @@ test("register builds boot and assemble envelopes with a reactor stub", async ({
   expect(envelopes[1]).toEqual({
     op: "assemble",
     unsigned_tx: "cafe01",
+    witness_set: "bead",
+  });
+});
+
+test("end builds end and assemble envelopes with a reactor stub", async ({ page }) => {
+  await installWallet(page);
+  const server = await installServerRoutes(page);
+
+  await page.goto("/");
+  await installReactorStub(page);
+
+  await page.getByRole("button", { name: "Connect" }).click();
+  await expect(page.getByRole("banner").getByText("Stub Wallet")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Tokens" }).click();
+  await page.getByText(tokenId).click();
+  await page.getByRole("tab", { name: "End" }).click();
+  await page.getByRole("button", { name: "End this cage" }).click();
+
+  await expect(page.getByText("Submitted transaction")).toBeVisible();
+  await expect(page.getByText("txid123")).toBeVisible();
+
+  expect(server.endBodies).toEqual([{ token: tokenId, address: walletAddressHex }]);
+  expect(server.submitBodies).toEqual([{ signedTxCbor: "f00d" }]);
+
+  const signArgs = await page.evaluate(() => window.__signArgs);
+  expect(signArgs).toEqual([{ tx: "cafe02", partial: true }]);
+
+  const envelopes = await page.evaluate(() => window.__reactorEnvelopes);
+  expect(envelopes).toHaveLength(2);
+  expect(envelopes[0]).toMatchObject({
+    op: "end",
+    trusted_root: trustedRoot,
+    cage_config: {
+      default_process_time: 300000,
+      default_retract_time: 300000,
+      default_tip: 2000000,
+      network: "preprod",
+    },
+    wallet_policy: {
+      max_fee: 10000000,
+      max_min_utxo_coin_per_byte: 10000,
+    },
+  });
+  expect(envelopes[0].cage_config.cage_script_bytes.length).toBeGreaterThan(1000);
+  expect(envelopes[0].cage_config.request_script_bytes.length).toBeGreaterThan(1000);
+  expect(envelopes[0].facts.snapshot.utxo_root).toBe(trustedRoot);
+  expect(envelopes[0].facts.token).toBe(tokenId);
+  expect(envelopes[1]).toEqual({
+    op: "assemble",
+    unsigned_tx: "cafe02",
     witness_set: "bead",
   });
 });
