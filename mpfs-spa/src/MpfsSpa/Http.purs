@@ -13,6 +13,8 @@ module MpfsSpa.Http
   , getTokenState
   , getRequests
   , getFactValue
+  , getTrustedRoot
+  , postBootFacts
   , submitTx
   ) where
 
@@ -20,8 +22,9 @@ import Prelude
 
 import Control.Promise (Promise, toAffE)
 import Data.Argonaut.Core (Json, stringify)
-import Data.Argonaut.Decode (JsonDecodeError, decodeJson, printJsonDecodeError)
+import Data.Argonaut.Decode (decodeJson)
 import Data.Argonaut.Decode.Combinators ((.:), (.:?))
+import Data.Argonaut.Decode.Error (JsonDecodeError(..), printJsonDecodeError)
 import Data.Argonaut.Encode (encodeJson)
 import Data.Bifunctor (lmap)
 import Data.Either (Either(..))
@@ -31,7 +34,14 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Aff (Aff)
 
-import MpfsSpa.Types (Key(..), RequestId(..), TokenId(..), Value(..))
+import MpfsSpa.Types
+  ( Key(..)
+  , RequestId(..)
+  , TokenId(..)
+  , TrustedRoot(..)
+  , Value(..)
+  , WalletAddr(..)
+  )
 
 -- | Server connection config. `baseUrl` has no trailing slash.
 type Config = { baseUrl :: String }
@@ -103,6 +113,16 @@ getFactValue :: Config -> TokenId -> Key -> Aff (Either String Value)
 getFactValue cfg (TokenId tid) (Key key) =
   getDecoded cfg ("/tokens/" <> tid <> "/facts/" <> key) decodeFactValue
 
+-- | Fetch the trusted UTxO root from `/status`.
+getTrustedRoot :: Config -> Aff (Either String TrustedRoot)
+getTrustedRoot cfg = getDecoded cfg "/status" decodeTrustedRoot
+
+-- | Fetch raw proof-bearing boot facts for the reactor envelope.
+postBootFacts :: Config -> WalletAddr -> Aff (Either String Json)
+postBootFacts cfg (WalletAddr address) = do
+  let body = stringify (encodeJson { address })
+  request "POST" (cfg.baseUrl <> "/facts/boot") (Just body)
+
 -- | Forward a signed transaction; returns the accepted transaction id.
 submitTx :: Config -> String -> Aff (Either String String)
 submitTx cfg signedHex = do
@@ -161,6 +181,14 @@ decodeFactValue j = do
   top <- decodeJson j
   value <- top .: "value"
   pure (Value value)
+
+decodeTrustedRoot :: Json -> Either JsonDecodeError TrustedRoot
+decodeTrustedRoot j = do
+  top <- decodeJson j
+  mroot <- top .: "utxo_root"
+  case mroot of
+    Just root -> pure (TrustedRoot root)
+    Nothing -> Left (TypeMismatch "status.utxo_root is not available yet")
 
 decodeTxId :: Json -> Either JsonDecodeError String
 decodeTxId j = do
