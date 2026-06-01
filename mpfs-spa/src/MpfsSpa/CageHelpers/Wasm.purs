@@ -70,7 +70,7 @@ wasmCageHelpers =
   { registerToken
   , insertFact
   , updateFact
-  , deleteFact: \_ _ _ _ _ -> notYet "S5"
+  , deleteFact
   , retractRequest: \_ _ _ _ -> notYet "S6"
   , rejectExpired: \_ _ _ -> notYet "S7"
   , endCage
@@ -97,6 +97,11 @@ updateFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> Value -> Ca
 updateFact addr cfg token key oldValue newValue =
   requestCageTx "request_update" cfg
     (\httpCfg -> postUpdateFacts httpCfg addr token key oldValue newValue)
+
+deleteFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
+deleteFact addr cfg token key value =
+  requestCageTx "request_delete" cfg
+    (\httpCfg -> postDeleteFacts httpCfg addr token key value)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -193,6 +198,16 @@ postUpdateFacts
         , address
         }
     )
+
+postDeleteFacts :: Config -> WalletAddr -> TokenId -> Key -> Value -> Aff (Either String Json)
+postDeleteFacts
+  cfg
+  (WalletAddr address)
+  (TokenId token)
+  (Key key)
+  (Value value) =
+  postFacts cfg "/facts/request/delete"
+    (encodeJson { token, key, value, address })
 
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
