@@ -1,8 +1,8 @@
 {
   "comment": "Vendored source-repository-package pins mirroring IntersectMBO/cardano-api master cabal.project if arch(wasm32). Owned here under lambdasistemi; pin bumps are a single-file change. Hashes are nix32 per /nix skill (SRI format triggers fetchgit FODs that fail the store-path reference scan). First-iteration revs captured from cardano-api master on 2026-04-23.",
   "indexState": {
-    "hackage": "2025-12-07T00:00:00Z",
-    "chap": "2025-12-07T00:00:00Z"
+    "hackage": "2026-04-15T00:00:00Z",
+    "chap": "2026-05-25T13:25:40Z"
   },
   "pins": {
     "plutus": {
@@ -55,15 +55,15 @@
     },
     "cardano-mpfs-onchain": {
       "location": "https://github.com/cardano-foundation/cardano-mpfs-onchain",
-      "comment": "Validate-ahead (#258): bumped from native pin 023d352e to 457c1cb, where cardano-mpfs-cage:lib drops cardano-node-clients in favour of cardano-tx-tools (the #294 migration). Realign with native once #294 bumps the onchain pin repo-wide.",
-      "rev": "457c1cbcbbf622d0e583a3e9c0b413de079f315a",
-      "sha256": "19m88h0ga5s09vrqqglj0wbwy4knvi9yy4mab9hwdb8mrrfdh5ig",
+      "comment": "Validate-ahead (#258): cardano-mpfs-cage:lib depends on the pure cardano-tx-tools:tx-build sublibrary (onchain PR #58), so the cage closure cross-compiles to wasm. Realign with native once #294 bumps the onchain pin repo-wide.",
+      "rev": "322b9e0c3356c97d57562b525c103d98ff6fa878",
+      "sha256": "0hhzyf9jq550s62mr8i2wpn5zpl0sd4myrzscbaqjrl6qv7zbb1d",
       "subdirs": ["haskell"]
     },
     "haskell-mts": {
       "location": "https://github.com/lambdasistemi/haskell-mts",
-      "rev": "13264a52b47e3a1f43a6ebeebd424a10f9e4466a",
-      "sha256": "1bqgpxdy79ncsz8hyg2qyd7jnm8hqj4q8rq8mhr3iirix66c77fb",
+      "rev": "bcc8ac9671ceecbb87e981a56a34953f67c064b9",
+      "sha256": "1fhwzals0wqlxkhxdppqmk3b9f7ph985cmrskn8zmdim51b2b3pj",
       "subdirs": []
     },
     "aiken-codegen": {
@@ -72,10 +72,17 @@
       "sha256": "0rg5hqjix9bs9radzib1ppy09qamxkkqr0hdvc8qm907c21cy2g8",
       "subdirs": []
     },
+    "rocksdb-kv-transactions": {
+      "comment": "Provides the pure kv-transactions sublibrary that haskell-mts's mpf-write/csmt-write depend on. The rocksdb-bound main library self-gates out under wasm; only kv-transactions reaches WASI. Pin mirrors haskell-mts's own cabal-wasm.project.",
+      "location": "https://github.com/paolino/rocksdb-kv-transactions",
+      "rev": "0888387a5de81711273ea9b1e9d160decc33c231",
+      "sha256": "0ywi4p744sk688p50f6n69llvxa1fws27wqciyhj4b57cqcpam4m",
+      "subdirs": []
+    },
     "cardano-tx-tools": {
       "location": "https://github.com/lambdasistemi/cardano-tx-tools",
-      "rev": "db2da7c469df782041aba2531c4abcf4c4483418",
-      "sha256": "1r4y5fgahxs4mrxdijc6xa6xic9fm193blpgxf6mizaj26nghyzk",
+      "rev": "631f1341fde6e4a11e94b058cf5f2925ffeb9eac",
+      "sha256": "0asp3sx7hd8hip739kbz65986jlv8qx9342m9gqpqcxih6pxfgjj",
       "subdirs": []
     }
   },
@@ -83,7 +90,9 @@
     "plutus-core": "+do-not-build-plutus-exec",
     "cardano-crypto-praos": "-external-libsodium-vrf",
     "atomic-counter": "+no-cmm",
-    "digest": "-pkg-config"
+    "digest": "-pkg-config",
+    "cardano-tx-tools": "-build-node-tools",
+    "mts": "+wasm"
   },
   "packageGhcOptions": {
     "crypton": "-optc-DARGON2_NO_THREADS"

@@ -36,14 +36,23 @@ library
     , base               >=4.18 && <5
     , base16-bytestring  >=1.0  && <1.1
     , bytestring         >=0.11 && <0.13
-    , lens
-    , servant            >=0.20 && <0.21
-    , swagger2
     , text               >=2.0  && <2.2
 
   exposed-modules:
-    Cardano.MPFS.API
     Cardano.MPFS.API.Encoding
     Cardano.MPFS.API.Types
     Cardano.MPFS.API.Types.Common
     Cardano.MPFS.API.Types.Facts
+
+  -- The Servant API-type module and the swagger2/servant Schema +
+  -- HttpApiData instances are native-only: swagger2 is build-type:Custom
+  -- and cannot cross-compile its Setup to wasm32. The pure wire DTOs
+  -- (Types*, Encoding) carry the verifier surface and stay portable; the
+  -- instances themselves are CPP-gated behind `wasm32_HOST_ARCH`.
+  if !arch(wasm32)
+    build-depends:
+      , lens
+      , servant   >=0.20 && <0.21
+      , swagger2
+
+    exposed-modules: Cardano.MPFS.API

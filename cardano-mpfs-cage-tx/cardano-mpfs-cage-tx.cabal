@@ -44,8 +44,8 @@ library
   default-language: GHC2021
   hs-source-dirs:   lib
   build-depends:
-    , base                    >=4.18 && <5
-    , bytestring              >=0.11 && <0.13
+    , base                       >=4.18 && <5
+    , bytestring                 >=0.11 && <0.13
     , cardano-crypto-class
     , cardano-ledger-allegra
     , cardano-ledger-alonzo
@@ -57,12 +57,12 @@ library
     , cardano-mpfs-cage
     , cardano-mpfs-verify
     , cardano-slotting
-    , cardano-tx-tools
-    , containers              >=0.6  && <0.8
+    , cardano-tx-tools:tx-build
+    , containers                 >=0.6  && <0.8
     , microlens
     , mts:mpf-write
     , plutus-tx
-    , text                    >=2.0  && <2.2
+    , text                       >=2.0  && <2.2
 
   exposed-modules:
     Cardano.MPFS.Client.Cage.Boot
