@@ -1,10 +1,8 @@
 -- | Shared write-operation runner + status rendering.
 -- |
 -- | Every MPFS write op follows the same shape: build an unsigned tx through
--- | the `CageHelpers` boundary, then (if a wallet is connected) ask the wallet
--- | to sign it. Final witness assembly + submission is deferred to the wasm
--- | cage-helper bridge — see questions/Q-01. No protocol logic lives here; the
--- | unsigned tx is opaque hex produced by the boundary.
+-- | the `CageHelpers` boundary, ask the wallet for a CIP-30 witness, assemble
+-- | the signed transaction in the wasm reactor, then POST it to `/submit`.
 module MpfsSpa.Submit
   ( OpStatus(..)
   , runOp
@@ -22,6 +20,9 @@ import React.Basic (JSX)
 import React.Basic.DOM as R
 
 import MpfsSpa.CageHelpers (CageResult)
+import MpfsSpa.CageHelpers.Wasm (assembleTx)
+import MpfsSpa.Config (serverConfig)
+import MpfsSpa.Http (submitTx)
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (WalletState)
 import MpfsSpa.Types (UnsignedTxCbor(..), cageErrorMessage)
@@ -33,6 +34,7 @@ data OpStatus
   | Working
   | Built UnsignedTxCbor
   | Signed UnsignedTxCbor String
+  | Submitted UnsignedTxCbor String String String
   | Failed String
 
 -- | Run a cage operation: build the unsigned tx, then attempt to sign it with
@@ -54,13 +56,20 @@ runOp mWallet build setStatus = do
         case mWallet of
           Nothing -> liftEffect (put (Built cbor))
           Just w -> do
-            -- Attempt the real CIP-30 signing path. With the mock's stub tx
-            -- the wallet rejects the invalid body; we keep the built tx
-            -- visible rather than fabricating a signature.
-            signed <- attempt (W.signTx w.api hex false)
-            liftEffect $ put $ case signed of
-              Left _ -> Built cbor
-              Right witnessHex -> Signed cbor witnessHex
+            signed <- attempt (W.signTx w.api hex true)
+            case signed of
+              Left _ ->
+                liftEffect (put (Failed "Wallet signing failed or was declined."))
+              Right witnessHex -> do
+                assembled <- assembleTx hex witnessHex
+                case assembled of
+                  Left err -> liftEffect (put (Failed (cageErrorMessage err)))
+                  Right signedTxHex -> do
+                    httpCfg <- liftEffect serverConfig
+                    submitted <- submitTx httpCfg signedTxHex
+                    liftEffect $ put $ case submitted of
+                      Left err -> Failed err
+                      Right txId -> Submitted cbor witnessHex signedTxHex txId
 
 -- | Render an operation status as Material feedback.
 statusView :: OpStatus -> JSX
@@ -71,7 +80,6 @@ statusView = case _ of
     M.alert { severity: "success", sx: { mt: 2 } }
       [ R.text "Built unsigned transaction"
       , hexBlock hex
-      , note
       ]
   Signed (UnsignedTxCbor hex) witnessHex ->
     M.alert { severity: "success", sx: { mt: 2 } }
@@ -80,17 +88,24 @@ statusView = case _ of
       , M.typography { variant: "caption", color: "text.secondary" }
           [ R.text "witness set" ]
       , hexBlock witnessHex
-      , note
+      ]
+  Submitted (UnsignedTxCbor unsignedHex) witnessHex signedHex txId ->
+    M.alert { severity: "success", sx: { mt: 2 } }
+      [ R.text "Submitted transaction"
+      , M.typography { variant: "caption", color: "text.secondary" }
+          [ R.text "tx id" ]
+      , hexBlock txId
+      , M.typography { variant: "caption", color: "text.secondary" }
+          [ R.text "unsigned tx" ]
+      , hexBlock unsignedHex
+      , M.typography { variant: "caption", color: "text.secondary" }
+          [ R.text "witness set" ]
+      , hexBlock witnessHex
+      , M.typography { variant: "caption", color: "text.secondary" }
+          [ R.text "signed tx" ]
+      , hexBlock signedHex
       ]
   Failed msg -> M.alert { severity: "error", sx: { mt: 2 } } [ R.text msg ]
-
-note :: JSX
-note =
-  M.typography
-    { variant: "caption", color: "text.secondary", sx: { display: "block", mt: 1 } }
-    [ R.text
-        "Final assembly + submission completes with the wasm cage-helper bridge."
-    ]
 
 hexBlock :: String -> JSX
 hexBlock hex =

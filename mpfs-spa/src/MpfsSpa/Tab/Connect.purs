@@ -8,9 +8,10 @@ module MpfsSpa.Tab.Connect (mkConnectTab) where
 import Prelude
 
 import Data.Array (head, null)
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (attempt, launchAff_)
 import Effect.Class (liftEffect)
 import React.Basic (JSX)
 import React.Basic.DOM as R
@@ -46,21 +47,30 @@ mkConnectTab = component "ConnectTab" \props -> React.do
       setErr (const Nothing)
       setConnecting (const (Just info.key))
       launchAff_ do
-        api <- W.enable info.key
-        networkId <- W.getNetworkId api
-        addrs <- W.getUsedAddresses api
-        balanceCbor <- W.getBalance api
-        change <- W.getChangeAddress api
-        let address = fromMaybe change (head addrs)
-        liftEffect do
-          props.onConnect
-            { api
-            , name: info.name
-            , address
-            , networkId
-            , balance: W.lovelaceOfBalance balanceCbor
-            }
-          setConnecting (const Nothing)
+        result <- attempt do
+          api <- W.enable info.key
+          networkId <- W.getNetworkId api
+          addrs <- W.getUsedAddresses api
+          balanceCbor <- W.getBalance api
+          change <- W.getChangeAddress api
+          pure { api, networkId, address: fromMaybe change (head addrs), balanceCbor }
+        liftEffect $ case result of
+          Left _ -> do
+            setErr (const (Just "Wallet connection failed or was declined."))
+            setConnecting (const Nothing)
+          Right w
+            | w.networkId /= 0 -> do
+                setErr (const (Just "Switch the wallet to preprod before connecting."))
+                setConnecting (const Nothing)
+            | otherwise -> do
+                props.onConnect
+                  { api: w.api
+                  , name: info.name
+                  , address: w.address
+                  , networkId: w.networkId
+                  , balance: W.lovelaceOfBalance w.balanceCbor
+                  }
+                setConnecting (const Nothing)
 
   pure case props.wallet of
     Just w -> connectedCard w props.onDisconnect
@@ -72,7 +82,7 @@ connectedCard w onDisconnect =
   M.card { sx: { mt: 2 } }
     [ M.cardHeader
         { title: w.name
-        , subheader: W.networkName w.networkId
+        , subheader: networkLabel w.networkId
         }
     , M.cardContent {}
         [ M.stack { spacing: 1 }
@@ -144,3 +154,7 @@ field label value =
 maybeAda :: Maybe String -> String
 maybeAda Nothing = "—"
 maybeAda (Just lovelace) = lovelace <> " lovelace"
+
+networkLabel :: Int -> String
+networkLabel 0 = "preprod"
+networkLabel n = W.networkName n
