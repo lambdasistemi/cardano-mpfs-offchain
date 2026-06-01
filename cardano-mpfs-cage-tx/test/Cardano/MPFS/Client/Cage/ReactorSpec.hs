@@ -95,6 +95,7 @@ fixedEnvelopes =
     , endEnvelope
     , requestInsertEnvelope
     , requestUpdateEnvelope
+    , requestDeleteEnvelope
     ]
 
 bootEnvelope :: ByteString
@@ -144,6 +145,17 @@ requestUpdateEnvelope =
     encodeStrict
         $ object
             [ "op" .= ("request_update" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+requestDeleteEnvelope :: ByteString
+requestDeleteEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("request_delete" :: Text)
             , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
             , "cage_config" .= cageConfigValue
             , "wallet_policy" .= object []
