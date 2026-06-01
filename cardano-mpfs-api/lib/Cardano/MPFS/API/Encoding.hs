@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -14,7 +15,6 @@ module Cardano.MPFS.API.Encoding
       Hex (..)
     ) where
 
-import Control.Lens ((&), (?~))
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
@@ -22,6 +22,9 @@ import Data.Aeson
     )
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as B16
+import Data.Text.Encoding qualified as TE
+#if !defined(wasm32_HOST_ARCH)
+import Control.Lens ((&), (?~))
 import Data.Proxy (Proxy (..))
 import Data.Swagger
     ( ToParamSchema (..)
@@ -31,8 +34,8 @@ import Data.Swagger
     )
 import Data.Swagger qualified as Swagger
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Servant.API (FromHttpApiData (..), ToHttpApiData (..))
+#endif
 
 -- | A 'ByteString' that serialises to\/from JSON
 -- as a hex-encoded string.
@@ -51,6 +54,7 @@ instance FromJSON Hex where
             Right bs -> pure (Hex bs)
             Left err -> fail err
 
+#if !defined(wasm32_HOST_ARCH)
 instance FromHttpApiData Hex where
     parseUrlPiece t =
         case B16.decode (TE.encodeUtf8 t) of
@@ -71,3 +75,4 @@ instance ToSchema Hex where
 instance ToParamSchema Hex where
     toParamSchema _ =
         Swagger.toParamSchema (Proxy @String)
+#endif

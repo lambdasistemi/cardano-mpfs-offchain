@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -31,7 +32,9 @@ module Cardano.MPFS.API.Types.Facts
     , UnverifiedPParams (..)
     ) where
 
+#if !defined(wasm32_HOST_ARCH)
 import Control.Lens ((&), (.~), (?~))
+#endif
 import Data.Aeson
     ( FromJSON (..)
     , ToJSON (..)
@@ -40,6 +43,7 @@ import Data.Aeson
     , (.:)
     , (.=)
     )
+#if !defined(wasm32_HOST_ARCH)
 import Data.Proxy (Proxy (..))
 import Data.Swagger
     ( ToSchema (..)
@@ -50,6 +54,7 @@ import Data.Swagger
     )
 import Data.Swagger qualified as Swagger
 import GHC.IsList (IsList (..))
+#endif
 
 import Cardano.MPFS.API.Encoding (Hex)
 import Cardano.MPFS.API.Types.Common
@@ -94,6 +99,7 @@ instance FromJSON BootFacts where
                 <*> o .: "wallet_utxos"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema BootFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -120,10 +126,8 @@ instance ToSchema BootFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only boot response. Carries \
-                   \wallet UTxO witnesses and \
-                   \unverified protocol parameters, \
-                   \with no unsigned transaction CBOR."
+                ?~ "Facts-only boot response. Carries wallet UTxO witnesses and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only request-insert response.
 --
@@ -178,6 +182,7 @@ instance FromJSON RequestInsertFacts where
                 <*> o .: "wallet_utxos"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema RequestInsertFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -220,10 +225,8 @@ instance ToSchema RequestInsertFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only request-insert response. Carries \
-                   \request payload, submission timestamp, wallet \
-                   \UTxO witnesses, and unverified protocol \
-                   \parameters, with no unsigned transaction CBOR."
+                ?~ "Facts-only request-insert response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only request-delete response.
 --
@@ -278,6 +281,7 @@ instance FromJSON RequestDeleteFacts where
                 <*> o .: "wallet_utxos"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema RequestDeleteFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -320,10 +324,8 @@ instance ToSchema RequestDeleteFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only request-delete response. Carries \
-                   \request payload, submission timestamp, wallet \
-                   \UTxO witnesses, and unverified protocol \
-                   \parameters, with no unsigned transaction CBOR."
+                ?~ "Facts-only request-delete response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only request-update response.
 --
@@ -382,6 +384,7 @@ instance FromJSON RequestUpdateFacts where
                 <*> o .: "wallet_utxos"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema RequestUpdateFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -426,10 +429,8 @@ instance ToSchema RequestUpdateFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only request-update response. Carries \
-                   \request payload, submission timestamp, wallet \
-                   \UTxO witnesses, and unverified protocol \
-                   \parameters, with no unsigned transaction CBOR."
+                ?~ "Facts-only request-update response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Shared JSON representation of a trie read fact.
 --
@@ -462,6 +463,7 @@ instance FromJSON TrieFact where
                 <*> o .: "value"
                 <*> o .: "mpf_proof"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema TrieFact where
     declareNamedSchema _ = do
         hexSchema <-
@@ -485,8 +487,8 @@ instance ToSchema TrieFact where
                    , "mpf_proof"
                    ]
             & description
-                ?~ "Trie read fact: key, optional value, \
-                   \and MPF proof against a trie root."
+                ?~ "Trie read fact: key, optional value, and MPF proof against a trie root."
+#endif
 
 -- | Facts-only update response foundation.
 --
@@ -544,6 +546,7 @@ instance FromJSON UpdateFacts where
                 <*> o .: "validity_upper_slot"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema UpdateFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -591,11 +594,8 @@ instance ToSchema UpdateFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only update response. Carries \
-                   \state, request and wallet UTxO witnesses, \
-                   \trie root/read facts, and unverified \
-                   \protocol parameters, with no unsigned \
-                   \transaction CBOR."
+                ?~ "Facts-only update response. Carries state, request and wallet UTxO witnesses, trie root/read facts, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only retract response.
 --
@@ -657,6 +657,7 @@ instance FromJSON RetractFacts where
                 <*> o .: "validity_end_slot"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema RetractFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -699,11 +700,8 @@ instance ToSchema RetractFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only retract response. Carries the \
-                   \named request UTxO, cage state UTxO, wallet \
-                   \funding UTxO witnesses, server-derived Phase 2 \
-                   \validity slot bounds, and unverified protocol \
-                   \parameters, with no unsigned transaction CBOR."
+                ?~ "Facts-only retract response. Carries the named request UTxO, cage state UTxO, wallet funding UTxO witnesses, server-derived Phase 2 validity slot bounds, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only reject response.
 --
@@ -770,6 +768,7 @@ instance FromJSON RejectFacts where
                 <*> o .: "validity_upper_slot"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema RejectFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -811,13 +810,8 @@ instance ToSchema RejectFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only reject response. Carries the \
-                   \cage state UTxO, the batch of rejectable \
-                   \request UTxOs, wallet funding UTxO \
-                   \witnesses, server-derived Phase 3 validity \
-                   \slot bounds, and unverified protocol \
-                   \parameters, with no unsigned transaction \
-                   \CBOR."
+                ?~ "Facts-only reject response. Carries the cage state UTxO, the batch of rejectable request UTxOs, wallet funding UTxO witnesses, server-derived Phase 3 validity slot bounds, and unverified protocol parameters, with no unsigned transaction CBOR."
+#endif
 
 -- | Facts-only end response.
 --
@@ -863,6 +857,7 @@ instance FromJSON EndFacts where
                 <*> o .: "request_set"
                 <*> o .: "protocol_parameters"
 
+#if !defined(wasm32_HOST_ARCH)
 instance ToSchema EndFacts where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -901,7 +896,5 @@ instance ToSchema EndFacts where
                    , "protocol_parameters"
                    ]
             & description
-                ?~ "Facts-only end response. Carries state and \
-                   \wallet UTxO witnesses plus a request-set \
-                   \completeness proof, with no unsigned \
-                   \transaction CBOR."
+                ?~ "Facts-only end response. Carries state and wallet UTxO witnesses plus a request-set completeness proof, with no unsigned transaction CBOR."
+#endif

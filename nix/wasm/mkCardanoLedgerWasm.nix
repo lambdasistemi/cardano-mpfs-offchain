@@ -155,6 +155,23 @@ let
 
   isCabalFieldLine = line:
     builtins.match "[ \t]*[A-Za-z][A-Za-z0-9-]*:.*" line != null;
+  # Structural lines that carry NO colon (so they are NOT field lines) but
+  # MUST still terminate a module-inventory skip: stanza headers (`library`,
+  # `executable foo`, `test-suite t`, …) and conditional headers (`if …`,
+  # `else`). Otherwise the skip swallows them and the following block's fields
+  # get absorbed into the wrong place:
+  #   * a swallowed stanza header makes the next stanza's `build-depends` land
+  #     in the preceding `library`; when that is an executable depending on
+  #     its own package the library self-depends → cabal reports a spurious
+  #     "Dependency cycle between the following components: library";
+  #   * a swallowed `if arch(wasm32)` header drops its guarded `build-depends`
+  #     to the unconditional level, corrupting the parse.
+  # The native build never runs this stripper, so both only bite on wasm.
+  isStanzaHeader = line:
+    builtins.match
+      ("[ \t]*(library|executable|test-suite|benchmark|foreign-library"
+       + "|flag|common|source-repository|if|else)([ \t].*)?")
+      line != null;
   isModuleInventoryField = line:
     lib.any
       (field: builtins.match "[ \t]*${field}:.*" line != null)
@@ -164,7 +181,9 @@ let
       step = state: line:
         if isModuleInventoryField line then
           { skipping = true; lines = state.lines; }
-        else if state.skipping && !(isCabalFieldLine line) then
+        else if state.skipping
+             && !(isCabalFieldLine line)
+             && !(isStanzaHeader line) then
           state
         else
           { skipping = false; lines = state.lines ++ [ line ]; };
@@ -208,6 +227,28 @@ let
             else rawText;
         })
       (collectMetadataFiles "" src);
+
+  # Names of the LOCAL packages (those whose .cabal lives in `src`, as
+  # opposed to the source-repository-package forks). prebuiltDeps builds
+  # these from metadata-only source (no .hs), so the wasm phase must purge
+  # their dist-newstyle entries and rebuild them from real source. Derived
+  # from the .cabal `name:` field so the purge is version- and
+  # repo-agnostic (the previous hardcoded `*-0.1.0.0` glob silently missed
+  # any local package not at version 0.1.0.0).
+  localPackageNames =
+    let
+      nameOf = text:
+        let
+          matches =
+            lib.filter (m: m != null)
+              (map
+                (l: builtins.match "[ \t]*[Nn]ame:[ \t]*([A-Za-z0-9_-]+).*" l)
+                (lib.splitString "\n" text));
+        in if matches == [] then null else builtins.head (builtins.head matches);
+    in
+    lib.unique (lib.filter (n: n != null)
+      (map (file: nameOf file.text)
+        (lib.filter (file: lib.hasSuffix ".cabal" file.relPath) metadataFiles)));
 
   srcMetadata = pkgs.runCommand sandboxName {} (
     lib.concatMapStringsSep "\n"
@@ -433,24 +474,26 @@ let
       cp ${prebuiltDeps}/${projectFile} ${projectFile}
       chmod u+w ${projectFile}
 
-      # prebuiltDeps was built from metadata-only src (no .hs files), so any
-      # local path-package libraries listed in the project file got "built"
-      # with empty source — their dist-newstyle entries are present but
-      # don't expose any modules. Delete those entries so cabal rebuilds
+      # prebuiltDeps was built from metadata-only src (no .hs files), so the
+      # LOCAL path-package libraries (those whose .cabal lives in `src`) got
+      # "built" with empty source — their dist-newstyle entries are present
+      # but don't expose any modules. Delete those entries so cabal rebuilds
       # them from real source in this phase. External Hackage/CHaP/SRP libs
-      # are unaffected — their dist-newstyle artifacts are correct.
-      for pkg in $(find dist-newstyle/build -mindepth 3 -maxdepth 3 -type d \
-                     -path '*/wasm32-wasi/*' -name '*-0.1.0.0'); do
-        echo "purging local path-package dist entries: $pkg"
-        rm -rf "$pkg"
-      done
-      find dist-newstyle -name 'package.conf.d' -exec sh -c '
-        for d; do
-          for entry in "$d"/*-0.1.0.0-inplace*.conf; do
+      # and the fork path-packages are unaffected — their artifacts are
+      # correct and must be reused (purging them would force a full
+      # recompile, defeating the prebuiltDeps cache).
+      for name in ${lib.concatStringsSep " " localPackageNames}; do
+        for pkg in $(find dist-newstyle/build -mindepth 3 -maxdepth 3 -type d \
+                       -path '*/wasm32-wasi/*' -name "$name-*"); do
+          echo "purging local path-package dist entries: $pkg"
+          rm -rf "$pkg"
+        done
+        find dist-newstyle -name 'package.conf.d' -type d | while read -r d; do
+          for entry in "$d/$name"-*-inplace*.conf; do
             [ -e "$entry" ] && rm -f "$entry"
           done
         done
-      ' sh {} +
+      done
     '';
 
     buildPhase = ''

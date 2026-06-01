@@ -22,19 +22,20 @@ let
     "haskell-mts"
     "aiken-codegen"
     "cardano-tx-tools"
+    "rocksdb-kv-transactions"
   ];
 in {
   wasm-mpfs-verify = libWasm.mkCardanoLedgerWasm {
     inherit pkgs ghcWasmMeta wasiSdk chap src;
     projectFile = "cabal-wasm.project";
-    packages = [ "mpfs-verify-reactor" ];
+    # mpfs-verify-reactor exercises the verifier closure; building the
+    # cardano-mpfs-cage-tx library forces every cage transaction builder
+    # to cross-compile to wasm32-wasi alongside it (#258 cage extension).
+    packages = [ "mpfs-verify-reactor" "cardano-mpfs-cage-tx" ];
     srpForks = verifyForks;
     withCLibs = true;
-    # TODO(#258): compute the real FOD hash. The dependency-download phase
-    # evaluates and bootstraps correctly at index-state 2025-12-07, but the
-    # build host is at 99% disk; the hackage-index + ledger-closure download
-    # needs headroom. Replace fakeHash with the sha256 Nix prints once the
-    # FOD completes on a host with free space.
-    dependenciesHash = pkgs.lib.fakeHash;
+    # FOD hash of the wasm dependency-download phase. Recompute by setting
+    # to pkgs.lib.fakeHash and replacing with the sha256 Nix prints.
+    dependenciesHash = "sha256-IzbKKNVRPaKdXTsJ4nNSz1PkHSJRq0RDXSWh7BR15Ik=";
   };
 }
