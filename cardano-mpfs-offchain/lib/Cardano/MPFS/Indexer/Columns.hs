@@ -134,19 +134,13 @@ data AllColumns x where
     -- the in-memory known\/hidden sets.
     TrieMeta
         :: AllColumns (KV TokenId TrieStatus)
-    -- | Raw value bytes keyed by hashed-key (the
-    -- same 'HexKey' the trie uses), stored
-    -- alongside the trie so 'Trie.lookup' can
-    -- return the original value rather than the
-    -- key hash. Lookup contract change lands in a
-    -- later slice; in slice 1 the column exists
-    -- and is wired through codecs and the
-    -- on-disk schema only. See issue
-    -- @lambdasistemi/cardano-mpfs-offchain#247@
-    -- (Option A) and atomicity invariants INV-1
-    -- and INV-2.
+    -- | Original key and raw value bytes keyed by
+    -- hashed-key (the same 'HexKey' the trie uses),
+    -- stored alongside the trie so 'Trie.lookup'
+    -- can return the original value and enumeration
+    -- can return original keys.
     TrieRawValues
-        :: AllColumns (KV HexKey ByteString)
+        :: AllColumns (KV HexKey (ByteString, ByteString))
 
 instance GEq AllColumns where
     geq CageTokens CageTokens = Just Refl

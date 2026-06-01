@@ -14,7 +14,7 @@ module Cardano.MPFS.TrieSpec (spec) where
 import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
-import Data.List (nubBy)
+import Data.List (nubBy, sort)
 import Data.Maybe (isJust)
 
 import Test.Hspec
@@ -129,6 +129,17 @@ trieSpec newTrie = do
         mVal <-
             Cardano.MPFS.Trie.lookup trie "hello"
         mVal `shouldSatisfy` isJust
+
+    it "enumerate returns original keys and raw values" $ do
+        trie <- newTrie
+        let kvs =
+                [ ("alpha", "one")
+                , ("bravo", "two")
+                , ("charlie", "three")
+                ]
+        forM_ kvs $ uncurry (insert trie)
+        actual <- enumerate trie
+        sort actual `shouldBe` sort kvs
 
     it "lookup on empty returns Nothing" $ do
         trie <- newTrie

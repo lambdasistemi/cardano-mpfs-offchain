@@ -44,6 +44,7 @@ module Cardano.MPFS.Indexer.Codecs
     , rollbackPointPrism
     , trieStatusPrism
     , identityPrism
+    , rawValuePairPrism
     ) where
 
 import Cardano.Ledger.Binary
@@ -162,7 +163,7 @@ allCodecs =
         , TrieRawValues
             :=> Codecs
                 { keyCodec = hexKeyPrism
-                , valueCodec = identityPrism
+                , valueCodec = rawValuePairPrism
                 }
         ]
 
@@ -464,12 +465,36 @@ composedRollbackPrism = prism' enc dec
 isoMPFHash :: Prism' ByteString MPFHash
 isoMPFHash = mpfValueCodec mpfHashCodecs
 
--- | Identity codec for raw 'ByteString' values
--- ('TrieRawValues'). The bytes are stored as-is;
--- the MPF library and Aiken verifier already
--- treat user value payloads as opaque.
+-- | Identity codec for raw 'ByteString' values.
 identityPrism :: Prism' ByteString ByteString
 identityPrism = prism' id Just
+
+-- | Encode/decode original-key/raw-value pairs for
+-- 'TrieRawValues'. The payload bytes remain opaque;
+-- CBOR only frames the two fields.
+rawValuePairPrism :: Prism' ByteString (ByteString, ByteString)
+rawValuePairPrism = prism' enc dec
+  where
+    enc (k, v) =
+        toStrictByteString
+            ( encodeListLen 2
+                <> encodeBytes k
+                <> encodeBytes v
+            )
+
+    dec bs =
+        case deserialiseFromBytes
+            decodeRawValuePair
+            (BSL.fromStrict bs) of
+            Right (rest, pair)
+                | BSL.null rest -> Just pair
+            _ -> Nothing
+
+    decodeRawValuePair = do
+        len <- decodeListLen
+        case len of
+            2 -> (,) <$> decodeBytes <*> decodeBytes
+            _ -> fail "Invalid TrieRawValues pair"
 
 -- | Encode/decode 'TrieStatus' as a single byte.
 -- @0x01@ = 'Visible', @0x02@ = 'Hidden'.

@@ -66,7 +66,7 @@ import Cardano.MPFS.Trie (Proof (..), Trie (..))
 
 data PureTrieState = PureTrieState
     { ptsMpfDb :: MPFInMemoryDB
-    , ptsRawValues :: Map HexKey ByteString
+    , ptsRawValues :: Map HexKey (ByteString, ByteString)
     }
 
 -- | Create a new empty 'Trie IO' backed by a fresh
@@ -89,6 +89,7 @@ mkPureTrieFromRef ref =
         { insert = pureInsert ref
         , delete = pureDelete ref
         , lookup = pureLookup ref
+        , enumerate = pureEnumerate ref
         , getRoot = pureGetRoot ref
         , getProof = pureGetProof ref
         , getProofSteps = pureGetProofSteps ref
@@ -115,7 +116,7 @@ pureInsert ref k v =
                         , ptsRawValues =
                             Map.insert
                                 hexKey
-                                v
+                                (k, v)
                                 (ptsRawValues state)
                         }
             in  (state', rootFromDb db')
@@ -158,7 +159,14 @@ pureLookup ref k = do
                 (proofMPFM hexKey)
     pure $ case mProof of
         Nothing -> Nothing
-        Just _ -> Map.lookup hexKey (ptsRawValues state)
+        Just _ -> snd <$> Map.lookup hexKey (ptsRawValues state)
+
+-- | Enumerate original keys and raw values.
+pureEnumerate
+    :: IORef PureTrieState
+    -> IO [(ByteString, ByteString)]
+pureEnumerate ref =
+    map snd . Map.toList . ptsRawValues <$> readIORef ref
 
 -- | Get current root hash.
 pureGetRoot :: IORef PureTrieState -> IO Root
