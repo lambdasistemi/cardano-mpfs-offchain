@@ -93,6 +93,11 @@ fixedEnvelopes =
     [ bootEnvelope
     , assembleEnvelope
     , endEnvelope
+    , requestInsertEnvelope
+    , requestUpdateEnvelope
+    , requestDeleteEnvelope
+    , retractEnvelope
+    , rejectEnvelope
     ]
 
 bootEnvelope :: ByteString
@@ -120,6 +125,61 @@ endEnvelope =
     encodeStrict
         $ object
             [ "op" .= ("end" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+requestInsertEnvelope :: ByteString
+requestInsertEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("request_insert" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+requestUpdateEnvelope :: ByteString
+requestUpdateEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("request_update" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+requestDeleteEnvelope :: ByteString
+requestDeleteEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("request_delete" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+retractEnvelope :: ByteString
+retractEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("retract" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+rejectEnvelope :: ByteString
+rejectEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("reject" :: Text)
             , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
             , "cage_config" .= cageConfigValue
             , "wallet_policy" .= object []

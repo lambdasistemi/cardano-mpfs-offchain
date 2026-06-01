@@ -47,14 +47,31 @@ import Cardano.MPFS.Client.Cage.BuildError (BuildError)
 import Cardano.MPFS.Client.Cage.Config (CageConfig (..))
 import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
+import Cardano.MPFS.Client.Cage.Request
+    ( requestDeleteCageTx
+    , requestInsertCageTx
+    , requestUpdateCageTx
+    )
+import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify
     ( VerifiedBootFacts
     , VerifiedEndFacts
+    , VerifiedRejectFacts
+    , VerifiedRequestDeleteFacts
+    , VerifiedRequestInsertFacts
+    , VerifiedRequestUpdateFacts
+    , VerifiedRetractFacts
     , VerifyError
     , verifyBootFacts
     , verifyEndFacts
+    , verifyRejectFacts
+    , verifyRequestDeleteFacts
+    , verifyRequestInsertFacts
+    , verifyRequestUpdateFacts
+    , verifyRetractFacts
     )
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Ledger (ConwayTx)
@@ -115,12 +132,11 @@ dispatch = withObject "Envelope" $ \o -> do
             unsignedTx <- o .: "unsigned_tx"
             witnessSet <- o .: "witness_set"
             pure (assembleTx unsignedTx witnessSet)
-        -- TODO: later slices add these builders one operation at a time.
-        "request_insert" -> pure ("unknown_op: " <> op)
-        "request_update" -> pure ("unknown_op: " <> op)
-        "request_delete" -> pure ("unknown_op: " <> op)
-        "retract" -> pure ("unknown_op: " <> op)
-        "reject" -> pure ("unknown_op: " <> op)
+        "request_insert" -> dispatchRequestInsert o
+        "request_update" -> dispatchRequestUpdate o
+        "request_delete" -> dispatchRequestDelete o
+        "retract" -> dispatchRetract o
+        "reject" -> dispatchReject o
         "end" -> dispatchEnd o
         _ -> pure ("unknown_op: " <> op)
 
@@ -147,6 +163,66 @@ dispatchEnd o = do
             policyValue <- o .:? "wallet_policy"
             policy <- parseWalletPolicyMaybe policyValue
             pure (buildEnd cfg policy verified)
+
+dispatchRequestInsert :: Object -> Parser Text
+dispatchRequestInsert o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRequestInsertFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildRequestInsert cfg policy verified)
+
+dispatchRequestUpdate :: Object -> Parser Text
+dispatchRequestUpdate o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRequestUpdateFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildRequestUpdate cfg policy verified)
+
+dispatchRequestDelete :: Object -> Parser Text
+dispatchRequestDelete o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRequestDeleteFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildRequestDelete cfg policy verified)
+
+dispatchRetract :: Object -> Parser Text
+dispatchRetract o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRetractFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildRetract cfg policy verified)
+
+dispatchReject :: Object -> Parser Text
+dispatchReject o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyRejectFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildReject cfg policy verified)
 
 runVerified
     :: (FromJSON facts)
@@ -177,6 +253,56 @@ buildEnd
     -> Text
 buildEnd cfg policy verified =
     case endCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildRequestInsert
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestInsertFacts
+    -> Text
+buildRequestInsert cfg policy verified =
+    case requestInsertCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildRequestUpdate
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestUpdateFacts
+    -> Text
+buildRequestUpdate cfg policy verified =
+    case requestUpdateCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildRequestDelete
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRequestDeleteFacts
+    -> Text
+buildRequestDelete cfg policy verified =
+    case requestDeleteCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildRetract
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRetractFacts
+    -> Text
+buildRetract cfg policy verified =
+    case retractCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildReject
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedRejectFacts
+    -> Text
+buildReject cfg policy verified =
+    case rejectCageTx cfg policy verified of
         Left err -> renderBuildError err
         Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
 
