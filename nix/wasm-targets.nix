@@ -31,7 +31,8 @@ in {
     # mpfs-verify-reactor exercises the verifier closure; building the
     # cardano-mpfs-cage-tx library forces every cage transaction builder
     # to cross-compile to wasm32-wasi alongside it (#258 cage extension).
-    packages = [ "mpfs-verify-reactor" "cardano-mpfs-cage-tx" ];
+    packages =
+      [ "mpfs-verify-reactor" "mpfs-cage-reactor" "cardano-mpfs-cage-tx" ];
     srpForks = verifyForks;
     withCLibs = true;
     # FOD hash of the wasm dependency-download phase. Recompute by setting
