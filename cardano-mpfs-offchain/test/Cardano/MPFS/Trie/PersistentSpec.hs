@@ -1182,13 +1182,17 @@ insertsIntoTrieRawValuesColumn =
                     newRunTransaction database
                 let k =
                         byteStringToHexKey "the-key"
+                    origK = "the original key" :: ByteString
                     v = "the raw value bytes" :: ByteString
                 runTransaction
-                    $ KV.insert TrieRawValues k v
+                    $ KV.insert
+                        TrieRawValues
+                        k
+                        (origK, v)
                 result <-
                     runTransaction
                         $ KV.query TrieRawValues k
-                result `shouldBe` Just v
+                result `shouldBe` Just (origK, v)
 
 -- | Opening a pre-#247 database — one whose
 -- @TrieKV@ carries rows but whose
@@ -1339,7 +1343,7 @@ deleteThenLookupReturnsNothing =
         rawAfterInsert <-
             runTransaction
                 $ KV.query TrieRawValues hexKey
-        rawAfterInsert `shouldBe` Just v
+        rawAfterInsert `shouldBe` Just (k, v)
         -- Phase 2: delete
         runTransaction
             $ withTrie tm tid
@@ -1417,4 +1421,4 @@ rollbackUndoesBothColumns =
         mRaw <-
             runTransaction
                 $ KV.query TrieRawValues hexKey
-        mRaw `shouldBe` Just valueA
+        mRaw `shouldBe` Just (k, valueA)

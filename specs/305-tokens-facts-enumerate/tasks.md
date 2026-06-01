@@ -4,21 +4,21 @@ One commit per slice. Each commit body carries `Tasks: T305-S<n>`.
 
 ## Slice S1 — trie stores original key + `enumerate`
 
-- [ ] T305-S1 Add `enumerate :: m [(ByteString, ByteString)]` to the
+- [X] T305-S1 Add `enumerate :: m [(ByteString, ByteString)]` to the
       `Trie` record in `Trie.hs` (haddock: original key, raw value).
-- [ ] T305-S1 Pure backend: change `ptsRawValues` to
+- [X] T305-S1 Pure backend: change `ptsRawValues` to
       `Map HexKey (ByteString, ByteString)` storing `(origKey, value)`;
       implement `pureEnumerate` (the stored pairs); keep `lookup`/proof
       behaviour identical (project out the value half).
-- [ ] T305-S1 Persistent backend: widen `TrieRawValues` value to
+- [X] T305-S1 Persistent backend: widen `TrieRawValues` value to
       `(ByteString, ByteString)`; implement `enumerate` as a
       token-prefixed cursor scan; keep `lookup`/proof identical.
-- [ ] T305-S1 Wire `enumerate` into `PureManager` and the persistent
+- [X] T305-S1 Wire `enumerate` into `PureManager` and the persistent
       manager's produced `Trie`.
-- [ ] T305-S1 RED: `TrieSpec` case — insert N pairs into the pure AND
+- [X] T305-S1 RED: `TrieSpec` case — insert N pairs into the pure AND
       persistent managers, assert `enumerate` returns exactly those
       `(key, value)` pairs (order-insensitive).
-- [ ] T305-S1 Proof: `just unit` + `just ci` green.
+- [X] T305-S1 Proof: `just unit` + `just ci` green.
 
 ## Slice S2 — API type + route + handler + client + swagger
 

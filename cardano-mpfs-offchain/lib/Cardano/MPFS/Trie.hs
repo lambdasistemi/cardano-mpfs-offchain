@@ -83,6 +83,8 @@ data Trie m = Trie
     -- ^ Delete a key, returning new root
     , lookup :: ByteString -> m (Maybe ByteString)
     -- ^ Look up a value by key
+    , enumerate :: m [(ByteString, ByteString)]
+    -- ^ Enumerate original keys and raw values
     , getRoot :: m Root
     -- ^ Get current root hash
     , getProof :: ByteString -> m (Maybe Proof)
