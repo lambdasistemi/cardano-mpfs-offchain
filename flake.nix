@@ -89,7 +89,14 @@
                 mkSpagoDerivation.overlays.default
               ];
             };
-            mpfs-spa = import ./nix/mpfs-spa.nix { pkgs = psPkgs; };
+            mpfs-spa = import ./nix/mpfs-spa.nix {
+              pkgs = psPkgs;
+              # Integration (298): feed the real reactor wasm built by the
+              # wasm target instead of the placeholder, so the SPA bundles
+              # and loads the live mpfs-cage-reactor.
+              cageReactorWasm =
+                "${wasmTargets.wasm-mpfs-verify}/mpfs-cage-reactor.wasm";
+            };
           in {
             packages = {
               inherit (project.packages)
