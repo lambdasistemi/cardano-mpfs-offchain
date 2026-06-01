@@ -13,10 +13,10 @@ globalThis.runCageReactor = async (stdinText) => {
   const stdin = new OpenFile(
     new File(new TextEncoder().encode(stdinText))
   );
-  const stdoutLines = [];
-  const stderrLines = [];
-  const stdout = ConsoleStdout.lineBuffered((line) => stdoutLines.push(line));
-  const stderr = ConsoleStdout.lineBuffered((line) => stderrLines.push(line));
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const stdout = new ConsoleStdout((chunk) => stdoutChunks.push(chunk));
+  const stderr = new ConsoleStdout((chunk) => stderrChunks.push(chunk));
 
   const wasi = new WASI([], [], [stdin, stdout, stderr]);
   const mod = await compiledModulePromise;
@@ -29,12 +29,23 @@ globalThis.runCageReactor = async (stdinText) => {
     wasi.start(inst);
   } catch (err) {
     exitOk = false;
-    stderrLines.push(String(err));
+    stderrChunks.push(new TextEncoder().encode(String(err)));
   }
 
   return {
-    stdout: stdoutLines.join("\n"),
-    stderr: stderrLines.join("\n"),
+    stdout: decodeChunks(stdoutChunks),
+    stderr: decodeChunks(stderrChunks),
     exitOk,
   };
 };
+
+function decodeChunks(chunks) {
+  const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
