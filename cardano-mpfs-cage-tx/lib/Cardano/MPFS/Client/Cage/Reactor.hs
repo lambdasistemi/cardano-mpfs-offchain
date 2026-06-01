@@ -45,13 +45,16 @@ import Cardano.MPFS.Cage.Ledger (ConwayEra)
 import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
 import Cardano.MPFS.Client.Cage.BuildError (BuildError)
 import Cardano.MPFS.Client.Cage.Config (CageConfig (..))
+import Cardano.MPFS.Client.Cage.End (endCageTx)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify
     ( VerifiedBootFacts
+    , VerifiedEndFacts
     , VerifyError
     , verifyBootFacts
+    , verifyEndFacts
     )
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Ledger (ConwayTx)
@@ -118,7 +121,7 @@ dispatch = withObject "Envelope" $ \o -> do
         "request_delete" -> pure ("unknown_op: " <> op)
         "retract" -> pure ("unknown_op: " <> op)
         "reject" -> pure ("unknown_op: " <> op)
-        "end" -> pure ("unknown_op: " <> op)
+        "end" -> dispatchEnd o
         _ -> pure ("unknown_op: " <> op)
 
 dispatchBoot :: Object -> Parser Text
@@ -132,6 +135,18 @@ dispatchBoot o = do
             policyValue <- o .:? "wallet_policy"
             policy <- parseWalletPolicyMaybe policyValue
             pure (buildBoot cfg policy verified)
+
+dispatchEnd :: Object -> Parser Text
+dispatchEnd o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    cfg <- o .: "cage_config" >>= parseCageConfig
+    facts <- o .: "facts"
+    case runVerified (verifyEndFacts cfg tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildEnd cfg policy verified)
 
 runVerified
     :: (FromJSON facts)
@@ -152,6 +167,16 @@ buildBoot
     -> Text
 buildBoot cfg policy verified =
     case bootCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildEnd
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedEndFacts
+    -> Text
+buildEnd cfg policy verified =
+    case endCageTx cfg policy verified of
         Left err -> renderBuildError err
         Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
 
