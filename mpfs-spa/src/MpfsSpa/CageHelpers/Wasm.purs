@@ -69,7 +69,7 @@ wasmCageHelpers :: CageHelpers
 wasmCageHelpers =
   { registerToken
   , insertFact
-  , updateFact: \_ _ _ _ _ _ -> notYet "S4"
+  , updateFact
   , deleteFact: \_ _ _ _ _ -> notYet "S5"
   , retractRequest: \_ _ _ _ -> notYet "S6"
   , rejectExpired: \_ _ _ -> notYet "S7"
@@ -92,6 +92,11 @@ insertFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
 insertFact addr cfg token key value =
   requestCageTx "request_insert" cfg
     (\httpCfg -> postInsertFacts httpCfg addr token key value)
+
+updateFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> Value -> CageResult
+updateFact addr cfg token key oldValue newValue =
+  requestCageTx "request_update" cfg
+    (\httpCfg -> postUpdateFacts httpCfg addr token key oldValue newValue)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -163,6 +168,31 @@ postInsertFacts
   (Value value) =
   postFacts cfg "/facts/request/insert"
     (encodeJson { token, key, value, address })
+
+postUpdateFacts
+  :: Config
+  -> WalletAddr
+  -> TokenId
+  -> Key
+  -> Value
+  -> Value
+  -> Aff (Either String Json)
+postUpdateFacts
+  cfg
+  (WalletAddr address)
+  (TokenId token)
+  (Key key)
+  (Value oldValue)
+  (Value newValue) =
+  postFacts cfg "/facts/request/update"
+    ( encodeJson
+        { token
+        , key
+        , old_value: oldValue
+        , new_value: newValue
+        , address
+        }
+    )
 
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
