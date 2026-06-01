@@ -44,7 +44,9 @@ library
   default-language: GHC2021
   hs-source-dirs:   lib
   build-depends:
+    , aeson                      >=2.1  && <2.3
     , base                       >=4.18 && <5
+    , base16-bytestring          >=1.0  && <1.1
     , bytestring                 >=0.11 && <0.13
     , cardano-crypto-class
     , cardano-ledger-allegra
@@ -69,8 +71,42 @@ library
     Cardano.MPFS.Client.Cage.BuildError
     Cardano.MPFS.Client.Cage.End
     Cardano.MPFS.Client.Cage.Policy
+    Cardano.MPFS.Client.Cage.Reactor
     Cardano.MPFS.Client.Cage.Reject
     Cardano.MPFS.Client.Cage.Request
     Cardano.MPFS.Client.Cage.Retract
     Cardano.MPFS.Client.Cage.Serialize
     Cardano.MPFS.Client.Cage.Update
+
+executable mpfs-cage-reactor
+  import:           warnings
+  default-language: GHC2021
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , bytestring
+    , cardano-mpfs-cage-tx
+
+test-suite byte-identity
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , aeson                  >=2.1 && <2.3
+    , base
+    , base16-bytestring      >=1.0 && <1.1
+    , bytestring
+    , cardano-ledger-api
+    , cardano-ledger-binary
+    , cardano-mpfs-cage
+    , cardano-mpfs-cage-tx
+    , cardano-tx-tools
+    , hspec
+    , process
+    , QuickCheck
+    , text
+
+  other-modules:    Cardano.MPFS.Client.Cage.ReactorSpec
