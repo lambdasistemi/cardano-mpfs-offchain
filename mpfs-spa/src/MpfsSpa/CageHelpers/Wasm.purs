@@ -37,9 +37,12 @@ import MpfsSpa.Http (Config, getTrustedRoot, postBootFacts)
 import MpfsSpa.Types
   ( CageConfig
   , CageError(..)
+  , Key(..)
+  , RequestId(..)
   , TokenId(..)
   , TrustedRoot(..)
   , UnsignedTxCbor(..)
+  , Value(..)
   , WalletAddr(..)
   )
 
@@ -66,11 +69,11 @@ runCageReactor = toAffE <<< runCageReactorImpl
 wasmCageHelpers :: CageHelpers
 wasmCageHelpers =
   { registerToken
-  , insertFact: \_ _ _ _ _ -> notYet "S3"
-  , updateFact: \_ _ _ _ _ _ -> notYet "S4"
-  , deleteFact: \_ _ _ _ _ -> notYet "S5"
-  , retractRequest: \_ _ _ _ -> notYet "S6"
-  , rejectExpired: \_ _ _ -> notYet "S7"
+  , insertFact
+  , updateFact
+  , deleteFact
+  , retractRequest
+  , rejectExpired
   , endCage
   }
 
@@ -85,6 +88,31 @@ registerToken addr cfg = do
     Right root, Right facts -> do
       result <- runCageReactor (buildBootEnvelope root cfg facts)
       pure (UnsignedTxCbor <$> parseCageTxOutput result)
+
+insertFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
+insertFact addr cfg token key value =
+  requestCageTx "request_insert" cfg
+    (\httpCfg -> postInsertFacts httpCfg addr token key value)
+
+updateFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> Value -> CageResult
+updateFact addr cfg token key oldValue newValue =
+  requestCageTx "request_update" cfg
+    (\httpCfg -> postUpdateFacts httpCfg addr token key oldValue newValue)
+
+deleteFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
+deleteFact addr cfg token key value =
+  requestCageTx "request_delete" cfg
+    (\httpCfg -> postDeleteFacts httpCfg addr token key value)
+
+retractRequest :: WalletAddr -> CageConfig -> TokenId -> RequestId -> CageResult
+retractRequest addr cfg _token requestId =
+  requestCageTx "retract" cfg
+    (\httpCfg -> postRetractFacts httpCfg addr requestId)
+
+rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
+rejectExpired addr cfg token =
+  requestCageTx "reject" cfg
+    (\httpCfg -> postRejectFacts httpCfg addr token)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -111,6 +139,10 @@ buildEndEnvelope :: TrustedRoot -> CageConfig -> Json -> String
 buildEndEnvelope root cfg facts =
   stringify (buildEnvelope "end" root cfg facts)
 
+buildRequestEnvelope :: String -> TrustedRoot -> CageConfig -> Json -> String
+buildRequestEnvelope op root cfg facts =
+  stringify (buildEnvelope op root cfg facts)
+
 buildAssembleEnvelope :: String -> String -> String
 buildAssembleEnvelope unsignedTx witnessSet =
   stringify
@@ -127,21 +159,90 @@ parseCageTxOutput = parsePrefixedOutput "cage_tx: "
 parseSignedTxOutput :: ReactorResult -> Either CageError String
 parseSignedTxOutput = parsePrefixedOutput "signed_tx: "
 
+requestCageTx
+  :: String
+  -> CageConfig
+  -> (Config -> Aff (Either String Json))
+  -> CageResult
+requestCageTx op cfg fetchFacts = do
+  httpCfg <- liftEffect serverConfig
+  eroot <- getTrustedRoot httpCfg
+  efacts <- fetchFacts httpCfg
+  case eroot, efacts of
+    Left err, _ -> pure (Left (CageError err))
+    _, Left err -> pure (Left (CageError err))
+    Right root, Right facts -> do
+      result <- runCageReactor (buildRequestEnvelope op root cfg facts)
+      pure (UnsignedTxCbor <$> parseCageTxOutput result)
+
+postInsertFacts :: Config -> WalletAddr -> TokenId -> Key -> Value -> Aff (Either String Json)
+postInsertFacts
+  cfg
+  (WalletAddr address)
+  (TokenId token)
+  (Key key)
+  (Value value) =
+  postFacts cfg "/facts/request/insert"
+    (encodeJson { token, key, value, address })
+
+postUpdateFacts
+  :: Config
+  -> WalletAddr
+  -> TokenId
+  -> Key
+  -> Value
+  -> Value
+  -> Aff (Either String Json)
+postUpdateFacts
+  cfg
+  (WalletAddr address)
+  (TokenId token)
+  (Key key)
+  (Value oldValue)
+  (Value newValue) =
+  postFacts cfg "/facts/request/update"
+    ( encodeJson
+        { token
+        , key
+        , old_value: oldValue
+        , new_value: newValue
+        , address
+        }
+    )
+
+postDeleteFacts :: Config -> WalletAddr -> TokenId -> Key -> Value -> Aff (Either String Json)
+postDeleteFacts
+  cfg
+  (WalletAddr address)
+  (TokenId token)
+  (Key key)
+  (Value value) =
+  postFacts cfg "/facts/request/delete"
+    (encodeJson { token, key, value, address })
+
+postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json)
+postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
+  postFacts cfg "/facts/retract" (encodeJson { utxo, address })
+
+postRejectFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
+postRejectFacts cfg (WalletAddr address) (TokenId token) =
+  postFacts cfg "/facts/reject" (encodeJson { token, address })
+
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
-postEndFacts cfg (WalletAddr address) (TokenId token) = do
+postEndFacts cfg (WalletAddr address) (TokenId token) =
+  postFacts cfg "/facts/end" (encodeJson { token, address })
+
+postFacts :: Config -> String -> Json -> Aff (Either String Json)
+postFacts cfg path body = do
   res <-
     toAffE
       ( postJsonImpl
-          (cfg.baseUrl <> "/facts/end")
-          (stringify (encodeJson { token, address }))
+          (cfg.baseUrl <> path)
+          (stringify body)
       )
   pure
     if res.ok then Right res.json
     else Left ("HTTP " <> show res.status <> ": " <> res.text)
-
-notYet :: String -> CageResult
-notYet slice =
-  pure (Left (CageError ("not yet implemented (slice " <> slice <> ")")))
 
 buildEnvelope :: String -> TrustedRoot -> CageConfig -> Json -> Json
 buildEnvelope op (TrustedRoot trustedRoot) cfg facts =
