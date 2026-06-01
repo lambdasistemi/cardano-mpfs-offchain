@@ -38,6 +38,7 @@ import MpfsSpa.Types
   ( CageConfig
   , CageError(..)
   , Key(..)
+  , RequestId(..)
   , TokenId(..)
   , TrustedRoot(..)
   , UnsignedTxCbor(..)
@@ -71,7 +72,7 @@ wasmCageHelpers =
   , insertFact
   , updateFact
   , deleteFact
-  , retractRequest: \_ _ _ _ -> notYet "S6"
+  , retractRequest
   , rejectExpired: \_ _ _ -> notYet "S7"
   , endCage
   }
@@ -102,6 +103,11 @@ deleteFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
 deleteFact addr cfg token key value =
   requestCageTx "request_delete" cfg
     (\httpCfg -> postDeleteFacts httpCfg addr token key value)
+
+retractRequest :: WalletAddr -> CageConfig -> TokenId -> RequestId -> CageResult
+retractRequest addr cfg _token requestId =
+  requestCageTx "retract" cfg
+    (\httpCfg -> postRetractFacts httpCfg addr requestId)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -208,6 +214,10 @@ postDeleteFacts
   (Value value) =
   postFacts cfg "/facts/request/delete"
     (encodeJson { token, key, value, address })
+
+postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json)
+postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
+  postFacts cfg "/facts/retract" (encodeJson { utxo, address })
 
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
