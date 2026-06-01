@@ -57,7 +57,6 @@ walletPolicyJson =
   obj
     [ Tuple "max_fee" (fromNumber 10000000.0)
     , Tuple "max_min_utxo_coin_per_byte" (fromNumber 10000.0)
-    , Tuple "max_validity_window" (fromNumber 9007199254740991.0)
     , Tuple "max_ex_unit_prices"
         ( obj
             [ Tuple "price_memory" (fromNumber 1000000000000.0)
