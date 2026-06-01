@@ -111,8 +111,10 @@ import Cardano.MPFS.HTTP.Types
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
+    , FactEntry (..)
     , FactResponse (..)
     , FactWitness (..)
+    , FactsResponse (..)
     , InsertRequest (..)
     , ProofResponse (..)
     , RejectRequest (..)
@@ -207,6 +209,7 @@ mkApp ctx =
             :<|> tokensHandler ctx
             :<|> tokenHandler ctx
             :<|> tokenRootHandler ctx
+            :<|> tokenFactsHandler ctx
             :<|> tokenFactHandler ctx
             :<|> tokenProofHandler ctx
             :<|> tokenRequestsHandler ctx
@@ -388,6 +391,40 @@ tokenRootHandler ctx tokenId =
             $ \trie -> do
                 Root r <- Trie.getRoot trie
                 pure (Hex r)
+
+tokenFactsHandler
+    :: Context IO
+    -> TokenIdJSON
+    -> Handler FactsResponse
+tokenFactsHandler ctx tokenId = do
+    let tid = tokenIdFromJSON tokenId
+    LocatedTokenState
+        { tokenStateRef
+        , tokenState = ts
+        } <-
+        requireToken ctx tid
+    snapshot <- requireSnapshot ctx
+    witness <- requireUtxoWitness ctx tokenStateRef
+    facts <-
+        liftIO
+            $ Trie.withTrie (trieManager ctx) tid
+            $ \trie -> Trie.enumerate trie
+    pure
+        FactsResponse
+            { frsSnapshot = snapshot
+            , frsState =
+                WitnessedTokenState
+                    { wtsUtxo = witness
+                    , wtsState = tokenStateToJSON ts
+                    }
+            , frsFacts =
+                [ FactEntry
+                    { feKey = Hex k
+                    , feValue = Hex v
+                    }
+                | (k, v) <- facts
+                ]
+            }
 
 tokenFactHandler
     :: Context IO

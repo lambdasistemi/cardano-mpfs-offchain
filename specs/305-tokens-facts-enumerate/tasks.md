@@ -22,24 +22,24 @@ One commit per slice. Each commit body carries `Tasks: T305-S<n>`.
 
 ## Slice S2 — API type + route + handler + client + swagger
 
-- [ ] T305-S2 Add `FactEntry {feKey, feValue}` and `FactsResponse
+- [X] T305-S2 Add `FactEntry {feKey, feValue}` and `FactsResponse
       {frsSnapshot, frsState, frsFacts}` with `ToJSON`/`FromJSON`/
       `ToSchema` in `API/Types.hs`; export from `API.hs` and re-export
       from offchain `HTTP/Types.hs`.
-- [ ] T305-S2 Add `TokensFactsAPI` route `"tokens" :> Capture "id" :>
+- [X] T305-S2 Add `TokensFactsAPI` route `"tokens" :> Capture "id" :>
       "facts" :> Get '[JSON] FactsResponse` (coexists with the per-key
       route); add to the API product.
-- [ ] T305-S2 Add `tokenFactsHandler` (mirror `tokenHandler`:
+- [X] T305-S2 Add `tokenFactsHandler` (mirror `tokenHandler`:
       `requireToken` → `requireSnapshot` → `requireUtxoWitness`, then
       `Trie.withTrie … enumerate`); assemble `FactsResponse`; add to the
       handler tree.
-- [ ] T305-S2 Expose the enumerate call in the `cardano-mpfs-client`
+- [X] T305-S2 Expose the enumerate call in the `cardano-mpfs-client`
       subset (mirror existing token/fact client functions).
-- [ ] T305-S2 RED: HTTP-level handler spec (sibling to `TokenSpec`) —
+- [X] T305-S2 RED: HTTP-level handler spec (sibling to `TokenSpec`) —
       boot a token with a few facts, assert response carries snapshot,
       witnessed state, and all inserted `(key, value)`.
-- [ ] T305-S2 `just update-swagger`; confirm `swagger-up-to-date` green.
-- [ ] T305-S2 Proof: `just unit` + `just ci` green.
+- [X] T305-S2 `just update-swagger`; confirm `swagger-up-to-date` green.
+- [X] T305-S2 Proof: `just unit` + `just ci` green.
 
 ## Slice S3 — e2e completeness proof + README
 
