@@ -21,9 +21,14 @@ module Cardano.MPFS.API
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
+    , TokensFactsAPI
     , TokenFactAPI
     , TokenProofAPI
     , TokenRequestsAPI
+
+      -- * Response types
+    , FactEntry (..)
+    , FactsResponse (..)
 
       -- * UTxO CSMT endpoints
     , UtxoResolveAPI
@@ -68,7 +73,9 @@ import Cardano.MPFS.API.Types
     ( BootRequest
     , DeleteRequest
     , EndRequest
+    , FactEntry (..)
     , FactResponse
+    , FactsResponse (..)
     , InsertRequest
     , ProofResponse
     , RejectRequest
@@ -115,6 +122,17 @@ type TokenRootAPI =
         :> Capture "id" TokenIdJSON
         :> "root"
         :> Get '[JSON] Hex
+
+-- | @GET \/tokens\/:id\/facts@ — enumerate every
+-- fact key and value for a token, returning the
+-- state witness carrying the trie root and the
+-- verification snapshot the bundled UTxO proof
+-- targets.
+type TokensFactsAPI =
+    "tokens"
+        :> Capture "id" TokenIdJSON
+        :> "facts"
+        :> Get '[JSON] FactsResponse
 
 -- | @GET \/tokens\/:id\/facts\/:key@ — look up a
 -- value by key, returning the value, the state
@@ -287,6 +305,7 @@ type API =
         :<|> TokensAPI
         :<|> TokenAPI
         :<|> TokenRootAPI
+        :<|> TokensFactsAPI
         :<|> TokenFactAPI
         :<|> TokenProofAPI
         :<|> TokenRequestsAPI

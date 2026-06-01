@@ -61,6 +61,7 @@ import Cardano.MPFS.Client
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateFacts
+    , tokenFacts
     , updateFacts
     )
 import Cardano.MPFS.Client.Fixtures
@@ -82,6 +83,16 @@ spec = do
         it "does not post any write case to the legacy update tx route"
             $ map endpointPath writeEndpointCases
             `shouldNotContain` [["tx", "update"]]
+
+        it "gets token facts from the expected endpoint"
+            $ withJsonServer
+                status200
+                (Aeson.encode honestFactsResponse)
+            $ \seen base -> do
+                client <- mkClient base SkipVerifier
+                result <- tokenFacts client sampleToken
+                result `shouldBeRight` honestFactsResponse
+                assertSeenGet seen ["tokens", "00", "facts"]
 
         it "runs the verifier when configured with RunVerifier"
             $ withJsonServer
@@ -375,6 +386,51 @@ sampleValue = Hex "22"
 sampleOldValue = Hex "33"
 sampleNewValue = Hex "44"
 
+honestFactsResponse :: Wire.FactsResponse
+honestFactsResponse =
+    Wire.FactsResponse
+        { Wire.frsSnapshot =
+            Wire.VerificationSnapshot
+                { Wire.vsUtxoRoot =
+                    Wire.Hex (BS.replicate 32 0x11)
+                , Wire.vsChainPoint =
+                    Wire.ChainPointJSON
+                        { Wire.cpSlot = 42
+                        , Wire.cpBlockId =
+                            Wire.Hex (BS.replicate 32 0x22)
+                        }
+                }
+        , Wire.frsState =
+            Wire.WitnessedTokenState
+                { Wire.wtsUtxo =
+                    Wire.WitnessedUtxo
+                        { Wire.wuTxIn =
+                            Wire.TxInJSON
+                                { Wire.tjTxId =
+                                    Wire.Hex
+                                        (BS.replicate 32 0x33)
+                                , Wire.tjTxIx = 0
+                                }
+                        , Wire.wuTxOut = Wire.Hex "tx-out"
+                        , Wire.wuProof = Wire.Hex "proof"
+                        }
+                , Wire.wtsState =
+                    Wire.TokenStateJSON
+                        { Wire.owner = "owner"
+                        , Wire.root = Wire.Hex "root"
+                        , Wire.tip = 1
+                        , Wire.processTime = 2
+                        , Wire.retractTime = 3
+                        }
+                }
+        , Wire.frsFacts =
+            [ Wire.FactEntry
+                { Wire.feKey = Wire.Hex "alpha"
+                , Wire.feValue = Wire.Hex "one"
+                }
+            ]
+        }
+
 honestUpdateFacts :: FactsWire.UpdateFacts
 honestUpdateFacts =
     FactsWire.UpdateFacts
@@ -501,6 +557,19 @@ assertSeen seen expectedPath expectedBody = do
             seenMethod `shouldBe` "POST"
             (Aeson.eitherDecode seenBody :: Either String Aeson.Value)
                 `shouldBe` Right expectedBody
+
+assertSeenGet
+    :: IORef (Maybe SeenRequest)
+    -> [Text]
+    -> IO ()
+assertSeenGet seen expectedPath = do
+    observed <- readIORef seen
+    case observed of
+        Nothing -> expectationFailure "server did not receive a request"
+        Just SeenRequest{..} -> do
+            seenPath `shouldBe` expectedPath
+            seenMethod `shouldBe` "GET"
+            seenBody `shouldBe` mempty
 
 voidRight :: IO (Either ClientError a) -> IO (Either ClientError ())
 voidRight = fmap void

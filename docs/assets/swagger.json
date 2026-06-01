@@ -129,6 +129,22 @@
             ],
             "type": "object"
         },
+        "FactEntry": {
+            "description": "One enumerated token fact entry",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "key",
+                "value"
+            ],
+            "type": "object"
+        },
         "FactResponse": {
             "description": "Proof-bearing fact value response",
             "properties": {
@@ -162,6 +178,29 @@
             "required": [
                 "state",
                 "mpf_proof"
+            ],
+            "type": "object"
+        },
+        "FactsResponse": {
+            "description": "Proof-bearing complete token facts response",
+            "properties": {
+                "facts": {
+                    "items": {
+                        "$ref": "#/definitions/FactEntry"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "snapshot",
+                "state",
+                "facts"
             ],
             "type": "object"
         },
@@ -1472,6 +1511,32 @@
                         "description": "",
                         "schema": {
                             "$ref": "#/definitions/TokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/facts": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/FactsResponse"
                         }
                     },
                     "400": {

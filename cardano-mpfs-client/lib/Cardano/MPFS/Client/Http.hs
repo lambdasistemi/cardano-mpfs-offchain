@@ -25,6 +25,7 @@ module Cardano.MPFS.Client.Http
     , UpdateFactsParams (..)
 
       -- * Write endpoints
+    , tokenFacts
     , bootFacts
     , requestInsertFacts
     , requestDeleteFacts
@@ -44,10 +45,12 @@ import Data.Aeson
     , (.=)
     )
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Network.HTTP.Client (Manager)
 import Network.HTTP.Types.Status (statusCode)
 import Servant.Client
@@ -71,11 +74,12 @@ import Cardano.MPFS.API
     , FactsRequestInsertAPI
     , FactsRequestUpdateAPI
     , FactsUpdateAPI
+    , TokensFactsAPI
     , TxWriteAPI
     )
 import Cardano.MPFS.API.Types qualified as Wire
 import Cardano.MPFS.API.Types.Facts qualified as FactsWire
-import Cardano.MPFS.Client.Snapshot (Hex)
+import Cardano.MPFS.Client.Snapshot (Hex (..))
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify
     ( VerifyError
@@ -203,6 +207,23 @@ instance ToJSON UpdateFactsParams where
             [ "token" .= updateFactsToken
             , "address" .= updateFactsAddress
             ]
+
+-- | Fetch all indexed facts for a token.
+tokenFacts
+    :: MpfsHttp
+    -> Hex
+    -> IO (Either ClientError Wire.FactsResponse)
+tokenFacts MpfsHttp{..} tokenHex =
+    case tokenIdFromHex tokenHex of
+        Left err -> pure (Left err)
+        Right tokenId -> do
+            result <-
+                runClientM
+                    (tokensFactsClient tokenId)
+                    (mkClientEnv manager baseUrl)
+            pure $ case result of
+                Left err -> Left (fromServantError err)
+                Right response -> Right response
 
 -- | Fetch boot facts. The post-split #243 shape: caller supplies
 -- an externally-trusted CSMT root; the verifier checks
@@ -354,6 +375,14 @@ fromServantError err =
         _ ->
             TransportError err
 
+tokenIdFromHex :: Hex -> Either ClientError Wire.TokenIdJSON
+tokenIdFromHex (Hex tokenText) =
+    case B16.decode (TE.encodeUtf8 tokenText) of
+        Left err -> Left (RequestEncodingError err)
+        Right tokenBytes -> Right (Wire.TokenIdJSON tokenBytes)
+
+tokensFactsClient
+    :: Wire.TokenIdJSON -> ClientM Wire.FactsResponse
 factsBootClient
     :: Wire.BootRequest -> ClientM FactsWire.BootFacts
 factsRequestInsertClient
@@ -368,6 +397,9 @@ factsRejectClient
     :: Wire.RejectRequest -> ClientM FactsWire.RejectFacts
 txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
+tokensFactsClient =
+    client (Proxy :: Proxy TokensFactsAPI)
+
 factsBootClient =
     client (Proxy :: Proxy FactsBootAPI)
 
