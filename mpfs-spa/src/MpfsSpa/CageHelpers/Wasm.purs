@@ -73,7 +73,7 @@ wasmCageHelpers =
   , updateFact
   , deleteFact
   , retractRequest
-  , rejectExpired: \_ _ _ -> notYet "S7"
+  , rejectExpired
   , endCage
   }
 
@@ -108,6 +108,11 @@ retractRequest :: WalletAddr -> CageConfig -> TokenId -> RequestId -> CageResult
 retractRequest addr cfg _token requestId =
   requestCageTx "retract" cfg
     (\httpCfg -> postRetractFacts httpCfg addr requestId)
+
+rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
+rejectExpired addr cfg token =
+  requestCageTx "reject" cfg
+    (\httpCfg -> postRejectFacts httpCfg addr token)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -219,6 +224,10 @@ postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json
 postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
   postFacts cfg "/facts/retract" (encodeJson { utxo, address })
 
+postRejectFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
+postRejectFacts cfg (WalletAddr address) (TokenId token) =
+  postFacts cfg "/facts/reject" (encodeJson { token, address })
+
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
   postFacts cfg "/facts/end" (encodeJson { token, address })
@@ -234,10 +243,6 @@ postFacts cfg path body = do
   pure
     if res.ok then Right res.json
     else Left ("HTTP " <> show res.status <> ": " <> res.text)
-
-notYet :: String -> CageResult
-notYet slice =
-  pure (Left (CageError ("not yet implemented (slice " <> slice <> ")")))
 
 buildEnvelope :: String -> TrustedRoot -> CageConfig -> Json -> Json
 buildEnvelope op (TrustedRoot trustedRoot) cfg facts =
