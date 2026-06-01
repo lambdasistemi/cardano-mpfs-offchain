@@ -162,6 +162,7 @@ in {
     import ./docker-image.nix { inherit pkgs project version mpfs-blueprint; };
   packages.mpfs-devnet-server =
     project.hsPkgs.cardano-mpfs-offchain.components.exes.mpfs-devnet-server;
+  packages.mpfs-bootstrap-genesis = devnet-genesis;
   packages.mpfs-cli = project.hsPkgs.cardano-mpfs-cli.components.exes.mpfs-cli;
   packages.devnet-genesis = devnet-genesis;
   packages.offchain-tests = offchain-unit-tests;
