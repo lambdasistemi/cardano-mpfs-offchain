@@ -62,7 +62,7 @@ transactions; the client signs and submits via `POST /tx/submit`.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/status` | Chain tip and checkpoint |
-| GET | `/tokens` | List all token IDs |
+| GET | `/tokens` | Enumerate token UTxOs with completeness witness |
 | GET | `/tokens/:id` | Token state |
 | GET | `/tokens/:id/root` | Trie root hash |
 | GET | `/tokens/:id/facts` | Enumerate facts with witnessed state |

@@ -357,6 +357,7 @@ test-suite e2e-tests
     , cardano-mpfs-api
     , cardano-mpfs-client
     , cardano-mpfs-offchain
+    , cardano-mpfs-verify
     , cardano-mpfs-workflows
     , cardano-node-clients:devnet
     , cardano-tx-tools
@@ -368,6 +369,8 @@ test-suite e2e-tests
     , hspec                        >=2.11 && <2.12
     , http-types
     , microlens
+    , mts:csmt-core
+    , mts:csmt-verify
     , process
     , stm
     , temporary
@@ -391,4 +394,5 @@ test-suite e2e-tests
     Cardano.MPFS.E2E.SubmitEndpointSpec
     Cardano.MPFS.E2E.SubmitterSpec
     Cardano.MPFS.E2E.TokenFactsCompletenessSpec
+    Cardano.MPFS.E2E.TokensCompletenessSpec
     Cardano.MPFS.E2E.WorkflowsIntegrationSpec

@@ -95,9 +95,9 @@ No derived token-id list (pure witness; client derives ids from each
 
 ### Slice S5 — e2e completeness proof for GET /tokens + README
 
-- [ ] T305-S5 e2e spec under `withDevnet`: boot >=2 tokens, GET
+- [X] T305-S5 e2e spec under `withDevnet`: boot >=2 tokens, GET
       `/tokens`, assert `entries` is exactly the booted token set and the
       `completeness_proof` verifies against `snapshot.utxo_root` at the
       cage script-hash prefix.
-- [ ] T305-S5 Update the README HTTP table row for `GET /tokens`.
-- [ ] T305-S5 Proof: `just e2e` green for the new row + `just ci` green.
+- [X] T305-S5 Update the README HTTP table row for `GET /tokens`.
+- [X] T305-S5 Proof: `just e2e` green for the new row + `just ci` green.
