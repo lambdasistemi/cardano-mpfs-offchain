@@ -13,8 +13,7 @@ module Cardano.MPFS.E2E.BootFactsSpec
 
 import Control.Concurrent (threadDelay)
 import Data.Aeson
-    ( Value
-    , eitherDecode
+    ( eitherDecode
     , encode
     )
 import Data.ByteString (ByteString)
@@ -85,6 +84,8 @@ import Cardano.MPFS.API.Types
     ( BootFacts
     , BootRequest (..)
     , StatusResponse (..)
+    , TokensResponse (..)
+    , UtxoSetWitness (..)
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -265,10 +266,10 @@ tokenCount app = do
     case eitherDecode (simpleBody resp) of
         Left err ->
             expectationFailure
-                ("Could not decode token list: " <> err)
+                ("Could not decode TokensResponse: " <> err)
                 $> 0
-        Right (tokens :: [Value]) ->
-            pure (length tokens)
+        Right TokensResponse{trsTokens = UtxoSetWitness{uswEntries}} ->
+            pure (length uswEntries)
 
 tokenVisible :: Application -> TokenId -> IO Bool
 tokenVisible app tokenId = do
