@@ -52,3 +52,52 @@ One commit per slice. Each commit body carries `Tasks: T305-S<n>`.
 - [X] T305-S3 Add the README HTTP API table row; wire the spec into the
       e2e suite (`main.hs`).
 - [X] T305-S3 Proof: `just e2e` green for the new row.
+
+## Companion: proof-bearing GET /tokens (folded into this PR)
+
+Reshape the bare `GET /tokens` (`[TokenIdJSON]`) into a complete,
+proof-bearing token-set response. Tokens are UTxOs at the cage script
+address; the UTxO-CSMT has compact prefix-completeness, so a single
+proof attests the set is exactly the leaves under that prefix — no
+reconstruction. Reuses `readRequestSetAt :: Addr -> IndexerTx
+ResolvedUtxoSet` (call it at `cageAddr`) and `requestSetToJSON ::
+ResolvedUtxoSet -> UtxoSetWitness`. Shape:
+
+```
+GET /tokens -> { "snapshot": VerificationSnapshot,
+                 "tokens":   UtxoSetWitness }   // {entries, completeness_proof}
+```
+
+No derived token-id list (pure witness; client derives ids from each
+`entries[].txout_cbor`). No unverifiable fields.
+
+### Slice S4 — TokensResponse type + reshape route + handler + client + swagger
+
+- [ ] T305-S4 Add `TokensResponse {trsSnapshot :: VerificationSnapshot,
+      trsTokens :: UtxoSetWitness}` with `ToJSON`/`FromJSON`/`ToSchema`
+      in `API/Types.hs`; export from `API.hs`; re-export from offchain
+      `HTTP/Types.hs`.
+- [ ] T305-S4 Reshape `TokensAPI` from `"tokens" :> Get '[JSON]
+      [TokenIdJSON]` to `... Get '[JSON] TokensResponse`.
+- [ ] T305-S4 Reshape `tokensHandler`: `requireSnapshot` + run the
+      UTxO-set read at `cageAddr` (reuse `readRequestSetAt`; if a rename
+      to a generic `readUtxoSetAt` is cleaner, do it and update the
+      requests use-site) → `requestSetToJSON` into `trsTokens`.
+- [ ] T305-S4 Update the `cardano-mpfs-client` `/tokens` call + any
+      client-internal decode to the new shape.
+- [ ] T305-S4 RED: HTTP-level handler spec — boot >=2 tokens, assert the
+      response carries the snapshot and a `UtxoSetWitness` whose
+      `entries` match the booted token UTxOs.
+- [ ] T305-S4 `just update-swagger`; `swagger-up-to-date` green.
+- [ ] T305-S4 Proof: `just unit` + `just ci` green. NOTE in WIP if any
+      in-repo consumer (CLI/SPA) still decodes the old bare list —
+      surface as a follow-up, do not fix here.
+
+### Slice S5 — e2e completeness proof for GET /tokens + README
+
+- [ ] T305-S5 e2e spec under `withDevnet`: boot >=2 tokens, GET
+      `/tokens`, assert `entries` is exactly the booted token set and the
+      `completeness_proof` verifies against `snapshot.utxo_root` at the
+      cage script-hash prefix.
+- [ ] T305-S5 Update the README HTTP table row for `GET /tokens`.
+- [ ] T305-S5 Proof: `just e2e` green for the new row + `just ci` green.
