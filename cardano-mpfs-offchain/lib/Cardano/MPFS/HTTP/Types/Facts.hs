@@ -15,6 +15,7 @@ module Cardano.MPFS.HTTP.Types.Facts
     , mkRetractFacts
     , mkRejectFacts
     , mkEndFacts
+    , utxoSetToJSON
     ) where
 
 import Data.ByteString (ByteString)
@@ -312,7 +313,7 @@ mkEndFacts snap tid stateUtxo walletUtxos requestSet pparams =
             resolvedWalletInputToUtxoEntry stateUtxo
         , efWalletUtxos =
             map resolvedWalletInputToUtxoEntry walletUtxos
-        , efRequestSet = requestSetToJSON requestSet
+        , efRequestSet = utxoSetToJSON requestSet
         , efProtocolParameters = pparamsToJSON pparams
         }
 
@@ -328,16 +329,16 @@ pparamsToJSON pparams =
                 )
         }
 
-requestSetToJSON :: ResolvedUtxoSet -> UtxoSetWitness
-requestSetToJSON (entries, proofBytes) =
+utxoSetToJSON :: ResolvedUtxoSet -> UtxoSetWitness
+utxoSetToJSON (entries, proofBytes) =
     UtxoSetWitness
-        { uswEntries = map requestSetEntryToJSON entries
+        { uswEntries = map utxoSetEntryToJSON entries
         , uswCompletenessProof = Hex proofBytes
         }
 
-requestSetEntryToJSON
+utxoSetEntryToJSON
     :: (TxIn, ByteString) -> UtxoEntryRefOnly
-requestSetEntryToJSON (txIn, txOutBytes) =
+utxoSetEntryToJSON (txIn, txOutBytes) =
     UtxoEntryRefOnly
         { uerRef = txInToUtxoRef txIn
         , uerTxOutCbor = Hex txOutBytes

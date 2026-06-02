@@ -47,6 +47,7 @@ module Cardano.MPFS.API.Types
     , WitnessedTokenState (..)
     , WitnessedRequest (..)
     , FactWitness (..)
+    , TokensResponse (..)
     , TokenResponse (..)
     , FactEntry (..)
     , FactsResponse (..)
@@ -445,6 +446,28 @@ instance FromJSON FactWitness where
         FactWitness
             <$> o .: "state"
             <*> o .: "mpf_proof"
+
+-- | Response envelope for @GET \/tokens@.
+data TokensResponse = TokensResponse
+    { trsSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proof targets
+    , trsTokens :: UtxoSetWitness
+    -- ^ Complete token-state UTxO set witness
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokensResponse where
+    toJSON TokensResponse{..} =
+        object
+            [ "snapshot" .= trsSnapshot
+            , "tokens" .= trsTokens
+            ]
+
+instance FromJSON TokensResponse where
+    parseJSON = withObject "TokensResponse" $ \o ->
+        TokensResponse
+            <$> o .: "snapshot"
+            <*> o .: "tokens"
 
 -- | Response envelope for @GET \/tokens\/:id@.
 data TokenResponse = TokenResponse
@@ -1725,6 +1748,30 @@ instance ToSchema TokenResponse where
             & required .~ ["snapshot", "state"]
             & description
                 ?~ "Proof-bearing token state response"
+
+instance ToSchema TokensResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokensSchema <-
+            declareSchemaRef
+                (Proxy @UtxoSetWitness)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokensResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("tokens", tokensSchema)
+                    ]
+            & required .~ ["snapshot", "tokens"]
+            & description
+                ?~ "Proof-bearing complete token set \
+                   \response"
 
 instance ToSchema FactEntry where
     declareNamedSchema _ = do

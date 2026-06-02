@@ -73,23 +73,23 @@ No derived token-id list (pure witness; client derives ids from each
 
 ### Slice S4 — TokensResponse type + reshape route + handler + client + swagger
 
-- [ ] T305-S4 Add `TokensResponse {trsSnapshot :: VerificationSnapshot,
+- [X] T305-S4 Add `TokensResponse {trsSnapshot :: VerificationSnapshot,
       trsTokens :: UtxoSetWitness}` with `ToJSON`/`FromJSON`/`ToSchema`
       in `API/Types.hs`; export from `API.hs`; re-export from offchain
       `HTTP/Types.hs`.
-- [ ] T305-S4 Reshape `TokensAPI` from `"tokens" :> Get '[JSON]
+- [X] T305-S4 Reshape `TokensAPI` from `"tokens" :> Get '[JSON]
       [TokenIdJSON]` to `... Get '[JSON] TokensResponse`.
-- [ ] T305-S4 Reshape `tokensHandler`: `requireSnapshot` + run the
+- [X] T305-S4 Reshape `tokensHandler`: `requireSnapshot` + run the
       UTxO-set read at `cageAddr` (reuse `readRequestSetAt`; if a rename
       to a generic `readUtxoSetAt` is cleaner, do it and update the
       requests use-site) → `requestSetToJSON` into `trsTokens`.
-- [ ] T305-S4 Update the `cardano-mpfs-client` `/tokens` call + any
+- [X] T305-S4 Update the `cardano-mpfs-client` `/tokens` call + any
       client-internal decode to the new shape.
-- [ ] T305-S4 RED: HTTP-level handler spec — boot >=2 tokens, assert the
+- [X] T305-S4 RED: HTTP-level handler spec — boot >=2 tokens, assert the
       response carries the snapshot and a `UtxoSetWitness` whose
       `entries` match the booted token UTxOs.
-- [ ] T305-S4 `just update-swagger`; `swagger-up-to-date` green.
-- [ ] T305-S4 Proof: `just unit` + `just ci` green. NOTE in WIP if any
+- [X] T305-S4 `just update-swagger`; `swagger-up-to-date` green.
+- [X] T305-S4 Proof: `just unit` + `just ci` green. NOTE in WIP if any
       in-repo consumer (CLI/SPA) still decodes the old bare list —
       surface as a follow-up, do not fix here.
 

@@ -25,6 +25,7 @@ module Cardano.MPFS.Client.Http
     , UpdateFactsParams (..)
 
       -- * Write endpoints
+    , tokens
     , tokenFacts
     , bootFacts
     , requestInsertFacts
@@ -74,6 +75,7 @@ import Cardano.MPFS.API
     , FactsRequestInsertAPI
     , FactsRequestUpdateAPI
     , FactsUpdateAPI
+    , TokensAPI
     , TokensFactsAPI
     , TxWriteAPI
     )
@@ -207,6 +209,17 @@ instance ToJSON UpdateFactsParams where
             [ "token" .= updateFactsToken
             , "address" .= updateFactsAddress
             ]
+
+-- | Fetch the complete token-state UTxO set witness.
+tokens :: MpfsHttp -> IO (Either ClientError Wire.TokensResponse)
+tokens MpfsHttp{..} = do
+    result <-
+        runClientM
+            tokensClient
+            (mkClientEnv manager baseUrl)
+    pure $ case result of
+        Left err -> Left (fromServantError err)
+        Right response -> Right response
 
 -- | Fetch all indexed facts for a token.
 tokenFacts
@@ -383,6 +396,8 @@ tokenIdFromHex (Hex tokenText) =
 
 tokensFactsClient
     :: Wire.TokenIdJSON -> ClientM Wire.FactsResponse
+tokensClient
+    :: ClientM Wire.TokensResponse
 factsBootClient
     :: Wire.BootRequest -> ClientM FactsWire.BootFacts
 factsRequestInsertClient
@@ -399,6 +414,9 @@ txSweepClient
     :: Wire.SweepRequest -> ClientM Wire.SweepTxResponse
 tokensFactsClient =
     client (Proxy :: Proxy TokensFactsAPI)
+
+tokensClient =
+    client (Proxy :: Proxy TokensAPI)
 
 factsBootClient =
     client (Proxy :: Proxy FactsBootAPI)
