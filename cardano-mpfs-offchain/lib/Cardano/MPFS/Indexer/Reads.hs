@@ -36,7 +36,7 @@ module Cardano.MPFS.Indexer.Reads
     , readStateUtxoAt
     , readNamedRequestUtxo
     , readRequestUtxosAt
-    , readRequestSetAt
+    , readUtxoSetAt
     , readTrieFact
     , readWalletInputsAt
     , ResolvedUtxoSet
@@ -367,11 +367,11 @@ readRequestUtxosAt
     :: Addr -> IndexerTx [ResolvedWalletInput]
 readRequestUtxosAt = readWalletInputsAt
 
--- | Walk the UTxO-CSMT subtree at a request address and
--- produce the enumerated UTxOs plus a production
+-- | Walk the UTxO-CSMT subtree at an address and produce
+-- the enumerated UTxOs plus a production
 -- prefix-completeness proof for that exact subtree.
-readRequestSetAt :: Addr -> IndexerTx ResolvedUtxoSet
-readRequestSetAt addr =
+readUtxoSetAt :: Addr -> IndexerTx ResolvedUtxoSet
+readUtxoSetAt addr =
     IndexerTx
         $ mapColumns InUtxo
         $ do
@@ -388,10 +388,10 @@ readRequestSetAt addr =
                             (proof :: CompletenessProof Hash)
                     Nothing ->
                         error
-                            "readRequestSetAt: indexer \
+                            "readUtxoSetAt: indexer \
                             \corruption — \
                             \generateProof returned \
-                            \Nothing for request-address \
+                            \Nothing for address \
                             \subtree"
             pure (entries, proofBytes)
   where
@@ -401,7 +401,7 @@ readRequestSetAt addr =
                     Right key -> key
                     Left e ->
                         error
-                            $ "readRequestSetAt: "
+                            $ "readUtxoSetAt: "
                                 <> e
             txInDecoded =
                 case decodeFull
@@ -410,7 +410,7 @@ readRequestSetAt addr =
                     Right t -> t
                     Left e ->
                         error
-                            $ "readRequestSetAt: \
+                            $ "readUtxoSetAt: \
                               \indexer KV column \
                               \produced a leaf whose \
                               \key did not decode as \
@@ -420,7 +420,7 @@ readRequestSetAt addr =
         case mTxOut of
             Nothing ->
                 error
-                    $ "readRequestSetAt: indexer \
+                    $ "readUtxoSetAt: indexer \
                       \corruption — CSMT contains a \
                       \leaf at this address whose KV \
                       \column has no TxOut bytes \

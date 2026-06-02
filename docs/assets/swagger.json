@@ -847,6 +847,22 @@
             ],
             "type": "object"
         },
+        "TokensResponse": {
+            "description": "Proof-bearing complete token set response",
+            "properties": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                }
+            },
+            "required": [
+                "snapshot",
+                "tokens"
+            ],
+            "type": "object"
+        },
         "TrieFact": {
             "description": "Trie read fact: key, optional value, and MPF proof against a trie root.",
             "properties": {
@@ -1484,10 +1500,7 @@
                     "200": {
                         "description": "",
                         "schema": {
-                            "items": {
-                                "$ref": "#/definitions/TokenIdJSON"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/TokensResponse"
                         }
                     }
                 }

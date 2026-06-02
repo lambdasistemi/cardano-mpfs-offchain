@@ -29,6 +29,7 @@ module Cardano.MPFS.API
       -- * Response types
     , FactEntry (..)
     , FactsResponse (..)
+    , TokensResponse (..)
 
       -- * UTxO CSMT endpoints
     , UtxoResolveAPI
@@ -87,6 +88,7 @@ import Cardano.MPFS.API.Types
     , SweepRequest
     , SweepTxResponse
     , TokenResponse
+    , TokensResponse (..)
     , UpdateRequest
     , UpdateValueRequest
     )
@@ -105,8 +107,9 @@ import Cardano.MPFS.API.Types.Facts
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
 
--- | @GET \/tokens@ — list all known token IDs.
-type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
+-- | @GET \/tokens@ — get the complete token-state
+-- UTxO set with a prefix-completeness witness.
+type TokensAPI = "tokens" :> Get '[JSON] TokensResponse
 
 -- | @GET \/tokens\/:id@ — get a token's state
 -- together with its UTxO witness and the
