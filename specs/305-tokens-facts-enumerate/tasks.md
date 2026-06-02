@@ -101,3 +101,16 @@ No derived token-id list (pure witness; client derives ids from each
       cage script-hash prefix.
 - [X] T305-S5 Update the README HTTP table row for `GET /tokens`.
 - [X] T305-S5 Proof: `just e2e` green for the new row + `just ci` green.
+
+### Slice S6 — fix e2e /tokens consumers broken by the reshape
+
+CI caught two e2e helpers (`tokenCount` in `HTTPLifecycleSpec` and
+`BootFactsSpec`) still decoding `/tokens` as a bare array. (Pre-existing
+`main` WorkflowsIntegration `readWalletInputsAt` failures, #250, are NOT
+in scope.)
+
+- [ ] T305-S6 `HTTPLifecycleSpec.tokenCount`: decode `TokensResponse`,
+      count `trsTokens`'s `uswEntries`.
+- [ ] T305-S6 `BootFactsSpec.tokenCount`: same.
+- [ ] T305-S6 Proof: `just e2e "HTTP lifecycle"` + `just e2e "Boot
+      facts"` pass; `just ci` green; no NEW e2e failures vs main.
