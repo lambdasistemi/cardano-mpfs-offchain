@@ -109,8 +109,8 @@ CI caught two e2e helpers (`tokenCount` in `HTTPLifecycleSpec` and
 `main` WorkflowsIntegration `readWalletInputsAt` failures, #250, are NOT
 in scope.)
 
-- [ ] T305-S6 `HTTPLifecycleSpec.tokenCount`: decode `TokensResponse`,
+- [X] T305-S6 `HTTPLifecycleSpec.tokenCount`: decode `TokensResponse`,
       count `trsTokens`'s `uswEntries`.
-- [ ] T305-S6 `BootFactsSpec.tokenCount`: same.
-- [ ] T305-S6 Proof: `just e2e "HTTP lifecycle"` + `just e2e "Boot
+- [X] T305-S6 `BootFactsSpec.tokenCount`: same.
+- [X] T305-S6 Proof: `just e2e "HTTP lifecycle"` + `just e2e "Boot
       facts"` pass; `just ci` green; no NEW e2e failures vs main.
