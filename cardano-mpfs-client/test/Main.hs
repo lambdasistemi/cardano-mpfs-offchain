@@ -20,6 +20,7 @@ import Cardano.MPFS.Client.RetractFactsSpec qualified as RetractFactsSpec
 import Cardano.MPFS.Client.SnapshotSpec qualified as SnapshotSpec
 import Cardano.MPFS.Client.UpdateFactsSpec qualified as UpdateFactsSpec
 import Cardano.MPFS.Client.Verify.ReactorSpec qualified as ReactorSpec
+import Cardano.MPFS.Client.Verify.ReadSpec qualified as ReadVerifySpec
 import Cardano.MPFS.Client.Verify.WriteSpec qualified as WriteSpec
 import Cardano.MPFS.Client.VerifySpec qualified as VerifySpec
 import Test.Hspec (hspec)
@@ -45,6 +46,7 @@ main = hspec $ do
     EndSpec.spec
     CageUpdateSpec.spec
     VerifySpec.spec
+    ReadVerifySpec.spec
     WriteSpec.spec
     ReactorSpec.spec
     HttpSpec.spec
