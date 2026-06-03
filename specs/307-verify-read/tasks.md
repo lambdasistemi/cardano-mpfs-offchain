@@ -2,7 +2,7 @@
 
 ## Slice 1 — `verifyTokenState`
 
-- [ ] T001 Implement `verifyTokenState :: TrustedRoot -> TokenResponse
+- [X] T001 Implement `verifyTokenState :: TrustedRoot -> TokenResponse
   -> Either VerifyError VerifiedTokenState` in
   `cardano-mpfs-verify/lib/Cardano/MPFS/Client/Verify/Read.hs` (opaque
   `VerifiedTokenState` + `verifiedTokenState` extractor, exports),
