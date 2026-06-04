@@ -13,7 +13,7 @@
 
 ## Slice 2 — `verifyTokenFacts`
 
-- [ ] T002 Implement `verifyTokenFacts :: TrustedRoot -> FactsResponse
+- [X] T002 Implement `verifyTokenFacts :: TrustedRoot -> FactsResponse
   -> Either VerifyError VerifiedTokenFacts` in the same module (opaque
   `VerifiedTokenFacts` + `verifiedTokenFacts` extractor, exports):
   verify the embedded state anchoring (reuse slice 1), reconstruct the
