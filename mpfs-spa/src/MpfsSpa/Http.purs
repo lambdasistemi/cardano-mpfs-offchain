@@ -63,8 +63,8 @@ type PendingRequest =
   , key :: Key
   , value :: Maybe Value
   , operation :: String
-  , fee :: Int
-  , submittedAt :: Int
+  , fee :: Number
+  , submittedAt :: Number
   , requestId :: RequestId
   }
 

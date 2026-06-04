@@ -55,6 +55,7 @@ import Cardano.MPFS.Client.Cage.Request
     )
 import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
+import Cardano.MPFS.Client.Cage.Update (updateCageTx)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify
     ( VerifiedBootFacts
@@ -64,6 +65,7 @@ import Cardano.MPFS.Client.Verify
     , VerifiedRequestInsertFacts
     , VerifiedRequestUpdateFacts
     , VerifiedRetractFacts
+    , VerifiedUpdateFacts
     , VerifyError
     , verifyBootFacts
     , verifyEndFacts
@@ -72,6 +74,7 @@ import Cardano.MPFS.Client.Verify
     , verifyRequestInsertFacts
     , verifyRequestUpdateFacts
     , verifyRetractFacts
+    , verifyUpdateFacts
     )
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Ledger (ConwayTx)
@@ -135,6 +138,7 @@ dispatch = withObject "Envelope" $ \o -> do
         "request_insert" -> dispatchRequestInsert o
         "request_update" -> dispatchRequestUpdate o
         "request_delete" -> dispatchRequestDelete o
+        "update" -> dispatchUpdate o
         "retract" -> dispatchRetract o
         "reject" -> dispatchReject o
         "end" -> dispatchEnd o
@@ -199,6 +203,22 @@ dispatchRequestDelete o = do
             policyValue <- o .:? "wallet_policy"
             policy <- parseWalletPolicyMaybe policyValue
             pure (buildRequestDelete cfg policy verified)
+
+-- | Owner/oracle op: fold pending requests into the trie root. The
+-- verifier checks the bundled proofs against the trusted root; the
+-- builder ('updateCageTx') consumes the cage UTxO plus the request
+-- UTxOs and outputs the cage token carrying the recomputed root.
+dispatchUpdate :: Object -> Parser Text
+dispatchUpdate o = do
+    tr <- TrustedRoot <$> o .: "trusted_root"
+    facts <- o .: "facts"
+    case runVerified (verifyUpdateFacts tr) facts of
+        Left verdict -> pure verdict
+        Right verified -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            policyValue <- o .:? "wallet_policy"
+            policy <- parseWalletPolicyMaybe policyValue
+            pure (buildUpdate cfg policy verified)
 
 dispatchRetract :: Object -> Parser Text
 dispatchRetract o = do
@@ -283,6 +303,16 @@ buildRequestDelete
     -> Text
 buildRequestDelete cfg policy verified =
     case requestDeleteCageTx cfg policy verified of
+        Left err -> renderBuildError err
+        Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
+
+buildUpdate
+    :: CageConfig
+    -> WalletPolicy
+    -> VerifiedUpdateFacts
+    -> Text
+buildUpdate cfg policy verified =
+    case updateCageTx cfg policy verified of
         Left err -> renderBuildError err
         Right tx -> "cage_tx: " <> renderHex (serializeCageTx tx)
 

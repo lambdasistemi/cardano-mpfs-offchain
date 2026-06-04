@@ -45,8 +45,11 @@ preprodCageConfig =
   { cageScriptBytes: preprodCageScriptBytes
   , requestScriptBytes: preprodRequestScriptBytes
   , cfgScriptHash: "c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06"
-  , defaultProcessTime: 300000
-  , defaultRetractTime: 300000
+  -- 30-minute process/retract windows (vs the 5-min default) so an owner
+  -- has time to fold/reject requests by hand in the browser. Baked into a
+  -- token's state datum at boot; only affects tokens newly registered here.
+  , defaultProcessTime: 1800000
+  , defaultRetractTime: 1800000
   , defaultTip: 2000000
   , network: "preprod"
   }

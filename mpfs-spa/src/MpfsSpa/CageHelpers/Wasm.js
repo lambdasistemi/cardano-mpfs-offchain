@@ -12,6 +12,14 @@ export const runCageReactorImpl = (stdinText) => () => {
   return globalThis.runCageReactor(stdinText);
 };
 
+// UTF-8 encode a user-typed string to a lowercase hex string, so the
+// /facts/request/* fields (Hex on the wire) accept plain text like
+// "start"/"amaru" instead of requiring the user to pre-hex-encode.
+export const encodeUtf8Hex = (text) =>
+  Array.from(new TextEncoder().encode(text))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
 export const postJsonImpl = (url) => (bodyText) => () =>
   fetch(url, {
     method: "POST",

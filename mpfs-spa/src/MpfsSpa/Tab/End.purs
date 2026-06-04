@@ -18,13 +18,14 @@ import React.Basic.Hooks as React
 import MpfsSpa.Config (placeholderCageConfig)
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (Env, WalletState)
-import MpfsSpa.Submit (OpStatus(..), runOp, statusView)
+import MpfsSpa.Submit (OpStatus(..), runOpAfterSubmit, statusView)
 import MpfsSpa.Types (TokenId(..), WalletAddr(..))
 
 type EndProps =
   { env :: Env
   , wallet :: Maybe WalletState
   , selected :: Maybe TokenId
+  , onSubmitted :: Effect Unit
   }
 
 mkEndTab :: Effect (EndProps -> JSX)
@@ -34,7 +35,8 @@ mkEndTab = component "EndTab" \props -> React.do
   let
     end :: WalletState -> TokenId -> Effect Unit
     end w tid =
-      runOp (Just w)
+      runOpAfterSubmit (\_ -> props.onSubmitted)
+        (Just w)
         ( props.env.helpers.endCage
             (WalletAddr w.address)
             placeholderCageConfig

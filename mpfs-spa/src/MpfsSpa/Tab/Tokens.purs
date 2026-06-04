@@ -18,7 +18,7 @@ import React.Basic.Hooks as React
 import MpfsSpa.Config (placeholderCageConfig)
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (Env, Remote, WalletState, remoteView)
-import MpfsSpa.Submit (OpStatus(..), runOp, statusView)
+import MpfsSpa.Submit (OpStatus(..), runOpAfterSubmit, statusView)
 import MpfsSpa.Types (TokenId(..), WalletAddr(..))
 
 type TokensProps =
@@ -27,6 +27,7 @@ type TokensProps =
   , tokens :: Remote (Array TokenId)
   , selected :: Maybe TokenId
   , onRefresh :: Effect Unit
+  , onSubmitted :: Effect Unit
   , onSelect :: TokenId -> Effect Unit
   }
 
@@ -37,7 +38,8 @@ mkTokensTab = component "TokensTab" \props -> React.do
   let
     register :: WalletState -> Effect Unit
     register w =
-      runOp (Just w)
+      runOpAfterSubmit (\_ -> props.onSubmitted)
+        (Just w)
         ( props.env.helpers.registerToken
             (WalletAddr w.address)
             placeholderCageConfig

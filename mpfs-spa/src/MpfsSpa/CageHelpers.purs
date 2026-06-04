@@ -51,4 +51,6 @@ type CageHelpers =
     rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
   , -- | End (close) a cage the wallet owns.
     endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
+  , -- | Owner/oracle: fold all pending requests into the trie root.
+    updateToken :: WalletAddr -> CageConfig -> TokenId -> CageResult
   }

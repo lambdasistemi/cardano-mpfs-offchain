@@ -51,6 +51,7 @@ import Servant
     , throwError
     , (:<|>) (..)
     )
+import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 
 import Data.ByteString (ByteString)
@@ -1299,9 +1300,10 @@ rejectValiditySlots ctx snap stateOutBytes rejectableUtxos = do
     deadlineSlot <-
         liftIO
             (Prov.posixMsCeilSlot (provider ctx) latest)
+    ttl <- liftIO rejectTtlSlotsIO
     let SlotNo deadlineRaw = deadlineSlot
         lowerRaw = max (deadlineRaw + 1) (snapSlot + 1)
-        upperRaw = lowerRaw + rejectTtlSlots
+        upperRaw = lowerRaw + ttl
     pure (toInteger lowerRaw, toInteger upperRaw)
   where
     extractDeadline pt rt (_, outBytes, _) = do
@@ -1331,6 +1333,21 @@ rejectValiditySlots ctx snap stateOutBytes rejectableUtxos = do
 -- ceiling.
 rejectTtlSlots :: Word64
 rejectTtlSlots = 20
+
+-- | Reject TTL resolved at request time: the @MPFS_REJECT_TTL_SLOTS@
+-- environment variable overrides 'rejectTtlSlots' when set to an
+-- integer in @[1, 660]@ (the S3 verifier's
+-- @rejectValidityHorizonSlots@ ceiling). The default (20) keeps
+-- short-forecast-horizon devnets safe; a preprod/mainnet deployment
+-- whose forecast horizon is large can raise it (e.g. 600 ≈ 10 min) so
+-- a human signing in a browser wallet still lands the reject inside
+-- its validity window.
+rejectTtlSlotsIO :: IO Word64
+rejectTtlSlotsIO = do
+    mv <- lookupEnv "MPFS_REJECT_TTL_SLOTS"
+    pure $ case mv >>= readMaybe of
+        Just n | n >= 1 && n <= 660 -> n
+        _ -> rejectTtlSlots
 
 -- | Extract @submitted_at@ from the inline datum of an
 -- indexed request UTxO. 500 if the output is missing a
