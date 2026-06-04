@@ -48,7 +48,10 @@ module Cardano.MPFS.API.Types
     , WitnessedTokenState (..)
     , WitnessedRequest (..)
     , FactWitness (..)
+    , TokensResponse (..)
     , TokenResponse (..)
+    , FactEntry (..)
+    , FactsResponse (..)
     , FactResponse (..)
     , ProofResponse (..)
     , RequestsResponse (..)
@@ -451,6 +454,28 @@ instance FromJSON FactWitness where
             <$> o .: "state"
             <*> o .: "mpf_proof"
 
+-- | Response envelope for @GET \/tokens@.
+data TokensResponse = TokensResponse
+    { trsSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proof targets
+    , trsTokens :: UtxoSetWitness
+    -- ^ Complete token-state UTxO set witness
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokensResponse where
+    toJSON TokensResponse{..} =
+        object
+            [ "snapshot" .= trsSnapshot
+            , "tokens" .= trsTokens
+            ]
+
+instance FromJSON TokensResponse where
+    parseJSON = withObject "TokensResponse" $ \o ->
+        TokensResponse
+            <$> o .: "snapshot"
+            <*> o .: "tokens"
+
 -- | Response envelope for @GET \/tokens\/:id@.
 data TokenResponse = TokenResponse
     { trSnapshot :: VerificationSnapshot
@@ -472,6 +497,56 @@ instance FromJSON TokenResponse where
         TokenResponse
             <$> o .: "snapshot"
             <*> o .: "state"
+
+-- | One enumerated fact entry for
+-- @GET \/tokens\/:id\/facts@.
+data FactEntry = FactEntry
+    { feKey :: Hex
+    -- ^ Trie key (hex)
+    , feValue :: Hex
+    -- ^ Trie value (hex)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactEntry where
+    toJSON FactEntry{..} =
+        object
+            [ "key" .= feKey
+            , "value" .= feValue
+            ]
+
+instance FromJSON FactEntry where
+    parseJSON = withObject "FactEntry" $ \o ->
+        FactEntry
+            <$> o .: "key"
+            <*> o .: "value"
+
+-- | Response envelope for
+-- @GET \/tokens\/:id\/facts@.
+data FactsResponse = FactsResponse
+    { frsSnapshot :: VerificationSnapshot
+    -- ^ Snapshot the bundled proofs target
+    , frsState :: WitnessedTokenState
+    -- ^ State + UTxO witness
+    , frsFacts :: [FactEntry]
+    -- ^ Complete enumerated fact set
+    }
+    deriving (Eq, Show)
+
+instance ToJSON FactsResponse where
+    toJSON FactsResponse{..} =
+        object
+            [ "snapshot" .= frsSnapshot
+            , "state" .= frsState
+            , "facts" .= frsFacts
+            ]
+
+instance FromJSON FactsResponse where
+    parseJSON = withObject "FactsResponse" $ \o ->
+        FactsResponse
+            <$> o .: "snapshot"
+            <*> o .: "state"
+            <*> o .: "facts"
 
 -- | Response envelope for
 -- @GET \/tokens\/:id\/facts\/:key@.
@@ -1666,6 +1741,76 @@ instance ToSchema TokenResponse where
             & required .~ ["snapshot", "state"]
             & description
                 ?~ "Proof-bearing token state response"
+
+instance ToSchema TokensResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        tokensSchema <-
+            declareSchemaRef
+                (Proxy @UtxoSetWitness)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokensResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("tokens", tokensSchema)
+                    ]
+            & required .~ ["snapshot", "tokens"]
+            & description
+                ?~ "Proof-bearing complete token set \
+                   \response"
+
+instance ToSchema FactEntry where
+    declareNamedSchema _ = do
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "FactEntry")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("key", hexSchema)
+                    , ("value", hexSchema)
+                    ]
+            & required .~ ["key", "value"]
+            & description
+                ?~ "One enumerated token fact entry"
+
+instance ToSchema FactsResponse where
+    declareNamedSchema _ = do
+        snapshotSchema <-
+            declareSchemaRef
+                (Proxy @VerificationSnapshot)
+        stateSchema <-
+            declareSchemaRef
+                (Proxy @WitnessedTokenState)
+        factsSchema <-
+            declareSchemaRef (Proxy @[FactEntry])
+        pure
+            $ Swagger.NamedSchema
+                (Just "FactsResponse")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("snapshot", snapshotSchema)
+                    , ("state", stateSchema)
+                    , ("facts", factsSchema)
+                    ]
+            & required .~ ["snapshot", "state", "facts"]
+            & description
+                ?~ "Proof-bearing complete token facts \
+                   \response"
 
 instance ToSchema FactResponse where
     declareNamedSchema _ = do

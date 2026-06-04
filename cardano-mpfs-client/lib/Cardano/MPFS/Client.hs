@@ -27,6 +27,7 @@ module Cardano.MPFS.Client
     , RequestUpdateParams (..)
     , RejectFactsParams (..)
     , UpdateFactsParams (..)
+    , tokenFacts
     , bootFacts
     , requestInsertFacts
     , requestDeleteFacts
@@ -52,6 +53,8 @@ module Cardano.MPFS.Client
     , RejectFacts (..)
     , EndFacts (..)
     , UpdateFacts (..)
+    , FactEntry (..)
+    , FactsResponse (..)
     , FactPresentFacts (..)
     , FactAbsentFacts (..)
     , UnverifiedPParams (..)
@@ -158,6 +161,10 @@ module Cardano.MPFS.Client
     , updateCageTx
     ) where
 
+import Cardano.MPFS.API.Types
+    ( FactEntry (..)
+    , FactsResponse (..)
+    )
 import Cardano.MPFS.Client.Bundle
     ( BootProof (..)
     , BootTxResponse (..)
@@ -246,6 +253,7 @@ import Cardano.MPFS.Client.Http
     , requestDeleteFacts
     , requestInsertFacts
     , requestUpdateFacts
+    , tokenFacts
     , updateFacts
     )
 import Cardano.MPFS.Client.Snapshot

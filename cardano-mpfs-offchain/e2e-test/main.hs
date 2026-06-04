@@ -14,6 +14,8 @@ import Cardano.MPFS.E2E.ProofsSpec qualified as ProofsSpec
 import Cardano.MPFS.E2E.ProviderSpec qualified as ProviderSpec
 import Cardano.MPFS.E2E.SubmitEndpointSpec qualified as SubmitEndpointSpec
 import Cardano.MPFS.E2E.SubmitterSpec qualified as SubmitterSpec
+import Cardano.MPFS.E2E.TokenFactsCompletenessSpec qualified as TokenFactsCompletenessSpec
+import Cardano.MPFS.E2E.TokensCompletenessSpec qualified as TokensCompletenessSpec
 import Cardano.MPFS.E2E.WorkflowsIntegrationSpec qualified as WorkflowsIntegrationSpec
 
 main :: IO ()
@@ -29,5 +31,7 @@ main = hspec $ do
     BootFactsSpec.spec
     ProofsSpec.spec
     FactsMatrixSpec.spec
+    TokenFactsCompletenessSpec.spec
+    TokensCompletenessSpec.spec
     WorkflowsIntegrationSpec.spec
     CrashRecoverySpec.spec

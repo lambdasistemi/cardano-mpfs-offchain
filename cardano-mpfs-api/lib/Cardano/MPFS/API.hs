@@ -21,9 +21,15 @@ module Cardano.MPFS.API
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
+    , TokensFactsAPI
     , TokenFactAPI
     , TokenProofAPI
     , TokenRequestsAPI
+
+      -- * Response types
+    , FactEntry (..)
+    , FactsResponse (..)
+    , TokensResponse (..)
 
       -- * UTxO CSMT endpoints
     , UtxoResolveAPI
@@ -68,7 +74,9 @@ import Cardano.MPFS.API.Types
     ( BootRequest
     , DeleteRequest
     , EndRequest
+    , FactEntry (..)
     , FactResponse
+    , FactsResponse (..)
     , InsertRequest
     , ProofResponse
     , RejectRequest
@@ -80,6 +88,7 @@ import Cardano.MPFS.API.Types
     , SweepRequest
     , SweepTxResponse
     , TokenResponse
+    , TokensResponse (..)
     , UpdateRequest
     , UpdateValueRequest
     )
@@ -98,8 +107,9 @@ import Cardano.MPFS.API.Types.Facts
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
 
--- | @GET \/tokens@ — list all known token IDs.
-type TokensAPI = "tokens" :> Get '[JSON] [TokenIdJSON]
+-- | @GET \/tokens@ — get the complete token-state
+-- UTxO set with a prefix-completeness witness.
+type TokensAPI = "tokens" :> Get '[JSON] TokensResponse
 
 -- | @GET \/tokens\/:id@ — get a token's state
 -- together with its UTxO witness and the
@@ -115,6 +125,17 @@ type TokenRootAPI =
         :> Capture "id" TokenIdJSON
         :> "root"
         :> Get '[JSON] Hex
+
+-- | @GET \/tokens\/:id\/facts@ — enumerate every
+-- fact key and value for a token, returning the
+-- state witness carrying the trie root and the
+-- verification snapshot the bundled UTxO proof
+-- targets.
+type TokensFactsAPI =
+    "tokens"
+        :> Capture "id" TokenIdJSON
+        :> "facts"
+        :> Get '[JSON] FactsResponse
 
 -- | @GET \/tokens\/:id\/facts\/:key@ — look up a
 -- value by key, returning the value, the state
@@ -287,6 +308,7 @@ type API =
         :<|> TokensAPI
         :<|> TokenAPI
         :<|> TokenRootAPI
+        :<|> TokensFactsAPI
         :<|> TokenFactAPI
         :<|> TokenProofAPI
         :<|> TokenRequestsAPI

@@ -112,8 +112,10 @@ import Cardano.MPFS.HTTP.Types
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
+    , FactEntry (..)
     , FactResponse (..)
     , FactWitness (..)
+    , FactsResponse (..)
     , InsertRequest (..)
     , ProofResponse (..)
     , RejectRequest (..)
@@ -127,6 +129,7 @@ import Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
+    , TokensResponse (..)
     , UnverifiedPParams (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
@@ -140,7 +143,6 @@ import Cardano.MPFS.HTTP.Types
     , requestToJSON
     , resolvedWalletInputToUtxoEntry
     , tokenIdFromJSON
-    , tokenIdToJSON
     , tokenStateToJSON
     , txInToJSON
     )
@@ -152,15 +154,16 @@ import Cardano.MPFS.HTTP.Types.Facts
     , mkRequestUpdateFacts
     , mkRetractFacts
     , mkUpdateFacts
+    , utxoSetToJSON
     )
 import Cardano.MPFS.Indexer.Reads
     ( IndexerTx
     , readNamedRequestUtxo
-    , readRequestSetAt
     , readRequestUtxosAt
     , readSnapshot
     , readStateUtxoAt
     , readTrieFact
+    , readUtxoSetAt
     , readWalletInputsAt
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -208,6 +211,7 @@ mkApp ctx =
             :<|> tokensHandler ctx
             :<|> tokenHandler ctx
             :<|> tokenRootHandler ctx
+            :<|> tokenFactsHandler ctx
             :<|> tokenFactHandler ctx
             :<|> tokenProofHandler ctx
             :<|> tokenRequestsHandler ctx
@@ -281,12 +285,20 @@ statusHandler ctx = do
             }
 
 tokensHandler
-    :: Context IO -> Handler [TokenIdJSON]
+    :: Context IO -> Handler TokensResponse
 tokensHandler ctx = do
-    tids <-
+    snapshot <- requireSnapshot ctx
+    let cfg = cfgCage ctx
+        cageAddr = cageAddrFromCfg cfg (network cfg)
+    tokenSet <-
         liftIO
-            $ St.listTokens (St.tokens (state ctx))
-    pure (map tokenIdToJSON tids)
+            $ runIndexerTx ctx
+            $ readUtxoSetAt cageAddr
+    pure
+        TokensResponse
+            { trsSnapshot = snapshot
+            , trsTokens = utxoSetToJSON tokenSet
+            }
 
 tokenHandler
     :: Context IO
@@ -389,6 +401,40 @@ tokenRootHandler ctx tokenId =
             $ \trie -> do
                 Root r <- Trie.getRoot trie
                 pure (Hex r)
+
+tokenFactsHandler
+    :: Context IO
+    -> TokenIdJSON
+    -> Handler FactsResponse
+tokenFactsHandler ctx tokenId = do
+    let tid = tokenIdFromJSON tokenId
+    LocatedTokenState
+        { tokenStateRef
+        , tokenState = ts
+        } <-
+        requireToken ctx tid
+    snapshot <- requireSnapshot ctx
+    witness <- requireUtxoWitness ctx tokenStateRef
+    facts <-
+        liftIO
+            $ Trie.withTrie (trieManager ctx) tid
+            $ \trie -> Trie.enumerate trie
+    pure
+        FactsResponse
+            { frsSnapshot = snapshot
+            , frsState =
+                WitnessedTokenState
+                    { wtsUtxo = witness
+                    , wtsState = tokenStateToJSON ts
+                    }
+            , frsFacts =
+                [ FactEntry
+                    { feKey = Hex k
+                    , feValue = Hex v
+                    }
+                | (k, v) <- facts
+                ]
+            }
 
 tokenFactHandler
     :: Context IO
@@ -1429,7 +1475,7 @@ factsEndHandler
                             cageAddr
                             policyId
                             tid
-                    reqSet <- readRequestSetAt requestAddr
+                    reqSet <- readUtxoSetAt requestAddr
                     pure (snap, ins, stateUtxo, reqSet)
         case mSnap of
             Nothing ->

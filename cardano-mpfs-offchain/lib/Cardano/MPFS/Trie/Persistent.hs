@@ -38,7 +38,6 @@ module Cardano.MPFS.Trie.Persistent
 
 import Control.Lens
     ( Prism'
-    , prism'
     )
 
 import Data.ByteString (ByteString)
@@ -54,11 +53,19 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Type.Equality ((:~:) (..))
 
+import Cardano.MPFS.Indexer.Codecs
+    ( rawValuePairPrism
+    )
 import Cardano.MPFS.Indexer.Columns
     ( AllColumns (..)
     , TrieStatus (..)
     )
 
+import Database.KV.Cursor
+    ( Entry (..)
+    , firstEntry
+    , nextEntry
+    )
 import Database.KV.Database
     ( Codecs (..)
     , Column (..)
@@ -74,6 +81,7 @@ import Database.KV.Transaction
     , GOrdering (..)
     , KV
     , Transaction
+    , iterating
     , runSpeculation
     , runTransactionUnguarded
     )
@@ -155,7 +163,9 @@ data StandaloneTrieColumn x where
     StandaloneMPFCol
         :: StandaloneTrieColumn
             (KV HexKey (HexIndirect MPFHash))
-    StandaloneRawCol :: StandaloneTrieColumn (KV HexKey ByteString)
+    StandaloneRawCol
+        :: StandaloneTrieColumn
+            (KV HexKey (ByteString, ByteString))
 
 instance GEq StandaloneTrieColumn where
     geq StandaloneKVCol StandaloneKVCol = Just Refl
@@ -208,6 +218,7 @@ mkUnifiedTrie pfx =
         { insert = unifiedInsert pfx
         , delete = unifiedDelete pfx
         , lookup = unifiedLookup pfx
+        , enumerate = unifiedEnumerate pfx
         , getRoot = unifiedGetRoot pfx
         , getProof = unifiedGetProof pfx
         , getProofSteps =
@@ -231,7 +242,7 @@ unifiedInsert pfx k v = do
         TrieNodes
         hexKey
         (mkMPFHash v)
-    KV.insert TrieRawValues hexKey v
+    KV.insert TrieRawValues hexKey (k, v)
     unifiedGetRoot pfx
 
 unifiedDelete
@@ -274,7 +285,45 @@ unifiedLookup pfx k = do
             hexKey
     case mProof of
         Nothing -> pure Nothing
-        Just _ -> KV.query TrieRawValues hexKey
+        Just _ -> fmap snd <$> KV.query TrieRawValues hexKey
+
+unifiedEnumerate
+    :: (Monad m)
+    => HexKey
+    -> Transaction
+        m
+        cf
+        AllColumns
+        ops
+        [(ByteString, ByteString)]
+unifiedEnumerate pfx = do
+    pairs <- iterating TrieRawValues $ do
+        me <- firstEntry
+        collectPairs [] me
+    filterUnifiedPairs pairs
+  where
+    collectPairs acc = \case
+        Nothing -> pure (reverse acc)
+        Just Entry{entryValue} -> do
+            me <- nextEntry
+            collectPairs (entryValue : acc) me
+
+    filterUnifiedPairs = \case
+        [] -> pure []
+        pair@(k, _) : rest -> do
+            let hexKey =
+                    byteStringToHexKey (hashBS k)
+            mProof <-
+                mkMPFInclusionProof
+                    pfx
+                    fromHexKVIdentity
+                    mpfHashing
+                    TrieNodes
+                    hexKey
+            filtered <- filterUnifiedPairs rest
+            pure $ case mProof of
+                Nothing -> filtered
+                Just _ -> pair : filtered
 
 unifiedGetRoot
     :: (Monad m)
@@ -888,7 +937,7 @@ mkPrefixedTrieDB db nodesCF kvCF rawCF pfx =
                                         { keyCodec =
                                             hexKeyPrism
                                         , valueCodec =
-                                            bytesCodec
+                                            rawValuePairPrism
                                         }
                                 }
                         ]
@@ -900,9 +949,6 @@ mkPrefixedTrieDB db nodesCF kvCF rawCF pfx =
   where
     isoMPFHash' :: Prism' ByteString MPFHash
     isoMPFHash' = mpfValueCodec mpfHashCodecs
-
-    bytesCodec :: Prism' ByteString ByteString
-    bytesCodec = prism' id Just
 
 -- --------------------------------------------------------
 -- Prefixed iterator (for IO layer)
@@ -988,6 +1034,8 @@ mkPersistentTrie pfx database =
         { insert = persistentInsert pfx database
         , delete = persistentDelete pfx database
         , lookup = persistentLookup pfx database
+        , enumerate =
+            persistentEnumerate pfx database
         , getRoot = persistentGetRoot pfx database
         , getProof =
             persistentGetProof pfx database
@@ -1010,6 +1058,7 @@ mkSpeculativeTrie pfx =
         { insert = speculativeInsert pfx
         , delete = speculativeDelete pfx
         , lookup = speculativeLookup pfx
+        , enumerate = speculativeEnumerate pfx
         , getRoot = speculativeGetRoot pfx
         , getProof = speculativeGetProof pfx
         , getProofSteps =
@@ -1042,7 +1091,7 @@ persistentInsert pfx database k v =
             StandaloneMPFCol
             hexKey
             (mkMPFHash v)
-        KV.insert StandaloneRawCol hexKey v
+        KV.insert StandaloneRawCol hexKey (k, v)
         speculativeGetRoot pfx
 
 persistentDelete
@@ -1093,6 +1142,18 @@ persistentGetRoot pfx database =
     runTransactionUnguarded
         database
         (speculativeGetRoot pfx)
+
+persistentEnumerate
+    :: HexKey
+    -> Database
+        IO
+        ColumnFamily
+        StandaloneTrieColumn
+        BatchOp
+    -> IO [(ByteString, ByteString)]
+persistentEnumerate pfx database =
+    runTransactionUnguarded database
+        $ speculativeEnumerate pfx
 
 persistentGetProof
     :: HexKey
@@ -1145,7 +1206,7 @@ speculativeInsert pfx k v = do
         StandaloneMPFCol
         hexKey
         (mkMPFHash v)
-    KV.insert StandaloneRawCol hexKey v
+    KV.insert StandaloneRawCol hexKey (k, v)
     speculativeGetRoot pfx
 
 speculativeDelete
@@ -1191,7 +1252,44 @@ speculativeLookup pfx k = do
             hexKey
     case mProof of
         Nothing -> pure Nothing
-        Just _ -> KV.query StandaloneRawCol hexKey
+        Just _ -> fmap snd <$> KV.query StandaloneRawCol hexKey
+
+speculativeEnumerate
+    :: HexKey
+    -> Transaction
+        IO
+        ColumnFamily
+        StandaloneTrieColumn
+        BatchOp
+        [(ByteString, ByteString)]
+speculativeEnumerate pfx = do
+    pairs <- iterating StandaloneRawCol $ do
+        me <- firstEntry
+        collectPairs [] me
+    filterSpeculativePairs pairs
+  where
+    collectPairs acc = \case
+        Nothing -> pure (reverse acc)
+        Just Entry{entryValue} -> do
+            me <- nextEntry
+            collectPairs (entryValue : acc) me
+
+    filterSpeculativePairs = \case
+        [] -> pure []
+        pair@(k, _) : rest -> do
+            let hexKey =
+                    byteStringToHexKey (hashBS k)
+            mProof <-
+                mkMPFInclusionProof
+                    pfx
+                    fromHexKVIdentity
+                    mpfHashing
+                    StandaloneMPFCol
+                    hexKey
+            filtered <- filterSpeculativePairs rest
+            pure $ case mProof of
+                Nothing -> filtered
+                Just _ -> pair : filtered
 
 speculativeGetRoot
     :: HexKey

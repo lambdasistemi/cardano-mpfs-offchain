@@ -30,6 +30,7 @@ import Cardano.MPFS.API.Types
     , SubmitRequest (..)
     , SubmitResponse (..)
     , TokenIdJSON (..)
+    , TokensResponse
     )
 import Data.ByteString (ByteString)
 import Data.Proxy (Proxy (..))
@@ -64,8 +65,8 @@ mkServerParts url =
             manager <- newTlsManager
             pure (Right (manager, base))
 
--- | @GET \/tokens@ — list known token ids.
-listTokens :: ClientEnv -> IO (Either ClientError [TokenIdJSON])
+-- | @GET \/tokens@ — complete token-state UTxO set witness.
+listTokens :: ClientEnv -> IO (Either ClientError TokensResponse)
 listTokens = runClientM tokensClient
 
 -- | @GET \/tokens\/:id\/facts\/:key@ — look up a fact with proof.
@@ -97,7 +98,7 @@ awaitTx env txId timeout =
 
 -- Servant-derived clients ----------------------------------------------
 
-tokensClient :: ClientM [TokenIdJSON]
+tokensClient :: ClientM TokensResponse
 tokensClient = client (Proxy @TokensAPI)
 
 factClient :: TokenIdJSON -> Hex -> ClientM FactResponse

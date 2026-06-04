@@ -21,6 +21,7 @@ module Cardano.MPFS.HTTP.API
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
+    , TokensFactsAPI
     , TokenFactAPI
     , TokenProofAPI
     , TokenRequestsAPI
@@ -75,6 +76,7 @@ import Cardano.MPFS.API
     , TokenRequestsAPI
     , TokenRootAPI
     , TokensAPI
+    , TokensFactsAPI
     , TxAwaitAPI
     , TxSubmitAPI
     , TxSweepAPI

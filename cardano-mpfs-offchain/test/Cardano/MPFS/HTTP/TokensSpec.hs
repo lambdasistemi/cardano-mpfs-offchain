@@ -10,10 +10,16 @@ module Cardano.MPFS.HTTP.TokensSpec
     ) where
 
 import Data.Aeson (decode)
+import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
-import Network.HTTP.Types (status200)
+import Data.Vector qualified as V
+import Network.HTTP.Types
+    ( status200
+    , status503
+    )
 import Network.Wai.Test
     ( SResponse (..)
     , defaultRequest
@@ -29,21 +35,34 @@ import Test.Hspec
     , shouldBe
     )
 
+import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
-    ( Coin (..)
+    ( BlockId (..)
+    , Coin (..)
     , LocatedTokenState (..)
     , Root (..)
+    , SlotNo (..)
     , TokenId (..)
     , TokenState (..)
+    , TxIn
     )
 import Cardano.MPFS.Generators (genKeyHash, genTxIn)
+import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
+import Cardano.MPFS.HTTP.Types
+    ( TokensResponse (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoSetWitness (..)
+    )
+import Cardano.MPFS.Indexer.TxFixtures (testScriptHash)
 import Cardano.MPFS.State qualified as St
+import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Test.QuickCheck (generate)
+import Unsafe.Coerce (unsafeCoerce)
 
 getTokens :: Context IO -> IO SResponse
 getTokens ctx =
@@ -52,6 +71,56 @@ getTokens ctx =
             (setPath defaultRequest "/tokens")
         )
         (mkApp ctx)
+
+withSnapshot
+    :: BS.ByteString
+    -> BS.ByteString
+    -> BS.ByteString
+    -> Context IO
+    -> IO (Context IO)
+withSnapshot rootBs outBs proofBs ctx = do
+    St.putCheckpoint
+        (St.checkpoints (state ctx))
+        (SlotNo 42)
+        (BlockId "block-id-bytes")
+    pure
+        ctx
+            { utxoRoot = pure (Just rootBs)
+            , resolveUtxo = \_ -> pure (Just outBs)
+            , utxoProof = \_ -> pure (Just proofBs)
+            , cfgCage = testCageConfig
+            , runIndexerTx =
+                \_ -> pure (unsafeCoerce emptyTokenSet)
+            }
+  where
+    emptyTokenSet :: ([(TxIn, ByteString)], ByteString)
+    emptyTokenSet = ([], proofBs)
+
+withTokenSet
+    :: [(TxIn, ByteString)]
+    -> ByteString
+    -> Context IO
+    -> Context IO
+withTokenSet entries proofBs ctx =
+    ctx
+        { runIndexerTx =
+            \_ -> pure (unsafeCoerce tokenSet)
+        }
+  where
+    tokenSet :: ([(TxIn, ByteString)], ByteString)
+    tokenSet = (entries, proofBs)
+
+testCageConfig :: CageConfig
+testCageConfig =
+    CageConfig
+        { cageScriptBytes = SBS.toShort "dummy"
+        , requestScriptBytes = SBS.toShort "dummy"
+        , cfgScriptHash = testScriptHash
+        , defaultProcessTime = 60_000
+        , defaultRetractTime = 30_000
+        , defaultTip = Coin 1_000_000
+        , network = Testnet
+        }
 
 -- | A dummy token state for testing.
 mkDummyTokenState :: IO TokenState
@@ -68,33 +137,85 @@ mkDummyTokenState = do
 
 spec :: Spec
 spec = describe "GET /tokens" $ do
-    it "returns empty list on fresh state" $ do
-        ctx <- mkTestContext
+    it "returns empty proof-bearing token set on fresh state" $ do
+        ctx0 <- mkTestContext
+        ctx <- withSnapshot "root" "tx-out" "proof" ctx0
         resp <- getTokens ctx
         simpleStatus resp `shouldBe` status200
-        case decode (simpleBody resp) of
-            Just (Array arr) ->
-                length arr `shouldBe` 0
-            _ ->
-                expectationFailure
-                    "Expected JSON array"
+        assertEnvelope resp 0
 
-    it "returns token after insertion" $ do
-        ctx <- mkTestContext
+    it "returns proof-bearing witness for all token UTxOs" $ do
+        ctx0 <- mkTestContext
+        ctx <- withSnapshot "root" "tx-out" "proof" ctx0
         ts <- mkDummyTokenState
-        txIn <- generate genTxIn
-        let tid =
-                TokenId
-                    (AssetName (SBS.toShort "deadbeef"))
+        txIn1 <- generate genTxIn
+        txIn2 <- generate genTxIn
+        let tid1 =
+                TokenId (AssetName (SBS.toShort "deadbeef"))
+            tid2 =
+                TokenId (AssetName (SBS.toShort "cafebabe"))
         St.putToken
             (St.tokens (state ctx))
-            tid
-            (LocatedTokenState txIn ts)
-        resp <- getTokens ctx
+            tid1
+            (LocatedTokenState txIn1 ts)
+        St.putToken
+            (St.tokens (state ctx))
+            tid2
+            (LocatedTokenState txIn2 ts)
+        let ctxWithSet =
+                withTokenSet
+                    [(txIn1, "tx-out-1"), (txIn2, "tx-out-2")]
+                    "proof"
+                    ctx
+        resp <- getTokens ctxWithSet
         simpleStatus resp `shouldBe` status200
-        case decode (simpleBody resp) of
-            Just (Array arr) ->
-                length arr `shouldBe` 1
-            _ ->
-                expectationFailure
-                    "Expected JSON array with 1 element"
+        assertEnvelope resp 2
+        assertTokenTxOuts resp ["tx-out-1", "tx-out-2"]
+
+    it "returns 503 when snapshot not yet available" $ do
+        ctx <- mkTestContext
+        resp <- getTokens ctx
+        simpleStatus resp `shouldBe` status503
+
+assertEnvelope :: SResponse -> Int -> IO ()
+assertEnvelope resp n =
+    case decode (simpleBody resp) of
+        Just (Object obj) -> do
+            KM.member "snapshot" obj `shouldBe` True
+            case KM.lookup "tokens" obj of
+                Just (Object tokensObj) -> do
+                    case KM.lookup "entries" tokensObj of
+                        Just (Array entries) ->
+                            V.length entries `shouldBe` n
+                        _ ->
+                            expectationFailure
+                                "tokens.entries is not an array"
+                    case KM.lookup
+                        "completeness_proof"
+                        tokensObj of
+                        Just (String proof) ->
+                            proof `shouldBe` "70726f6f66"
+                        _ ->
+                            expectationFailure
+                                "tokens.completeness_proof \
+                                \is not a string"
+                _ ->
+                    expectationFailure
+                        "tokens is not an object"
+        _ ->
+            expectationFailure
+                "Expected JSON object"
+
+assertTokenTxOuts :: SResponse -> [ByteString] -> IO ()
+assertTokenTxOuts resp expected =
+    case decode (simpleBody resp) of
+        Just TokensResponse{trsTokens = UtxoSetWitness{uswEntries}} ->
+            map
+                ( \(UtxoEntryRefOnly{uerTxOutCbor = Hex txOut}) ->
+                    txOut
+                )
+                uswEntries
+                `shouldBe` expected
+        _ ->
+            expectationFailure
+                "Expected TokensResponse"

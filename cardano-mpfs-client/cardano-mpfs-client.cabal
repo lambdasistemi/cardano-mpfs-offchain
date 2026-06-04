@@ -161,6 +161,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.SnapshotSpec
     Cardano.MPFS.Client.UpdateFactsSpec
     Cardano.MPFS.Client.Verify.ReactorSpec
+    Cardano.MPFS.Client.Verify.ReadSpec
     Cardano.MPFS.Client.Verify.WriteSpec
     Cardano.MPFS.Client.VerifySpec
 
