@@ -12,6 +12,9 @@ module Cardano.MPFS.Client.Verify.Read
     ( VerifiedTokenState
     , verifiedTokenState
     , verifyTokenState
+    , VerifiedTokenFacts
+    , verifiedTokenFacts
+    , verifyTokenFacts
     ) where
 
 import Data.ByteString qualified as BS
@@ -19,10 +22,23 @@ import Data.ByteString.Base16 qualified as Base16
 import Data.Text (Text)
 import Data.Text.Encoding qualified as T
 
+import MPF.Hashes
+    ( aikenKeyPath
+    , mkMPFHash
+    , mpfHashing
+    , nullHash
+    , renderMPFHash
+    )
+import MPF.Insertion (buildComposeFromList, scanMPFCompose)
+import MPF.Interface (hexValue)
+
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( ChainPointJSON (..)
+    , FactEntry (..)
+    , FactsResponse (..)
     , TokenResponse (..)
+    , TokenStateJSON (..)
     , TxInJSON (..)
     , VerificationSnapshot (..)
     , WitnessedTokenState (..)
@@ -66,6 +82,63 @@ verifyTokenState
 verifyTokenState (TrustedRoot (Hex trustedBs)) resp@TokenResponse{..} = do
     verifyAnchoredState "token" trustedBs trSnapshot trState
     Right (VerifiedTokenState resp)
+
+-- | Opaque witness that a facts response has been checked against the
+-- caller-supplied trusted root: the 'WitnessedTokenState' is anchored
+-- to that root, and the MPF root reconstructed from the enumerated
+-- fact set equals the on-chain trie root in that state. The
+-- constructor is not exported, so public callers cannot bypass
+-- 'verifyTokenFacts'.
+newtype VerifiedTokenFacts = VerifiedTokenFacts FactsResponse
+    deriving stock (Eq, Show)
+
+-- | Extract the verified response after 'verifyTokenFacts' has
+-- established the anchoring and completeness checks.
+verifiedTokenFacts :: VerifiedTokenFacts -> FactsResponse
+verifiedTokenFacts (VerifiedTokenFacts resp) = resp
+
+-- | Verify a @GET \/tokens\/:id\/facts@ 'FactsResponse' against an
+-- externally-supplied trusted UTxO-CSMT root. First anchors the
+-- 'WitnessedTokenState' to the trusted root (as 'verifyTokenState'
+-- does), then reconstructs the MPF trie root from the complete
+-- enumerated @[FactEntry]@ and asserts it equals the on-chain trie
+-- root advertised in the (now-anchored) state. The root binds the
+-- whole map, so any omitted, added, or tampered fact makes the
+-- reconstructed root diverge — this is the completeness proof.
+verifyTokenFacts
+    :: TrustedRoot
+    -> FactsResponse
+    -> Either VerifyError VerifiedTokenFacts
+verifyTokenFacts (TrustedRoot (Hex trustedBs)) resp@FactsResponse{..} = do
+    verifyAnchoredState "facts" trustedBs frsSnapshot frsState
+    let Hex onChainRoot = root (wtsState frsState)
+        reconstructed = reconstructMpfRoot (map factPair frsFacts)
+    if reconstructed == onChainRoot
+        then Right (VerifiedTokenFacts resp)
+        else Left (MpfReplayFailed "facts.facts" "root mismatch")
+  where
+    factPair FactEntry{feKey = Hex keyBs, feValue = Hex valueBs} =
+        (keyBs, valueBs)
+
+-- | Reconstruct the Aiken-compatible MPF trie root from a complete
+-- set of @(key, value)@ byte pairs, purely. Each key becomes its
+-- Aiken nibble path and each value its MPF value hash, then the trie
+-- is folded to a root via the same primitives the write path uses
+-- (@buildComposeFromList@ / @scanMPFCompose@). @scanMPFCompose@
+-- returns the root indirect with the node hash already in its
+-- @hexValue@ — the same value @MPF.MTS@'s @mtsRootHash@ reports for
+-- the stored root node — so the trie root is exactly that. An empty
+-- fact set yields the null (empty-trie) root.
+reconstructMpfRoot
+    :: [(BS.ByteString, BS.ByteString)] -> BS.ByteString
+reconstructMpfRoot kvs =
+    case buildComposeFromList items of
+        Nothing -> renderMPFHash nullHash
+        Just compose ->
+            let (rootInd, _) = scanMPFCompose [] mpfHashing compose
+            in  renderMPFHash (hexValue rootInd)
+  where
+    items = [(aikenKeyPath k, mkMPFHash v) | (k, v) <- kvs]
 
 -- | Shared anchoring check for read-side responses that carry a
 -- snapshot plus a 'WitnessedTokenState': the trusted root has the
