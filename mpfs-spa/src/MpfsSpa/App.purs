@@ -12,7 +12,7 @@ import Data.Array (index, length, mapWithIndex)
 import Data.Either (either)
 import Data.Maybe (Maybe(..), isJust, maybe)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import React.Basic (JSX)
 import React.Basic.DOM as R
@@ -50,6 +50,19 @@ mkApp env = do
           res <- getTokens env.cfg
           liftEffect (setTokens (const (either Failure Success res)))
 
+      refreshTokensAfterSubmit :: Effect Unit
+      refreshTokensAfterSubmit = do
+        loadTokens
+        launchAff_ do
+          delay (Milliseconds 5000.0)
+          liftEffect loadTokens
+          delay (Milliseconds 10000.0)
+          liftEffect loadTokens
+          delay (Milliseconds 15000.0)
+          liftEffect loadTokens
+          delay (Milliseconds 30000.0)
+          liftEffect loadTokens
+
     useEffectOnce do
       loadTokens
       pure (pure unit)
@@ -71,6 +84,7 @@ mkApp env = do
               , tokens
               , selected
               , onRefresh: loadTokens
+              , onSubmitted: refreshTokensAfterSubmit
               , onSelect: \t -> setSelected (const (Just t))
               }
           }
@@ -80,7 +94,17 @@ mkApp env = do
         ]
           <>
             if isJust wallet then
-              [ { label: "End", node: endTab { env, wallet, selected } } ]
+              [ { label: "End"
+                , node: endTab
+                    { env
+                    , wallet
+                    , selected
+                    , onSubmitted: do
+                        setSelected (const Nothing)
+                        refreshTokensAfterSubmit
+                    }
+                }
+              ]
             else []
 
       clamped = min tabIndex (length panels - 1)

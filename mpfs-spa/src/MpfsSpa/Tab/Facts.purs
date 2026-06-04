@@ -8,11 +8,12 @@ module MpfsSpa.Tab.Facts (mkFactsTab, FactsProps) where
 
 import Prelude
 
-import Data.Array (null)
-import Data.Either (either)
+import Data.Array (filter, length, null)
+import Data.Either (Either(..), either)
 import Data.Maybe (Maybe(..), maybe)
+import Data.Int (toNumber)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import React.Basic (JSX)
 import React.Basic.DOM as R
@@ -20,10 +21,16 @@ import React.Basic.Hooks (component, useEffect, useState, (/\))
 import React.Basic.Hooks as React
 
 import MpfsSpa.Config (placeholderCageConfig)
-import MpfsSpa.Http (PendingRequest, getFactValue, getRequests)
+import MpfsSpa.Display
+  ( currentTimeMillis
+  , displayUtf8Hex
+  , encodeUtf8Hex
+  , formatAgeMillis
+  )
+import MpfsSpa.Http (PendingRequest, getFactValue, getRequests, getTokenState)
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (Env, Remote(..), WalletState, remoteView)
-import MpfsSpa.Submit (OpStatus(..), runOp, statusView)
+import MpfsSpa.Submit (OpStatus(..), runOpAfterSubmit, statusView)
 import MpfsSpa.Types
   ( Key(..)
   , RequestId
@@ -67,14 +74,37 @@ mkFactsTab = component "FactsTab" \props -> React.do
   status /\ setStatus <- useState Idle
   requests /\ setRequests <- useState (NotAsked :: Remote (Array PendingRequest))
   lookup /\ setLookup <- useState (NotAsked :: Remote Value)
+  nowMillis /\ setNowMillis <- useState 0.0
+  processTime /\ setProcessTime <-
+    useState (toNumber placeholderCageConfig.defaultProcessTime)
 
   let
     loadRequests :: TokenId -> Effect Unit
     loadRequests tid = do
       setRequests (const Loading)
       launchAff_ do
+        now <- liftEffect currentTimeMillis
+        state <- getTokenState props.env.cfg tid
         res <- getRequests props.env.cfg tid
-        liftEffect (setRequests (const (either Failure Success res)))
+        liftEffect do
+          setNowMillis (const now)
+          case state of
+            Right st -> setProcessTime (const (toNumber st.processTime))
+            Left _ -> pure unit
+          setRequests (const (either Failure Success res))
+
+    refreshRequestsAfterSubmit :: TokenId -> Effect Unit
+    refreshRequestsAfterSubmit tid = do
+      loadRequests tid
+      launchAff_ do
+        delay (Milliseconds 5000.0)
+        liftEffect (loadRequests tid)
+        delay (Milliseconds 10000.0)
+        liftEffect (loadRequests tid)
+        delay (Milliseconds 15000.0)
+        liftEffect (loadRequests tid)
+        delay (Milliseconds 30000.0)
+        liftEffect (loadRequests tid)
 
   useEffect (map (\(TokenId h) -> h) props.selected) do
     case props.selected of
@@ -93,7 +123,12 @@ mkFactsTab = component "FactsTab" \props -> React.do
         -- Run an op built from the connected wallet; refuse without one.
         op :: (WalletState -> _) -> Effect Unit
         op build = case props.wallet of
-          Just w -> runOp (Just w) (build w) setStatus
+          Just w ->
+            runOpAfterSubmit
+              (\_ -> refreshRequestsAfterSubmit tid)
+              (Just w)
+              (build w)
+              setStatus
           Nothing -> setStatus (const (Failed "Connect a wallet first."))
 
         addr w = WalletAddr w.address
@@ -117,13 +152,16 @@ mkFactsTab = component "FactsTab" \props -> React.do
         onRejectExpired = op \w ->
           helpers.rejectExpired (addr w) placeholderCageConfig tid
 
+        onUpdateRoot = op \w ->
+          helpers.updateToken (addr w) placeholderCageConfig tid
+
         onRetract rid = op \w ->
           helpers.retractRequest (addr w) placeholderCageConfig tid rid
 
         onLookup =
           launchAff_ do
             liftEffect (setLookup (const Loading))
-            res <- getFactValue props.env.cfg tid (Key form.lookupKey)
+            res <- getFactValue props.env.cfg tid (Key (encodeUtf8Hex form.lookupKey))
             liftEffect (setLookup (const (either Failure Success res)))
 
         upd f v = setForm (\s -> f s v)
@@ -139,7 +177,11 @@ mkFactsTab = component "FactsTab" \props -> React.do
                   }
               , M.cardContent {}
                   [ M.stack { spacing: 3 }
-                      [ opSection "Insert" "Request insert" onInsert
+                      [ M.alert { severity: "info" }
+                          [ R.text
+                              "Keys and values are plain text; the app encodes them for the chain."
+                          ]
+                      , opSection "Insert" "Request insert" onInsert
                           [ tf "Key" form.insKey (upd \s v -> s { insKey = v })
                           , tf "Value" form.insVal (upd \s v -> s { insVal = v })
                           ]
@@ -157,8 +199,12 @@ mkFactsTab = component "FactsTab" \props -> React.do
                       ]
                   ]
               ]
-          , lookupCard form.lookupKey (upd \s v -> s { lookupKey = v }) onLookup lookup
-          , pendingCard (loadRequests tid) onRejectExpired onRetract requests
+          , lookupCard form.lookupKey (upd \s v -> s { lookupKey = v }) onLookup
+              lookup
+          , pendingCard (loadRequests tid) onUpdateRoot onRejectExpired onRetract
+              nowMillis
+              processTime
+              requests
           ]
 
 tokenChip :: TokenId -> JSX
@@ -207,8 +253,8 @@ lookupCard key onChange onLookup result =
                 ]
             , remoteView result \(Value v) ->
                 M.alert { severity: "success" }
-                  [ M.box { sx: { fontFamily: "monospace", wordBreak: "break-all" } }
-                      [ R.text v ]
+                  [ M.box { sx: { wordBreak: "break-word" } }
+                      [ R.text (displayUtf8Hex v) ]
                   ]
             ]
         ]
@@ -217,35 +263,63 @@ lookupCard key onChange onLookup result =
 pendingCard
   :: Effect Unit
   -> Effect Unit
+  -> Effect Unit
   -> (RequestId -> Effect Unit)
+  -> Number
+  -> Number
   -> Remote (Array PendingRequest)
   -> JSX
-pendingCard onRefresh onRejectExpired onRetract requests =
-  M.card { variant: "outlined" }
-    [ M.cardHeader
-        { title: "Pending requests"
-        , titleTypographyProps: { variant: "subtitle1" }
-        , action:
-            M.stack { direction: "row", spacing: 1 }
-              [ M.button
-                  { size: "small", onClick: onRefresh }
-                  [ R.text "Refresh" ]
-              , M.button
-                  { size: "small", color: "warning", onClick: onRejectExpired }
-                  [ R.text "Reject expired" ]
-              ]
-        }
-    , M.cardContent {}
-        [ remoteView requests \rs ->
-            if null rs then
-              M.alert { severity: "info" } [ R.text "No pending requests." ]
-            else
-              M.list {} (map (requestRow onRetract) rs)
-        ]
-    ]
+pendingCard onRefresh onUpdateRoot onRejectExpired onRetract nowMillis processTime requests =
+  let
+    processable = processableCount nowMillis processTime requests
+  in
+    M.card { variant: "outlined" }
+      [ M.cardHeader
+          { title: "Pending requests"
+          , titleTypographyProps: { variant: "subtitle1" }
+          , action:
+              M.stack { direction: "row", spacing: 1 }
+                [ M.button
+                    { size: "small", onClick: onRefresh }
+                    [ R.text "Refresh" ]
+                , M.button
+                    { size: "small"
+                    , variant: "contained"
+                    , onClick: onUpdateRoot
+                    , disabled: processable == 0
+                    }
+                    [ R.text
+                        ( if processable == 0 then
+                            "No processable requests"
+                          else
+                            "Process requests (" <> show processable <> ")"
+                        )
+                    ]
+                , M.button
+                    { size: "small", color: "warning", onClick: onRejectExpired }
+                    [ R.text "Reject expired" ]
+                ]
+          }
+      , M.cardContent {}
+          [ remoteView requests \rs ->
+              if null rs then
+                M.alert { severity: "info" } [ R.text "No pending requests." ]
+              else
+                M.list {} (map (requestRow onRetract nowMillis processTime) rs)
+          ]
+      ]
 
-requestRow :: (RequestId -> Effect Unit) -> PendingRequest -> JSX
-requestRow onRetract req =
+processableCount :: Number -> Number -> Remote (Array PendingRequest) -> Int
+processableCount nowMillis processTime requests = case requests of
+  Success rs -> length (filter (isProcessable nowMillis processTime) rs)
+  _ -> 0
+
+isProcessable :: Number -> Number -> PendingRequest -> Boolean
+isProcessable nowMillis processTime req =
+  nowMillis - req.submittedAt <= processTime
+
+requestRow :: (RequestId -> Effect Unit) -> Number -> Number -> PendingRequest -> JSX
+requestRow onRetract nowMillis processTime req =
   M.listItem
     { secondaryAction:
         M.button
@@ -256,10 +330,22 @@ requestRow onRetract req =
           [ R.text "Retract" ]
     }
     [ M.listItemText
-        { primary: req.operation <> " · " <> unKey req.key
-        , secondary: maybe "" unValue req.value
+        { primary: req.operation <> " - " <> unKey req.key
+        , secondary:
+            maybe "" (\v -> "Value " <> unValue v <> " - ") req.value
+              <> requestAge req
+              <> " - "
+              <> requestWindow req
         }
     ]
   where
-  unKey (Key k) = k
-  unValue (Value v) = v
+  unKey (Key k) = displayUtf8Hex k
+  unValue (Value v) = displayUtf8Hex v
+
+  requestAge r = formatAgeMillis (nowMillis - r.submittedAt)
+
+  requestWindow r =
+    if isProcessable nowMillis processTime r then
+      "processable"
+    else
+      "expired - use Reject expired"

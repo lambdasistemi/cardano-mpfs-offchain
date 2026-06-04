@@ -63,6 +63,11 @@ foreign import runCageReactorImpl :: String -> Effect (Promise ReactorResult)
 
 foreign import postJsonImpl :: String -> String -> Effect (Promise RawResponse)
 
+-- | UTF-8 encode a user-typed string to a lowercase hex string. Trie
+-- keys/values travel as `Hex` on the wire, so plain text entered in the
+-- forms (e.g. "start"/"amaru") must be hex-encoded before POST.
+foreign import encodeUtf8Hex :: String -> String
+
 runCageReactor :: String -> Aff ReactorResult
 runCageReactor = toAffE <<< runCageReactorImpl
 
@@ -75,6 +80,7 @@ wasmCageHelpers =
   , retractRequest
   , rejectExpired
   , endCage
+  , updateToken
   }
 
 registerToken :: WalletAddr -> CageConfig -> CageResult
@@ -113,6 +119,12 @@ rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
 rejectExpired addr cfg token =
   requestCageTx "reject" cfg
     (\httpCfg -> postRejectFacts httpCfg addr token)
+
+-- | Owner/oracle op: fold all pending requests into the trie root.
+updateToken :: WalletAddr -> CageConfig -> TokenId -> CageResult
+updateToken addr cfg token =
+  requestCageTx "update" cfg
+    (\httpCfg -> postUpdateRootFacts httpCfg addr token)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -183,7 +195,13 @@ postInsertFacts
   (Key key)
   (Value value) =
   postFacts cfg "/facts/request/insert"
-    (encodeJson { token, key, value, address })
+    ( encodeJson
+        { token
+        , key: encodeUtf8Hex key
+        , value: encodeUtf8Hex value
+        , address
+        }
+    )
 
 postUpdateFacts
   :: Config
@@ -203,9 +221,9 @@ postUpdateFacts
   postFacts cfg "/facts/request/update"
     ( encodeJson
         { token
-        , key
-        , old_value: oldValue
-        , new_value: newValue
+        , key: encodeUtf8Hex key
+        , old_value: encodeUtf8Hex oldValue
+        , new_value: encodeUtf8Hex newValue
         , address
         }
     )
@@ -218,7 +236,13 @@ postDeleteFacts
   (Key key)
   (Value value) =
   postFacts cfg "/facts/request/delete"
-    (encodeJson { token, key, value, address })
+    ( encodeJson
+        { token
+        , key: encodeUtf8Hex key
+        , value: encodeUtf8Hex value
+        , address
+        }
+    )
 
 postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json)
 postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
@@ -231,6 +255,10 @@ postRejectFacts cfg (WalletAddr address) (TokenId token) =
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
   postFacts cfg "/facts/end" (encodeJson { token, address })
+
+postUpdateRootFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
+postUpdateRootFacts cfg (WalletAddr address) (TokenId token) =
+  postFacts cfg "/facts/update" (encodeJson { token, address })
 
 postFacts :: Config -> String -> Json -> Aff (Either String Json)
 postFacts cfg path body = do

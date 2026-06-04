@@ -30,6 +30,7 @@ mockCageHelpers =
   , retractRequest: \_ _ _ _ -> stub "05"
   , rejectExpired: \_ _ _ -> stub "06"
   , endCage: \_ _ _ -> stub "07"
+  , updateToken: \_ _ _ -> stub "08"
   }
 
 -- | Produce a stub result after a simulated round-trip. The per-operation
