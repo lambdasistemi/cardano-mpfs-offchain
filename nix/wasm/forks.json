@@ -62,8 +62,8 @@
     },
     "haskell-mts": {
       "location": "https://github.com/lambdasistemi/haskell-mts",
-      "rev": "73a094ae3602e272bff11f07899dd951616fb0e7",
-      "sha256": "1xzqkchzavs50shham0s0m7kr5k5qldc2dv04glkvrr7vgj6wsng",
+      "rev": "2893775286801e91afe10e14775507a36e97e169",
+      "sha256": "1ipwx1xgbyp0fwyq90zp7j6habvl0164d08s4mfbixg40w15sd8w",
       "subdirs": []
     },
     "aiken-codegen": {
