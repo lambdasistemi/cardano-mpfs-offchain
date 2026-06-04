@@ -6,6 +6,7 @@
 module MpfsSpa.Submit
   ( OpStatus(..)
   , runOp
+  , runOpAfterSubmit
   , statusView
   ) where
 
@@ -13,6 +14,9 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.String.CodeUnits as CU
+import Data.String.Common as String
+import Data.String.Pattern (Pattern(..))
 import Effect (Effect)
 import Effect.Aff (attempt, launchAff_)
 import Effect.Class (liftEffect)
@@ -45,7 +49,15 @@ runOp
   -> CageResult
   -> ((OpStatus -> OpStatus) -> Effect Unit)
   -> Effect Unit
-runOp mWallet build setStatus = do
+runOp = runOpAfterSubmit (\_ -> pure unit)
+
+runOpAfterSubmit
+  :: (String -> Effect Unit)
+  -> Maybe WalletState
+  -> CageResult
+  -> ((OpStatus -> OpStatus) -> Effect Unit)
+  -> Effect Unit
+runOpAfterSubmit onSubmitted mWallet build setStatus = do
   let put s = setStatus (const s)
   put Working
   launchAff_ do
@@ -67,9 +79,11 @@ runOp mWallet build setStatus = do
                   Right signedTxHex -> do
                     httpCfg <- liftEffect serverConfig
                     submitted <- submitTx httpCfg signedTxHex
-                    liftEffect $ put $ case submitted of
-                      Left err -> Failed err
-                      Right txId -> Submitted cbor witnessHex signedTxHex txId
+                    liftEffect $ case submitted of
+                      Left err -> put (Failed err)
+                      Right txId -> do
+                        put (Submitted cbor witnessHex signedTxHex txId)
+                        onSubmitted txId
 
 -- | Render an operation status as Material feedback.
 statusView :: OpStatus -> JSX
@@ -95,17 +109,90 @@ statusView = case _ of
       , M.typography { variant: "caption", color: "text.secondary" }
           [ R.text "tx id" ]
       , hexBlock txId
-      , M.typography { variant: "caption", color: "text.secondary" }
-          [ R.text "unsigned tx" ]
-      , hexBlock unsignedHex
-      , M.typography { variant: "caption", color: "text.secondary" }
-          [ R.text "witness set" ]
-      , hexBlock witnessHex
-      , M.typography { variant: "caption", color: "text.secondary" }
-          [ R.text "signed tx" ]
-      , hexBlock signedHex
+      , M.link
+          { href: "https://preprod.cardanoscan.io/transaction/" <> txId
+          , target: "_blank"
+          , rel: "noreferrer"
+          }
+          [ R.text "View on preprod Cardanoscan" ]
+      , detailsBlock "Transaction details"
+          [ M.typography { variant: "caption", color: "text.secondary" }
+              [ R.text "unsigned tx" ]
+          , hexBlock unsignedHex
+          , M.typography { variant: "caption", color: "text.secondary" }
+              [ R.text "witness set" ]
+          , hexBlock witnessHex
+          , M.typography { variant: "caption", color: "text.secondary" }
+              [ R.text "signed tx" ]
+          , hexBlock signedHex
+          ]
       ]
-  Failed msg -> M.alert { severity: "error", sx: { mt: 2 } } [ R.text msg ]
+  Failed msg -> errorView msg
+
+errorView :: String -> JSX
+errorView raw =
+  let
+    message = friendlyError raw
+  in
+    M.alert { severity: "error", sx: { mt: 2 } }
+      ( [ R.text message ]
+          <>
+            if message == raw then
+              []
+            else
+              [ detailsBlock "Raw detail" [ textBlock raw ] ]
+      )
+
+friendlyError :: String -> String
+friendlyError raw =
+  let
+    lower = String.toLower raw
+    contains needle = CU.contains (Pattern needle) lower
+  in
+    if
+      contains "validity_upper_slot"
+        && contains "must be greater than the snapshot slot" then
+      "This request's processing window has expired - use Reject expired instead (or register a token, which now has a 30-min window)."
+    else if contains "invalid bytestring size" then
+      "Invalid input."
+    else if contains "bad_facts:" then
+      "The server returned facts the reactor could not use."
+    else if contains "verify_error:" then
+      "The transaction could not be verified against the current chain snapshot."
+    else if contains "wallet" || contains "declined" then
+      "Wallet signing failed or was declined."
+    else if contains "http " || contains "submit" then
+      "Transaction submission failed. Check the server response details and try again."
+    else
+      raw
+
+detailsBlock :: String -> Array JSX -> JSX
+detailsBlock summary children =
+  M.box
+    { component: "details"
+    , sx: { mt: 1 }
+    }
+    ( [ M.box
+          { component: "summary"
+          , sx: { cursor: "pointer", fontSize: "0.85rem" }
+          }
+          [ R.text summary ]
+      ]
+        <> children
+    )
+
+textBlock :: String -> JSX
+textBlock text =
+  M.box
+    { sx:
+        { fontFamily: "monospace"
+        , fontSize: "0.75rem"
+        , whiteSpace: "pre-wrap"
+        , wordBreak: "break-word"
+        , mt: 1
+        }
+    }
+    [ R.text text ]
 
 hexBlock :: String -> JSX
 hexBlock hex =
