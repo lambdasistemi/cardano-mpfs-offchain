@@ -17,13 +17,16 @@
 -- reject step; the new state output carries the same datum
 -- as the consumed state UTxO.
 module Cardano.MPFS.Client.Cage.Reject
-    ( rejectCageTx
+    ( RefundPlan (..)
+    , preflightLegacyExactRefund
+    , rejectCageTx
     ) where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.Coerce (coerce)
-import Data.List (sortOn)
+import Data.List (find, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Ord (Down (..))
 import Data.Set qualified as Set
@@ -108,7 +111,8 @@ import Cardano.Ledger.Credential
     , StakeReference (..)
     )
 import Cardano.Ledger.Hashes
-    ( extractHash
+    ( ScriptHash (..)
+    , extractHash
     , unsafeMakeSafeHash
     )
 import Cardano.Ledger.Keys
@@ -187,11 +191,17 @@ import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     , computeScriptIntegrity
-    , evalBudgetExUnits
     )
 import Cardano.Tx.Build qualified as TxBuild
 
 data NoCtx a
+
+data RefundPlan = RefundPlan
+    { refundRawCoin :: !Coin
+    , refundMinCoin :: !Coin
+    , refundFinalCoin :: !Coin
+    }
+    deriving stock (Eq, Show)
 
 -- | Build an unsigned reject transaction from already
 -- verified reject facts. The function decodes the supplied
@@ -421,11 +431,20 @@ buildRejectTx
             tx <- buildWithFee previousFee
             let finalFee = tx ^. bodyTxL . feeTxBodyL
             if finalFee == previousFee
-                then Right tx
+                then finalize finalFee tx
                 else
                     if Set.member finalFee seenFees
-                        then buildWithFee (max finalFee previousFee)
+                        then do
+                            let fallbackFee = max finalFee previousFee
+                            tx' <- buildWithFee fallbackFee
+                            finalize fallbackFee tx'
                         else converge (Set.insert finalFee seenFees) finalFee
+
+        finalize fee tx = do
+            preflightLegacyExactRefund
+                (usesLegacyExactRefundValidator cfg)
+                (map snd (refundPlans fee))
+            Right tx
 
         buildWithFee feeForRefunds =
             case balanceTx pp ledgerPairs [] changeAddr draft of
@@ -473,7 +492,10 @@ buildRejectTx
                     (witnessKeyHashToGuard ownerSigner)
                 applyValidity validity
             outputs =
-                newStateOut : refundOutputs feeForRefunds
+                newStateOut
+                    : [ refundOutput addr plan
+                      | (addr, plan) <- refundPlans feeForRefunds
+                      ]
 
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
@@ -491,7 +513,7 @@ buildRejectTx
                 (rowOut stateRow ^. valueTxOutL)
                 & datumTxOutL
                     .~ mkInlineDatum (StateDatum oldState)
-        refundOutputs (Coin fee) =
+        refundPlans (Coin fee) =
             let nReqs =
                     fromIntegral (length requestRows) :: Integer
                 perReqFee = fee `div` nReqs
@@ -499,14 +521,13 @@ buildRejectTx
                 OnChainTokenState
                     { stateMaxFee = tipAmount
                     } = oldState
-            in  [ refundOutput
-                    pp
-                    (refundAddress (network cfg) request)
-                    (Coin (reqValue - tipAmount - perReqFee - extra))
+            in  [ (addr, refundPlan pp addr raw)
                 | (ix, row) <- zip [0 :: Int ..] requestRows
                 , let request = unsafeRequestDatum row
+                      addr = refundAddress (network cfg) request
                       Coin reqValue = rowOut row ^. coinTxOutL
                       extra = if ix == 0 then remainder else 0
+                      raw = Coin (reqValue - tipAmount - perReqFee - extra)
                 ]
 
 applyValidity :: ValidityInterval -> TxBuild.TxBuild q e ()
@@ -597,13 +618,56 @@ spendingIndex needle inputs =
         | x == needle = n
         | otherwise = go (n + 1) xs
 
--- | Build a refund output, bumping the coin to satisfy the
--- minUTxO floor when the raw refund would underpay it.
-refundOutput :: PParams ConwayEra -> Addr -> Coin -> TxOut ConwayEra
-refundOutput pp addr raw =
+refundPlan :: PParams ConwayEra -> Addr -> Coin -> RefundPlan
+refundPlan pp addr raw =
     let draft = mkBasicTxOut addr (inject raw)
         minCoin = getMinCoinTxOut pp draft
-    in  mkBasicTxOut addr (inject (max raw minCoin))
+        finalCoin = max raw minCoin
+    in  RefundPlan raw minCoin finalCoin
+
+-- | Build a refund output, bumping the coin to satisfy the
+-- minUTxO floor. Fixed validators allow this bounded owner-funded
+-- top-up; legacy exact-refund validators are preflight-refused below.
+refundOutput :: Addr -> RefundPlan -> TxOut ConwayEra
+refundOutput addr RefundPlan{refundFinalCoin} =
+    mkBasicTxOut addr (inject refundFinalCoin)
+
+preflightLegacyExactRefund
+    :: Bool -> [RefundPlan] -> Either BuildError ()
+preflightLegacyExactRefund False _ = Right ()
+preflightLegacyExactRefund True plans =
+    case find requiresTopUp plans of
+        Nothing -> Right ()
+        Just RefundPlan{refundRawCoin, refundMinCoin, refundFinalCoin} ->
+            Left
+                $ LegacyRejectRefundRequiresTopUp
+                $ "legacy exact-refund validator cannot accept \
+                  \min-UTxO refund top-up: raw refund "
+                    <> coinText refundRawCoin
+                    <> ", min refund "
+                    <> coinText refundMinCoin
+                    <> ", final refund "
+                    <> coinText refundFinalCoin
+  where
+    requiresTopUp RefundPlan{refundRawCoin, refundFinalCoin} =
+        refundFinalCoin > refundRawCoin
+
+usesLegacyExactRefundValidator :: CageConfig -> Bool
+usesLegacyExactRefundValidator CageConfig{cfgScriptHash = ScriptHash h} =
+    hashToBytes h == legacyExactRefundStateHashBytes
+
+legacyExactRefundStateHashBytes :: ByteString
+legacyExactRefundStateHashBytes =
+    case B16.decode
+        "c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06" of
+        Right bytes -> bytes
+        Left err ->
+            error
+                $ "invalid legacy exact-refund validator hash: "
+                    <> err
+
+coinText :: Coin -> Text
+coinText (Coin coin) = T.pack (show coin)
 
 refundAddress :: Network -> OnChainRequest -> Addr
 refundAddress net OnChainRequest{requestOwner = BuiltinByteString ownerBytes} =
@@ -656,17 +720,12 @@ toLedgerData value =
 
 rejectRedeemerBudget :: PParams ConwayEra -> ExUnits
 rejectRedeemerBudget pp =
-    capExUnits evalBudgetExUnits
-        $ halfExUnits
+    capExUnits (ExUnits 900_000 250_000_000)
         $ pp ^. ppMaxTxExUnitsL
 
 capExUnits :: ExUnits -> ExUnits -> ExUnits
 capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
     ExUnits (min mem maxMem) (min steps maxSteps)
-
-halfExUnits :: ExUnits -> ExUnits
-halfExUnits (ExUnits mem steps) =
-    ExUnits (mem `div` 2) (steps `div` 2)
 
 enforcePParamsPolicy
     :: WalletPolicy
