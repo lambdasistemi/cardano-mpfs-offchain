@@ -9,6 +9,7 @@
 module MpfsSpa.Material
   ( Theme
   , defaultTheme
+  , themeForMode
   , cssBaseline
   , container
   , box
@@ -37,6 +38,7 @@ module MpfsSpa.Material
   , link
   , tooltip
   , textField
+  , switch
   , table
   , tableBody
   , tableCell
@@ -54,8 +56,10 @@ module MpfsSpa.Material
   , blockIcon
   , checkCircleIcon
   , closeIcon
+  , darkModeIcon
   , deleteIcon
   , editIcon
+  , lightModeIcon
   , manageAccountsIcon
   , playlistAddCheckIcon
   , refreshIcon
@@ -80,6 +84,9 @@ foreign import data Theme :: Type
 
 -- | The default light theme used across the app.
 foreign import defaultTheme :: Theme
+
+-- | Build a light or dark MUI theme. Any non-"dark" value maps to light.
+foreign import themeForMode :: String -> Theme
 
 -- | `<CssBaseline />` — normalises browser styling, MUI baseline.
 foreign import cssBaseline :: JSX
@@ -120,6 +127,7 @@ foreign import badge :: forall r. Record r -> Array JSX -> JSX
 -- leaf components: props only
 foreign import tab :: forall r. Record r -> JSX
 foreign import textField :: forall r. Record r -> JSX
+foreign import switch :: forall r. Record r -> JSX
 foreign import chip :: forall r. Record r -> JSX
 foreign import divider :: forall r. Record r -> JSX
 foreign import circularProgress :: forall r. Record r -> JSX
@@ -132,8 +140,10 @@ foreign import accountCircleIcon :: forall r. Record r -> JSX
 foreign import blockIcon :: forall r. Record r -> JSX
 foreign import checkCircleIcon :: forall r. Record r -> JSX
 foreign import closeIcon :: forall r. Record r -> JSX
+foreign import darkModeIcon :: forall r. Record r -> JSX
 foreign import deleteIcon :: forall r. Record r -> JSX
 foreign import editIcon :: forall r. Record r -> JSX
+foreign import lightModeIcon :: forall r. Record r -> JSX
 foreign import manageAccountsIcon :: forall r. Record r -> JSX
 foreign import playlistAddCheckIcon :: forall r. Record r -> JSX
 foreign import refreshIcon :: forall r. Record r -> JSX

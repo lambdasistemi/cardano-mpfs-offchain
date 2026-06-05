@@ -8,13 +8,14 @@ module MpfsSpa.App (mkApp) where
 
 import Prelude
 
-import Data.Array (any, filter, head, length, null)
+import Data.Array (any, filter, find, head, length, null, zipWith)
 import Data.Either (Either(..), either)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.String.CodeUnits as CU
 import Data.String.Common as String
 import Data.String.Pattern (Pattern(..))
+import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), attempt, delay, launchAff_)
 import Effect.Class (liftEffect)
@@ -38,6 +39,7 @@ import MpfsSpa.Http
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (Env, Remote(..), WalletState, centred, remoteView)
 import MpfsSpa.Submit (OpStatus(..), runOpAfterSubmit, statusView)
+import MpfsSpa.Theme as Theme
 import MpfsSpa.Types
   ( Key(..)
   , RequestId(..)
@@ -57,6 +59,12 @@ data FactRow
   = KnownFact FactEntry (Array PendingRequest)
   | PendingOnly PendingRequest
 
+type TokenSummary =
+  { token :: TokenId
+  , owner :: Maybe String
+  , root :: Maybe String
+  }
+
 -- | Build the root component against the given environment.
 mkApp :: Env -> Effect (Unit -> JSX)
 mkApp env = component "App" \_ -> React.do
@@ -64,8 +72,11 @@ mkApp env = component "App" \_ -> React.do
   wallets /\ setWallets <- useState ([] :: Array W.WalletInfo)
   connecting /\ setConnecting <- useState (Nothing :: Maybe String)
   connectError /\ setConnectError <- useState (Nothing :: Maybe String)
-  tokens /\ setTokens <- useState (NotAsked :: Remote (Array TokenId))
+  tokens /\ setTokens <- useState (NotAsked :: Remote (Array TokenSummary))
   selected /\ setSelected <- useState (Nothing :: Maybe TokenId)
+  myTokensOnly /\ setMyTokensOnly <- useState true
+  hintOpen /\ setHintOpen <- useState true
+  themeMode /\ setThemeMode <- useState "light"
   facts /\ setFacts <- useState (NotAsked :: Remote (Array FactEntry))
   requests /\ setRequests <- useState (NotAsked :: Remote (Array PendingRequest))
   tokenState /\ setTokenState <- useState (NotAsked :: Remote TokenState)
@@ -166,6 +177,14 @@ mkApp env = component "App" \_ -> React.do
           setFacts (const (either Failure Success factsRes))
           setRequests (const (either Failure Success requestsRes))
 
+    walletOwnerHash :: Maybe String
+    walletOwnerHash =
+      wallet >>= \w -> W.ownerKeyHashOfAddress w.address
+
+    visibleTokenSummaries :: Array TokenSummary -> Array TokenSummary
+    visibleTokenSummaries =
+      visibleSummaries walletOwnerHash myTokensOnly
+
     loadTokens :: Effect Unit
     loadTokens = do
       setTokens (const Loading)
@@ -173,11 +192,28 @@ mkApp env = component "App" \_ -> React.do
         res <- getTokens env.cfg
         liftEffect case res of
           Left err -> setTokens (const (Failure err))
-          Right ts -> do
-            setTokens (const (Success ts))
-            case selected of
-              Just current | any (\t -> t == current) ts -> pure unit
-              _ -> setSelected (const (head ts))
+          Right ids -> launchAff_ do
+            states <- traverse (getTokenState env.cfg) ids
+            let
+              summaries =
+                zipWith tokenSummary ids states
+              visible =
+                visibleTokenSummaries summaries
+            liftEffect do
+              setTokens (const (Success summaries))
+              case selected of
+                Just current | any (\s -> s.token == current) visible -> pure unit
+                _ -> setSelected (const (map _.token (head visible)))
+
+    toggleMyTokensOnly :: Effect Unit
+    toggleMyTokensOnly =
+      setMyTokensOnly \current -> not current
+
+    toggleTheme :: Effect Unit
+    toggleTheme = do
+      let next = if themeMode == "dark" then "light" else "dark"
+      Theme.storeThemeMode next
+      setThemeMode (const next)
 
     reloadLater :: Maybe TokenId -> Effect Unit
     reloadLater mtid = do
@@ -282,15 +318,28 @@ mkApp env = component "App" \_ -> React.do
           (\w -> env.helpers.endCage (addr w) placeholderCageConfig tid)
 
   useEffectOnce do
+    mode <- Theme.initialThemeMode
+    setThemeMode (const mode)
     ws <- W.availableWallets
     setWallets (const ws)
     loadTokens
     pure (pure unit)
 
   useEffect (map _.key wallet) do
+    loadTokens
     case wallet of
       Nothing -> pure (pure unit)
       Just w -> W.subscribeAccountChanges w.api (refreshWallet w)
+
+  useEffect (show myTokensOnly <> fromMaybe "" walletOwnerHash) do
+    case tokens of
+      Success ts -> do
+        let visible = visibleTokenSummaries ts
+        case selected of
+          Just current | any (\s -> s.token == current) visible -> pure unit
+          _ -> setSelected (const (map _.token (head visible)))
+      _ -> pure unit
+    pure (pure unit)
 
   useEffect (map (\(TokenId tid) -> tid) selected) do
     case selected of
@@ -316,9 +365,27 @@ mkApp env = component "App" \_ -> React.do
 
     selectedToken = selected
 
-  pure $ M.themeProvider { theme: M.defaultTheme }
+    tokenSummaries = case tokens of
+      Success ts -> ts
+      _ -> []
+
+    visibleTokens =
+      visibleTokenSummaries tokenSummaries
+
+    selectedSummary =
+      selected >>= \tid -> find (\s -> s.token == tid) tokenSummaries
+
+    selectedOwned =
+      case selectedSummary, walletOwnerHash of
+        Just s, Just owner -> s.owner == Just owner
+        _, _ -> false
+
+    canWriteSelected =
+      isJust wallet && selectedOwned
+
+  pure $ M.themeProvider { theme: M.themeForMode themeMode }
     [ M.cssBaseline
-    , appBarView wallet wallets connecting connectFirst refreshWallet
+    , appBarView wallet wallets connecting themeMode connectFirst refreshWallet toggleTheme
     , M.container
         { maxWidth: false
         , sx:
@@ -327,7 +394,8 @@ mkApp env = component "App" \_ -> React.do
             , bgcolor: "background.default"
             }
         }
-        [ M.box
+        [ howItWorksHint hintOpen (setHintOpen (const false))
+        , M.box
             { sx:
                 { display: "grid"
                 , gridTemplateColumns: { xs: "1fr", md: "320px minmax(0, 1fr)" }
@@ -341,10 +409,15 @@ mkApp env = component "App" \_ -> React.do
                 , connecting
                 , connectError
                 , tokens
+                , visibleTokens
+                , walletOwnerHash
+                , myTokensOnly
                 , selected
                 , onConnect: connectWallet
+                , onConnectFirst: connectFirst
                 , onRefresh: loadTokens
                 , onRegister: registerToken
+                , onToggleMyTokens: toggleMyTokensOnly
                 , onSelect:
                     \tid -> do
                       setSelected (const (Just tid))
@@ -353,6 +426,7 @@ mkApp env = component "App" \_ -> React.do
             , workspaceView
                 { wallet
                 , selected: selectedToken
+                , selectedSummary
                 , tokenState
                 , facts
                 , requests
@@ -361,6 +435,12 @@ mkApp env = component "App" \_ -> React.do
                 , pendingCount
                 , processable
                 , status
+                , canWrite: canWriteSelected
+                , myTokensOnly
+                , totalTokenCount: length tokenSummaries
+                , visibleTokenCount: length visibleTokens
+                , writeBlockedReason: writeBlockedReason wallet selectedToken selectedOwned
+                , onConnect: connectFirst
                 , onRefresh:
                     maybe loadTokens
                       ( \tid -> do
@@ -369,6 +449,8 @@ mkApp env = component "App" \_ -> React.do
                       )
                       selectedToken
                 , onRegister: registerToken
+                , onShowAll:
+                    if myTokensOnly then toggleMyTokensOnly else pure unit
                 , onAdd: setDialog (const (InsertDialog { key: "", value: "" }))
                 , onProcess: processRequests
                 , onRejectExpired: rejectExpired
@@ -406,10 +488,12 @@ appBarView
   :: Maybe WalletState
   -> Array W.WalletInfo
   -> Maybe String
+  -> String
   -> Effect Unit
   -> (WalletState -> Effect Unit)
+  -> Effect Unit
   -> JSX
-appBarView wallet wallets connecting connectFirst refreshWallet =
+appBarView wallet wallets connecting themeMode connectFirst refreshWallet toggleTheme =
   M.appBar
     { position: "sticky"
     , color: "inherit"
@@ -442,6 +526,18 @@ appBarView wallet wallets connecting connectFirst refreshWallet =
                 ]
             Just w ->
               accountBar w (refreshWallet w)
+        , iconTip (if themeMode == "dark" then "Use light theme" else "Use dark theme")
+            [ M.iconButton
+                { size: "small"
+                , "aria-label": "Toggle theme"
+                , onClick: toggleTheme
+                }
+                [ if themeMode == "dark" then
+                    M.lightModeIcon { fontSize: "small" }
+                  else
+                    M.darkModeIcon { fontSize: "small" }
+                ]
+            ]
         ]
     ]
 
@@ -494,11 +590,16 @@ sidebarView
      , wallets :: Array W.WalletInfo
      , connecting :: Maybe String
      , connectError :: Maybe String
-     , tokens :: Remote (Array TokenId)
+     , tokens :: Remote (Array TokenSummary)
+     , visibleTokens :: Array TokenSummary
+     , walletOwnerHash :: Maybe String
+     , myTokensOnly :: Boolean
      , selected :: Maybe TokenId
      , onConnect :: W.WalletInfo -> Effect Unit
+     , onConnectFirst :: Effect Unit
      , onRefresh :: Effect Unit
      , onRegister :: Effect Unit
+     , onToggleMyTokens :: Effect Unit
      , onSelect :: TokenId -> Effect Unit
      }
   -> JSX
@@ -546,7 +647,19 @@ sidebarView props =
                           [ M.appRegistrationIcon { fontSize: "small" } ]
                       ]
                   ]
-              , remoteView props.tokens (tokenList props.selected props.onSelect)
+              , mineOnlyControl props.wallet props.myTokensOnly props.onToggleMyTokens
+              , remoteView props.tokens
+                  ( tokenList
+                      props.wallet
+                      props.walletOwnerHash
+                      props.myTokensOnly
+                      props.visibleTokens
+                      props.onConnectFirst
+                      props.onRegister
+                      props.onToggleMyTokens
+                      props.selected
+                      props.onSelect
+                  )
               ]
           ]
     )
@@ -609,41 +722,176 @@ walletButton connecting onConnect info =
     , M.manageAccountsIcon { fontSize: "small" }
     ]
 
-tokenList :: Maybe TokenId -> (TokenId -> Effect Unit) -> Array TokenId -> JSX
-tokenList selected onSelect ts =
-  if null ts then
+mineOnlyControl :: Maybe WalletState -> Boolean -> Effect Unit -> JSX
+mineOnlyControl wallet checked onToggle =
+  M.box
+    { sx:
+        { px: 1.5
+        , py: 0.75
+        , borderBottom: 1
+        , borderColor: "divider"
+        , display: "flex"
+        , alignItems: "center"
+        , gap: 1
+        }
+    }
+    [ M.typography { variant: "caption", sx: { flexGrow: 1, fontWeight: 600 } }
+        [ R.text "Mine only" ]
+    , M.tooltip
+        { title:
+            if isJust wallet then
+              "Show only tokens owned by the connected account."
+            else
+              "Connect a wallet to filter owned tokens."
+        }
+        [ M.box { component: "span" }
+            [ M.switch
+                { size: "small"
+                , checked
+                , disabled: not (isJust wallet)
+                , onClick: onToggle
+                , inputProps: { "aria-label": "Mine only" }
+                }
+            ]
+        ]
+    ]
+
+tokenList
+  :: Maybe WalletState
+  -> Maybe String
+  -> Boolean
+  -> Array TokenSummary
+  -> Effect Unit
+  -> Effect Unit
+  -> Effect Unit
+  -> Maybe TokenId
+  -> (TokenId -> Effect Unit)
+  -> Array TokenSummary
+  -> JSX
+tokenList wallet ownerHash myOnly visible onConnect onRegister onToggle selected onSelect allTokens =
+  if null allTokens then
+    tokenEmptyState wallet onConnect onRegister
+  else if null visible then
     M.box { sx: { p: 1.5 } }
-      [ M.alert { severity: "info" } [ R.text "No tokens yet." ] ]
+      [ M.alert { severity: "info" }
+          [ M.stack { spacing: 1 }
+              ( [ R.text
+                    ( if isJust wallet then
+                        "No tokens owned by this account."
+                      else
+                        "Connect a wallet to show owned tokens."
+                    )
+                ]
+                  <> case wallet of
+                    Nothing ->
+                      [ M.button
+                          { variant: "contained"
+                          , size: "small"
+                          , onClick: onConnect
+                          , sx: { gap: 0.75, alignSelf: "flex-start" }
+                          }
+                          [ M.manageAccountsIcon { fontSize: "small" }, R.text "Connect wallet" ]
+                      ]
+                    Just _ ->
+                      [ M.stack { direction: "row", spacing: 1 }
+                          [ M.button
+                              { variant: "contained"
+                              , size: "small"
+                              , onClick: onRegister
+                              , sx: { gap: 0.75 }
+                              }
+                              [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+                          , M.button
+                              { variant: "outlined"
+                              , size: "small"
+                              , disabled: not myOnly
+                              , onClick: onToggle
+                              }
+                              [ R.text "Show all" ]
+                          ]
+                      ]
+              )
+          ]
+      ]
   else
     M.list { dense: true, disablePadding: true }
-      (map (tokenRow selected onSelect) ts)
+      (map (tokenRow ownerHash selected onSelect) visible)
 
-tokenRow :: Maybe TokenId -> (TokenId -> Effect Unit) -> TokenId -> JSX
-tokenRow selected onSelect tid@(TokenId token) =
+tokenEmptyState :: Maybe WalletState -> Effect Unit -> Effect Unit -> JSX
+tokenEmptyState wallet onConnect onRegister =
+  M.box { sx: { p: 1.5 } }
+    [ M.alert { severity: "info" }
+        [ M.stack { spacing: 1 }
+            ( [ R.text "No tokens yet." ]
+                <> case wallet of
+                  Nothing ->
+                    [ M.button
+                        { variant: "contained"
+                        , size: "small"
+                        , onClick: onConnect
+                        , sx: { gap: 0.75, alignSelf: "flex-start" }
+                        }
+                        [ M.manageAccountsIcon { fontSize: "small" }, R.text "Connect wallet" ]
+                    ]
+                  Just _ ->
+                    [ M.button
+                        { variant: "contained"
+                        , size: "small"
+                        , onClick: onRegister
+                        , sx: { gap: 0.75, alignSelf: "flex-start" }
+                        }
+                        [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+                    ]
+            )
+        ]
+    ]
+
+tokenRow
+  :: Maybe String
+  -> Maybe TokenId
+  -> (TokenId -> Effect Unit)
+  -> TokenSummary
+  -> JSX
+tokenRow ownerHash selected onSelect summary@{ token: tid@(TokenId token) } =
   M.listItemButton
     { selected: selected == Just tid
     , onClick: onSelect tid
     , sx: { borderBottom: 1, borderColor: "divider" }
     }
-    [ M.listItemText
-        { primary: shortText 12 8 token
-        , secondary: token
-        , primaryTypographyProps: { sx: { fontFamily: "monospace", fontSize: "0.85rem" } }
-        , secondaryTypographyProps:
-            { sx:
-                { fontFamily: "monospace"
-                , fontSize: "0.68rem"
-                , whiteSpace: "nowrap"
-                , overflow: "hidden"
-                , textOverflow: "ellipsis"
+    [ M.box { sx: { minWidth: 0, flexGrow: 1 } }
+        [ M.listItemText
+            { primary: shortText 12 8 token
+            , secondary: token
+            , primaryTypographyProps: { sx: { fontFamily: "monospace", fontSize: "0.85rem" } }
+            , secondaryTypographyProps:
+                { sx:
+                    { fontFamily: "monospace"
+                    , fontSize: "0.68rem"
+                    , whiteSpace: "nowrap"
+                    , overflow: "hidden"
+                    , textOverflow: "ellipsis"
+                    }
                 }
             }
-        }
+        ]
+    , ownershipChip ownerHash summary
     ]
+
+ownershipChip :: Maybe String -> TokenSummary -> JSX
+ownershipChip ownerHash summary =
+  case ownerHash, summary.owner of
+    Just owner, Just tokenOwner | owner == tokenOwner ->
+      M.chip { label: "Mine", size: "small", color: "success", variant: "outlined" }
+    Just _, Just _ ->
+      M.chip { label: "Read-only", size: "small", variant: "outlined" }
+    _, Just tokenOwner ->
+      M.chip { label: shortText 6 4 tokenOwner, size: "small", variant: "outlined" }
+    _, Nothing -> mempty
 
 workspaceView
   :: { wallet :: Maybe WalletState
      , selected :: Maybe TokenId
+     , selectedSummary :: Maybe TokenSummary
      , tokenState :: Remote TokenState
      , facts :: Remote (Array FactEntry)
      , requests :: Remote (Array PendingRequest)
@@ -652,8 +900,15 @@ workspaceView
      , pendingCount :: Int
      , processable :: Int
      , status :: OpStatus
+     , canWrite :: Boolean
+     , myTokensOnly :: Boolean
+     , totalTokenCount :: Int
+     , visibleTokenCount :: Int
+     , writeBlockedReason :: Maybe String
+     , onConnect :: Effect Unit
      , onRefresh :: Effect Unit
      , onRegister :: Effect Unit
+     , onShowAll :: Effect Unit
      , onAdd :: Effect Unit
      , onProcess :: Effect Unit
      , onRejectExpired :: Effect Unit
@@ -687,11 +942,11 @@ workspaceView props =
                     }
                     [ M.refreshIcon { fontSize: "small" } ]
                 ]
-            , iconTip "Process requests"
+            , iconTip (processTip props.writeBlockedReason props.processable)
                 [ M.iconButton
                     { size: "small"
                     , color: "success"
-                    , disabled: not (isJust props.selected) || not (isJust props.wallet) || props.processable == 0
+                    , disabled: isJust props.writeBlockedReason || props.processable == 0
                     , "aria-label": "Process requests"
                     , onClick: props.onProcess
                     }
@@ -699,17 +954,22 @@ workspaceView props =
                         [ M.playlistAddCheckIcon { fontSize: "small" } ]
                     ]
                 ]
-            , iconTip "Reject expired"
+            , iconTip (pendingTip props.writeBlockedReason props.pendingCount "No pending requests to reject.")
                 [ M.iconButton
                     { size: "small"
                     , color: "warning"
-                    , disabled: not (isJust props.selected) || not (isJust props.wallet) || props.pendingCount == 0
+                    , disabled: isJust props.writeBlockedReason || props.pendingCount == 0
                     , "aria-label": "Reject expired"
                     , onClick: props.onRejectExpired
                     }
                     [ M.blockIcon { fontSize: "small" } ]
                 ]
-            , iconTip "Register token"
+            , iconTip
+                ( if isJust props.wallet then
+                    "Register token"
+                  else
+                    "Connect a wallet to register a token."
+                )
                 [ M.iconButton
                     { size: "small"
                     , color: "primary"
@@ -719,21 +979,21 @@ workspaceView props =
                     }
                     [ M.appRegistrationIcon { fontSize: "small" } ]
                 ]
-            , iconTip "Add fact"
+            , iconTip (fromMaybe "Add fact" props.writeBlockedReason)
                 [ M.iconButton
                     { size: "small"
                     , color: "primary"
-                    , disabled: not (isJust props.selected) || not (isJust props.wallet)
+                    , disabled: isJust props.writeBlockedReason
                     , "aria-label": "Add fact"
                     , onClick: props.onAdd
                     }
                     [ M.addIcon { fontSize: "small" } ]
                 ]
-            , iconTip "End token"
+            , iconTip (fromMaybe "End token" props.writeBlockedReason)
                 [ M.iconButton
                     { size: "small"
                     , color: "error"
-                    , disabled: not (isJust props.selected) || not (isJust props.wallet)
+                    , disabled: isJust props.writeBlockedReason
                     , "aria-label": "End token"
                     , onClick: props.onEnd
                     }
@@ -744,11 +1004,17 @@ workspaceView props =
     , M.box { sx: { px: 2 } } [ statusView props.status ]
     , case props.selected of
         Nothing ->
-          M.box { sx: { p: 2 } }
-            [ M.alert { severity: "info" } [ R.text "Select a token." ] ]
+          emptyWorkspace props.wallet props.totalTokenCount props.visibleTokenCount
+            props.myTokensOnly
+            props.onConnect
+            props.onRegister
+            props.onShowAll
         Just _ ->
           M.box { sx: { p: 2 } }
             [ factsRegion
+                props.canWrite
+                props.writeBlockedReason
+                props.onAdd
                 props.nowMillis
                 props.processTime
                 props.facts
@@ -785,7 +1051,10 @@ selectedTitle selected tokenState =
     ]
 
 factsRegion
-  :: Number
+  :: Boolean
+  -> Maybe String
+  -> Effect Unit
+  -> Number
   -> Number
   -> Remote (Array FactEntry)
   -> Remote (Array PendingRequest)
@@ -793,18 +1062,21 @@ factsRegion
   -> (FactEntry -> Effect Unit)
   -> (RequestId -> Effect Unit)
   -> JSX
-factsRegion nowMillis processTime facts requests onEdit onDelete onRetract =
+factsRegion canWrite blockedReason onAdd nowMillis processTime facts requests onEdit onDelete onRetract =
   case facts, requests of
     Loading, _ -> centred [ M.circularProgress {} ]
     _, Loading -> centred [ M.circularProgress {} ]
     Failure msg, _ -> M.alert { severity: "error" } [ R.text msg ]
     _, Failure msg -> M.alert { severity: "error" } [ R.text msg ]
     Success fs, Success rs ->
-      factTable nowMillis processTime fs rs onEdit onDelete onRetract
+      factTable canWrite blockedReason onAdd nowMillis processTime fs rs onEdit onDelete onRetract
     _, _ -> mempty
 
 factTable
-  :: Number
+  :: Boolean
+  -> Maybe String
+  -> Effect Unit
+  -> Number
   -> Number
   -> Array FactEntry
   -> Array PendingRequest
@@ -812,9 +1084,26 @@ factTable
   -> (FactEntry -> Effect Unit)
   -> (RequestId -> Effect Unit)
   -> JSX
-factTable nowMillis processTime fs rs onEdit onDelete onRetract =
+factTable canWrite blockedReason onAdd nowMillis processTime fs rs onEdit onDelete onRetract =
   if null fs && null rs then
-    M.alert { severity: "info" } [ R.text "No facts for this token." ]
+    M.alert { severity: "info" }
+      [ M.stack { spacing: 1, sx: { alignItems: "flex-start" } }
+          ( [ R.text "No facts for this token." ]
+              <>
+                if canWrite then
+                  [ M.button
+                      { variant: "contained"
+                      , size: "small"
+                      , onClick: onAdd
+                      , sx: { gap: 0.75 }
+                      }
+                      [ M.addIcon { fontSize: "small" }, R.text "Add fact" ]
+                  ]
+                else
+                  maybe [] (\msg -> [ M.typography { variant: "caption" } [ R.text msg ] ])
+                    blockedReason
+          )
+      ]
   else
     M.tableContainer { sx: { maxHeight: "calc(100vh - 210px)" } }
       [ M.table { size: "small", stickyHeader: true, "aria-label": "Token facts" }
@@ -827,7 +1116,7 @@ factTable nowMillis processTime fs rs onEdit onDelete onRetract =
                   ]
               ]
           , M.tableBody {}
-              (map (factRow nowMillis processTime onEdit onDelete onRetract) rows)
+              (map (factRow canWrite blockedReason nowMillis processTime onEdit onDelete onRetract) rows)
           ]
       ]
   where
@@ -837,37 +1126,39 @@ factTable nowMillis processTime fs rs onEdit onDelete onRetract =
         (filter (\req -> not (any (\fact -> fact.key == req.key) fs)) rs)
 
 factRow
-  :: Number
+  :: Boolean
+  -> Maybe String
+  -> Number
   -> Number
   -> (FactEntry -> Effect Unit)
   -> (FactEntry -> Effect Unit)
   -> (RequestId -> Effect Unit)
   -> FactRow
   -> JSX
-factRow nowMillis processTime onEdit onDelete onRetract row =
+factRow canWrite blockedReason nowMillis processTime onEdit onDelete onRetract row =
   case row of
     KnownFact fact pending ->
       M.tableRow { key: "fact-" <> unKey fact.key, hover: true }
         [ keyCell fact.key
         , valueCell fact.value pending
-        , pendingCell nowMillis processTime pending onRetract
+        , pendingCell canWrite blockedReason nowMillis processTime pending onRetract
         , M.tableCell { align: "right" }
             [ M.stack { direction: "row", spacing: 0.5, sx: { justifyContent: "flex-end" } }
-                [ iconTip ("Edit " <> factText fact.key)
+                [ iconTip (rowActionTip blockedReason pending "Edit fact")
                     [ M.iconButton
                         { size: "small"
                         , "aria-label": "Edit fact " <> factText fact.key
-                        , disabled: not (null pending)
+                        , disabled: not canWrite || not (null pending)
                         , onClick: onEdit fact
                         }
                         [ M.editIcon { fontSize: "small" } ]
                     ]
-                , iconTip ("Delete " <> factText fact.key)
+                , iconTip (rowActionTip blockedReason pending "Delete fact")
                     [ M.iconButton
                         { size: "small"
                         , color: "error"
                         , "aria-label": "Delete fact " <> factText fact.key
-                        , disabled: not (null pending)
+                        , disabled: not canWrite || not (null pending)
                         , onClick: onDelete fact
                         }
                         [ M.deleteIcon { fontSize: "small" } ]
@@ -882,7 +1173,7 @@ factRow nowMillis processTime onEdit onDelete onRetract row =
             [ M.typography { variant: "body2", color: "text.secondary" }
                 [ R.text (maybe "" valueText req.value) ]
             ]
-        , pendingCell nowMillis processTime [ req ] onRetract
+        , pendingCell canWrite blockedReason nowMillis processTime [ req ] onRetract
         , M.tableCell { align: "right" } []
         ]
 
@@ -912,12 +1203,14 @@ valueCell value pending =
     ]
 
 pendingCell
-  :: Number
+  :: Boolean
+  -> Maybe String
+  -> Number
   -> Number
   -> Array PendingRequest
   -> (RequestId -> Effect Unit)
   -> JSX
-pendingCell nowMillis processTime pending onRetract =
+pendingCell canWrite blockedReason nowMillis processTime pending onRetract =
   M.tableCell {}
     [ if null pending then
         M.chip
@@ -927,16 +1220,18 @@ pendingCell nowMillis processTime pending onRetract =
           , icon: M.checkCircleIcon {}
           }
       else
-        M.stack { spacing: 0.75 } (map (requestInline nowMillis processTime onRetract) pending)
+        M.stack { spacing: 0.75 } (map (requestInline canWrite blockedReason nowMillis processTime onRetract) pending)
     ]
 
 requestInline
-  :: Number
+  :: Boolean
+  -> Maybe String
+  -> Number
   -> Number
   -> (RequestId -> Effect Unit)
   -> PendingRequest
   -> JSX
-requestInline nowMillis processTime onRetract req =
+requestInline canWrite blockedReason nowMillis processTime onRetract req =
   M.stack
     { direction: "row"
     , spacing: 0.75
@@ -971,10 +1266,11 @@ requestInline nowMillis processTime onRetract req =
             else
               M.warningAmberIcon {}
         }
-    , iconTip "Retract request"
+    , iconTip (fromMaybe "Retract request" blockedReason)
         [ M.iconButton
             { size: "small"
             , "aria-label": "Retract request " <> unRequestId req.requestId
+            , disabled: not canWrite
             , onClick: onRetract req.requestId
             }
             [ M.undoIcon { fontSize: "small" } ]
@@ -1090,6 +1386,139 @@ tokenChip (TokenId token) =
     , size: "small"
     , sx: { fontFamily: "monospace", maxWidth: "100%" }
     }
+
+howItWorksHint :: Boolean -> Effect Unit -> JSX
+howItWorksHint open onClose =
+  if not open then
+    mempty
+  else
+    M.alert
+      { severity: "info"
+      , sx: { mb: 2 }
+      , action:
+          M.iconButton
+            { size: "small"
+            , "aria-label": "Dismiss"
+            , onClick: onClose
+            }
+            [ M.closeIcon { fontSize: "small" } ]
+      }
+      [ R.text "Connect an account, register a token, add facts, then process pending requests to commit changes." ]
+
+emptyWorkspace
+  :: Maybe WalletState
+  -> Int
+  -> Int
+  -> Boolean
+  -> Effect Unit
+  -> Effect Unit
+  -> Effect Unit
+  -> JSX
+emptyWorkspace wallet totalTokenCount visibleTokenCount myOnly onConnect onRegister onShowAll =
+  M.box { sx: { p: 2 } }
+    [ M.alert { severity: "info" }
+        [ M.stack { spacing: 1, sx: { alignItems: "flex-start" } }
+            ( [ R.text message ]
+                <> actions
+            )
+        ]
+    ]
+  where
+  message =
+    case wallet of
+      Nothing -> "Connect a wallet to work with your tokens."
+      Just _ | totalTokenCount == 0 -> "Register your first token."
+      Just _ | myOnly && visibleTokenCount == 0 -> "No owned tokens are visible."
+      _ -> "Select a token."
+
+  actions =
+    case wallet of
+      Nothing ->
+        [ M.button
+            { variant: "contained"
+            , size: "small"
+            , onClick: onConnect
+            , sx: { gap: 0.75 }
+            }
+            [ M.manageAccountsIcon { fontSize: "small" }, R.text "Connect wallet" ]
+        ]
+      Just _ | totalTokenCount == 0 ->
+        [ M.button
+            { variant: "contained"
+            , size: "small"
+            , onClick: onRegister
+            , sx: { gap: 0.75 }
+            }
+            [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+        ]
+      Just _ | myOnly && visibleTokenCount == 0 ->
+        [ M.stack { direction: "row", spacing: 1 }
+            [ M.button
+                { variant: "contained"
+                , size: "small"
+                , onClick: onRegister
+                , sx: { gap: 0.75 }
+                }
+                [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+            , M.button { variant: "outlined", size: "small", onClick: onShowAll }
+                [ R.text "Show all" ]
+            ]
+        ]
+      _ -> []
+
+tokenSummary :: TokenId -> Either String TokenState -> TokenSummary
+tokenSummary token stateResult =
+  case stateResult of
+    Right st -> { token, owner: Just st.owner, root: Just st.root }
+    Left _ -> { token, owner: Nothing, root: Nothing }
+
+visibleSummaries :: Maybe String -> Boolean -> Array TokenSummary -> Array TokenSummary
+visibleSummaries ownerHash myOnly summaries =
+  if not myOnly then
+    summaries
+  else
+    case ownerHash of
+      Nothing -> []
+      Just owner ->
+        filter (\summary -> summary.owner == Just owner) summaries
+
+writeBlockedReason :: Maybe WalletState -> Maybe TokenId -> Boolean -> Maybe String
+writeBlockedReason wallet selected owned =
+  case wallet, selected of
+    Nothing, _ -> Just "Connect a wallet to write."
+    Just _, Nothing -> Just "Select a token to write."
+    Just _, Just _ | owned -> Nothing
+    Just _, Just _ -> Just "This token is owned by another account; writes are disabled."
+
+processTip :: Maybe String -> Int -> String
+processTip blocked processable =
+  fromMaybe
+    ( if processable == 0 then
+        "No processable requests."
+      else
+        "Process requests"
+    )
+    blocked
+
+pendingTip :: Maybe String -> Int -> String -> String
+pendingTip blocked count emptyText =
+  fromMaybe
+    ( if count == 0 then
+        emptyText
+      else
+        "Reject expired"
+    )
+    blocked
+
+rowActionTip :: Maybe String -> Array PendingRequest -> String -> String
+rowActionTip blocked pending label =
+  fromMaybe
+    ( if null pending then
+        label
+      else
+        "Resolve this fact's pending request first."
+    )
+    blocked
 
 isProcessable :: Number -> Number -> PendingRequest -> Boolean
 isProcessable nowMillis processTime req =

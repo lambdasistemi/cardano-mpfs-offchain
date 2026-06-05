@@ -9,6 +9,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Switch from "@mui/material/Switch";
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import Tabs from "@mui/material/Tabs";
@@ -46,8 +47,10 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CloseIcon from "@mui/icons-material/Close";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import LightModeIcon from "@mui/icons-material/LightMode";
 import ManageAccountsIcon from "@mui/icons-material/ManageAccounts";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -105,6 +108,8 @@ export const badge = mk(Badge);
 
 export const tab = mkLeaf(Tab);
 export const textField = mkLeaf(TextField);
+const muiSwitch = mkLeaf(Switch);
+export { muiSwitch as switch };
 export const chip = mkLeaf(Chip);
 export const divider = mkLeaf(Divider);
 export const circularProgress = mkLeaf(CircularProgress);
@@ -117,8 +122,10 @@ export const accountCircleIcon = mkLeaf(defaultComponent(AccountCircleIcon));
 export const blockIcon = mkLeaf(defaultComponent(BlockIcon));
 export const checkCircleIcon = mkLeaf(defaultComponent(CheckCircleIcon));
 export const closeIcon = mkLeaf(defaultComponent(CloseIcon));
+export const darkModeIcon = mkLeaf(defaultComponent(DarkModeIcon));
 export const deleteIcon = mkLeaf(defaultComponent(DeleteIcon));
 export const editIcon = mkLeaf(defaultComponent(EditIcon));
+export const lightModeIcon = mkLeaf(defaultComponent(LightModeIcon));
 export const manageAccountsIcon = mkLeaf(defaultComponent(ManageAccountsIcon));
 export const playlistAddCheckIcon = mkLeaf(
   defaultComponent(PlaylistAddCheckIcon),
@@ -137,13 +144,22 @@ export const _onTabChange = (handler) => (_event, value) => handler(value)();
 export const _onValueChange = (handler) => (event) =>
   handler(event.target.value)();
 
-export const defaultTheme = createTheme({
+const themeOptions = (mode) => ({
   palette: {
-    mode: "light",
+    mode,
     primary: { main: "#255f85" },
-    secondary: { main: "#7a4f27" },
+    secondary: { main: mode === "dark" ? "#c78b4f" : "#7a4f27" },
     success: { main: "#2f6f50" },
-    warning: { main: "#b46a1c" },
+    warning: { main: mode === "dark" ? "#d78a36" : "#b46a1c" },
+    background:
+      mode === "dark"
+        ? { default: "#101418", paper: "#171c21" }
+        : { default: "#f7f8f9", paper: "#ffffff" },
   },
   shape: { borderRadius: 6 },
 });
+
+export const themeForMode = (mode) =>
+  createTheme(themeOptions(mode === "dark" ? "dark" : "light"));
+
+export const defaultTheme = themeForMode("light");
