@@ -4,7 +4,11 @@
 -- | pending requests with retract + reject-expired, and look up a fact's
 -- | current value (proof-bearing endpoint; the SPA shows the value, the
 -- | verifier checks the proof). All write ops go through `CageHelpers`.
-module MpfsSpa.Tab.Facts (mkFactsTab, FactsProps) where
+module MpfsSpa.Tab.Facts
+  ( mkFactsTab
+  , FactsProps
+  , isProcessable
+  ) where
 
 import Prelude
 
