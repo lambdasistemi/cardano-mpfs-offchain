@@ -56,8 +56,8 @@
     "cardano-mpfs-onchain": {
       "location": "https://github.com/cardano-foundation/cardano-mpfs-onchain",
       "comment": "Validate-ahead (#258): cardano-mpfs-cage:lib depends on the pure cardano-tx-tools:tx-build sublibrary (onchain PR #58), so the cage closure cross-compiles to wasm. Realign with native once #294 bumps the onchain pin repo-wide.",
-      "rev": "322b9e0c3356c97d57562b525c103d98ff6fa878",
-      "sha256": "0hhzyf9jq550s62mr8i2wpn5zpl0sd4myrzscbaqjrl6qv7zbb1d",
+      "rev": "5c482af9289c6cbefe1062d04b828f3260d248ee",
+      "sha256": "15aqmghgs9zrqsgx19kz1mx9j1a5n2ia486b93akm57lq8ikprph",
       "subdirs": ["haskell"]
     },
     "haskell-mts": {

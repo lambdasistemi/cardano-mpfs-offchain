@@ -691,7 +691,7 @@ feeBufferUpperBound pp =
             )
 
 maxUpdateTxBytes :: Integer
-maxUpdateTxBytes = 8192
+maxUpdateTxBytes = 16384
 
 expectVerified
     :: TrustedRoot
