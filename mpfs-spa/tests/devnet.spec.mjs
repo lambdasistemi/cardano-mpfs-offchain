@@ -12,10 +12,10 @@ test.setTimeout(300_000);
 
 const devnetBaseUrl = process.env.MPFS_DEVNET_BASE_URL;
 const shotsDir =
-  process.env.MPFS_SHOTS_DIR || "/tmp/orch-spa-ux/shots-redesign";
+  process.env.MPFS_SHOTS_DIR || "/tmp/orch-spa-ux/shots-v2";
 const walletBalance = "1b006a94d74f430000";
 
-test("runs the full token facts lifecycle from the redesigned workbench", async ({
+test("runs the full token facts lifecycle from the polished workbench", async ({
   page,
   request,
 }) => {
@@ -37,11 +37,19 @@ test("runs the full token facts lifecycle from the redesigned workbench", async 
   await installDevnetWallet(page);
 
   await page.goto("/");
-  await shot(page, "00-empty-workbench");
+  await expect(page.getByText("Connect an account, register a token")).toBeVisible();
+  await expect(page.getByText("No tokens yet.")).toBeVisible();
+  await shot(page, "00-empty-workbench-light");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await shot(page, "00-empty-workbench-dark");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
 
-  await page.getByRole("button", { name: "Connect" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByRole("banner").getByText("Devnet Genesis")).toBeVisible();
-  await shot(page, "01-connected");
+  await expect(page.getByLabel("Mine only")).toBeChecked();
+  await shot(page, "01-connected-light");
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await shot(page, "01-connected-dark");
 
   await page.getByRole("button", { name: "Register token" }).first().click();
   await waitForSubmitCount(page, submittedTxIds, 1);
@@ -52,6 +60,7 @@ test("runs the full token facts lifecycle from the redesigned workbench", async 
   await page
     .getByRole("button", { name: new RegExp(tokenId.slice(0, 12)) })
     .click();
+  await expect(page.getByText("Mine", { exact: true })).toBeVisible();
   await expect(page.getByText("No facts for this token.")).toBeVisible();
   await shot(page, "02-token-selected");
 
@@ -171,7 +180,7 @@ test("runs the full token facts lifecycle from the redesigned workbench", async 
 });
 
 async function requestInsert(page, submittedTxIds) {
-  await page.getByRole("button", { name: "Add fact" }).click();
+  await page.getByRole("button", { name: "Add fact" }).first().click();
   await page.getByLabel("Key").fill("start");
   await page.getByLabel("Value").fill("amaru");
   await page.getByRole("button", { name: "Request insert" }).click();
@@ -200,6 +209,11 @@ async function installDevnetWallet(page) {
   await page.addInitScript(
     ({ address, balance, baseUrl }) => {
       window.MPFS_BASE_URL = baseUrl;
+      try {
+        window.localStorage.setItem("mpfs-spa-theme-mode", "light");
+      } catch (_error) {
+        // The app still falls back to its OS/default theme if storage is blocked.
+      }
       window.__signArgs = [];
       window.__signErrors = [];
       window.__reactorCalls = [];

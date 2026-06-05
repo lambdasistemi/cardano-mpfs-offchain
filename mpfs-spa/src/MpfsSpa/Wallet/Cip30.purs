@@ -15,6 +15,7 @@ module MpfsSpa.Wallet.Cip30
   , getChangeAddress
   , getBalance
   , subscribeAccountChanges
+  , ownerKeyHashOfAddress
   , lovelaceOfBalance
   , signTx
   , submitTx
@@ -43,6 +44,7 @@ foreign import _getUsedAddresses :: WalletApi -> Effect (Promise (Array String))
 foreign import _getChangeAddress :: WalletApi -> Effect (Promise String)
 foreign import _getBalance :: WalletApi -> Effect (Promise String)
 foreign import _subscribeAccountChanges :: WalletApi -> Effect Unit -> Effect (Effect Unit)
+foreign import _ownerKeyHashOfAddress :: String -> Nullable String
 foreign import _signTx :: WalletApi -> String -> Boolean -> Effect (Promise String)
 foreign import _submitTx :: WalletApi -> String -> Effect (Promise String)
 foreign import _coinOfBalance :: String -> Nullable String
@@ -76,6 +78,12 @@ getBalance api = toAffE (_getBalance api)
 -- | used by e2e therefore keep working.
 subscribeAccountChanges :: WalletApi -> Effect Unit -> Effect (Effect Unit)
 subscribeAccountChanges = _subscribeAccountChanges
+
+-- | Best-effort payment key-hash extraction from the hex CIP-30 address.
+-- | Returns `Nothing` for script-payment, reward, Byron, malformed, or
+-- | unsupported address shapes.
+ownerKeyHashOfAddress :: String -> Maybe String
+ownerKeyHashOfAddress = toMaybe <<< _ownerKeyHashOfAddress
 
 -- | Sign a hex CBOR transaction. `partial` requests partial (witness-only)
 -- | signing per CIP-30.
