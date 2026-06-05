@@ -115,13 +115,13 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  tag: 322b9e0c3356c97d57562b525c103d98ff6fa878
+  tag: 5c482af9289c6cbefe1062d04b828f3260d248ee
   subdir: haskell
 
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/haskell-mts
-  tag: bcc8ac9671ceecbb87e981a56a34953f67c064b9
+  tag: 2893775286801e91afe10e14775507a36e97e169
 
 source-repository-package
   type: git

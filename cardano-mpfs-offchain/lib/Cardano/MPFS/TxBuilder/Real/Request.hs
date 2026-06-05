@@ -314,8 +314,8 @@ requestFeeBufferUpperBound pp =
 -- Note [size bound]
 -- The request UTxO pre-pays the oracle's later update transaction. We do
 -- not know that future transaction's exact CBOR size when building the
--- request, so this uses an 8 KiB envelope for a single-request update with
+-- request, so this uses a 16 KiB envelope for a single-request update with
 -- state, request, wallet, scripts, redeemers, one state output, one refund,
 -- and change. Excess lovelace is returned by the positioned refund output.
 maxUpdateTxBytes :: Integer
-maxUpdateTxBytes = 8192
+maxUpdateTxBytes = 16384
