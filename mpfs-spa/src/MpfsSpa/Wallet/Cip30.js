@@ -52,6 +52,23 @@ export const _signTx = (api) => (tx) => (partial) => () =>
   api.signTx(tx, partial);
 export const _submitTx = (api) => (tx) => () => api.submitTx(tx);
 
+export const _ownerKeyHashOfAddress = (addressHex) => {
+  const hex = String(addressHex || "").replace(/\s+/g, "").toLowerCase();
+  if (!/^[0-9a-f]+$/.test(hex) || hex.length < 58) return null;
+
+  const header = parseInt(hex.slice(0, 2), 16);
+  const addressType = header >> 4;
+
+  // CIP-30 returns hex-encoded Shelley address bytes. For key-payment
+  // Shelley addresses, the payment key hash is the 28 bytes after the header.
+  // Script-payment, reward, Byron, and malformed addresses do not identify a
+  // writable MPFS owner key hash for this UI.
+  if ([0, 2, 4, 6].includes(addressType)) {
+    return hex.slice(2, 58);
+  }
+  return null;
+};
+
 function subscribeWalletEvent(api, eventName, handler) {
   const targets = [api && api.experimental, api].filter(Boolean);
   for (const target of targets) {
