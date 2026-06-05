@@ -25,6 +25,7 @@ import MpfsSpa.Wallet.Cip30 (WalletApi)
 -- | The connected wallet, held only in memory for the session.
 type WalletState =
   { api :: WalletApi
+  , key :: String
   , name :: String
   , address :: String
   , networkId :: Int
