@@ -17,6 +17,7 @@ data BuildError
     = EmptyFunding
     | MalformedTxOut !Text
     | MalformedPParams !Text
+    | LegacyRejectRefundRequiresTopUp !Text
     | PolicyViolation !PolicyViolationDetail
     | DSLBuildFailed !Text
     deriving stock (Eq, Show)
