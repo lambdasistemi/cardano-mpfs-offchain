@@ -12,8 +12,15 @@ import Cardano.Ledger.Api.Tx (mkBasicTx)
 import Cardano.Ledger.Api.Tx.Body (mkBasicTxBody)
 import Cardano.Ledger.Api.Tx.Wits (mkBasicTxWits)
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.MPFS.Cage.Ledger (ConwayEra)
+import Cardano.MPFS.Cage.Ledger (Coin (..), ConwayEra)
+import Cardano.MPFS.Client.Cage.BuildError
+    ( BuildError (LegacyRejectRefundRequiresTopUp)
+    )
 import Cardano.MPFS.Client.Cage.Reactor (runCageEnvelope)
+import Cardano.MPFS.Client.Cage.Reject
+    ( RefundPlan (..)
+    , preflightLegacyExactRefund
+    )
 import Cardano.Tx.Ledger (ConwayTx)
 import Control.Monad (forM)
 import Data.Aeson (Value, encode, object, (.=))
@@ -28,7 +35,7 @@ import Data.Text.Encoding qualified as T
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
-import Test.Hspec (Spec, describe, expectationFailure, it)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
 import Test.QuickCheck
     ( Property
     , conjoin
@@ -44,6 +51,22 @@ spec = describe "runCageEnvelope byte identity" $ do
     it "matches the wasm reactor for fixed cage envelopes"
         $ property
         $ withMaxSuccess 1 byteIdentityProperty
+    it
+        "preflight-refuses min-UTxO top-up on legacy exact-refund validator" $ do
+        let plan =
+                RefundPlan
+                    { refundRawCoin = Coin 731_158
+                    , refundMinCoin = Coin 849_070
+                    , refundFinalCoin = Coin 849_070
+                    }
+        preflightLegacyExactRefund True [plan]
+            `shouldBe` Left
+                ( LegacyRejectRefundRequiresTopUp
+                    "legacy exact-refund validator cannot accept \
+                    \min-UTxO refund top-up: raw refund 731158, \
+                    \min refund 849070, final refund 849070"
+                )
+        preflightLegacyExactRefund False [plan] `shouldBe` Right ()
 
 byteIdentityProperty :: Property
 byteIdentityProperty =
