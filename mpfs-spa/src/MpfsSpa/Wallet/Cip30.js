@@ -25,9 +25,67 @@ export const _getNetworkId = (api) => () => api.getNetworkId();
 export const _getUsedAddresses = (api) => () => api.getUsedAddresses();
 export const _getChangeAddress = (api) => () => api.getChangeAddress();
 export const _getBalance = (api) => () => api.getBalance();
+export const _subscribeAccountChanges = (api) => (handler) => () => {
+  let cancelled = false;
+  const safeHandler = () => {
+    if (!cancelled) handler();
+  };
+  const cleanups = [
+    subscribeWalletEvent(api, "accountChange", safeHandler),
+    subscribeWalletEvent(api, "networkChange", safeHandler),
+    subscribeWalletEvent(api, "accountsChanged", safeHandler),
+    subscribeWalletEvent(api, "chainChanged", safeHandler),
+  ].filter(Boolean);
+
+  return () => {
+    cancelled = true;
+    for (const cleanup of cleanups) {
+      try {
+        cleanup();
+      } catch (_e) {
+        // Ignore wallet cleanup errors; the dApp is leaving this account.
+      }
+    }
+  };
+};
 export const _signTx = (api) => (tx) => (partial) => () =>
   api.signTx(tx, partial);
 export const _submitTx = (api) => (tx) => () => api.submitTx(tx);
+
+function subscribeWalletEvent(api, eventName, handler) {
+  const targets = [api && api.experimental, api].filter(Boolean);
+  for (const target of targets) {
+    const cleanup = trySubscribeTarget(target, eventName, handler);
+    if (cleanup) return cleanup;
+  }
+  return null;
+}
+
+function trySubscribeTarget(target, eventName, handler) {
+  try {
+    if (typeof target.on === "function") {
+      const result = target.on(eventName, handler);
+      if (typeof result === "function") return result;
+      if (typeof target.off === "function") {
+        return () => target.off(eventName, handler);
+      }
+      if (typeof target.removeListener === "function") {
+        return () => target.removeListener(eventName, handler);
+      }
+    }
+
+    const method =
+      "on" + eventName.charAt(0).toUpperCase() + eventName.slice(1);
+    if (typeof target[method] === "function") {
+      const result = target[method](handler);
+      if (typeof result === "function") return result;
+      return () => {};
+    }
+  } catch (_e) {
+    return null;
+  }
+  return null;
+}
 
 // --- display-only balance decoding ------------------------------------------
 // getBalance() returns a CBOR-encoded ledger Value. For display we only need

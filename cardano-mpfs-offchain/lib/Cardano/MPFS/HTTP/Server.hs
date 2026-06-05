@@ -27,11 +27,13 @@ module Cardano.MPFS.HTTP.Server
     ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
+import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -67,13 +69,14 @@ import Cardano.Ledger.Binary
     , natVersion
     , serialize'
     )
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Hashes
     ( extractHash
     , unsafeMakeSafeHash
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
-    , TxIn
+    , TxIn (..)
     , mkTxInPartial
     )
 import Cardano.Tx.Ledger (ConwayTx)
@@ -129,10 +132,13 @@ import Cardano.MPFS.HTTP.Types
     , SweepTxResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
+    , TokenSetWitness (..)
     , TokensResponse (..)
+    , TokenUtxoEntry (..)
     , UnverifiedPParams (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
+    , UtxoRef (..)
     , VerificationSnapshot (..)
     , WitnessedRequest (..)
     , WitnessedTokenState (..)
@@ -143,6 +149,7 @@ import Cardano.MPFS.HTTP.Types
     , requestToJSON
     , resolvedWalletInputToUtxoEntry
     , tokenIdFromJSON
+    , tokenIdToJSON
     , tokenStateToJSON
     , txInToJSON
     )
@@ -154,10 +161,10 @@ import Cardano.MPFS.HTTP.Types.Facts
     , mkRequestUpdateFacts
     , mkRetractFacts
     , mkUpdateFacts
-    , utxoSetToJSON
     )
 import Cardano.MPFS.Indexer.Reads
     ( IndexerTx
+    , ResolvedUtxoSet
     , readNamedRequestUtxo
     , readRequestUtxosAt
     , readSnapshot
@@ -294,11 +301,72 @@ tokensHandler ctx = do
         liftIO
             $ runIndexerTx ctx
             $ readUtxoSetAt cageAddr
+    tokenRefs <- liftIO $ indexedTokenRefs ctx
+    tokenWitness <- tokenSetToJSON tokenRefs tokenSet
     pure
         TokensResponse
             { trsSnapshot = snapshot
-            , trsTokens = utxoSetToJSON tokenSet
+            , trsTokens = tokenWitness
             }
+
+indexedTokenRefs :: Context IO -> IO (Map.Map TxIn TokenId)
+indexedTokenRefs ctx = do
+    tids <- St.listTokens (St.tokens (state ctx))
+    entries <-
+        forM tids $ \tid -> do
+            mts <- St.getToken (St.tokens (state ctx)) tid
+            pure $ case mts of
+                Just LocatedTokenState{tokenStateRef} ->
+                    Just (tokenStateRef, tid)
+                Nothing -> Nothing
+    pure (Map.fromList (catMaybes entries))
+
+tokenSetToJSON
+    :: Map.Map TxIn TokenId
+    -> ResolvedUtxoSet
+    -> Handler TokenSetWitness
+tokenSetToJSON tokenRefs (entries, proof) = do
+    tokenEntries <-
+        traverse
+            (tokenSetEntryToJSON tokenRefs)
+            entries
+    pure
+        TokenSetWitness
+            { tswEntries = tokenEntries
+            , tswCompletenessProof = Hex proof
+            }
+
+tokenSetEntryToJSON
+    :: Map.Map TxIn TokenId
+    -> (TxIn, ByteString)
+    -> Handler TokenUtxoEntry
+tokenSetEntryToJSON tokenRefs (txIn, txOutBytes) =
+    case Map.lookup txIn tokenRefs of
+        Nothing ->
+            throwError
+                err503
+                    { errBody =
+                        "Token index is missing token_id for \
+                        \a state UTxO"
+                    }
+        Just tid ->
+            pure
+                TokenUtxoEntry
+                    { tueTokenId = tokenIdToJSON tid
+                    , tueRef = txInToUtxoRef txIn
+                    , tueTxOutCbor = Hex txOutBytes
+                    }
+
+txInToUtxoRef :: TxIn -> UtxoRef
+txInToUtxoRef (TxIn (TxId sh) (TxIx ix)) =
+    UtxoRef
+        { urTxId =
+            Hex
+                ( Crypto.hashToBytes
+                    (extractHash sh)
+                )
+        , urTxIx = fromIntegral ix
+        }
 
 tokenHandler
     :: Context IO

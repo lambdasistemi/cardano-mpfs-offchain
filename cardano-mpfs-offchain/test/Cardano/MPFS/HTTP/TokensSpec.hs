@@ -54,9 +54,10 @@ import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.Types
-    ( TokensResponse (..)
-    , UtxoEntryRefOnly (..)
-    , UtxoSetWitness (..)
+    ( TokenIdJSON (..)
+    , TokenSetWitness (..)
+    , TokenUtxoEntry (..)
+    , TokensResponse (..)
     )
 import Cardano.MPFS.Indexer.TxFixtures (testScriptHash)
 import Cardano.MPFS.State qualified as St
@@ -170,7 +171,11 @@ spec = describe "GET /tokens" $ do
         resp <- getTokens ctxWithSet
         simpleStatus resp `shouldBe` status200
         assertEnvelope resp 2
-        assertTokenTxOuts resp ["tx-out-1", "tx-out-2"]
+        assertTokenEntries
+            resp
+            [ ("deadbeef", "tx-out-1")
+            , ("cafebabe", "tx-out-2")
+            ]
 
     it "returns 503 when snapshot not yet available" $ do
         ctx <- mkTestContext
@@ -206,15 +211,20 @@ assertEnvelope resp n =
             expectationFailure
                 "Expected JSON object"
 
-assertTokenTxOuts :: SResponse -> [ByteString] -> IO ()
-assertTokenTxOuts resp expected =
+assertTokenEntries :: SResponse -> [(ByteString, ByteString)] -> IO ()
+assertTokenEntries resp expected =
     case decode (simpleBody resp) of
-        Just TokensResponse{trsTokens = UtxoSetWitness{uswEntries}} ->
+        Just
+            TokensResponse
+                { trsTokens = TokenSetWitness{tswEntries}
+                } ->
             map
-                ( \(UtxoEntryRefOnly{uerTxOutCbor = Hex txOut}) ->
-                    txOut
+                ( \TokenUtxoEntry
+                    { tueTokenId = TokenIdJSON tokenId
+                    , tueTxOutCbor = Hex txOut
+                    } -> (tokenId, txOut)
                 )
-                uswEntries
+                tswEntries
                 `shouldBe` expected
         _ ->
             expectationFailure

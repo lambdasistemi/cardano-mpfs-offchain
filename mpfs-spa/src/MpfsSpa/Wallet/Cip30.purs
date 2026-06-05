@@ -14,6 +14,7 @@ module MpfsSpa.Wallet.Cip30
   , getUsedAddresses
   , getChangeAddress
   , getBalance
+  , subscribeAccountChanges
   , lovelaceOfBalance
   , signTx
   , submitTx
@@ -41,6 +42,7 @@ foreign import _getNetworkId :: WalletApi -> Effect (Promise Int)
 foreign import _getUsedAddresses :: WalletApi -> Effect (Promise (Array String))
 foreign import _getChangeAddress :: WalletApi -> Effect (Promise String)
 foreign import _getBalance :: WalletApi -> Effect (Promise String)
+foreign import _subscribeAccountChanges :: WalletApi -> Effect Unit -> Effect (Effect Unit)
 foreign import _signTx :: WalletApi -> String -> Boolean -> Effect (Promise String)
 foreign import _submitTx :: WalletApi -> String -> Effect (Promise String)
 foreign import _coinOfBalance :: String -> Nullable String
@@ -68,6 +70,12 @@ getChangeAddress api = toAffE (_getChangeAddress api)
 -- | The wallet's balance as a CBOR-encoded ledger Value (hex).
 getBalance :: WalletApi -> Aff String
 getBalance api = toAffE (_getBalance api)
+
+-- | Subscribe to best-effort wallet account/network changes. Wallets that do
+-- | not expose an event API return a no-op cleanup; headless injected wallets
+-- | used by e2e therefore keep working.
+subscribeAccountChanges :: WalletApi -> Effect Unit -> Effect (Effect Unit)
+subscribeAccountChanges = _subscribeAccountChanges
 
 -- | Sign a hex CBOR transaction. `partial` requests partial (witness-only)
 -- | signing per CIP-30.

@@ -73,8 +73,8 @@ import Cardano.Chain.Slotting (EpochSlots (..))
 import Control.Tracer (nullTracer)
 
 import Cardano.MPFS.API.Types
-    ( TokensResponse (..)
-    , UtxoSetWitness (..)
+    ( TokenSetWitness (..)
+    , TokensResponse (..)
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -339,8 +339,8 @@ tokenCount app = do
     resp <- get app "/tokens"
     simpleStatus resp `shouldBe` status200
     case decode (simpleBody resp) of
-        Just TokensResponse{trsTokens = UtxoSetWitness{uswEntries}} ->
-            pure (length uswEntries)
+        Just TokensResponse{trsTokens = TokenSetWitness{tswEntries}} ->
+            pure (length tswEntries)
         _ -> do
             expectationFailure
                 "Expected TokensResponse"

@@ -65,6 +65,7 @@ mkConnectTab = component "ConnectTab" \props -> React.do
             | otherwise -> do
                 props.onConnect
                   { api: w.api
+                  , key: info.key
                   , name: info.name
                   , address: w.address
                   , networkId: w.networkId
