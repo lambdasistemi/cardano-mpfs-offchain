@@ -27,7 +27,9 @@ import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
-    ( TokensResponse (..)
+    ( TokenSetWitness (..)
+    , TokenUtxoEntry (..)
+    , TokensResponse (..)
     , UtxoEntryRefOnly (..)
     , UtxoRef (..)
     , UtxoSetWitness (..)
@@ -135,9 +137,10 @@ completenessSpec scripts =
                 `shouldBe` False
 
             response <- getTokens app
-            let witness@UtxoSetWitness{uswEntries} =
+            let tokenWitness@TokenSetWitness{tswEntries} =
                     trsTokens response
-                returnedRefs = sort (map entryRef uswEntries)
+                witness = tokenSetAsUtxoSet tokenWitness
+                returnedRefs = sort (map entryRef tswEntries)
                 bootedRefs =
                     sort
                         [ txInRef firstTokenRef
@@ -182,9 +185,31 @@ snapshotRoot
         } =
         root
 
-entryRef :: UtxoEntryRefOnly -> (ByteString, Word64)
-entryRef UtxoEntryRefOnly{uerRef = UtxoRef{urTxId = Hex txId, urTxIx}} =
+entryRef :: TokenUtxoEntry -> (ByteString, Word64)
+entryRef TokenUtxoEntry{tueRef = UtxoRef{urTxId = Hex txId, urTxIx}} =
     (txId, urTxIx)
+
+tokenSetAsUtxoSet :: TokenSetWitness -> UtxoSetWitness
+tokenSetAsUtxoSet
+    TokenSetWitness
+        { tswEntries
+        , tswCompletenessProof
+        } =
+        UtxoSetWitness
+            { uswEntries =
+                map
+                    ( \TokenUtxoEntry
+                        { tueRef
+                        , tueTxOutCbor
+                        } ->
+                            UtxoEntryRefOnly
+                                { uerRef = tueRef
+                                , uerTxOutCbor = tueTxOutCbor
+                                }
+                    )
+                    tswEntries
+            , uswCompletenessProof = tswCompletenessProof
+            }
 
 txInRef :: TxIn -> (ByteString, Word64)
 txInRef (TxIn (TxId h) (TxIx ix)) =

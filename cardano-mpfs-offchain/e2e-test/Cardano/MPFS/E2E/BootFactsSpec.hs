@@ -84,8 +84,8 @@ import Cardano.MPFS.API.Types
     ( BootFacts
     , BootRequest (..)
     , StatusResponse (..)
+    , TokenSetWitness (..)
     , TokensResponse (..)
-    , UtxoSetWitness (..)
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
@@ -268,8 +268,8 @@ tokenCount app = do
             expectationFailure
                 ("Could not decode TokensResponse: " <> err)
                 $> 0
-        Right TokensResponse{trsTokens = UtxoSetWitness{uswEntries}} ->
-            pure (length uswEntries)
+        Right TokensResponse{trsTokens = TokenSetWitness{tswEntries}} ->
+            pure (length tswEntries)
 
 tokenVisible :: Application -> TokenId -> IO Bool
 tokenVisible app tokenId = do

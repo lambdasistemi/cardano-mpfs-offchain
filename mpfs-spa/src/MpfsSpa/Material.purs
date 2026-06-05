@@ -37,6 +37,33 @@ module MpfsSpa.Material
   , link
   , tooltip
   , textField
+  , table
+  , tableBody
+  , tableCell
+  , tableContainer
+  , tableHead
+  , tableRow
+  , dialog
+  , dialogTitle
+  , dialogContent
+  , dialogActions
+  , badge
+  , addIcon
+  , appRegistrationIcon
+  , accountCircleIcon
+  , blockIcon
+  , checkCircleIcon
+  , closeIcon
+  , deleteIcon
+  , editIcon
+  , manageAccountsIcon
+  , playlistAddCheckIcon
+  , refreshIcon
+  , saveIcon
+  , stopCircleIcon
+  , syncIcon
+  , undoIcon
+  , warningAmberIcon
   , themeProvider
   , EventHandler1
   , onTabChange
@@ -78,6 +105,17 @@ foreign import alert :: forall r. Record r -> Array JSX -> JSX
 foreign import themeProvider :: forall r. Record r -> Array JSX -> JSX
 foreign import link :: forall r. Record r -> Array JSX -> JSX
 foreign import tooltip :: forall r. Record r -> Array JSX -> JSX
+foreign import tableContainer :: forall r. Record r -> Array JSX -> JSX
+foreign import table :: forall r. Record r -> Array JSX -> JSX
+foreign import tableHead :: forall r. Record r -> Array JSX -> JSX
+foreign import tableBody :: forall r. Record r -> Array JSX -> JSX
+foreign import tableRow :: forall r. Record r -> Array JSX -> JSX
+foreign import tableCell :: forall r. Record r -> Array JSX -> JSX
+foreign import dialog :: forall r. Record r -> Array JSX -> JSX
+foreign import dialogTitle :: forall r. Record r -> Array JSX -> JSX
+foreign import dialogContent :: forall r. Record r -> Array JSX -> JSX
+foreign import dialogActions :: forall r. Record r -> Array JSX -> JSX
+foreign import badge :: forall r. Record r -> Array JSX -> JSX
 
 -- leaf components: props only
 foreign import tab :: forall r. Record r -> JSX
@@ -88,6 +126,22 @@ foreign import circularProgress :: forall r. Record r -> JSX
 foreign import cardHeader :: forall r. Record r -> JSX
 foreign import listItemText :: forall r. Record r -> JSX
 foreign import alertTitle :: forall r. Record r -> JSX
+foreign import addIcon :: forall r. Record r -> JSX
+foreign import appRegistrationIcon :: forall r. Record r -> JSX
+foreign import accountCircleIcon :: forall r. Record r -> JSX
+foreign import blockIcon :: forall r. Record r -> JSX
+foreign import checkCircleIcon :: forall r. Record r -> JSX
+foreign import closeIcon :: forall r. Record r -> JSX
+foreign import deleteIcon :: forall r. Record r -> JSX
+foreign import editIcon :: forall r. Record r -> JSX
+foreign import manageAccountsIcon :: forall r. Record r -> JSX
+foreign import playlistAddCheckIcon :: forall r. Record r -> JSX
+foreign import refreshIcon :: forall r. Record r -> JSX
+foreign import saveIcon :: forall r. Record r -> JSX
+foreign import stopCircleIcon :: forall r. Record r -> JSX
+foreign import syncIcon :: forall r. Record r -> JSX
+foreign import undoIcon :: forall r. Record r -> JSX
+foreign import warningAmberIcon :: forall r. Record r -> JSX
 
 -- | An opaque DOM event handler suitable for a MUI `onChange` prop.
 foreign import data EventHandler1 :: Type

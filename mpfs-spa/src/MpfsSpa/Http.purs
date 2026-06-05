@@ -9,7 +9,9 @@ module MpfsSpa.Http
   ( Config
   , TokenState
   , PendingRequest
+  , FactEntry
   , getTokens
+  , getFacts
   , getTokenState
   , getRequests
   , getFactValue
@@ -68,6 +70,11 @@ type PendingRequest =
   , requestId :: RequestId
   }
 
+type FactEntry =
+  { key :: Key
+  , value :: Value
+  }
+
 type RawResponse = { ok :: Boolean, status :: Int, json :: Json, text :: String }
 
 foreign import _fetchJson
@@ -96,7 +103,14 @@ getDecoded cfg path decode = do
 getTokens :: Config -> Aff (Either String (Array TokenId))
 getTokens cfg = getDecoded cfg "/tokens" decode
   where
-  decode j = map TokenId <$> (decodeJson j :: Either JsonDecodeError (Array String))
+  decode j = case decodeTokensResponse j of
+    Right tokens -> Right tokens
+    Left _ -> map TokenId <$> (decodeJson j :: Either JsonDecodeError (Array String))
+
+-- | Enumerate every fact in a token's trie.
+getFacts :: Config -> TokenId -> Aff (Either String (Array FactEntry))
+getFacts cfg (TokenId tid) =
+  getDecoded cfg ("/tokens/" <> tid <> "/facts") decodeFacts
 
 -- | Fetch a token's on-chain state.
 getTokenState :: Config -> TokenId -> Aff (Either String TokenState)
@@ -143,6 +157,32 @@ decodeTokenState j = do
   processTime <- st .: "process_time"
   retractTime <- st .: "retract_time"
   pure { owner, root, tip, processTime, retractTime }
+
+decodeTokensResponse :: Json -> Either JsonDecodeError (Array TokenId)
+decodeTokensResponse j = do
+  top <- decodeJson j
+  tokens <- top .: "tokens"
+  (entries :: Array Json) <- tokens .: "entries"
+  traverse decodeTokenEntry entries
+
+decodeTokenEntry :: Json -> Either JsonDecodeError TokenId
+decodeTokenEntry j = do
+  entry <- decodeJson j
+  tokenId <- entry .: "token_id"
+  pure (TokenId tokenId)
+
+decodeFacts :: Json -> Either JsonDecodeError (Array FactEntry)
+decodeFacts j = do
+  top <- decodeJson j
+  (facts :: Array Json) <- top .: "facts"
+  traverse decodeFactEntry facts
+
+decodeFactEntry :: Json -> Either JsonDecodeError FactEntry
+decodeFactEntry j = do
+  fact <- decodeJson j
+  key <- fact .: "key"
+  value <- fact .: "value"
+  pure { key: Key key, value: Value value }
 
 decodeRequests :: Json -> Either JsonDecodeError (Array PendingRequest)
 decodeRequests j = do
