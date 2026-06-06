@@ -30,11 +30,14 @@ import MpfsSpa.Display (displayUtf8Hex, formatAgeMillis, currentTimeMillis)
 import MpfsSpa.Http
   ( FactEntry
   , PendingRequest
+  , RequestPhase(..)
   , TokenState
   , getFacts
   , getRequests
   , getTokenState
   , getTokens
+  , phaseLabel
+  , requestPhase
   )
 import MpfsSpa.Material as M
 import MpfsSpa.Shared (Env, Remote(..), WalletState, centred, remoteView)
@@ -54,10 +57,6 @@ data FactDialog
   | InsertDialog { key :: String, value :: String }
   | EditDialog { key :: String, currentValue :: String, newValue :: String }
   | DeleteDialog { key :: String, value :: String }
-
-data FactRow
-  = KnownFact FactEntry (Array PendingRequest)
-  | PendingOnly PendingRequest
 
 type TokenSummary =
   { token :: TokenId
@@ -79,6 +78,7 @@ mkApp env = component "App" \_ -> React.do
   themeMode /\ setThemeMode <- useState "light"
   facts /\ setFacts <- useState (NotAsked :: Remote (Array FactEntry))
   requests /\ setRequests <- useState (NotAsked :: Remote (Array PendingRequest))
+  selectedRequestIds /\ setSelectedRequestIds <- useState ([] :: Array RequestId)
   tokenState /\ setTokenState <- useState (NotAsked :: Remote TokenState)
   nowMillis /\ setNowMillis <- useState 0.0
   status /\ setStatus <- useState Idle
@@ -165,6 +165,7 @@ mkApp env = component "App" \_ -> React.do
     loadTokenDetails tid = do
       setFacts (const Loading)
       setRequests (const Loading)
+      setSelectedRequestIds (const [])
       setTokenState (const Loading)
       launchAff_ do
         now <- liftEffect currentTimeMillis
@@ -253,17 +254,29 @@ mkApp env = component "App" \_ -> React.do
 
     processRequests :: Effect Unit
     processRequests =
-      withSelected \tid ->
-        runWriteWith
-          (\_ -> reloadLater (Just tid))
-          (\w -> env.helpers.updateToken (addr w) placeholderCageConfig tid)
+      if null selectedRequestIds then
+        setStatus (const (Failed "Select at least one processable request."))
+      else
+        withSelected \tid ->
+          runWriteWith
+            (\_ -> reloadLater (Just tid))
+            ( \w ->
+                env.helpers.updateToken (addr w) placeholderCageConfig tid
+                  selectedRequestIds
+            )
 
     rejectExpired :: Effect Unit
     rejectExpired =
-      withSelected \tid ->
-        runWriteWith
-          (\_ -> reloadLater (Just tid))
-          (\w -> env.helpers.rejectExpired (addr w) placeholderCageConfig tid)
+      if null selectedRequestIds then
+        setStatus (const (Failed "Select at least one expired request."))
+      else
+        withSelected \tid ->
+          runWriteWith
+            (\_ -> reloadLater (Just tid))
+            ( \w ->
+                env.helpers.rejectExpired (addr w) placeholderCageConfig tid
+                  selectedRequestIds
+            )
 
     retractRequest :: RequestId -> Effect Unit
     retractRequest rid =
@@ -317,6 +330,14 @@ mkApp env = component "App" \_ -> React.do
           )
           (\w -> env.helpers.endCage (addr w) placeholderCageConfig tid)
 
+    toggleRequestSelection :: RequestId -> Effect Unit
+    toggleRequestSelection rid =
+      setSelectedRequestIds \current ->
+        if any (_ == rid) current then
+          filter (_ /= rid) current
+        else
+          current <> [ rid ]
+
   useEffectOnce do
     mode <- Theme.initialThemeMode
     setThemeMode (const mode)
@@ -346,6 +367,7 @@ mkApp env = component "App" \_ -> React.do
       Nothing -> do
         setFacts (const NotAsked)
         setRequests (const NotAsked)
+        setSelectedRequestIds (const [])
         setTokenState (const NotAsked)
       Just tid -> loadTokenDetails tid
     pure (pure unit)
@@ -355,13 +377,9 @@ mkApp env = component "App" \_ -> React.do
       Success st -> toNumber st.processTime
       _ -> toNumber placeholderCageConfig.defaultProcessTime
 
-    pendingCount = case requests of
-      Success rs -> length rs
-      _ -> 0
-
-    processable = case requests of
-      Success rs -> length (filter (isProcessable nowMillis processTime) rs)
-      _ -> 0
+    retractTime = case tokenState of
+      Success st -> toNumber st.retractTime
+      _ -> toNumber placeholderCageConfig.defaultRetractTime
 
     selectedToken = selected
 
@@ -375,9 +393,14 @@ mkApp env = component "App" \_ -> React.do
     selectedSummary =
       selected >>= \tid -> find (\s -> s.token == tid) tokenSummaries
 
+    selectedTokenOwner =
+      case tokenState of
+        Success st -> Just st.owner
+        _ -> selectedSummary >>= _.owner
+
     selectedOwned =
-      case selectedSummary, walletOwnerHash of
-        Just s, Just owner -> s.owner == Just owner
+      case selectedTokenOwner, walletOwnerHash of
+        Just tokenOwner, Just owner -> tokenOwner == owner
         _, _ -> false
 
     canWriteSelected =
@@ -421,19 +444,21 @@ mkApp env = component "App" \_ -> React.do
                 , onSelect:
                     \tid -> do
                       setSelected (const (Just tid))
+                      setSelectedRequestIds (const [])
                       setDialog (const NoDialog)
                 }
             , workspaceView
                 { wallet
                 , selected: selectedToken
-                , selectedSummary
+                , tokenOwner: selectedTokenOwner
+                , walletOwnerHash
                 , tokenState
                 , facts
                 , requests
+                , selectedRequestIds
                 , nowMillis
                 , processTime
-                , pendingCount
-                , processable
+                , retractTime
                 , status
                 , canWrite: canWriteSelected
                 , myTokensOnly
@@ -454,6 +479,8 @@ mkApp env = component "App" \_ -> React.do
                 , onAdd: setDialog (const (InsertDialog { key: "", value: "" }))
                 , onProcess: processRequests
                 , onRejectExpired: rejectExpired
+                , onToggleRequest: toggleRequestSelection
+                , onSelectRequests: \ids -> setSelectedRequestIds (const ids)
                 , onEnd: setConfirmEnd (const true)
                 , onEdit:
                     \fact ->
@@ -623,30 +650,36 @@ sidebarView props =
                       , borderColor: "divider"
                       }
                   }
-                  [ M.typography
-                      { variant: "subtitle2"
-                      , sx: { flexGrow: 1, fontWeight: 700 }
-                      }
-                      [ R.text "Tokens" ]
-                  , iconTip "Refresh tokens"
-                      [ M.iconButton
-                          { size: "small"
-                          , "aria-label": "Refresh tokens"
-                          , onClick: props.onRefresh
-                          }
-                          [ M.refreshIcon { fontSize: "small" } ]
-                      ]
-                  , iconTip "Register token"
-                      [ M.iconButton
-                          { size: "small"
-                          , color: "primary"
-                          , disabled: not (isJust props.wallet)
-                          , "aria-label": "Register token"
-                          , onClick: props.onRegister
-                          }
-                          [ M.appRegistrationIcon { fontSize: "small" } ]
-                      ]
-                  ]
+                  ( [ M.typography
+                        { variant: "subtitle2"
+                        , sx: { flexGrow: 1, fontWeight: 700 }
+                        }
+                        [ R.text "Tokens" ]
+                    , iconTip "Refresh tokens"
+                        [ M.iconButton
+                            { size: "small"
+                            , "aria-label": "Refresh tokens"
+                            , onClick: props.onRefresh
+                            }
+                            [ M.refreshIcon { fontSize: "small" } ]
+                        ]
+                    ]
+                      <>
+                        ( if isJust props.wallet then
+                            [ iconTip "Register new token"
+                                [ M.iconButton
+                                    { size: "small"
+                                    , color: "primary"
+                                    , "aria-label": "Register new token"
+                                    , onClick: props.onRegister
+                                    }
+                                    [ M.appRegistrationIcon { fontSize: "small" } ]
+                                ]
+                            ]
+                          else
+                            []
+                        )
+                  )
               , mineOnlyControl props.wallet props.myTokensOnly props.onToggleMyTokens
               , remoteView props.tokens
                   ( tokenList
@@ -800,7 +833,7 @@ tokenList wallet ownerHash myOnly visible onConnect onRegister onToggle selected
                               , onClick: onRegister
                               , sx: { gap: 0.75 }
                               }
-                              [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+                              [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register new token" ]
                           , M.button
                               { variant: "outlined"
                               , size: "small"
@@ -840,7 +873,7 @@ tokenEmptyState wallet onConnect onRegister =
                         , onClick: onRegister
                         , sx: { gap: 0.75, alignSelf: "flex-start" }
                         }
-                        [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+                        [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register new token" ]
                     ]
             )
         ]
@@ -891,14 +924,15 @@ ownershipChip ownerHash summary =
 workspaceView
   :: { wallet :: Maybe WalletState
      , selected :: Maybe TokenId
-     , selectedSummary :: Maybe TokenSummary
+     , tokenOwner :: Maybe String
+     , walletOwnerHash :: Maybe String
      , tokenState :: Remote TokenState
      , facts :: Remote (Array FactEntry)
      , requests :: Remote (Array PendingRequest)
+     , selectedRequestIds :: Array RequestId
      , nowMillis :: Number
      , processTime :: Number
-     , pendingCount :: Int
-     , processable :: Int
+     , retractTime :: Number
      , status :: OpStatus
      , canWrite :: Boolean
      , myTokensOnly :: Boolean
@@ -912,6 +946,8 @@ workspaceView
      , onAdd :: Effect Unit
      , onProcess :: Effect Unit
      , onRejectExpired :: Effect Unit
+     , onToggleRequest :: RequestId -> Effect Unit
+     , onSelectRequests :: Array RequestId -> Effect Unit
      , onEnd :: Effect Unit
      , onEdit :: FactEntry -> Effect Unit
      , onDelete :: FactEntry -> Effect Unit
@@ -932,74 +968,33 @@ workspaceView props =
             , flexWrap: "wrap"
             }
         }
-        [ selectedTitle props.selected props.tokenState
+        [ selectedTitle props.selected props.tokenState props.tokenOwner props.walletOwnerHash
         , M.stack { direction: "row", spacing: 0.5, sx: { ml: "auto" } }
-            [ iconTip "Refresh"
-                [ M.iconButton
-                    { size: "small"
-                    , "aria-label": "Refresh"
-                    , onClick: props.onRefresh
-                    }
-                    [ M.refreshIcon { fontSize: "small" } ]
-                ]
-            , iconTip (processTip props.writeBlockedReason props.processable)
-                [ M.iconButton
-                    { size: "small"
-                    , color: "success"
-                    , disabled: isJust props.writeBlockedReason || props.processable == 0
-                    , "aria-label": "Process requests"
-                    , onClick: props.onProcess
-                    }
-                    [ M.badge { badgeContent: props.processable, color: "success" }
-                        [ M.playlistAddCheckIcon { fontSize: "small" } ]
-                    ]
-                ]
-            , iconTip (pendingTip props.writeBlockedReason props.pendingCount "No pending requests to reject.")
-                [ M.iconButton
-                    { size: "small"
-                    , color: "warning"
-                    , disabled: isJust props.writeBlockedReason || props.pendingCount == 0
-                    , "aria-label": "Reject expired"
-                    , onClick: props.onRejectExpired
-                    }
-                    [ M.blockIcon { fontSize: "small" } ]
-                ]
-            , iconTip
-                ( if isJust props.wallet then
-                    "Register token"
-                  else
-                    "Connect a wallet to register a token."
-                )
-                [ M.iconButton
-                    { size: "small"
-                    , color: "primary"
-                    , disabled: not (isJust props.wallet)
-                    , "aria-label": "Register token"
-                    , onClick: props.onRegister
-                    }
-                    [ M.appRegistrationIcon { fontSize: "small" } ]
-                ]
-            , iconTip (fromMaybe "Add fact" props.writeBlockedReason)
-                [ M.iconButton
-                    { size: "small"
-                    , color: "primary"
-                    , disabled: isJust props.writeBlockedReason
-                    , "aria-label": "Add fact"
-                    , onClick: props.onAdd
-                    }
-                    [ M.addIcon { fontSize: "small" } ]
-                ]
-            , iconTip (fromMaybe "End token" props.writeBlockedReason)
-                [ M.iconButton
-                    { size: "small"
-                    , color: "error"
-                    , disabled: isJust props.writeBlockedReason
-                    , "aria-label": "End token"
-                    , onClick: props.onEnd
-                    }
-                    [ M.stopCircleIcon { fontSize: "small" } ]
-                ]
-            ]
+            ( [ iconTip "Refresh"
+                  [ M.iconButton
+                      { size: "small"
+                      , "aria-label": "Refresh"
+                      , onClick: props.onRefresh
+                      }
+                      [ M.refreshIcon { fontSize: "small" } ]
+                  ]
+              ]
+                <>
+                  ( if props.canWrite then
+                      [ iconTip "End token"
+                          [ M.iconButton
+                              { size: "small"
+                              , color: "error"
+                              , "aria-label": "End token"
+                              , onClick: props.onEnd
+                              }
+                              [ M.stopCircleIcon { fontSize: "small" } ]
+                          ]
+                      ]
+                    else
+                      []
+                  )
+            )
         ]
     , M.box { sx: { px: 2 } } [ statusView props.status ]
     , case props.selected of
@@ -1011,25 +1006,33 @@ workspaceView props =
             props.onShowAll
         Just _ ->
           M.box { sx: { p: 2 } }
-            [ factsRegion
+            [ ownerRoleNotice props.wallet props.tokenOwner props.walletOwnerHash props.onConnect
+            , factsRegion
                 props.canWrite
                 props.writeBlockedReason
                 props.onAdd
+                props.walletOwnerHash
                 props.nowMillis
                 props.processTime
+                props.retractTime
                 props.facts
                 props.requests
+                props.selectedRequestIds
                 props.onEdit
                 props.onDelete
                 props.onRetract
+                props.onProcess
+                props.onRejectExpired
+                props.onToggleRequest
+                props.onSelectRequests
             ]
     ]
 
-selectedTitle :: Maybe TokenId -> Remote TokenState -> JSX
-selectedTitle selected tokenState =
+selectedTitle :: Maybe TokenId -> Remote TokenState -> Maybe String -> Maybe String -> JSX
+selectedTitle selected tokenState tokenOwner walletOwnerHash =
   M.box { sx: { minWidth: 0 } }
     [ M.typography { variant: "subtitle2", sx: { fontWeight: 700 } }
-        [ R.text "Facts" ]
+        [ R.text "Token" ]
     , case selected of
         Nothing -> mempty
         Just (TokenId token) ->
@@ -1047,135 +1050,438 @@ selectedTitle selected tokenState =
                     , variant: "outlined"
                     }
                 _ -> mempty
+            , maybe mempty (ownerChip walletOwnerHash) tokenOwner
             ]
     ]
+
+ownerChip :: Maybe String -> String -> JSX
+ownerChip walletOwnerHash tokenOwner =
+  M.chip
+    { label:
+        "owner "
+          <> shortText 8 6 tokenOwner
+          <> case walletOwnerHash of
+            Just mine | mine == tokenOwner -> " (you)"
+            Just _ -> " (not you)"
+            Nothing -> ""
+    , size: "small"
+    , color:
+        case walletOwnerHash of
+          Just mine | mine == tokenOwner -> "success"
+          _ -> "default"
+    , variant: "outlined"
+    }
+
+ownerRoleNotice :: Maybe WalletState -> Maybe String -> Maybe String -> Effect Unit -> JSX
+ownerRoleNotice wallet tokenOwner walletOwnerHash onConnect =
+  case wallet of
+    Nothing ->
+      M.alert { severity: "info", sx: { mb: 2 } }
+        [ M.stack { direction: "row", spacing: 1, sx: { alignItems: "center", flexWrap: "wrap" } }
+            [ R.text "Connect a wallet to request changes or manage pending requests."
+            , M.button
+                { variant: "contained"
+                , size: "small"
+                , onClick: onConnect
+                , sx: { gap: 0.75 }
+                }
+                [ M.manageAccountsIcon { fontSize: "small" }, R.text "Connect wallet" ]
+            ]
+        ]
+    Just _ ->
+      M.box { sx: { mb: 2 } }
+        [ M.stack { direction: "row", spacing: 1, sx: { alignItems: "center", flexWrap: "wrap" } }
+            ( [ case tokenOwner of
+                  Just owner -> ownerChip walletOwnerHash owner
+                  Nothing -> M.chip { label: "owner unknown", size: "small", variant: "outlined" }
+              ]
+                <>
+                  ( case tokenOwner, walletOwnerHash of
+                      Just owner, Just mine | owner == mine ->
+                        [ M.chip { label: "you can manage this token", size: "small", color: "success" } ]
+                      Just _, Just _ ->
+                        [ M.chip { label: "read-only for this token", size: "small", variant: "outlined" } ]
+                      _, Nothing ->
+                        [ M.chip { label: "wallet owner hash unavailable", size: "small", variant: "outlined" } ]
+                      _, _ -> []
+                  )
+            )
+        ]
 
 factsRegion
   :: Boolean
   -> Maybe String
   -> Effect Unit
+  -> Maybe String
+  -> Number
   -> Number
   -> Number
   -> Remote (Array FactEntry)
   -> Remote (Array PendingRequest)
+  -> Array RequestId
   -> (FactEntry -> Effect Unit)
   -> (FactEntry -> Effect Unit)
   -> (RequestId -> Effect Unit)
+  -> Effect Unit
+  -> Effect Unit
+  -> (RequestId -> Effect Unit)
+  -> (Array RequestId -> Effect Unit)
   -> JSX
-factsRegion canWrite blockedReason onAdd nowMillis processTime facts requests onEdit onDelete onRetract =
+factsRegion
+  canWrite
+  blockedReason
+  onAdd
+  walletOwnerHash
+  nowMillis
+  processTime
+  retractTime
+  facts
+  requests
+  selectedRequestIds
+  onEdit
+  onDelete
+  onRetract
+  onProcess
+  onRejectExpired
+  onToggleRequest
+  onSelectRequests =
   case facts, requests of
     Loading, _ -> centred [ M.circularProgress {} ]
     _, Loading -> centred [ M.circularProgress {} ]
     Failure msg, _ -> M.alert { severity: "error" } [ R.text msg ]
     _, Failure msg -> M.alert { severity: "error" } [ R.text msg ]
     Success fs, Success rs ->
-      factTable canWrite blockedReason onAdd nowMillis processTime fs rs onEdit onDelete onRetract
+      M.stack { spacing: 2 }
+        [ factsSection canWrite blockedReason onAdd fs rs onEdit onDelete
+        , requestsSection
+            canWrite
+            walletOwnerHash
+            nowMillis
+            processTime
+            retractTime
+            rs
+            selectedRequestIds
+            onProcess
+            onRejectExpired
+            onToggleRequest
+            onSelectRequests
+            onRetract
+        ]
     _, _ -> mempty
 
-factTable
+factsSection
   :: Boolean
   -> Maybe String
   -> Effect Unit
-  -> Number
-  -> Number
   -> Array FactEntry
   -> Array PendingRequest
   -> (FactEntry -> Effect Unit)
   -> (FactEntry -> Effect Unit)
-  -> (RequestId -> Effect Unit)
   -> JSX
-factTable canWrite blockedReason onAdd nowMillis processTime fs rs onEdit onDelete onRetract =
-  if null fs && null rs then
-    M.alert { severity: "info" }
-      [ M.stack { spacing: 1, sx: { alignItems: "flex-start" } }
-          ( [ R.text "No facts for this token." ]
-              <>
-                if canWrite then
-                  [ M.button
-                      { variant: "contained"
-                      , size: "small"
-                      , onClick: onAdd
-                      , sx: { gap: 0.75 }
-                      }
-                      [ M.addIcon { fontSize: "small" }, R.text "Add fact" ]
-                  ]
-                else
-                  maybe [] (\msg -> [ M.typography { variant: "caption" } [ R.text msg ] ])
-                    blockedReason
-          )
-      ]
-  else
-    M.tableContainer { sx: { maxHeight: "calc(100vh - 210px)" } }
-      [ M.table { size: "small", stickyHeader: true, "aria-label": "Token facts" }
-          [ M.tableHead {}
-              [ M.tableRow {}
-                  [ M.tableCell { sx: { width: "24%" } } [ R.text "Key" ]
-                  , M.tableCell { sx: { width: "30%" } } [ R.text "Value" ]
-                  , M.tableCell { sx: { width: "30%" } } [ R.text "Pending" ]
-                  , M.tableCell { align: "right", sx: { width: "16%" } } [ R.text "Actions" ]
-                  ]
-              ]
-          , M.tableBody {}
-              (map (factRow canWrite blockedReason nowMillis processTime onEdit onDelete onRetract) rows)
+factsSection canWrite blockedReason onAdd fs rs onEdit onDelete =
+  M.box {}
+    [ sectionHeader "Facts"
+        [ M.typography { variant: "body2", color: "text.secondary" }
+            [ R.text "Committed key/value facts. Edits create pending requests." ]
+        ]
+        ( if canWrite then
+            [ M.button
+                { variant: "contained"
+                , size: "small"
+                , onClick: onAdd
+                , sx: { gap: 0.75 }
+                }
+                [ M.addIcon { fontSize: "small" }, R.text "Add fact" ]
+            ]
+          else
+            []
+        )
+    , if null fs then
+        M.alert { severity: "info" }
+          [ M.stack { spacing: 1, sx: { alignItems: "flex-start" } }
+              ( [ R.text "No committed facts for this token." ]
+                  <>
+                    ( if canWrite then
+                        []
+                      else
+                        maybe [] (\msg -> [ M.typography { variant: "caption" } [ R.text msg ] ])
+                          blockedReason
+                    )
+              )
           ]
-      ]
-  where
-  rows =
-    map (\fact -> KnownFact fact (filter (\req -> req.key == fact.key) rs)) fs
-      <> map PendingOnly
-        (filter (\req -> not (any (\fact -> fact.key == req.key) fs)) rs)
+      else
+        factTable canWrite blockedReason fs rs onEdit onDelete
+    ]
+
+factTable
+  :: Boolean
+  -> Maybe String
+  -> Array FactEntry
+  -> Array PendingRequest
+  -> (FactEntry -> Effect Unit)
+  -> (FactEntry -> Effect Unit)
+  -> JSX
+factTable canWrite blockedReason fs rs onEdit onDelete =
+  M.tableContainer { sx: { maxHeight: "calc(50vh - 120px)" } }
+    [ M.table { size: "small", stickyHeader: true, "aria-label": "Facts" }
+        [ M.tableHead {}
+            [ M.tableRow {}
+                [ M.tableCell { sx: { width: "34%" } } [ R.text "Key" ]
+                , M.tableCell { sx: { width: "46%" } } [ R.text "Value" ]
+                , M.tableCell { align: "right", sx: { width: "20%" } } [ R.text "Actions" ]
+                ]
+            ]
+        , M.tableBody {}
+            (map (factRow canWrite blockedReason rs onEdit onDelete) fs)
+        ]
+    ]
 
 factRow
   :: Boolean
   -> Maybe String
-  -> Number
-  -> Number
+  -> Array PendingRequest
   -> (FactEntry -> Effect Unit)
   -> (FactEntry -> Effect Unit)
-  -> (RequestId -> Effect Unit)
-  -> FactRow
+  -> FactEntry
   -> JSX
-factRow canWrite blockedReason nowMillis processTime onEdit onDelete onRetract row =
-  case row of
-    KnownFact fact pending ->
-      M.tableRow { key: "fact-" <> unKey fact.key, hover: true }
-        [ keyCell fact.key
-        , valueCell fact.value pending
-        , pendingCell canWrite blockedReason nowMillis processTime pending onRetract
-        , M.tableCell { align: "right" }
-            [ M.stack { direction: "row", spacing: 0.5, sx: { justifyContent: "flex-end" } }
-                [ iconTip (rowActionTip blockedReason pending "Edit fact")
-                    [ M.iconButton
-                        { size: "small"
-                        , "aria-label": "Edit fact " <> factText fact.key
-                        , disabled: not canWrite || not (null pending)
-                        , onClick: onEdit fact
-                        }
-                        [ M.editIcon { fontSize: "small" } ]
-                    ]
-                , iconTip (rowActionTip blockedReason pending "Delete fact")
-                    [ M.iconButton
-                        { size: "small"
-                        , color: "error"
-                        , "aria-label": "Delete fact " <> factText fact.key
-                        , disabled: not canWrite || not (null pending)
-                        , onClick: onDelete fact
-                        }
-                        [ M.deleteIcon { fontSize: "small" } ]
-                    ]
-                ]
+factRow canWrite blockedReason requestsForToken onEdit onDelete fact =
+  M.tableRow { key: "fact-" <> unKey fact.key, hover: true }
+    [ keyCell fact.key
+    , valueCell fact.value
+    , M.tableCell { align: "right" }
+        [ if canWrite then
+            M.stack { direction: "row", spacing: 0.5, sx: { justifyContent: "flex-end" } }
+              [ iconTip (rowActionTip blockedReason pending "Edit fact")
+                  [ M.iconButton
+                      { size: "small"
+                      , "aria-label": "Edit fact " <> factText fact.key
+                      , disabled: not (null pending)
+                      , onClick: onEdit fact
+                      }
+                      [ M.editIcon { fontSize: "small" } ]
+                  ]
+              , iconTip (rowActionTip blockedReason pending "Delete fact")
+                  [ M.iconButton
+                      { size: "small"
+                      , color: "error"
+                      , "aria-label": "Delete fact " <> factText fact.key
+                      , disabled: not (null pending)
+                      , onClick: onDelete fact
+                      }
+                      [ M.deleteIcon { fontSize: "small" } ]
+                  ]
+              ]
+          else
+            mempty
+        ]
+    ]
+  where
+  pending = filter (\req -> req.key == fact.key) requestsForToken
+
+requestsSection
+  :: Boolean
+  -> Maybe String
+  -> Number
+  -> Number
+  -> Number
+  -> Array PendingRequest
+  -> Array RequestId
+  -> Effect Unit
+  -> Effect Unit
+  -> (RequestId -> Effect Unit)
+  -> (Array RequestId -> Effect Unit)
+  -> (RequestId -> Effect Unit)
+  -> JSX
+requestsSection
+  canWrite
+  walletOwnerHash
+  nowMillis
+  processTime
+  retractTime
+  requests
+  selectedRequestIds
+  onProcess
+  onRejectExpired
+  onToggleRequest
+  onSelectRequests
+  onRetract =
+  M.box {}
+    [ sectionHeader "Pending requests"
+        [ M.typography { variant: "body2", color: "text.secondary" }
+            [ R.text "Pending requests are selected individually before they are processed or rejected." ]
+        ]
+        (requestToolbar canWrite selectedCount canProcess canReject onProcess onRejectExpired)
+    , if null requests then
+        M.alert { severity: "info" } [ R.text "No pending requests." ]
+      else
+        M.tableContainer { sx: { maxHeight: "calc(50vh - 120px)" } }
+          [ M.table { size: "small", stickyHeader: true, "aria-label": "Pending requests" }
+              [ M.tableHead {}
+                  [ M.tableRow {}
+                      [ M.tableCell { padding: "checkbox", sx: { width: 48 } }
+                          [ if canWrite then
+                              M.checkbox
+                                { size: "small"
+                                , checked: allChecked
+                                , indeterminate: someChecked && not allChecked
+                                , onChange:
+                                    M.onCheckedChange \checked ->
+                                      onSelectRequests
+                                        ( if checked then
+                                            map _.requestId requests
+                                          else
+                                            []
+                                        )
+                                , inputProps: { "aria-label": "Select all requests" }
+                                }
+                            else
+                              mempty
+                          ]
+                      , M.tableCell { sx: { width: "11%" } } [ R.text "Op" ]
+                      , M.tableCell { sx: { width: "20%" } } [ R.text "Key" ]
+                      , M.tableCell { sx: { width: "20%" } } [ R.text "Value" ]
+                      , M.tableCell { sx: { width: "17%" } } [ R.text "Owner" ]
+                      , M.tableCell { sx: { width: "11%" } } [ R.text "Age" ]
+                      , M.tableCell { sx: { width: "13%" } } [ R.text "Phase" ]
+                      , M.tableCell { align: "right", sx: { width: "8%" } } [ R.text "Actions" ]
+                      ]
+                  ]
+              , M.tableBody {}
+                  ( map
+                      ( requestRow
+                          canWrite
+                          walletOwnerHash
+                          selectedRequestIds
+                          nowMillis
+                          processTime
+                          retractTime
+                          onToggleRequest
+                          onRetract
+                      )
+                      requests
+                  )
+              ]
+          ]
+    ]
+  where
+  selectedRequests =
+    filter (\req -> requestSelected selectedRequestIds req.requestId) requests
+
+  selectedCount =
+    length selectedRequests
+
+  someChecked =
+    selectedCount > 0
+
+  allChecked =
+    someChecked && selectedCount == length requests
+
+  canProcess =
+    someChecked
+      && length (filter (\req -> requestPhase nowMillis processTime retractTime req == PhaseProcessable) selectedRequests) == selectedCount
+
+  canReject =
+    someChecked
+      && length (filter (\req -> requestPhase nowMillis processTime retractTime req == PhaseExpired) selectedRequests) == selectedCount
+
+requestToolbar
+  :: Boolean
+  -> Int
+  -> Boolean
+  -> Boolean
+  -> Effect Unit
+  -> Effect Unit
+  -> Array JSX
+requestToolbar canWrite selectedCount canProcess canReject onProcess onRejectExpired =
+  if canWrite then
+    [ M.stack { direction: "row", spacing: 1, sx: { alignItems: "center", flexWrap: "wrap" } }
+        [ M.typography { variant: "caption", color: "text.secondary" }
+            [ R.text (show selectedCount <> " selected") ]
+        , iconTip (selectionTip "processable" selectedCount canProcess)
+            [ M.button
+                { variant: "contained"
+                , size: "small"
+                , color: "success"
+                , disabled: not canProcess
+                , onClick: onProcess
+                , sx: { gap: 0.75 }
+                }
+                [ M.playlistAddCheckIcon { fontSize: "small" }, R.text "Process selected" ]
+            ]
+        , iconTip (selectionTip "expired" selectedCount canReject)
+            [ M.button
+                { variant: "outlined"
+                , size: "small"
+                , color: "warning"
+                , disabled: not canReject
+                , onClick: onRejectExpired
+                , sx: { gap: 0.75 }
+                }
+                [ M.blockIcon { fontSize: "small" }, R.text "Reject selected" ]
             ]
         ]
-    PendingOnly req ->
-      M.tableRow { key: "pending-" <> unRequestId req.requestId, hover: true }
-        [ keyCell req.key
-        , M.tableCell {}
-            [ M.typography { variant: "body2", color: "text.secondary" }
-                [ R.text (maybe "" valueText req.value) ]
-            ]
-        , pendingCell canWrite blockedReason nowMillis processTime [ req ] onRetract
-        , M.tableCell { align: "right" } []
+    ]
+  else
+    []
+
+requestRow
+  :: Boolean
+  -> Maybe String
+  -> Array RequestId
+  -> Number
+  -> Number
+  -> Number
+  -> (RequestId -> Effect Unit)
+  -> (RequestId -> Effect Unit)
+  -> PendingRequest
+  -> JSX
+requestRow
+  canWrite
+  walletOwnerHash
+  selectedRequestIds
+  nowMillis
+  processTime
+  retractTime
+  onToggleRequest
+  onRetract
+  req =
+  M.tableRow { key: "request-" <> unRequestId req.requestId, hover: true }
+    [ M.tableCell { padding: "checkbox" }
+        [ if canWrite then
+            M.checkbox
+              { size: "small"
+              , checked: requestSelected selectedRequestIds req.requestId
+              , onChange: M.onCheckedChange \_ -> onToggleRequest req.requestId
+              , inputProps:
+                  { "aria-label": "Select request " <> unRequestId req.requestId }
+              }
+          else
+            mempty
         ]
+    , M.tableCell {} [ M.chip { label: opLabel req.operation, size: "small", color: "primary", variant: "outlined" } ]
+    , keyCell req.key
+    , M.tableCell {} [ M.typography { variant: "body2" } [ R.text (maybe "" valueText req.value) ] ]
+    , requestOwnerCell walletOwnerHash req.owner
+    , M.tableCell {}
+        [ M.chip { label: formatAgeMillis (nowMillis - req.submittedAt), size: "small", variant: "outlined" } ]
+    , M.tableCell {} [ phaseChip phase ]
+    , M.tableCell { align: "right" }
+        [ if requestOwned walletOwnerHash req && phase == PhaseRetractable then
+            iconTip "Retract request"
+              [ M.iconButton
+                  { size: "small"
+                  , "aria-label": "Retract request " <> unRequestId req.requestId
+                  , onClick: onRetract req.requestId
+                  }
+                  [ M.undoIcon { fontSize: "small" } ]
+              ]
+          else
+            mempty
+        ]
+    ]
+  where
+  phase =
+    requestPhase nowMillis processTime retractTime req
 
 keyCell :: Key -> JSX
 keyCell key =
@@ -1191,90 +1497,62 @@ keyCell key =
         [ R.text (unKey key) ]
     ]
 
-valueCell :: Value -> Array PendingRequest -> JSX
-valueCell value pending =
+valueCell :: Value -> JSX
+valueCell value =
   M.tableCell {}
-    [ M.typography { variant: "body2" } [ R.text (valueText value) ]
-    , case head pending of
-        Just req ->
-          M.typography { variant: "caption", color: "text.secondary" }
-            [ R.text (pendingValueText req) ]
-        Nothing -> mempty
+    [ M.typography { variant: "body2" } [ R.text (valueText value) ] ]
+
+requestOwnerCell :: Maybe String -> String -> JSX
+requestOwnerCell walletOwnerHash owner =
+  M.tableCell {}
+    [ M.stack { direction: "row", spacing: 0.5, sx: { alignItems: "center", flexWrap: "wrap" } }
+        ( [ M.typography { variant: "caption", sx: { fontFamily: "monospace" } }
+              [ R.text (shortText 8 6 owner) ]
+          ]
+            <>
+              ( case walletOwnerHash of
+                  Just mine | mine == owner ->
+                    [ M.chip { label: "you", size: "small", color: "success", variant: "outlined" } ]
+                  Just _ ->
+                    [ M.chip { label: "not you", size: "small", variant: "outlined" } ]
+                  Nothing -> []
+              )
+        )
     ]
 
-pendingCell
-  :: Boolean
-  -> Maybe String
-  -> Number
-  -> Number
-  -> Array PendingRequest
-  -> (RequestId -> Effect Unit)
-  -> JSX
-pendingCell canWrite blockedReason nowMillis processTime pending onRetract =
-  M.tableCell {}
-    [ if null pending then
-        M.chip
-          { label: "current"
-          , size: "small"
-          , variant: "outlined"
-          , icon: M.checkCircleIcon {}
-          }
-      else
-        M.stack { spacing: 0.75 } (map (requestInline canWrite blockedReason nowMillis processTime onRetract) pending)
-    ]
-
-requestInline
-  :: Boolean
-  -> Maybe String
-  -> Number
-  -> Number
-  -> (RequestId -> Effect Unit)
-  -> PendingRequest
-  -> JSX
-requestInline canWrite blockedReason nowMillis processTime onRetract req =
-  M.stack
-    { direction: "row"
-    , spacing: 0.75
-    , sx: { alignItems: "center", flexWrap: "wrap" }
+phaseChip :: RequestPhase -> JSX
+phaseChip phase =
+  M.chip
+    { label: phaseLabel phase
+    , size: "small"
+    , color: phaseColor phase
+    , icon:
+        case phase of
+          PhaseProcessable -> M.checkCircleIcon {}
+          PhaseRetractable -> M.undoIcon {}
+          PhaseExpired -> M.warningAmberIcon {}
     }
-    [ M.chip
-        { label: opLabel req.operation
-        , size: "small"
-        , color: "primary"
-        , variant: "outlined"
+
+sectionHeader :: String -> Array JSX -> Array JSX -> JSX
+sectionHeader title detail actions =
+  M.box
+    { sx:
+        { display: "flex"
+        , gap: 1
+        , alignItems: "center"
+        , justifyContent: "space-between"
+        , flexWrap: "wrap"
+        , mb: 1
         }
-    , M.chip
-        { label: formatAgeMillis (nowMillis - req.submittedAt)
-        , size: "small"
-        , variant: "outlined"
-        }
-    , M.chip
-        { label:
-            if isProcessable nowMillis processTime req then
-              "processable"
-            else
-              "expired"
-        , size: "small"
-        , color:
-            if isProcessable nowMillis processTime req then
-              "success"
-            else
-              "warning"
-        , icon:
-            if isProcessable nowMillis processTime req then
-              M.checkCircleIcon {}
-            else
-              M.warningAmberIcon {}
-        }
-    , iconTip (fromMaybe "Retract request" blockedReason)
-        [ M.iconButton
-            { size: "small"
-            , "aria-label": "Retract request " <> unRequestId req.requestId
-            , disabled: not canWrite
-            , onClick: onRetract req.requestId
-            }
-            [ M.undoIcon { fontSize: "small" } ]
-        ]
+    }
+    [ M.box { sx: { minWidth: 0 } }
+        ( [ M.typography { variant: "h6", sx: { fontSize: "1rem", fontWeight: 700 } }
+              [ R.text title ]
+          ]
+            <> detail
+        )
+    , M.stack { direction: "row", spacing: 1, sx: { alignItems: "center", flexWrap: "wrap" } }
+        actions
     ]
 
 factDialogView
@@ -1449,7 +1727,7 @@ emptyWorkspace wallet totalTokenCount visibleTokenCount myOnly onConnect onRegis
             , onClick: onRegister
             , sx: { gap: 0.75 }
             }
-            [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+            [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register new token" ]
         ]
       Just _ | myOnly && visibleTokenCount == 0 ->
         [ M.stack { direction: "row", spacing: 1 }
@@ -1459,7 +1737,7 @@ emptyWorkspace wallet totalTokenCount visibleTokenCount myOnly onConnect onRegis
                 , onClick: onRegister
                 , sx: { gap: 0.75 }
                 }
-                [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register token" ]
+                [ M.appRegistrationIcon { fontSize: "small" }, R.text "Register new token" ]
             , M.button { variant: "outlined", size: "small", onClick: onShowAll }
                 [ R.text "Show all" ]
             ]
@@ -1490,25 +1768,14 @@ writeBlockedReason wallet selected owned =
     Just _, Just _ | owned -> Nothing
     Just _, Just _ -> Just "This token is owned by another account; writes are disabled."
 
-processTip :: Maybe String -> Int -> String
-processTip blocked processable =
-  fromMaybe
-    ( if processable == 0 then
-        "No processable requests."
-      else
-        "Process requests"
-    )
-    blocked
-
-pendingTip :: Maybe String -> Int -> String -> String
-pendingTip blocked count emptyText =
-  fromMaybe
-    ( if count == 0 then
-        emptyText
-      else
-        "Reject expired"
-    )
-    blocked
+selectionTip :: String -> Int -> Boolean -> String
+selectionTip phaseName selectedCount enabled =
+  if selectedCount == 0 then
+    "Select " <> phaseName <> " requests."
+  else if enabled then
+    "Submit selected requests."
+  else
+    "Selected rows must all be " <> phaseName <> "."
 
 rowActionTip :: Maybe String -> Array PendingRequest -> String -> String
 rowActionTip blocked pending label =
@@ -1520,15 +1787,21 @@ rowActionTip blocked pending label =
     )
     blocked
 
-isProcessable :: Number -> Number -> PendingRequest -> Boolean
-isProcessable nowMillis processTime req =
-  nowMillis - req.submittedAt <= processTime
+phaseColor :: RequestPhase -> String
+phaseColor = case _ of
+  PhaseProcessable -> "success"
+  PhaseRetractable -> "info"
+  PhaseExpired -> "warning"
 
-pendingValueText :: PendingRequest -> String
-pendingValueText req =
-  case req.value of
-    Nothing -> ""
-    Just value -> opLabel req.operation <> " -> " <> valueText value
+requestSelected :: Array RequestId -> RequestId -> Boolean
+requestSelected selectedRequestIds requestId =
+  any (_ == requestId) selectedRequestIds
+
+requestOwned :: Maybe String -> PendingRequest -> Boolean
+requestOwned walletOwnerHash req =
+  case walletOwnerHash of
+    Just owner -> owner == req.owner
+    Nothing -> false
 
 opLabel :: String -> String
 opLabel "insert" = "Insert"

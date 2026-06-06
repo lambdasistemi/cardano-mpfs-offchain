@@ -39,6 +39,7 @@ module MpfsSpa.Material
   , tooltip
   , textField
   , switch
+  , checkbox
   , table
   , tableBody
   , tableCell
@@ -72,6 +73,7 @@ module MpfsSpa.Material
   , EventHandler1
   , onTabChange
   , onValueChange
+  , onCheckedChange
   ) where
 
 import Prelude
@@ -128,6 +130,7 @@ foreign import badge :: forall r. Record r -> Array JSX -> JSX
 foreign import tab :: forall r. Record r -> JSX
 foreign import textField :: forall r. Record r -> JSX
 foreign import switch :: forall r. Record r -> JSX
+foreign import checkbox :: forall r. Record r -> JSX
 foreign import chip :: forall r. Record r -> JSX
 foreign import divider :: forall r. Record r -> JSX
 foreign import circularProgress :: forall r. Record r -> JSX
@@ -162,8 +165,14 @@ foreign import _onTabChange :: (Int -> Effect Unit) -> EventHandler1
 -- | Adapt an input `onChange` callback to receive `event.target.value`.
 foreign import _onValueChange :: (String -> Effect Unit) -> EventHandler1
 
+-- | Adapt an input `onChange` callback to receive `event.target.checked`.
+foreign import _onCheckedChange :: (Boolean -> Effect Unit) -> EventHandler1
+
 onTabChange :: (Int -> Effect Unit) -> EventHandler1
 onTabChange = _onTabChange
 
 onValueChange :: (String -> Effect Unit) -> EventHandler1
 onValueChange = _onValueChange
+
+onCheckedChange :: (Boolean -> Effect Unit) -> EventHandler1
+onCheckedChange = _onCheckedChange

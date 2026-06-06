@@ -9,6 +9,7 @@ module MpfsSpa.Http
   ( Config
   , TokenState
   , PendingRequest
+  , RequestPhase(..)
   , FactEntry
   , getTokens
   , getFacts
@@ -16,6 +17,9 @@ module MpfsSpa.Http
   , getRequests
   , getFactValue
   , getTrustedRoot
+  , isProcessable
+  , phaseLabel
+  , requestPhase
   , postBootFacts
   , submitTx
   ) where
@@ -70,10 +74,39 @@ type PendingRequest =
   , requestId :: RequestId
   }
 
+data RequestPhase
+  = PhaseProcessable
+  | PhaseRetractable
+  | PhaseExpired
+
+derive instance Eq RequestPhase
+
 type FactEntry =
   { key :: Key
   , value :: Value
   }
+
+isProcessable :: Number -> Number -> PendingRequest -> Boolean
+isProcessable nowMillis processTime req =
+  nowMillis - req.submittedAt <= processTime
+
+requestPhase :: Number -> Number -> Number -> PendingRequest -> RequestPhase
+requestPhase nowMillis processTime retractTime req =
+  let
+    age = nowMillis - req.submittedAt
+  in
+    if age <= processTime then
+      PhaseProcessable
+    else if age <= processTime + retractTime then
+      PhaseRetractable
+    else
+      PhaseExpired
+
+phaseLabel :: RequestPhase -> String
+phaseLabel = case _ of
+  PhaseProcessable -> "processable"
+  PhaseRetractable -> "retractable"
+  PhaseExpired -> "expired"
 
 type RawResponse = { ok :: Boolean, status :: Int, json :: Json, text :: String }
 

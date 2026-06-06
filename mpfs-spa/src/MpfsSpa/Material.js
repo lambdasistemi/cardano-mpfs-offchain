@@ -10,6 +10,7 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Switch from "@mui/material/Switch";
+import Checkbox from "@mui/material/Checkbox";
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import Tabs from "@mui/material/Tabs";
@@ -110,6 +111,7 @@ export const tab = mkLeaf(Tab);
 export const textField = mkLeaf(TextField);
 const muiSwitch = mkLeaf(Switch);
 export { muiSwitch as switch };
+export const checkbox = mkLeaf(Checkbox);
 export const chip = mkLeaf(Chip);
 export const divider = mkLeaf(Divider);
 export const circularProgress = mkLeaf(CircularProgress);
@@ -143,6 +145,8 @@ export const _onTabChange = (handler) => (_event, value) => handler(value)();
 // TextField/Input onChange; surface event.target.value to the handler.
 export const _onValueChange = (handler) => (event) =>
   handler(event.target.value)();
+export const _onCheckedChange = (handler) => (event) =>
+  handler(Boolean(event.target.checked))();
 
 const themeOptions = (mode) => ({
   palette: {
