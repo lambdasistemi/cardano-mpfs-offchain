@@ -48,12 +48,13 @@ import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (toList, traverse_)
 import Data.Functor (($>))
-import Data.List (sort)
+import Data.List (maximumBy, sort)
 import Data.Map.Strict qualified as Map
+import Data.Ord (comparing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Lens.Micro ((^.))
+import Lens.Micro ((&), (.~), (^.))
 import Network.HTTP.Types
     ( hContentType
     , methodPost
@@ -103,8 +104,10 @@ import Cardano.Ledger.Api.Tx.Body
     )
 import Cardano.Ledger.Api.Tx.Out
     ( coinTxOutL
+    , datumTxOutL
     , getMinCoinTxOut
     , mkBasicTxOut
+    , valueTxOutL
     )
 import Cardano.Ledger.Api.Tx.Wits
     ( Redeemers (..)
@@ -140,7 +143,7 @@ import Cardano.MPFS.API.Types
     , ProofResponse (..)
     , RejectRequest (..)
     , RequestDeleteFacts
-    , RequestInsertFacts
+    , RequestInsertFacts (..)
     , RequestUpdateFacts
     , RequestsResponse (..)
     , RetractFacts
@@ -204,6 +207,7 @@ import Cardano.MPFS.Core.Blueprint
     )
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
+    , OnChainOperation (..)
     , OnChainRequest (..)
     , OnChainRoot (..)
     , OnChainTokenState (..)
@@ -225,6 +229,9 @@ import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
     , computeScriptHash
     , extractCageDatum
+    , mkInlineDatum
+    , mkRequestDatum
+    , requestAddrFromCfg
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -233,6 +240,13 @@ import Cardano.Node.Client.E2E.Setup
     , genesisDir
     , genesisSignKey
     )
+import Cardano.Tx.Balance
+    ( BalanceResult (..)
+    , balanceTx
+    )
+import Cardano.Tx.Build qualified as TxBuild
+
+data NoCtx a
 
 -- | Hspec match string for the matrix scenario. Exposed so
 -- the @just e2e-facts-matrix@ recipe and the quickstart can
@@ -310,13 +324,20 @@ matrixSpec scripts =
             -- Reject row: re-insert a fresh request, wait
             -- past the Phase 3 deadline, then exercise the
             -- /facts/reject flow.
-            runRejectRow
+            rejectFee <-
+                runRejectRow
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                    matrixRejectKey
+                    matrixRejectValue
+            runSmallRefundRejectRow
                 cfg
                 ctx
                 app
                 tokenId
-                matrixRejectKey
-                matrixRejectValue
+                rejectFee
             subsetUpdateTokenId <- runBootRow cfg ctx app
             runUpdateSubsetRow cfg ctx app subsetUpdateTokenId
             subsetRejectTokenId <- runBootRow cfg ctx app
@@ -359,6 +380,12 @@ matrixRejectKey = "matrix-reject-key"
 
 matrixRejectValue :: ByteString
 matrixRejectValue = "matrix-reject-value"
+
+matrixSmallRefundRejectKey :: ByteString
+matrixSmallRefundRejectKey = "matrix-small-refund-reject-key"
+
+matrixSmallRefundRejectValue :: ByteString
+matrixSmallRefundRejectValue = "matrix-small-refund-reject-value"
 
 matrixSubsetUpdateRequests :: [(ByteString, ByteString)]
 matrixSubsetUpdateRequests =
@@ -757,7 +784,7 @@ runRejectRow
     -> TokenId
     -> ByteString
     -> ByteString
-    -> IO ()
+    -> IO Coin
 runRejectRow cfg ctx app tokenId key value = do
     trusted <- waitForTrustedRoot app
     insertFacts <-
@@ -845,6 +872,209 @@ runRejectRow cfg ctx app tokenId key value = do
     assertSubmitted "reject row submit" rejectResult
     awaitTx app (txIdTx signedReject)
     pendingRequestsEmpty app tokenId
+    pure (rejectTx ^. bodyTxL . feeTxBodyL)
+
+-- | Small-refund reject regression row: create a pending
+-- request whose raw reject refund is below the refund
+-- output's min-UTxO, then prove the #62 validator accepts
+-- the bounded owner-funded top-up to min-UTxO.
+runSmallRefundRejectRow
+    :: CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> Coin
+    -> IO ()
+runSmallRefundRejectRow cfg ctx app tokenId measuredRejectFee = do
+    trusted <- waitForTrustedRoot app
+    insertFacts <-
+        postRequestInsertFacts
+            app
+            tokenId
+            matrixSmallRefundRejectKey
+            matrixSmallRefundRejectValue
+            genesisAddr
+    case verifyRequestInsertFacts trusted insertFacts of
+        Left err ->
+            expectationFailure
+                ( "small-refund reject: verifyRequestInsertFacts \
+                  \failed: "
+                    <> show err
+                )
+                *> error "unreachable"
+        Right _ -> pure ()
+    (insertTx, lockedRequestCoin) <-
+        buildSmallRefundRequestInsertTx
+            cfg
+            ctx
+            tokenId
+            matrixSmallRefundRejectKey
+            matrixSmallRefundRejectValue
+            (rifSubmittedAt insertFacts)
+            measuredRejectFee
+    let signedInsert = addKeyWitness genesisSignKey insertTx
+    insertResult <- submitTx (submitter ctx) signedInsert
+    assertSubmitted "small-refund reject insert" insertResult
+    awaitTx app (txIdTx signedInsert)
+    pendingRequestsNonEmpty app tokenId
+    threadDelay 11_000_000
+    rejectTrusted <- waitForTrustedRoot app
+    rejectFactsResp <- postRejectFacts app tokenId genesisAddr
+    rejectVerified <-
+        case verifyRejectFacts rejectTrusted rejectFactsResp of
+            Left err ->
+                expectationFailure
+                    ( "small-refund reject: verifyRejectFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    evalCtx <- decodedEvalContext ctx
+    rejectTx <-
+        case rejectCageTxWithEval
+            evalCtx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            rejectVerified of
+            Left err ->
+                expectationFailure
+                    ( "small-refund reject: rejectCageTxWithEval \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    assertRealisticFee "small-refund reject" rejectTx
+    assertSmallRefundTopUp
+        ctx
+        cfg
+        lockedRequestCoin
+        rejectTx
+    let signedReject = addKeyWitness genesisSignKey rejectTx
+    rejectResult <- submitTx (submitter ctx) signedReject
+    assertSubmitted "small-refund reject submit" rejectResult
+    awaitTx app (txIdTx signedReject)
+    pendingRequestsEmpty app tokenId
+
+buildSmallRefundRequestInsertTx
+    :: CageConfig
+    -> Context IO
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> Integer
+    -> Coin
+    -> IO (ConwayTx, Coin)
+buildSmallRefundRequestInsertTx
+    cfg
+    ctx
+    tokenId
+    key
+    value
+    submittedAt
+    (Coin measuredRejectFee) = do
+        pp <- queryProtocolParams (provider ctx)
+        walletUtxos <- queryUTxOs (provider ctx) genesisAddr
+        case walletUtxos of
+            [] ->
+                expectationFailure
+                    "small-refund reject: no wallet UTxOs"
+                    *> error "unreachable"
+            _ -> do
+                let funding =
+                        maximumBy
+                            (comparing (\(_, out) -> out ^. coinTxOutL))
+                            walletUtxos
+                    Coin tip = defaultTip cfg
+                    Coin refundMin =
+                        getMinCoinTxOut
+                            pp
+                            (mkBasicTxOut genesisAddr (inject (Coin 0)))
+                    targetRawRefund = max 1 (refundMin `div` 2)
+                    targetLocked =
+                        Coin (tip + measuredRejectFee + targetRawRefund)
+                    scriptAddr =
+                        requestAddrFromCfg cfg tokenId (network cfg)
+                    datum =
+                        mkInlineDatum
+                            $ mkRequestDatum
+                                tokenId
+                                genesisAddr
+                                key
+                                (OpInsert value)
+                                tip
+                                submittedAt
+                    requestDraft =
+                        mkBasicTxOut scriptAddr (inject (Coin 0))
+                            & datumTxOutL .~ datum
+                    requestMin = getMinCoinTxOut pp requestDraft
+                    lockedCoin = max requestMin targetLocked
+                    requestOut =
+                        requestDraft
+                            & valueTxOutL .~ inject lockedCoin
+                    program = do
+                        _ <- TxBuild.spend (fst funding)
+                        _ <- TxBuild.output requestOut
+                        pure ()
+                    draft =
+                        TxBuild.draft
+                            pp
+                            ( program
+                                :: TxBuild.TxBuild
+                                    NoCtx
+                                    String
+                                    ()
+                            )
+                    expectedRaw =
+                        let Coin locked = lockedCoin
+                        in  locked - tip - measuredRejectFee
+                when
+                    (expectedRaw <= 0 || expectedRaw >= refundMin)
+                    $ expectationFailure
+                    $ "small-refund reject: constructed request \
+                      \would not exercise top-up; expected raw refund "
+                        <> show expectedRaw
+                        <> ", refund min "
+                        <> show refundMin
+                case balanceTx pp [funding] [] genesisAddr draft of
+                    Left err ->
+                        expectationFailure
+                            ( "small-refund reject: balanceTx failed: "
+                                <> show err
+                            )
+                            *> error "unreachable"
+                    Right BalanceResult{balancedTx} ->
+                        pure (balancedTx, lockedCoin)
+
+assertSmallRefundTopUp
+    :: Context IO -> CageConfig -> Coin -> ConwayTx -> IO ()
+assertSmallRefundTopUp ctx cfg (Coin locked) tx = do
+    evalCtx <- decodedEvalContext ctx
+    let pp = evalProtocolParameters evalCtx
+        Coin tip = defaultTip cfg
+        Coin fee = tx ^. bodyTxL . feeTxBodyL
+        rawRefund = locked - tip - fee
+        refundMinCoin@(Coin refundMin) =
+            getMinCoinTxOut
+                pp
+                (mkBasicTxOut genesisAddr (inject (Coin 0)))
+        refundOrChangeOutputs =
+            [ ()
+            | out <- toList (tx ^. bodyTxL . outputsTxBodyL)
+            , out ^. coinTxOutL >= refundMinCoin
+            , Nothing <- [extractCageDatum out]
+            ]
+    when (rawRefund <= 0 || rawRefund >= refundMin)
+        $ expectationFailure
+        $ "small-refund reject: raw refund "
+            <> show rawRefund
+            <> " is not below min-UTxO "
+            <> show refundMin
+    when (null refundOrChangeOutputs)
+        $ expectationFailure
+        $ "small-refund reject: no plain refund/change output at or above min-UTxO "
+            <> show refundMin
 
 -- | Strict-subset update row: submit three pending requests, ask
 -- @/facts/update@ for exactly two refs, and prove only those two are

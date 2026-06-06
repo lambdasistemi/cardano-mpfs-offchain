@@ -24,6 +24,7 @@ module Cardano.MPFS.Client.Cage.Reject
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BSL
 import Data.Coerce (coerce)
 import Data.List (find, sortOn)
@@ -631,13 +632,17 @@ usesLegacyExactRefundValidator CageConfig{cfgScriptHash = ScriptHash h} =
 
 legacyExactRefundStateHashBytes :: ByteString
 legacyExactRefundStateHashBytes =
-    case B16.decode
-        "c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06" of
+    case B16.decode (BSC.pack legacyExactRefundStateHashHex) of
         Right bytes -> bytes
         Left err ->
             error
                 $ "invalid legacy exact-refund validator hash: "
                     <> err
+
+legacyExactRefundStateHashHex :: String
+legacyExactRefundStateHashHex =
+    "c0f0"
+        <> "5a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06"
 
 coinText :: Coin -> Text
 coinText (Coin coin) = T.pack (show coin)
