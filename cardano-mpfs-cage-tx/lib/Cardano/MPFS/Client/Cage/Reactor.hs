@@ -99,6 +99,7 @@ import Data.Aeson.Types
     , parseEither
     )
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short
@@ -115,6 +116,7 @@ import Lens.Micro
     , (&)
     , (^.)
     )
+import PlutusTx.Builtins qualified as PlutusTx
 
 -- The facts types are decoded through 'fromJSON' in the op branch; we
 -- only need their instances in scope.
@@ -146,6 +148,10 @@ dispatch = withObject "Envelope" $ \o -> do
         "retract" -> dispatchRetract o
         "reject" -> dispatchReject o
         "end" -> dispatchEnd o
+        "self_test_integer_to_byte_string" ->
+            pure selfTestIntegerToByteString
+        "self_test_bitwise_conversions" ->
+            pure selfTestBitwiseConversions
         _ -> pure ("unknown_op: " <> op)
 
 dispatchBoot :: Object -> Parser Text
@@ -417,6 +423,43 @@ renderBuildError err =
 renderHex :: ByteString -> Text
 renderHex =
     T.decodeUtf8 . B16.encode
+
+selfTestIntegerToByteString :: Text
+selfTestIntegerToByteString =
+    "builtin_integer_to_byte_string: "
+        <> renderIntegerToByteString PlutusTx.BigEndian 2 1
+
+selfTestBitwiseConversions :: Text
+selfTestBitwiseConversions =
+    T.intercalate
+        "; "
+        [ "i2b_be_2_1=" <> renderIntegerToByteString PlutusTx.BigEndian 2 1
+        , "i2b_le_2_1=" <> renderIntegerToByteString PlutusTx.LittleEndian 2 1
+        , "i2b_be_0_1=" <> renderIntegerToByteString PlutusTx.BigEndian 0 1
+        , "i2b_be_0_256=" <> renderIntegerToByteString PlutusTx.BigEndian 0 256
+        , "i2b_be_4_65535="
+            <> renderIntegerToByteString PlutusTx.BigEndian 4 65535
+        , "b2i_be_0001="
+            <> renderByteStringToInteger PlutusTx.BigEndian (BS.pack [0, 1])
+        , "b2i_le_0100="
+            <> renderByteStringToInteger PlutusTx.LittleEndian (BS.pack [1, 0])
+        , "b2i_be_0100="
+            <> renderByteStringToInteger PlutusTx.BigEndian (BS.pack [1, 0])
+        ]
+
+renderIntegerToByteString
+    :: PlutusTx.ByteOrder -> Integer -> Integer -> Text
+renderIntegerToByteString byteOrder lengthArg input =
+    renderHex
+        ( PlutusTx.fromBuiltin
+            (PlutusTx.integerToByteString byteOrder lengthArg input)
+        )
+
+renderByteStringToInteger :: PlutusTx.ByteOrder -> ByteString -> Text
+renderByteStringToInteger byteOrder input =
+    T.pack
+        . show
+        $ PlutusTx.byteStringToInteger byteOrder (PlutusTx.toBuiltin input)
 
 parseCageConfig :: Value -> Parser CageConfig
 parseCageConfig = withObject "CageConfig" $ \o -> do
