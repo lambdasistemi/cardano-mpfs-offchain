@@ -293,6 +293,8 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
 
   await rejectRequests(page, request, submittedTxIds, 19, [rejectBRequestId]);
   await waitForRequestRefs(request, tokenId, []);
+  await waitForTokenReadable(request, tokenId);
+  await refreshWorkbench(page);
 
   await page.getByRole("button", { name: "End token" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "End token" }).click();
@@ -861,11 +863,13 @@ async function waitForSubmitCount(page, submittedTxIds, expected) {
     .filter({ hasText: /failed|declined|error|HTTP /i })
     .waitFor({ state: "visible", timeout: 120_000 })
     .then(async () => {
+      if (submittedTxIds.length >= expected) return;
       const alertText = await page
         .locator('[role="alert"]')
         .filter({ hasText: /failed|declined|error|HTTP /i })
         .last()
         .textContent();
+      if (submittedTxIds.length >= expected) return;
       const diagnostics = await page.evaluate(() => ({
         signErrors: window.__signErrors || [],
         reactorCalls: window.__reactorCalls || [],
@@ -914,6 +918,23 @@ async function waitForSingleToken(request) {
     )
     .toBe(1);
   return tokenId;
+}
+
+async function waitForTokenReadable(request, tokenId) {
+  await expect
+    .poll(
+      async () => {
+        const state = await request.get(`${devnetBaseUrl}/tokens/${tokenId}`, {
+          timeout: 5_000,
+        });
+        const facts = await request.get(`${devnetBaseUrl}/tokens/${tokenId}/facts`, {
+          timeout: 5_000,
+        });
+        return `${state.status()}/${facts.status()}`;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe("200/200");
 }
 
 async function waitForTokenGone(request, tokenId) {

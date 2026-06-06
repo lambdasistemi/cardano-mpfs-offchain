@@ -21,7 +21,7 @@ type-level** changes that mirror them.
 | Item | Change | Notes |
 |---|---|---|
 | `Mint(..)` | **drop** from exports + import | Upstream PR #50 removes the `Mint` redeemer wrapper. Boot redeemer becomes `Minting onChainRef`; End/Burn redeemer becomes `Burning (onChainTokenId tid)`. |
-| Hardcoded `cageScriptHash` literal | **update** | From the per-token PR #48 value to the global state validator hash `c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06`. |
+| Hardcoded `cageScriptHash` literal | **update** | From the per-token PR #48 value to the current global state validator hash `ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. |
 
 ## New helpers
 

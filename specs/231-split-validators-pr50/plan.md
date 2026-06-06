@@ -247,7 +247,7 @@ captures the **offchain type-level changes** that mirror them:
 | Type | Module | Change |
 |---|---|---|
 | `CageConfig` | `Cardano.MPFS.TxBuilder.Config` | Add `requestScriptBytes :: ShortByteString` (unapplied request UPLC). Do not add `cageSeed` — wallet picks the seed at runtime (spec Assumptions). |
-| `CageScripts` (or equivalent in `OnChain.hs`) | `Cardano.MPFS.Core.OnChain` | Drop `Mint(..)` from exports + import. Update hardcoded `cageScriptHash` from PR #48's per-token hash to the global state validator hash `c0f05a30f5210d6009ec69923a3969eef40a62429e7d620b66b66e06`. |
+| `CageScripts` (or equivalent in `OnChain.hs`) | `Cardano.MPFS.Core.OnChain` | Drop `Mint(..)` from exports + import. Update hardcoded `cageScriptHash` from PR #48's per-token hash to the current global state validator hash `ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. |
 | `RequestAddress` (concept; reuses ledger `Address`) | `Cardano.MPFS.TxBuilder.Real.Internal` | Introduce `requestAddrFromCfg :: CageConfig -> TokenName -> NetworkId -> Address` and `mkRequestScript :: CageConfig -> TokenName -> Script` and `onChainTokenId :: TokenName -> OnChainTokenId`. |
 | Boot redeemer | `Cardano.MPFS.TxBuilder.Real.Boot` | `Minting onChainRef` (drop `Mint` wrapper). |
 | End/Burn redeemer | `Cardano.MPFS.TxBuilder.Real.End` | `Burning (onChainTokenId tid)`. |
