@@ -51,6 +51,7 @@ module Cardano.MPFS.Client.Facts
     ) where
 
 import Codec.CBOR.Term qualified as CBOR
+import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.Foldable (traverse_)
@@ -100,6 +101,9 @@ import Cardano.MPFS.Client.TrustedRoot
     )
 import Cardano.MPFS.Client.Verify.Completeness
     ( verifyUtxoSetCompleteness
+    )
+import Cardano.MPFS.Client.Verify.MPF
+    ( computeAikenProofRoot
     )
 import Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
@@ -434,7 +438,7 @@ verifyUpdateFacts
             (toClientWitnessedUtxoEntry ufStateUtxo)
             (toClientHex ufTrieRoot)
         verifyUpdateValidityUpperSlot facts
-        replayTrieFacts trieRootBs ufTrieFacts
+        replayUpdateTrieFacts trieRootBs ufRequestUtxos ufTrieFacts
         Right (VerifiedUpdateFacts facts)
       where
         checkLength field bs
@@ -465,18 +469,186 @@ verifyUpdateFacts
                         entry
                 )
                 (zip [0 ..] entries)
-        replayTrieFacts root entries =
-            mapM_
-                ( \(ix, entry) ->
-                    replayTrieFact
-                        ( "update.trie_facts["
-                            <> T.pack (show (ix :: Int))
-                            <> "]"
-                        )
-                        root
-                        (toClientTrieFact entry)
-                )
-                (zip [0 ..] entries)
+
+data UpdateRequestChange = UpdateRequestChange
+    { urcKey :: !BS.ByteString
+    , urcOperation :: !UpdateOperation
+    }
+
+data UpdateOperation
+    = UpdateInsert !BS.ByteString
+    | UpdateDelete !BS.ByteString
+    | UpdateReplace !BS.ByteString !BS.ByteString
+
+replayUpdateTrieFacts
+    :: BS.ByteString
+    -> [UtxoEntry]
+    -> [TrieFact]
+    -> Either VerifyError ()
+replayUpdateTrieFacts root requestEntries trieEntries
+    | length requestEntries /= length trieEntries =
+        Left
+            $ TxBindingFailed
+                "update.trie_facts"
+                "length must match update.request_utxos"
+    | otherwise =
+        go root (zip3 [0 :: Int ..] requestEntries trieEntries)
+  where
+    go _ [] = Right ()
+    go currentRoot ((ix, requestEntry, trieEntry) : rest) = do
+        change <- updateRequestChangeFromEntry ix requestEntry
+        nextRoot <-
+            replayOneUpdateTrieFact
+                currentRoot
+                ix
+                change
+                trieEntry
+        go nextRoot rest
+
+updateRequestChangeFromEntry
+    :: Int -> UtxoEntry -> Either VerifyError UpdateRequestChange
+updateRequestChangeFromEntry ix entry = do
+    let field =
+            "update.request_utxos["
+                <> T.pack (show ix)
+                <> "]"
+    datum <- inlineDatumFromEntry field entry
+    (datumTag, datumFields) <- parseConstr (field <> ".datum") datum
+    case (datumTag, datumFields) of
+        (0, [requestTerm]) ->
+            parseUpdateRequestChange field requestTerm
+        (0, requestFields@[_token, _owner, _key, _op, _fee, _submitted]) ->
+            parseUpdateRequestChangeFields field requestFields
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum")
+                    "expected request datum"
+
+parseUpdateRequestChange
+    :: T.Text -> CBOR.Term -> Either VerifyError UpdateRequestChange
+parseUpdateRequestChange field requestTerm = do
+    (requestTag, requestFields) <-
+        parseConstr (field <> ".datum.request") requestTerm
+    case (requestTag, requestFields) of
+        (0, fields@[_token, _owner, _key, _op, _fee, _submitted]) ->
+            parseUpdateRequestChangeFields field fields
+        _ ->
+            Left
+                $ TxBindingFailed
+                    (field <> ".datum.request")
+                    "expected request fields"
+
+parseUpdateRequestChangeFields
+    :: T.Text -> [CBOR.Term] -> Either VerifyError UpdateRequestChange
+parseUpdateRequestChangeFields field = \case
+    [_token, _owner, keyTerm, operationTerm, _fee, _submitted] ->
+        UpdateRequestChange
+            <$> termBytes (field <> ".datum.request.key") keyTerm
+            <*> parseUpdateOperation
+                (field <> ".datum.request.operation")
+                operationTerm
+    _ ->
+        Left
+            $ TxBindingFailed
+                (field <> ".datum.request")
+                "expected request fields"
+
+parseUpdateOperation
+    :: T.Text -> CBOR.Term -> Either VerifyError UpdateOperation
+parseUpdateOperation field operationTerm = do
+    (operationTag, operationFields) <- parseConstr field operationTerm
+    case (operationTag, operationFields) of
+        (0, [newValue]) ->
+            UpdateInsert
+                <$> termBytes (field <> ".insert.value") newValue
+        (1, [oldValue]) ->
+            UpdateDelete
+                <$> termBytes (field <> ".delete.old_value") oldValue
+        (2, [oldValue, newValue]) ->
+            UpdateReplace
+                <$> termBytes (field <> ".update.old_value") oldValue
+                <*> termBytes (field <> ".update.new_value") newValue
+        _ ->
+            Left
+                $ TxBindingFailed
+                    field
+                    "expected insert, delete, or update operation"
+
+termBytes :: T.Text -> CBOR.Term -> Either VerifyError BS.ByteString
+termBytes field = \case
+    CBOR.TBytes bytes -> Right bytes
+    _ -> Left (TxBindingFailed field "expected bytes")
+
+replayOneUpdateTrieFact
+    :: BS.ByteString
+    -> Int
+    -> UpdateRequestChange
+    -> TrieFact
+    -> Either VerifyError BS.ByteString
+replayOneUpdateTrieFact
+    currentRoot
+    ix
+    UpdateRequestChange{urcKey, urcOperation}
+    TrieFact{tfKey = Hex factKey, tfValue, tfMpfProof = Hex proofBytes} = do
+        when (factKey /= urcKey)
+            $ Left
+            $ TxBindingFailed
+                (factPath <> ".key")
+                "does not match request key"
+        case urcOperation of
+            UpdateInsert newValue -> do
+                expectNoFactValue
+                checkOldRoot False Nothing
+                computeNextRoot True (Just newValue)
+            UpdateDelete oldValue -> do
+                expectFactValue oldValue
+                checkOldRoot True (Just oldValue)
+                computeNextRoot False Nothing
+            UpdateReplace oldValue newValue -> do
+                expectFactValue oldValue
+                checkOldRoot True (Just oldValue)
+                computeNextRoot True (Just newValue)
+      where
+        factPath =
+            "update.trie_facts["
+                <> T.pack (show ix)
+                <> "]"
+        proofPath = factPath <> ".mpf_proof"
+
+        expectNoFactValue =
+            case tfValue of
+                Nothing -> Right ()
+                Just _ ->
+                    Left
+                        $ TxBindingFailed
+                            (factPath <> ".value")
+                            "must be null for insert"
+
+        expectFactValue expected =
+            case tfValue of
+                Just (Hex actual) | actual == expected -> Right ()
+                _ ->
+                    Left
+                        $ TxBindingFailed
+                            (factPath <> ".value")
+                            "does not match request old value"
+
+        checkOldRoot including value = do
+            oldRoot <- computeRoot including value
+            when (oldRoot /= currentRoot)
+                $ Left
+                $ MpfReplayFailed proofPath "root mismatch"
+
+        computeNextRoot =
+            computeRoot
+
+        computeRoot including value =
+            case computeAikenProofRoot including urcKey value proofBytes of
+                Just root -> Right root
+                Nothing ->
+                    Left
+                        $ MpfReplayFailed proofPath "root mismatch"
 
 verifyUpdateValidityUpperSlot
     :: UpdateFacts
@@ -1015,14 +1187,6 @@ toClientUtxoRef UtxoRef{..} =
     ClientWire.TxIn
         { ClientWire.txId = toClientHex urTxId
         , ClientWire.txIx = urTxIx
-        }
-
-toClientTrieFact :: TrieFact -> ClientWire.TrieFact
-toClientTrieFact TrieFact{..} =
-    ClientWire.TrieFact
-        { ClientWire.key = toClientHex tfKey
-        , ClientWire.value = toClientHex <$> tfValue
-        , ClientWire.mpfProof = toClientHex tfMpfProof
         }
 
 toClientHex :: Hex -> ClientSnapshot.Hex

@@ -250,7 +250,7 @@ writeEndpointCases =
         )
     , EndpointCase
         ["facts", "reject"]
-        (Aeson.toJSON rejectFactsParams)
+        rejectFactsRequest
         (Aeson.encode honestRejectFacts)
         ( \http ->
             voidRight
@@ -262,7 +262,7 @@ writeEndpointCases =
         )
     , EndpointCase
         ["facts", "update"]
-        (Aeson.toJSON updateFactsParams)
+        updateFactsRequest
         (Aeson.encode honestUpdateFacts)
         ( \http ->
             voidRight
@@ -371,6 +371,22 @@ rejectFactsParams = RejectFactsParams sampleToken sampleAddress
 
 updateFactsParams :: UpdateFactsParams
 updateFactsParams = UpdateFactsParams sampleToken sampleAddress
+
+rejectFactsRequest :: Aeson.Value
+rejectFactsRequest =
+    Aeson.object
+        [ "token" Aeson..= sampleToken
+        , "address" Aeson..= sampleAddress
+        , "requests" Aeson..= ([] :: [Text])
+        ]
+
+updateFactsRequest :: Aeson.Value
+updateFactsRequest =
+    Aeson.object
+        [ "token" Aeson..= sampleToken
+        , "address" Aeson..= sampleAddress
+        , "requests" Aeson..= ([] :: [Text])
+        ]
 
 sampleAddress
     , sampleToken

@@ -20,6 +20,7 @@ module Cardano.MPFS.Client.Fixtures
     , honestEndResponse
     , honestUpdateResponse
     , honestUpdateResponseMixedTrie
+    , honestUpdateResponseSequentialTrie
     , honestUpdateResponseEmptyTrie
 
       -- * Underlying primitives
@@ -84,7 +85,8 @@ import MPF.Interface (byteStringToHexKey)
 import MPF.Proof.Exclusion (mpfExclusionProofSteps)
 import MPF.Proof.Insertion (MPFProof (..))
 import MPF.Test.Lib
-    ( insertByteStringM
+    ( deleteMPFM
+    , insertByteStringM
     , proofExcludeMPFM
     , proofMPFM
     , runMPFPure'
@@ -297,14 +299,20 @@ stateDatumTerm root =
 
 requestDatumTerm :: CBOR.Term
 requestDatumTerm =
+    requestDatumTermFor
+        "fixture-key"
+        (constr 0 [CBOR.TBytes "fixture-value"])
+
+requestDatumTermFor :: ByteString -> CBOR.Term -> CBOR.Term
+requestDatumTermFor key operation =
     constr
         0
         [ constr
             0
             [ CBOR.TBytes sampleAssetName
             , CBOR.TBytes (BS.replicate 28 0xBB)
-            , CBOR.TBytes "fixture-key"
-            , constr 0 [CBOR.TBytes "fixture-value"]
+            , CBOR.TBytes key
+            , operation
             , CBOR.TInteger 1_000_000
             , CBOR.TInteger 1_700_000_000_000
             ]
@@ -441,26 +449,35 @@ buildBundle :: CsmtBundle
 buildBundle = buildBundleWithStateRoot sampleStateRoot
 
 buildBundleWithStateRoot :: ByteString -> CsmtBundle
-buildBundleWithStateRoot stateRoot = evalPureFromEmptyDB $ do
-    let rootedStateTxOut = stateTxOutWithRoot stateRoot
-    insertUtxo stateTxIn rootedStateTxOut
-    insertUtxo requestTxIn requestTxOut
-    insertUtxo requestTxIn2 requestTxOut
-    insertUtxo fundingTxIn fundingTxOut
-    stateWitness <- mkWitness stateTxIn rootedStateTxOut
-    requestWitness <- mkWitness requestTxIn requestTxOut
-    requestWitness2 <- mkWitness requestTxIn2 requestTxOut
-    fundingWitness <- mkWitness fundingTxIn fundingTxOut
-    mRoot <- getRootHashM
-    let rootBytes = maybe BS.empty renderHash mRoot
-    pure
-        CsmtBundle
-            { bundleRoot = rootBytes
-            , bundleState = stateWitness
-            , bundleRequest = requestWitness
-            , bundleRequest2 = requestWitness2
-            , bundleFunding = fundingWitness
-            }
+buildBundleWithStateRoot stateRoot =
+    buildBundleWithStateRootAndRequests
+        stateRoot
+        requestTxOut
+        requestTxOut
+
+buildBundleWithStateRootAndRequests
+    :: ByteString -> ByteString -> ByteString -> CsmtBundle
+buildBundleWithStateRootAndRequests stateRoot request1TxOut request2TxOut =
+    evalPureFromEmptyDB $ do
+        let rootedStateTxOut = stateTxOutWithRoot stateRoot
+        insertUtxo stateTxIn rootedStateTxOut
+        insertUtxo requestTxIn request1TxOut
+        insertUtxo requestTxIn2 request2TxOut
+        insertUtxo fundingTxIn fundingTxOut
+        stateWitness <- mkWitness stateTxIn rootedStateTxOut
+        requestWitness <- mkWitness requestTxIn request1TxOut
+        requestWitness2 <- mkWitness requestTxIn2 request2TxOut
+        fundingWitness <- mkWitness fundingTxIn fundingTxOut
+        mRoot <- getRootHashM
+        let rootBytes = maybe BS.empty renderHash mRoot
+        pure
+            CsmtBundle
+                { bundleRoot = rootBytes
+                , bundleState = stateWitness
+                , bundleRequest = requestWitness
+                , bundleRequest2 = requestWitness2
+                , bundleFunding = fundingWitness
+                }
   where
     insertUtxo (txIdBs, txIxWord) txOutBs =
         insertMHash
@@ -571,6 +588,60 @@ honestTrieExclusion =
             , mpfProof = toHex proofBytes
             }
         )
+
+replacementValue, insertedValue :: ByteString
+replacementValue = "green"
+insertedValue = "spiky"
+
+-- | A sequential pair of MPF facts: replace @"apple"@, then insert
+-- @"durian"@ against the root produced by the first operation.
+honestTrieSequentialUpdate :: (ByteString, TrieFact, TrieFact)
+honestTrieSequentialUpdate =
+    let ((rootBefore, firstProofBytes, secondProofBytes), _) =
+            runMPFPure' $ do
+                mapM_ (uncurry insertByteStringM) mpfInclusionEntries
+                mRoot <- MPFTest.getRootHashM
+                firstProof <-
+                    proofMPFM
+                        ( byteStringToHexKey
+                            (renderMPFHash (mkMPFHash primaryKey))
+                        )
+                deleteMPFM
+                    ( byteStringToHexKey
+                        (renderMPFHash (mkMPFHash primaryKey))
+                    )
+                insertByteStringM primaryKey replacementValue
+                secondProof <-
+                    proofExcludeMPFM
+                        ( byteStringToHexKey
+                            (renderMPFHash (mkMPFHash absentKey))
+                        )
+                insertByteStringM absentKey insertedValue
+                pure
+                    ( maybe BS.empty renderMPFHash mRoot
+                    , renderInclusionProof firstProof
+                    , renderExclusionProof secondProof
+                    )
+    in  ( rootBefore
+        , TrieFact
+            { key = toHex primaryKey
+            , value = Just (toHex primaryValue)
+            , mpfProof = toHex firstProofBytes
+            }
+        , TrieFact
+            { key = toHex absentKey
+            , value = Nothing
+            , mpfProof = toHex secondProofBytes
+            }
+        )
+  where
+    absentKey = "durian"
+    renderInclusionProof mProof = case mProof of
+        Just p -> renderAikenProof (mpfProofSteps p)
+        Nothing -> BS.empty
+    renderExclusionProof mProof = case mProof of
+        Just p -> renderAikenProof (mpfExclusionProofSteps p)
+        Nothing -> BS.empty
 
 -- ---------------------------------------------------------------
 -- Per-endpoint fixtures
@@ -767,6 +838,72 @@ honestUpdateResponseMixedTrie =
     let (trieRoot, inclusionFact) = honestTrieInclusion
         (_, exclusionFact) = honestTrieExclusion
         witness = buildBundleWithStateRoot trieRoot
+        state = bundleState witness
+        request = bundleRequest witness
+        request2 = bundleRequest2 witness
+        funding = bundleFunding witness
+    in  UpdateTxResponse
+            ( txCborFromTxPartsWithRedeemers
+                (map txIn [state, request, request2, funding])
+                []
+                []
+                [txOutTerm True [sampleStateAsset 1]]
+                [ spendRedeemerFixture
+                    0
+                    ( spendModifyRedeemerTerm
+                        [ updateActionTermFromProof inclusionFact
+                        , updateActionTermFromProof exclusionFact
+                        ]
+                    )
+                , spendRedeemerFixture
+                    1
+                    (spendContributeRedeemerTerm (txIn state))
+                , spendRedeemerFixture
+                    2
+                    (spendContributeRedeemerTerm (txIn state))
+                ]
+            )
+            (sampleSnapshot (bundleRoot witness))
+            ( UpdateProof
+                state
+                [request, request2]
+                [funding]
+                (toHex trieRoot)
+                [inclusionFact, exclusionFact]
+            )
+
+-- | Sequential update facts used by the facts-only update verifier:
+-- replace @"apple"@, then insert @"durian"@ against the new root.
+honestUpdateResponseSequentialTrie :: UpdateTxResponse
+honestUpdateResponseSequentialTrie =
+    let (trieRoot, inclusionFact, exclusionFact) =
+            honestTrieSequentialUpdate
+        requestReplaceTxOut =
+            txOutCborWithDatum
+                []
+                ( Just
+                    $ requestDatumTermFor
+                        primaryKey
+                        ( constr
+                            2
+                            [ CBOR.TBytes primaryValue
+                            , CBOR.TBytes replacementValue
+                            ]
+                        )
+                )
+        requestInsertTxOut =
+            txOutCborWithDatum
+                []
+                ( Just
+                    $ requestDatumTermFor
+                        "durian"
+                        (constr 0 [CBOR.TBytes insertedValue])
+                )
+        witness =
+            buildBundleWithStateRootAndRequests
+                trieRoot
+                requestReplaceTxOut
+                requestInsertTxOut
         state = bundleState witness
         request = bundleRequest witness
         request2 = bundleRequest2 witness

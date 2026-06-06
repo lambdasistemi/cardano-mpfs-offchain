@@ -71,6 +71,7 @@ import Cardano.MPFS.Workflows
     , insertFact
     , updateFact
     )
+import Cardano.MPFS.Workflows.TestEvalContext (testEvalContext)
 
 -- | A single request workflow under test: its endpoint path, the
 -- invocation (transport-injected), the address expected in the posted
@@ -277,6 +278,7 @@ config root =
         { wcCage = dummyCage
         , wcPolicy = permissivePolicy
         , wcTrustedRoot = root
+        , wcEvalContext = testEvalContext
         }
 
 dummyCage :: CageConfig

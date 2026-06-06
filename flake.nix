@@ -98,8 +98,7 @@
                 overrides = _hfinal: hprev: {
                   bech32 =
                     cardanoAddressPkgs.haskell.lib.dontCheck hprev.bech32;
-                  cardano-addresses =
-                    cardanoAddressPkgs.haskell.lib.dontCheck
+                  cardano-addresses = cardanoAddressPkgs.haskell.lib.dontCheck
                     hprev.cardano-addresses;
                 };
               };

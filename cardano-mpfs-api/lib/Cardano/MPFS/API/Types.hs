@@ -37,6 +37,7 @@ module Cardano.MPFS.API.Types
     , UtxoSetWitness (..)
     , UnsignedTxResponse (..)
     , UnverifiedPParams (..)
+    , EvalContext (..)
     , BootFacts (..)
     , RequestInsertFacts (..)
     , RequestDeleteFacts (..)
@@ -48,6 +49,8 @@ module Cardano.MPFS.API.Types
     , WitnessedTokenState (..)
     , WitnessedRequest (..)
     , FactWitness (..)
+    , TokenUtxoEntry (..)
+    , TokenSetWitness (..)
     , TokensResponse (..)
     , TokenResponse (..)
     , FactEntry (..)
@@ -95,7 +98,9 @@ import Data.Aeson
     , ToJSON (..)
     , object
     , withObject
+    , (.!=)
     , (.:)
+    , (.:?)
     , (.=)
     )
 #if !defined(wasm32_HOST_ARCH)
@@ -119,6 +124,7 @@ import GHC.IsList (IsList (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types.Common
     ( ChainPointJSON (..)
+    , EvalContext (..)
     , TokenIdJSON (..)
     , UnverifiedPParams (..)
     , UtxoEntry (..)
@@ -454,12 +460,62 @@ instance FromJSON FactWitness where
             <$> o .: "state"
             <*> o .: "mpf_proof"
 
+-- | A token-state UTxO entry with the corresponding MPFS token id.
+data TokenUtxoEntry = TokenUtxoEntry
+    { tueTokenId :: TokenIdJSON
+    -- ^ Token id (hex asset name)
+    , tueRef :: UtxoRef
+    -- ^ UTxO reference
+    , tueTxOutCbor :: Hex
+    -- ^ CBOR-encoded state @TxOut@
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokenUtxoEntry where
+    toJSON TokenUtxoEntry{..} =
+        object
+            [ "token_id" .= tueTokenId
+            , "ref" .= tueRef
+            , "txout_cbor" .= tueTxOutCbor
+            ]
+
+instance FromJSON TokenUtxoEntry where
+    parseJSON =
+        withObject "TokenUtxoEntry" $ \o ->
+            TokenUtxoEntry
+                <$> o .: "token_id"
+                <*> o .: "ref"
+                <*> o .: "txout_cbor"
+
+-- | Complete token-state UTxO set witness with explicit token ids.
+data TokenSetWitness = TokenSetWitness
+    { tswEntries :: [TokenUtxoEntry]
+    -- ^ Enumerated token-state UTxOs
+    , tswCompletenessProof :: Hex
+    -- ^ CSMT prefix-completeness proof
+    }
+    deriving (Eq, Show)
+
+instance ToJSON TokenSetWitness where
+    toJSON TokenSetWitness{..} =
+        object
+            [ "entries" .= tswEntries
+            , "completeness_proof" .= tswCompletenessProof
+            ]
+
+instance FromJSON TokenSetWitness where
+    parseJSON =
+        withObject "TokenSetWitness" $ \o ->
+            TokenSetWitness
+                <$> o .: "entries"
+                <*> o .: "completeness_proof"
+
 -- | Response envelope for @GET \/tokens@.
 data TokensResponse = TokensResponse
     { trsSnapshot :: VerificationSnapshot
     -- ^ Snapshot the bundled proof targets
-    , trsTokens :: UtxoSetWitness
-    -- ^ Complete token-state UTxO set witness
+    , trsTokens :: TokenSetWitness
+    -- ^ Complete token-state UTxO set witness with explicit token ids
     }
     deriving (Eq, Show)
 
@@ -721,6 +777,7 @@ instance FromJSON UpdateValueRequest where
 data RejectRequest = RejectRequest
     { rejToken :: TokenIdJSON
     , rejAddr :: Hex
+    , rejRequests :: [Text]
     }
 
 instance ToJSON RejectRequest where
@@ -728,6 +785,7 @@ instance ToJSON RejectRequest where
         object
             [ "token" .= rejToken
             , "address" .= rejAddr
+            , "requests" .= rejRequests
             ]
 
 instance FromJSON RejectRequest where
@@ -736,11 +794,13 @@ instance FromJSON RejectRequest where
             RejectRequest
                 <$> o .: "token"
                 <*> o .: "address"
+                <*> o .:? "requests" .!= []
 
 -- | @POST \/tx\/update@ request body.
 data UpdateRequest = UpdateRequest
     { urToken :: TokenIdJSON
     , urAddr :: Hex
+    , urRequests :: [Text]
     }
 
 instance ToJSON UpdateRequest where
@@ -748,6 +808,7 @@ instance ToJSON UpdateRequest where
         object
             [ "token" .= urToken
             , "address" .= urAddr
+            , "requests" .= urRequests
             ]
 
 instance FromJSON UpdateRequest where
@@ -755,6 +816,7 @@ instance FromJSON UpdateRequest where
         UpdateRequest
             <$> o .: "token"
             <*> o .: "address"
+            <*> o .:? "requests" .!= []
 
 -- | @POST \/tx\/retract@ request body.
 data RetractRequest = RetractRequest
@@ -1446,6 +1508,8 @@ instance ToSchema RejectRequest where
             declareSchemaRef (Proxy @TokenIdJSON)
         hexSchema <-
             declareSchemaRef (Proxy @Hex)
+        requestsSchema <-
+            declareSchemaRef (Proxy @[Text])
         pure
             $ Swagger.NamedSchema
                 (Just "RejectRequest")
@@ -1456,6 +1520,7 @@ instance ToSchema RejectRequest where
                 .~ fromList
                     [ ("token", tokenSchema)
                     , ("address", hexSchema)
+                    , ("requests", requestsSchema)
                     ]
             & required
                 .~ ["token", "address"]
@@ -1468,6 +1533,8 @@ instance ToSchema UpdateRequest where
             declareSchemaRef (Proxy @TokenIdJSON)
         hexSchema <-
             declareSchemaRef (Proxy @Hex)
+        requestsSchema <-
+            declareSchemaRef (Proxy @[Text])
         pure
             $ Swagger.NamedSchema
                 (Just "UpdateRequest")
@@ -1478,6 +1545,7 @@ instance ToSchema UpdateRequest where
                 .~ fromList
                     [ ("token", tokenSchema)
                     , ("address", hexSchema)
+                    , ("requests", requestsSchema)
                     ]
             & required
                 .~ ["token", "address"]
@@ -1746,6 +1814,52 @@ instance ToSchema TokenResponse where
             & description
                 ?~ "Proof-bearing token state response"
 
+instance ToSchema TokenUtxoEntry where
+    declareNamedSchema _ = do
+        tokenSchema <-
+            declareSchemaRef (Proxy @TokenIdJSON)
+        refSchema <-
+            declareSchemaRef (Proxy @UtxoRef)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokenUtxoEntry")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("token_id", tokenSchema)
+                    , ("ref", refSchema)
+                    , ("txout_cbor", hexSchema)
+                    ]
+            & required .~ ["token_id", "ref", "txout_cbor"]
+            & description
+                ?~ "Token-state UTxO entry with the token_id carried explicitly"
+
+instance ToSchema TokenSetWitness where
+    declareNamedSchema _ = do
+        entrySchema <-
+            declareSchemaRef
+                (Proxy @[TokenUtxoEntry])
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        pure
+            $ Swagger.NamedSchema
+                (Just "TokenSetWitness")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("entries", entrySchema)
+                    , ("completeness_proof", hexSchema)
+                    ]
+            & required .~ ["entries", "completeness_proof"]
+            & description
+                ?~ "Enumerated token-state UTxOs with explicit token ids and a CSMT prefix-completeness proof"
+
 instance ToSchema TokensResponse where
     declareNamedSchema _ = do
         snapshotSchema <-
@@ -1753,7 +1867,7 @@ instance ToSchema TokensResponse where
                 (Proxy @VerificationSnapshot)
         tokensSchema <-
             declareSchemaRef
-                (Proxy @UtxoSetWitness)
+                (Proxy @TokenSetWitness)
         pure
             $ Swagger.NamedSchema
                 (Just "TokensResponse")

@@ -26,7 +26,6 @@ import Lens.Micro ((&), (.~), (^.))
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Api.PParams
     ( CoinPerByte (..)
-    , ppMaxTxExUnitsL
     , ppPricesL
     , ppTxFeeFixedL
     , ppTxFeePerByteL
@@ -42,7 +41,8 @@ import Cardano.Ledger.Api.Tx.Out
 import Cardano.Ledger.BaseTypes (Inject (..))
 import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Plutus.ExUnits
-    ( txscriptfee
+    ( ExUnits (..)
+    , txscriptfee
     )
 
 import Cardano.MPFS.Core.OnChain
@@ -304,12 +304,29 @@ requestFeeBufferUpperBound pp =
         Coin minFeeA = fromCompact minFeeACompact
         Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
-            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+            txscriptfee
+                (pp ^. ppPricesL)
+                perRequestFutureSpendExUnits
     in  Coin
             ( minFeeB
                 + minFeeA * maxUpdateTxBytes
                 + scriptFee
             )
+
+-- | Fee buffer for one future process/reject spend.
+--
+-- Request transactions do not execute scripts, so there are no ex-units to
+-- evaluate at request time. The datum's @requestFee@ is a pre-payment for a
+-- later owner transaction whose exact batch size, trie proof depth, and
+-- refund topology are unknowable when the requester submits. Hardening keeps
+-- that pre-payment but bases it on a finite single-request process/reject
+-- envelope instead of the whole transaction max-ex-units ceiling. The
+-- devnet facts matrix and client cage tests assert that this envelope covers
+-- evaluated n=1 process and reject fees and stays below the gross-inflation
+-- bound.
+perRequestFutureSpendExUnits :: ExUnits
+perRequestFutureSpendExUnits =
+    ExUnits 40_000_000 3_000_000_000
 
 -- Note [size bound]
 -- The request UTxO pre-pays the oracle's later update transaction. We do

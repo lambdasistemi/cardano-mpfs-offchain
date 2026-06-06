@@ -32,6 +32,7 @@ import Data.Text (Text)
 
 import Cardano.MPFS.Client.Cage.BuildError (BuildError)
 import Cardano.MPFS.Client.Cage.Config (CageConfig)
+import Cardano.MPFS.Client.Cage.Eval (DecodedEvalContext)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot)
 import Cardano.MPFS.Client.Verify (VerifyError)
@@ -70,6 +71,8 @@ data WorkflowsConfig = WorkflowsConfig
     -- ^ Wallet-side policy caps.
     , wcTrustedRoot :: TrustedRoot
     -- ^ Trusted UTxO-CSMT root.
+    , wcEvalContext :: DecodedEvalContext
+    -- ^ Trusted ledger evaluation context used to compute real ex-units.
     }
 
 -- | Every way a facts workflow can fail, tagged by the stage that

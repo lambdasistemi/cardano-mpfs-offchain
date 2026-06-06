@@ -117,7 +117,7 @@ import Cardano.MPFS.Cage.Blueprint
 import Cardano.MPFS.Cage.Ledger
     ( ConwayEra
     )
-import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.BuildError
     ( BuildError (..)
     )
@@ -129,6 +129,10 @@ import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
     )
+import Cardano.MPFS.Client.Cage.TestEvalContext
+    ( testEvalContext
+    , testEvalPParams
+    )
 import Cardano.MPFS.Client.Facts
     ( VerifiedBootFacts
     , verifyBootFacts
@@ -137,7 +141,6 @@ import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Balance
     ( computeScriptIntegrity
-    , evalBudgetExUnits
     )
 
 spec :: Spec
@@ -153,7 +156,11 @@ spec = describe "bootCageTx" $ do
                     , bfProtocolParameters =
                         pparamsFacts realisticPParams
                     }
-        bootCageTx cfg permissiveWalletPolicy verified
+        bootCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
             `shouldBe` Left EmptyFunding
 
     it "rejects wallet policy caps before signing" $ do
@@ -164,7 +171,11 @@ spec = describe "bootCageTx" $ do
                 permissiveWalletPolicy
                     { wpMaxMinUtxoCoinPerByte = Coin 1
                     }
-        bootCageTx cfg policy verified
+        bootCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( MinUtxoCoinPerByteTooHigh
@@ -181,7 +192,11 @@ spec = describe "bootCageTx" $ do
                 permissiveWalletPolicy
                     { wpMaxValidityWindow = SlotNo 1
                     }
-        bootCageTx cfg policy verified
+        bootCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( ValidityWindowTooWide
@@ -195,7 +210,11 @@ spec = describe "bootCageTx" $ do
         facts <- deterministicBootFacts
         verified <- verifiedBootFacts facts
         tx <-
-            case bootCageTx cfg permissiveWalletPolicy verified of
+            case bootCageTxWithEval
+                (testEvalContext realisticPParams)
+                cfg
+                permissiveWalletPolicy
+                verified of
                 Left err ->
                     expectationFailure
                         ("bootCageTx failed: " <> show err)
@@ -210,7 +229,11 @@ spec = describe "bootCageTx" $ do
         facts <- mixedBalanceBootFacts
         verified <- verifiedBootFacts facts
         tx <-
-            case bootCageTx cfg permissiveWalletPolicy verified of
+            case bootCageTxWithEval
+                (testEvalContext realisticPParams)
+                cfg
+                permissiveWalletPolicy
+                verified of
                 Left err ->
                     expectationFailure
                         ("bootCageTx failed: " <> show err)
@@ -232,7 +255,11 @@ spec = describe "bootCageTx" $ do
         facts <- deterministicBootFacts
         verified <- verifiedBootFacts facts
         tx <-
-            case bootCageTx cfg permissiveWalletPolicy verified of
+            case bootCageTxWithEval
+                (testEvalContext realisticPParams)
+                cfg
+                permissiveWalletPolicy
+                verified of
                 Left err ->
                     expectationFailure
                         ("bootCageTx failed: " <> show err)
@@ -247,11 +274,10 @@ spec = describe "bootCageTx" $ do
             expectedIntegrity =
                 computeScriptIntegrity
                     (Set.singleton PlutusV3)
-                    realisticPParams
+                    (testEvalPParams realisticPParams)
                     redeemers
                     (TxDats mempty)
         Map.size rdmrs `shouldBe` 1
-        budgets `shouldBe` [evalBudgetExUnits]
         budgets `shouldSatisfy` all nonZeroExUnits
         integrity `shouldBe` expectedIntegrity
 

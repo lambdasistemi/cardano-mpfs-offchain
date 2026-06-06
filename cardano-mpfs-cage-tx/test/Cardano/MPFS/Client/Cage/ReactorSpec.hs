@@ -52,21 +52,22 @@ spec = describe "runCageEnvelope byte identity" $ do
         $ property
         $ withMaxSuccess 1 byteIdentityProperty
     it
-        "preflight-refuses min-UTxO top-up on legacy exact-refund validator" $ do
-        let plan =
-                RefundPlan
-                    { refundRawCoin = Coin 731_158
-                    , refundMinCoin = Coin 849_070
-                    , refundFinalCoin = Coin 849_070
-                    }
-        preflightLegacyExactRefund True [plan]
-            `shouldBe` Left
-                ( LegacyRejectRefundRequiresTopUp
-                    "legacy exact-refund validator cannot accept \
-                    \min-UTxO refund top-up: raw refund 731158, \
-                    \min refund 849070, final refund 849070"
-                )
-        preflightLegacyExactRefund False [plan] `shouldBe` Right ()
+        "preflight-refuses min-UTxO top-up on legacy exact-refund validator"
+        $ do
+            let plan =
+                    RefundPlan
+                        { refundRawCoin = Coin 731_158
+                        , refundMinCoin = Coin 849_070
+                        , refundFinalCoin = Coin 849_070
+                        }
+            preflightLegacyExactRefund True [plan]
+                `shouldBe` Left
+                    ( LegacyRejectRefundRequiresTopUp
+                        "legacy exact-refund validator cannot accept \
+                        \min-UTxO refund top-up: raw refund 731158, \
+                        \min refund 849070, final refund 849070"
+                    )
+            preflightLegacyExactRefund False [plan] `shouldBe` Right ()
 
 byteIdentityProperty :: Property
 byteIdentityProperty =

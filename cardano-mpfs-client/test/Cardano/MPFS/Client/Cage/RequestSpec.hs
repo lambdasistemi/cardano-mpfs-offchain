@@ -647,8 +647,11 @@ txOutputs tx =
 assertBoundedRequestOutput :: CageConfig -> ConwayTx -> IO ()
 assertBoundedRequestOutput cfg tx =
     case requestOutputs of
-        [out] ->
+        [out] -> do
             out ^. coinTxOutL `shouldBe` expectedRequestCoin cfg
+            let Coin feeBound =
+                    feeBufferUpperBound realisticPParams
+            feeBound `shouldSatisfy` (<= grossFeeBufferUpperBound)
         outs ->
             expectationFailure
                 ( "expected one request output, got "
@@ -683,15 +686,24 @@ feeBufferUpperBound pp =
         Coin minFeeA = fromCompact minFeeACompact
         Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
-            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+            txscriptfee
+                (pp ^. ppPricesL)
+                perRequestFutureSpendExUnits
     in  Coin
             ( minFeeB
                 + minFeeA * maxUpdateTxBytes
                 + scriptFee
             )
 
+perRequestFutureSpendExUnits :: ExUnits
+perRequestFutureSpendExUnits =
+    ExUnits 40_000_000 3_000_000_000
+
+grossFeeBufferUpperBound :: Integer
+grossFeeBufferUpperBound = 5_000_000
+
 maxUpdateTxBytes :: Integer
-maxUpdateTxBytes = 16384
+maxUpdateTxBytes = 16_384
 
 expectVerified
     :: TrustedRoot

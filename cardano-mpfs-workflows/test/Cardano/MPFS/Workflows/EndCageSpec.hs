@@ -63,6 +63,7 @@ import Cardano.MPFS.Workflows
     , WorkflowsConfig (..)
     , endCage
     )
+import Cardano.MPFS.Workflows.TestEvalContext (testEvalContext)
 
 spec :: Spec
 spec = describe "endCage" $ do
@@ -167,6 +168,7 @@ config root =
         { wcCage = dummyCage
         , wcPolicy = permissivePolicy
         , wcTrustedRoot = root
+        , wcEvalContext = testEvalContext
         }
 
 dummyCage :: CageConfig

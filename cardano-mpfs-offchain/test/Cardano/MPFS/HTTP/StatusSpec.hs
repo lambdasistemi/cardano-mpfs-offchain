@@ -30,6 +30,7 @@ import Test.Hspec
 
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
+import Cardano.MPFS.Mock.Context (dummyEvalContext)
 import Cardano.MPFS.Mock.State (mkMockState)
 import Cardano.MPFS.Mock.Submitter (mkMockSubmitter)
 import Cardano.MPFS.Mock.TxBuilder (mkMockTxBuilder)
@@ -75,6 +76,7 @@ mkTestContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , evalContext = pure dummyEvalContext
             , runIndexerTx =
                 \_ ->
                     error

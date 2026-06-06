@@ -37,6 +37,7 @@ module Cardano.MPFS.HTTP.Types
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , UnverifiedPParams (..)
+    , EvalContext (..)
     , BootFacts (..)
     , resolvedWalletInputToUtxoEntry
 
@@ -121,6 +122,7 @@ import Cardano.MPFS.API.Types
     , EndProofJSON (..)
     , EndRequest (..)
     , EndTxResponse (..)
+    , EvalContext (..)
     , FactEntry (..)
     , FactResponse (..)
     , FactWitness (..)

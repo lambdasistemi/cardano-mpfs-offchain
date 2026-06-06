@@ -143,6 +143,10 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext
+    , decodeEvalContext
+    )
 import Cardano.MPFS.Workflows
     ( BootRequest (..)
     , DeleteRequest (..)
@@ -175,6 +179,7 @@ data Env = Env
     { envCfg :: CageConfig
     , envApp :: Application
     , envHttp :: HttpClient
+    , envEvalContext :: DecodedEvalContext
     }
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -318,7 +323,7 @@ runWorkflow
     -> IO ConwayTx
 runWorkflow env label run req = do
     trusted <- waitForTrustedRoot (envApp env)
-    result <- run (mkWorkflowsConfig (envCfg env) trusted) req
+    result <- run (mkWorkflowsConfig env trusted) req
     unsigned <-
         case result of
             Right u -> pure u
@@ -377,12 +382,13 @@ submitAndAwait env label signed = do
                 (label <> ": /submit did not return a SubmitResponse")
     awaitTx (envApp env) (txIdTx signed)
 
-mkWorkflowsConfig :: CageConfig -> TrustedRoot -> WorkflowsConfig
-mkWorkflowsConfig cfg trusted =
+mkWorkflowsConfig :: Env -> TrustedRoot -> WorkflowsConfig
+mkWorkflowsConfig env trusted =
     WorkflowsConfig
-        { wcCage = toClientCageConfig cfg
+        { wcCage = toClientCageConfig (envCfg env)
         , wcPolicy = permissiveWalletPolicy
         , wcTrustedRoot = trusted
+        , wcEvalContext = envEvalContext env
         }
 
 -- ---------------------------------------------------------
@@ -454,6 +460,7 @@ updateValueReq tokenId =
     UpdateRequest
         { urToken = tokenIdJSON tokenId
         , urAddr = genesisHex
+        , urRequests = []
         }
 
 retractReq :: TxIn -> RetractRequest
@@ -468,6 +475,7 @@ rejectReq tokenId =
     RejectRequest
         { rejToken = tokenIdJSON tokenId
         , rejAddr = genesisHex
+        , rejRequests = []
         }
 
 endReq :: TokenId -> EndRequest
@@ -766,12 +774,22 @@ withSharedEnv scripts action = do
             withApplication appCfg $ \ctx -> do
                 _ <- queryProtocolParams (provider ctx)
                 threadDelay 10_000_000
+                evalCtxWire <- evalContext ctx
+                evalCtx <-
+                    case decodeEvalContext evalCtxWire of
+                        Right value -> pure value
+                        Left err ->
+                            fail
+                                $ "WorkflowsIntegration: decodeEvalContext \
+                                  \failed: "
+                                    <> show err
                 let app = mkApp ctx
                 action
                     Env
                         { envCfg = cfg
                         , envApp = app
                         , envHttp = waiHttpClient app
+                        , envEvalContext = evalCtx
                         }
 
 cageCfg :: CageScripts -> CageConfig

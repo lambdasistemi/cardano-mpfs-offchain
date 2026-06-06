@@ -48,17 +48,17 @@ import Cardano.MPFS.API.Types
     , UpdateRequest (..)
     , UpdateValueRequest (..)
     )
-import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
-import Cardano.MPFS.Client.Cage.End (endCageTx)
-import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
+import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
+import Cardano.MPFS.Client.Cage.End (endCageTxWithEval)
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
     , requestUpdateCageTx
     )
-import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
+import Cardano.MPFS.Client.Cage.Retract (retractCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Serialize (serializeCageTx)
-import Cardano.MPFS.Client.Cage.Update (updateCageTx)
+import Cardano.MPFS.Client.Cage.Update (updateCageTxWithEval)
 import Cardano.MPFS.Client.Verify
     ( verifyBootFacts
     , verifyEndFacts
@@ -93,7 +93,9 @@ registerToken http WorkflowsConfig{..} req =
         "/facts/boot"
         req
         (verifyBootFacts wcTrustedRoot)
-        (fmap serializeCageTx . bootCageTx wcCage wcPolicy)
+        ( fmap serializeCageTx
+            . bootCageTxWithEval wcEvalContext wcCage wcPolicy
+        )
 
 -- | Request a key insertion (the @request\/insert@ operation): POST
 -- the insert request to @\/facts\/request\/insert@, verify the
@@ -162,7 +164,9 @@ applyRequests http WorkflowsConfig{..} req =
         "/facts/update"
         req
         (verifyUpdateFacts wcTrustedRoot)
-        (fmap serializeCageTx . updateCageTx wcCage wcPolicy)
+        ( fmap serializeCageTx
+            . updateCageTxWithEval wcEvalContext wcCage wcPolicy
+        )
 
 -- | Retract a pending request (the @retract@ operation): POST the
 -- request UTxO reference to @\/facts\/retract@, verify the returned
@@ -179,7 +183,9 @@ retractRequest http WorkflowsConfig{..} req =
         "/facts/retract"
         req
         (verifyRetractFacts wcTrustedRoot)
-        (fmap serializeCageTx . retractCageTx wcCage wcPolicy)
+        ( fmap serializeCageTx
+            . retractCageTxWithEval wcEvalContext wcCage wcPolicy
+        )
 
 -- | Reject expired pending requests (the @reject@ operation): POST
 -- the token to @\/facts\/reject@, verify the returned facts against
@@ -196,7 +202,9 @@ rejectExpired http WorkflowsConfig{..} req =
         "/facts/reject"
         req
         (verifyRejectFacts wcTrustedRoot)
-        (fmap serializeCageTx . rejectCageTx wcCage wcPolicy)
+        ( fmap serializeCageTx
+            . rejectCageTxWithEval wcEvalContext wcCage wcPolicy
+        )
 
 -- | End a cage (the @end@ operation): POST the token to
 -- @\/facts\/end@, verify the returned facts against the trusted root
@@ -214,4 +222,4 @@ endCage http WorkflowsConfig{..} req =
         "/facts/end"
         req
         (verifyEndFacts wcCage wcTrustedRoot)
-        (fmap serializeCageTx . endCageTx wcCage wcPolicy)
+        (fmap serializeCageTx . endCageTxWithEval wcEvalContext wcCage wcPolicy)

@@ -61,6 +61,7 @@ import Cardano.MPFS.Workflows
     , WorkflowsConfig (..)
     , applyRequests
     )
+import Cardano.MPFS.Workflows.TestEvalContext (testEvalContext)
 
 spec :: Spec
 spec = describe "applyRequests" $ do
@@ -110,7 +111,12 @@ spec = describe "applyRequests" $ do
     decodeReq = eitherDecodeStrict'
 
 req :: UpdateRequest
-req = UpdateRequest{urToken = token, urAddr = addr}
+req =
+    UpdateRequest
+        { urToken = token
+        , urAddr = addr
+        , urRequests = []
+        }
 
 -- | Update facts whose snapshot root does not match the trusted
 -- root, so verification fails before any UTxO proof is replayed. The
@@ -172,6 +178,7 @@ config root =
         { wcCage = dummyCage
         , wcPolicy = permissivePolicy
         , wcTrustedRoot = root
+        , wcEvalContext = testEvalContext
         }
 
 dummyCage :: CageConfig
