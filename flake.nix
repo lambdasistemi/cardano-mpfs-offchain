@@ -27,7 +27,7 @@
     cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = {
       url =
-        "github:cardano-foundation/cardano-mpfs-onchain/457c1cbcbbf622d0e583a3e9c0b413de079f315a";
+        "github:cardano-foundation/cardano-mpfs-onchain/d352d25dbe821cd518e8d51d5cc069b015a56533";
     };
     ghc-wasm-meta.url =
       "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
