@@ -268,11 +268,23 @@ let
     let
       pin = forks.pins.${name} or (throw
         "Unknown fork '${name}'; check nix/wasm/forks.json");
-    in pkgs.fetchgit {
-      url = pin.location;
-      rev = pin.rev;
-      hash = "sha256:${pin.sha256}";
-    };
+      fetched = pkgs.fetchgit {
+        url = pin.location;
+        rev = pin.rev;
+        hash = "sha256:${pin.sha256}";
+      };
+      patches = pin.patches or [ ];
+    in if patches == [ ] then
+      fetched
+    else
+      pkgs.runCommand "${name}-patched" { } (''
+        mkdir -p $out
+        cp -rL ${fetched}/. $out/
+        chmod -R u+w $out
+        cd $out
+      '' + lib.concatMapStringsSep "\n"
+        (patch: "${pkgs.patch}/bin/patch -p1 < ${./. + "/${patch}"}")
+        patches);
 
   prefetchedForks = lib.genAttrs srpForks fetchFork;
 
