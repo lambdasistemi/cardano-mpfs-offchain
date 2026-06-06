@@ -68,6 +68,7 @@ import Cardano.MPFS.Workflows
     , rejectExpired
     , retractRequest
     )
+import Cardano.MPFS.Workflows.TestEvalContext (testEvalContext)
 
 -- | A workflow under test: endpoint path, invocation, the address
 -- expected in the posted body, how to recover it from the body, and a
@@ -151,7 +152,12 @@ rejectScenario =
         , scMismatchFacts = BSL.toStrict (encode facts)
         }
   where
-    req = RejectRequest{rejToken = token, rejAddr = addr}
+    req =
+        RejectRequest
+            { rejToken = token
+            , rejAddr = addr
+            , rejRequests = []
+            }
     facts =
         RejectFacts
             { rfSnapshot = mismatchedSnapshot
@@ -200,6 +206,7 @@ config root =
         { wcCage = dummyCage
         , wcPolicy = permissivePolicy
         , wcTrustedRoot = root
+        , wcEvalContext = testEvalContext
         }
 
 dummyCage :: CageConfig

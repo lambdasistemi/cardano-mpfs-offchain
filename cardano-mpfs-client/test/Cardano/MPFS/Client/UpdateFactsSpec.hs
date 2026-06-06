@@ -9,6 +9,7 @@ import Control.Monad (void)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.Either (isRight)
+import Data.List (sortOn)
 import Data.Text.Encoding qualified as Text
 import Test.Hspec
     ( Spec
@@ -40,7 +41,7 @@ import Cardano.MPFS.Client.Facts
     , verifiedUpdateFacts
     )
 import Cardano.MPFS.Client.Fixtures
-    ( honestUpdateResponseMixedTrie
+    ( honestUpdateResponseSequentialTrie
     )
 import Cardano.MPFS.Client.Snapshot qualified as ClientSnapshot
 import Cardano.MPFS.Client.TrustedRoot
@@ -213,10 +214,12 @@ spec = describe "verifyUpdateFacts" $ do
                 runForgeUpdateFactsTrie
                     (flipTrieValue 0)
                     facts
-        forged
-            `shouldRejectWith` verifyUpdateUnit trustedRoot
-            $ mpfReplayFailedAt
-                "update.trie_facts[0].mpf_proof"
+        verifyUpdateFacts trustedRoot forged
+            `shouldBe` Left
+                ( TxBindingFailed
+                    "update.trie_facts[0].value"
+                    "does not match request old value"
+                )
 
 data UpdateFactsFixture = UpdateFactsFixture
     { trustedRoot :: TrustedRoot
@@ -229,17 +232,21 @@ honestUpdateFactsFixture =
             _
             snapshot
             (ClientWire.UpdateProof st rs fs trieRoot trieFacts) =
-                honestUpdateResponseMixedTrie
+                honestUpdateResponseSequentialTrie
         apiSnapshot = toApiSnapshot snapshot
+        orderedRequests =
+            sortOn (ClientWire.txIn . fst) (zip rs trieFacts)
         updateFacts =
             UpdateFacts
                 { ufSnapshot = apiSnapshot
                 , ufToken = sampleToken
                 , ufStateUtxo = toApiUtxoEntry st
-                , ufRequestUtxos = toApiUtxoEntry <$> rs
+                , ufRequestUtxos =
+                    toApiUtxoEntry . fst <$> orderedRequests
                 , ufWalletUtxos = toApiUtxoEntry <$> fs
                 , ufTrieRoot = toApiHex trieRoot
-                , ufTrieFacts = toApiTrieFact <$> trieFacts
+                , ufTrieFacts =
+                    toApiTrieFact . snd <$> orderedRequests
                 , ufValidityUpperSlot =
                     fromIntegral
                         $ ClientSnapshot.slot

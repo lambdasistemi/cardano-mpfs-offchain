@@ -17,6 +17,7 @@ import Data.Coerce (coerce)
 import Data.Foldable (toList)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
+import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Lens.Micro ((&), (.~), (^.))
 import System.Environment (getEnv)
@@ -65,6 +66,9 @@ import Cardano.Ledger.Api.PParams
     , emptyPParams
     , ppCoinsPerUTxOByteL
     , ppMaxTxExUnitsL
+    , ppPricesL
+    , ppTxFeeFixedL
+    , ppTxFeePerByteL
     )
 import Cardano.Ledger.Api.Scripts.Data
     ( Data (..)
@@ -78,6 +82,7 @@ import Cardano.Ledger.Api.Tx
     )
 import Cardano.Ledger.Api.Tx.Body
     ( collateralInputsTxBodyL
+    , feeTxBodyL
     , inputsTxBodyL
     , mintTxBodyL
     , outputsTxBodyL
@@ -96,8 +101,10 @@ import Cardano.Ledger.Api.Tx.Wits
     , scriptTxWitsL
     )
 import Cardano.Ledger.BaseTypes
-    ( Inject (..)
+    ( BoundedRational (..)
+    , Inject (..)
     , Network (..)
+    , NonNegativeInterval
     , StrictMaybe (..)
     , TxIx (..)
     )
@@ -109,6 +116,7 @@ import Cardano.Ledger.Coin
     ( Coin (..)
     , compactCoinOrError
     )
+import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Core
     ( PParams
     )
@@ -130,6 +138,7 @@ import Cardano.Ledger.Mary.Value
 import Cardano.Ledger.Plutus.ExUnits
     ( ExUnits (..)
     , Prices (..)
+    , txscriptfee
     )
 import Cardano.Ledger.Plutus.Language
     ( Language (..)
@@ -187,7 +196,11 @@ import Cardano.MPFS.Client.Cage.Policy
     , WalletPolicy (..)
     )
 import Cardano.MPFS.Client.Cage.Reject
-    ( rejectCageTx
+    ( rejectCageTxWithEval
+    )
+import Cardano.MPFS.Client.Cage.TestEvalContext
+    ( testEvalContext
+    , testEvalPParams
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedRejectFacts
@@ -223,7 +236,11 @@ spec = describe "rejectCageTx" $ do
                 honestRejectFixture cfg
             emptyFunding = facts{rfWalletUtxos = []}
         verified <- expectVerified trustedRoot emptyFunding
-        rejectCageTx cfg permissiveWalletPolicy verified
+        rejectCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
             `shouldBe` Left EmptyFunding
 
     it "rejects wallet policy caps before signing" $ do
@@ -235,7 +252,11 @@ spec = describe "rejectCageTx" $ do
                     { wpMaxMinUtxoCoinPerByte = Coin 1
                     }
         verified <- expectVerified trustedRoot facts
-        rejectCageTx cfg policy verified
+        rejectCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( MinUtxoCoinPerByteTooHigh
@@ -268,7 +289,8 @@ spec = describe "rejectCageTx" $ do
             let RejectFixture{trustedRoot, facts} =
                     honestRejectFixture cfg
             verified <- expectVerified trustedRoot facts
-            case rejectCageTx
+            case rejectCageTxWithEval
+                (testEvalContext realisticPParams)
                 cfg
                 permissiveWalletPolicy
                 verified of
@@ -311,7 +333,7 @@ spec = describe "rejectCageTx" $ do
             expectedIntegrity =
                 computeScriptIntegrity
                     (Set.singleton PlutusV3)
-                    realisticPParams
+                    (testEvalPParams realisticPParams)
                     redeemers
                     (TxDats mempty)
         inputs
@@ -364,6 +386,17 @@ spec = describe "rejectCageTx" $ do
             [] ->
                 expectationFailure
                     "expected at least one output"
+
+    it "keeps the bounded request fee envelope above measured reject fee" $ do
+        cfg <- testCageConfig
+        let RejectFixture{trustedRoot, facts} =
+                honestRejectFixture cfg
+        verified <- expectVerified trustedRoot facts
+        tx <- expectBuilt cfg verified
+        let Coin rejectFee = tx ^. bodyTxL . feeTxBodyL
+            Coin feeBound = feeBufferUpperBound realisticPParams
+        feeBound `shouldSatisfy` (>= rejectFee)
+        feeBound `shouldSatisfy` (<= grossFeeBufferUpperBound)
 
 -- ---------------------------------------------------------------
 -- Redeemer decoding helpers (test-only)
@@ -509,7 +542,8 @@ expectBuilt
     -> VerifiedRejectFacts
     -> IO ConwayTx
 expectBuilt cfg verified =
-    case rejectCageTx
+    case rejectCageTxWithEval
+        (testEvalContext realisticPParams)
         cfg
         permissiveWalletPolicy
         verified of
@@ -521,7 +555,7 @@ expectBuilt cfg verified =
 
 requestTxOut :: Addr -> TokenId -> TxOut ConwayEra
 requestTxOut requestAddr token =
-    mkBasicTxOut requestAddr (inject (Coin 2_500_000))
+    mkBasicTxOut requestAddr (inject (Coin 4_000_000))
         & datumTxOutL .~ mkInlineDatum requestDatum
   where
     requestDatum =
@@ -637,10 +671,46 @@ permissiveWalletPolicy =
 realisticPParams :: PParams ConwayEra
 realisticPParams =
     emptyPParams
+        & ppTxFeePerByteL
+            .~ CoinPerByte (compactCoinOrError (Coin 44))
+        & ppTxFeeFixedL .~ Coin 155_381
         & ppCoinsPerUTxOByteL
             .~ CoinPerByte (compactCoinOrError (Coin 4_310))
+        & ppPricesL
+            .~ Prices
+                (unsafeNonNegativeInterval (577 % 10_000))
+                (unsafeNonNegativeInterval (721 % 10_000_000))
         & ppMaxTxExUnitsL
             .~ ExUnits 140_000_000 10_000_000_000
+
+unsafeNonNegativeInterval :: Rational -> NonNegativeInterval
+unsafeNonNegativeInterval r =
+    fromJust (boundRational r)
+
+feeBufferUpperBound :: PParams ConwayEra -> Coin
+feeBufferUpperBound pp =
+    let CoinPerByte minFeeACompact = pp ^. ppTxFeePerByteL
+        Coin minFeeA = fromCompact minFeeACompact
+        Coin minFeeB = pp ^. ppTxFeeFixedL
+        Coin scriptFee =
+            txscriptfee
+                (pp ^. ppPricesL)
+                perRequestFutureSpendExUnits
+    in  Coin
+            ( minFeeB
+                + minFeeA * maxUpdateTxBytes
+                + scriptFee
+            )
+
+perRequestFutureSpendExUnits :: ExUnits
+perRequestFutureSpendExUnits =
+    ExUnits 40_000_000 3_000_000_000
+
+grossFeeBufferUpperBound :: Integer
+grossFeeBufferUpperBound = 5_000_000
+
+maxUpdateTxBytes :: Integer
+maxUpdateTxBytes = 16_384
 
 testCageConfig :: IO CageConfig
 testCageConfig = do
@@ -683,7 +753,7 @@ requestTxId = BS.replicate 32 0xA1
 walletTxId = BS.replicate 32 0xC3
 
 submittedAt :: Integer
-submittedAt = 1_700_000_000_000
+submittedAt = 9_000
 
 phase3LowerSlot :: Integer
 phase3LowerSlot = 100

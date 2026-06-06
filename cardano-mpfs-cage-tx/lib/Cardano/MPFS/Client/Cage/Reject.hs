@@ -19,7 +19,7 @@
 module Cardano.MPFS.Client.Cage.Reject
     ( RefundPlan (..)
     , preflightLegacyExactRefund
-    , rejectCageTx
+    , rejectCageTxWithEval
     ) where
 
 import Data.ByteString (ByteString)
@@ -33,7 +33,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word32, Word64)
-import Lens.Micro ((&), (.~), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
@@ -56,7 +56,6 @@ import Cardano.Ledger.Alonzo.TxBody
 import Cardano.Ledger.Api.PParams
     ( CoinPerByte (..)
     , ppCoinsPerUTxOByteL
-    , ppMaxTxExUnitsL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -148,8 +147,7 @@ import Cardano.MPFS.API.Encoding
     ( Hex (..)
     )
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
-    , UtxoEntry (..)
+    ( UtxoEntry (..)
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts
@@ -175,6 +173,10 @@ import Cardano.MPFS.Client.Cage.Config
     , cageAddrFromCfg
     , mkCageScript
     )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , evaluateAndBalancePureAtFee
+    )
 import Cardano.MPFS.Client.Cage.Identity
     ( requestScriptBytesFromCfg
     , tokenIdFromJSON
@@ -188,9 +190,8 @@ import Cardano.MPFS.Client.Facts
     , verifiedRejectFacts
     )
 import Cardano.Tx.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    , computeScriptIntegrity
+    ( computeScriptIntegrity
+    , evalBudgetExUnits
     )
 import Cardano.Tx.Build qualified as TxBuild
 
@@ -203,29 +204,24 @@ data RefundPlan = RefundPlan
     }
     deriving stock (Eq, Show)
 
--- | Build an unsigned reject transaction from already
--- verified reject facts. The function decodes the supplied
--- ledger facts, enforces wallet caps, applies the
--- server-derived Phase 3 validity interval (both bounds),
--- preserves the state root, and emits per-request refunds
--- back to each requester. The returned transaction is
--- ready for the cage owner to sign.
-rejectCageTx
-    :: CageConfig
+rejectCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
     -> WalletPolicy
     -> VerifiedRejectFacts
     -> Either BuildError ConwayTx
-rejectCageTx cfg policy verified = do
+rejectCageTxWithEval evalCtx cfg policy verified = do
     let facts = verifiedRejectFacts verified
         token = tokenIdFromJSON (rfToken facts)
-    pp <- decodePParams (rfProtocolParameters facts)
+        pp = evalProtocolParameters evalCtx
     enforcePParamsPolicy policy pp
     stateRow <- decodeUtxo "reject.state_utxo" (rfStateUtxo facts)
     requestRows <-
         traverse
             (uncurry decodeRequestUtxo)
             (zip [0 :: Int ..] (rfRequestUtxos facts))
-    case requestRows of
+    let orderedRequestRows = canonicalRequestRows requestRows
+    case orderedRequestRows of
         [] ->
             Left
                 $ MalformedTxOut
@@ -245,11 +241,12 @@ rejectCageTx cfg policy verified = do
                 (SJust (slot (rfValidityUpperSlot facts)))
     tx <-
         buildRejectTx
+            evalCtx
             cfg
             pp
             token
             stateRow
-            requestRows
+            orderedRequestRows
             feeRow
             changeAddr
             oldState
@@ -279,16 +276,9 @@ selectFeeRow rows =
         row : _ -> Right row
         [] -> Left EmptyFunding
 
-decodePParams
-    :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)
-decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
-    case decodeFull (natVersion @11) (BSL.fromStrict ppBytes) of
-        Left err ->
-            Left
-                $ MalformedPParams
-                $ T.pack
-                $ show err
-        Right pp -> Right pp
+canonicalRequestRows :: [InputRow] -> [InputRow]
+canonicalRequestRows =
+    sortOn rowRef
 
 decodeUtxo :: Text -> UtxoEntry -> Either BuildError InputRow
 decodeUtxo path UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
@@ -403,7 +393,8 @@ ownerPaymentKeyHash ownerBytes =
 -- ---------------------------------------------------------------
 
 buildRejectTx
-    :: CageConfig
+    :: DecodedEvalContext
+    -> CageConfig
     -> PParams ConwayEra
     -> TokenId
     -> InputRow
@@ -415,6 +406,7 @@ buildRejectTx
     -> ValidityInterval
     -> Either BuildError ConwayTx
 buildRejectTx
+    evalCtx
     cfg
     pp
     token
@@ -447,25 +439,32 @@ buildRejectTx
             Right tx
 
         buildWithFee feeForRefunds =
-            case balanceTx pp ledgerPairs [] changeAddr draft of
-                Left err ->
-                    Left (DSLBuildFailed $ T.pack $ show err)
-                Right BalanceResult{balancedTx} ->
-                    Right
-                        $ patchRejectRedeemers
-                            pp
-                            budget
-                            stateRef
-                            (map fst requestRefs)
-                            balancedTx
+            evaluateAndBalancePureAtFee
+                evalCtx
+                feeForRefunds
+                ledgerPairs
+                []
+                changeAddr
+                draft
           where
             draft =
-                patchRedeemerBudgets pp budget
-                    $ TxBuild.draft
-                        pp
-                        ( program
-                            :: TxBuild.TxBuild NoCtx BuildError ()
-                        )
+                patchRejectRedeemers
+                    (evalProtocolParameters evalCtx)
+                    evalBudgetExUnits
+                    stateRef
+                    (map fst requestRefs)
+                    withAllInputs
+            rawDraft =
+                TxBuild.draft
+                    pp
+                    ( program
+                        :: TxBuild.TxBuild NoCtx BuildError ()
+                    )
+            withAllInputs =
+                rawDraft
+                    & bodyTxL . inputsTxBodyL
+                        %~ Set.union
+                            (Set.fromList (map fst ledgerPairs))
             program = do
                 _ <-
                     TxBuild.spendScript
@@ -506,7 +505,6 @@ buildRejectTx
             [(rowRef row, rowOut row) | row <- allRows]
         stateScript = mkCageScript cfg
         requestScript = mkRequestScript cfg token
-        budget = rejectRedeemerBudget pp
         newStateOut =
             mkBasicTxOut
                 (cageAddrFromCfg cfg (network cfg))
@@ -538,31 +536,6 @@ applyValidity ValidityInterval{invalidBefore, invalidHereafter} = do
     case invalidHereafter of
         SNothing -> pure ()
         SJust slot -> TxBuild.validTo slot
-
-patchRedeemerBudgets
-    :: PParams ConwayEra
-    -> ExUnits
-    -> ConwayTx
-    -> ConwayTx
-patchRedeemerBudgets pp budget tx =
-    tx
-        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
-        & bodyTxL . scriptIntegrityHashTxBodyL
-            .~ computeScriptIntegrity
-                (Set.singleton PlutusV3)
-                pp
-                budgetedRedeemers
-                (TxDats mempty)
-  where
-    Redeemers rdmrs =
-        tx ^. witsTxL . rdmrsTxWitsL
-    budgetedRedeemers =
-        Redeemers
-            $ fmap
-                ( \(dat, _) ->
-                    (dat, budget)
-                )
-                rdmrs
 
 patchRejectRedeemers
     :: PParams ConwayEra
@@ -717,15 +690,6 @@ toLedgerData :: (ToData a) => a -> Data ConwayEra
 toLedgerData value =
     let BuiltinData d = toBuiltinData value
     in  Data d
-
-rejectRedeemerBudget :: PParams ConwayEra -> ExUnits
-rejectRedeemerBudget pp =
-    capExUnits (ExUnits 900_000 250_000_000)
-        $ pp ^. ppMaxTxExUnitsL
-
-capExUnits :: ExUnits -> ExUnits -> ExUnits
-capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
-    ExUnits (min mem maxMem) (min steps maxSteps)
 
 enforcePParamsPolicy
     :: WalletPolicy

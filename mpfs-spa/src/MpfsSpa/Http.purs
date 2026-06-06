@@ -16,6 +16,7 @@ module MpfsSpa.Http
   , getRequests
   , getFactValue
   , getTrustedRoot
+  , getEvalContext
   , postBootFacts
   , submitTx
   ) where
@@ -130,6 +131,10 @@ getFactValue cfg (TokenId tid) (Key key) =
 -- | Fetch the trusted UTxO root from `/status`.
 getTrustedRoot :: Config -> Aff (Either String TrustedRoot)
 getTrustedRoot cfg = getDecoded cfg "/status" decodeTrustedRoot
+
+-- | Fetch the trusted-not-proven ledger evaluation context as opaque JSON.
+getEvalContext :: Config -> Aff (Either String Json)
+getEvalContext cfg = request "GET" (cfg.baseUrl <> "/eval-context") Nothing
 
 -- | Fetch raw proof-bearing boot facts for the reactor envelope.
 postBootFacts :: Config -> WalletAddr -> Aff (Either String Json)

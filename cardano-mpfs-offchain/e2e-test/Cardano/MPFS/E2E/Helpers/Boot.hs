@@ -49,8 +49,9 @@ import Cardano.MPFS.API.Types
     ( BootFacts (..)
     , VerificationSnapshot (..)
     )
-import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
+import Cardano.MPFS.Client.Cage.Eval (decodeEvalContext)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
 import Cardano.MPFS.Client.Facts (verifyBootFacts)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
@@ -142,8 +143,17 @@ buildBootEnvelopeFromFacts cfg ctx addr = do
                     $ "E2E boot facts: verifyBootFacts failed: "
                         <> show err
             Right value -> pure value
+    evalCtxWire <- evalContext ctx
+    evalCtx <-
+        case decodeEvalContext evalCtxWire of
+            Left err ->
+                fail
+                    $ "E2E boot facts: decodeEvalContext failed: "
+                        <> show err
+            Right value -> pure value
     tx <-
-        case bootCageTx
+        case bootCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             verified of

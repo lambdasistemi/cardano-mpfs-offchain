@@ -156,9 +156,13 @@ module Cardano.MPFS.Client
     , requestInsertCageTx
     , requestDeleteCageTx
     , requestUpdateCageTx
-    , rejectCageTx
-    , retractCageTx
-    , updateCageTx
+    , bootCageTxWithEval
+    , endCageTxWithEval
+    , rejectCageTxWithEval
+    , retractCageTxWithEval
+    , updateCageTxWithEval
+    , DecodedEvalContext (..)
+    , decodeEvalContext
     ) where
 
 import Cardano.MPFS.API.Types
@@ -182,18 +186,28 @@ import Cardano.MPFS.Client.Bundle
     , UpdateTxResponse (..)
     , WitnessedUtxo (..)
     )
+import Cardano.MPFS.Client.Cage.Boot
+    ( bootCageTxWithEval
+    )
 import Cardano.MPFS.Client.Cage.BuildError
     ( BuildError (..)
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
     )
+import Cardano.MPFS.Client.Cage.End
+    ( endCageTxWithEval
+    )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , decodeEvalContext
+    )
 import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
     )
 import Cardano.MPFS.Client.Cage.Reject
-    ( rejectCageTx
+    ( rejectCageTxWithEval
     )
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
@@ -201,10 +215,10 @@ import Cardano.MPFS.Client.Cage.Request
     , requestUpdateCageTx
     )
 import Cardano.MPFS.Client.Cage.Retract
-    ( retractCageTx
+    ( retractCageTxWithEval
     )
 import Cardano.MPFS.Client.Cage.Update
-    ( updateCageTx
+    ( updateCageTxWithEval
     )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)

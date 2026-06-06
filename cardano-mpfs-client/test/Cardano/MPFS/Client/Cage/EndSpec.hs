@@ -188,7 +188,7 @@ import Cardano.MPFS.Client.Cage.Config
     , mkCageScript
     )
 import Cardano.MPFS.Client.Cage.End
-    ( endCageTx
+    ( endCageTxWithEval
     )
 import Cardano.MPFS.Client.Cage.Identity
     ( requestSetPrefixFromCfg
@@ -197,6 +197,10 @@ import Cardano.MPFS.Client.Cage.Identity
 import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
+    )
+import Cardano.MPFS.Client.Cage.TestEvalContext
+    ( testEvalContext
+    , testEvalPParams
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedEndFacts
@@ -210,7 +214,6 @@ import Cardano.Slotting.Slot
     )
 import Cardano.Tx.Balance
     ( computeScriptIntegrity
-    , evalBudgetExUnits
     )
 import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
@@ -228,7 +231,11 @@ spec = describe "endCageTx" $ do
         let EndFixture{trustedRoot, facts} = honestEndFixture cfg
             emptyFunding = facts{efWalletUtxos = []}
         verified <- expectVerified cfg trustedRoot emptyFunding
-        endCageTx cfg permissiveWalletPolicy verified
+        endCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
             `shouldBe` Left EmptyFunding
 
     it "rejects wallet policy caps before signing" $ do
@@ -239,7 +246,11 @@ spec = describe "endCageTx" $ do
                     { wpMaxMinUtxoCoinPerByte = Coin 1
                     }
         verified <- expectVerified cfg trustedRoot facts
-        endCageTx cfg policy verified
+        endCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( MinUtxoCoinPerByteTooHigh
@@ -258,7 +269,11 @@ spec = describe "endCageTx" $ do
                 txInFromBytes walletTxId 2
         verified <- expectVerified cfg trustedRoot facts
         tx <-
-            case endCageTx cfg permissiveWalletPolicy verified of
+            case endCageTxWithEval
+                (testEvalContext realisticPParams)
+                cfg
+                permissiveWalletPolicy
+                verified of
                 Left err ->
                     expectationFailure
                         ("endCageTx failed: " <> show err)
@@ -279,7 +294,11 @@ spec = describe "endCageTx" $ do
             policyId = cagePolicyIdFromCfg cfg
         verified <- expectVerified cfg trustedRoot facts
         tx <-
-            case endCageTx cfg permissiveWalletPolicy verified of
+            case endCageTxWithEval
+                (testEvalContext realisticPParams)
+                cfg
+                permissiveWalletPolicy
+                verified of
                 Left err ->
                     expectationFailure
                         ("endCageTx failed: " <> show err)
@@ -302,7 +321,7 @@ spec = describe "endCageTx" $ do
             expectedIntegrity =
                 computeScriptIntegrity
                     (Set.singleton PlutusV3)
-                    realisticPParams
+                    (testEvalPParams realisticPParams)
                     redeemers
                     (TxDats mempty)
         Set.member stateInput inputs `shouldBe` True
@@ -318,9 +337,6 @@ spec = describe "endCageTx" $ do
             `shouldBe` Set.singleton expectedOwnerWitness
         Map.size rdmrs `shouldBe` 2
         budgets `shouldSatisfy` all nonZeroExUnits
-        budgets
-            `shouldSatisfy` all
-                (`withinExUnits` evalBudgetExUnits)
         sumExUnits budgets
             `shouldSatisfy` (`withinExUnits` maxTxBudget)
         integrity `shouldBe` expectedIntegrity

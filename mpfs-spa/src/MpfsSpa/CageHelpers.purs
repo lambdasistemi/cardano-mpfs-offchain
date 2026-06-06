@@ -47,10 +47,13 @@ type CageHelpers =
     deleteFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
   , -- | Retract a still-pending request the wallet owns.
     retractRequest :: WalletAddr -> CageConfig -> TokenId -> RequestId -> CageResult
-  , -- | Reject (sweep) requests whose phase-1 window has expired.
-    rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
+  , -- | Reject (sweep) expired requests. A non-empty request list is treated
+    -- | as an exact subset; an empty list preserves catch-all behavior.
+    rejectExpired :: WalletAddr -> CageConfig -> TokenId -> Array RequestId -> CageResult
   , -- | End (close) a cage the wallet owns.
     endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
-  , -- | Owner/oracle: fold all pending requests into the trie root.
-    updateToken :: WalletAddr -> CageConfig -> TokenId -> CageResult
+  , -- | Owner/oracle: fold requests into the trie root. A non-empty request
+    -- | list is treated as an exact subset; an empty list preserves catch-all
+    -- | behavior.
+    updateToken :: WalletAddr -> CageConfig -> TokenId -> Array RequestId -> CageResult
   }

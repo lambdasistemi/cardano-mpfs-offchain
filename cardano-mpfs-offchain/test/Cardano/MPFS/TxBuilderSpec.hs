@@ -1083,11 +1083,17 @@ feeBufferUpperBound pp =
         Coin minFeeA = fromCompact minFeeACompact
         Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
-            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+            txscriptfee
+                (pp ^. ppPricesL)
+                perRequestFutureSpendExUnits
     in  minFeeB + minFeeA * maxUpdateTxBytes + scriptFee
 
+perRequestFutureSpendExUnits :: ExUnits
+perRequestFutureSpendExUnits =
+    ExUnits 40_000_000 3_000_000_000
+
 maxUpdateTxBytes :: Integer
-maxUpdateTxBytes = 8192
+maxUpdateTxBytes = 16_384
 
 -- ---------------------------------------------------------
 -- Group A2: computeRefund (pure)

@@ -27,14 +27,16 @@ module Cardano.MPFS.HTTP.Server
     ) where
 
 import Control.Applicative ((<|>))
-import Control.Monad (forM, when)
+import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
+import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy (..))
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -60,6 +62,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary
     ( Annotator
     , Decoder
@@ -69,7 +72,6 @@ import Cardano.Ledger.Binary
     , natVersion
     , serialize'
     )
-import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Hashes
     ( extractHash
     , unsafeMakeSafeHash
@@ -115,6 +117,7 @@ import Cardano.MPFS.HTTP.Types
     , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
+    , EvalContext (..)
     , FactEntry (..)
     , FactResponse (..)
     , FactWitness (..)
@@ -133,8 +136,8 @@ import Cardano.MPFS.HTTP.Types
     , TokenIdJSON
     , TokenResponse (..)
     , TokenSetWitness (..)
-    , TokensResponse (..)
     , TokenUtxoEntry (..)
+    , TokensResponse (..)
     , UnverifiedPParams (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
@@ -169,7 +172,6 @@ import Cardano.MPFS.Indexer.Reads
     , readRequestUtxosAt
     , readSnapshot
     , readStateUtxoAt
-    , readTrieFact
     , readUtxoSetAt
     , readWalletInputsAt
     )
@@ -190,19 +192,23 @@ import Cardano.MPFS.TxBuilder qualified as Tx
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real (sweepUtxoImpl)
 import Cardano.MPFS.TxBuilder.Real.Internal
-    ( cageAddrFromCfg
+    ( addrKeyHashBytes
+    , cageAddrFromCfg
     , cagePolicyIdFromCfg
     , currentPosixMs
     , extractCageDatum
     , requestAddrFromCfg
     )
-import Cardano.MPFS.TxBuilder.Real.Update (computeUpperSlot)
+import Cardano.MPFS.TxBuilder.Real.Update qualified as UpdateTx
 
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.Binary qualified as L
 import Cardano.MPFS.Core.OnChain (CageDatum (..))
 import Cardano.MPFS.Core.OnChain qualified as OnChain
 import Cardano.MPFS.Provider qualified as Prov
+import PlutusTx.Builtins.Internal
+    ( BuiltinByteString (..)
+    )
 
 -- | Combined API with Swagger UI.
 type FullAPI = SwaggerAPI :<|> API
@@ -215,6 +221,7 @@ mkApp ctx =
             :<|> metricsPrometheusHandler ctx
             :<|> metricsHandler ctx
             :<|> statusHandler ctx
+            :<|> evalContextHandler ctx
             :<|> tokensHandler ctx
             :<|> tokenHandler ctx
             :<|> tokenRootHandler ctx
@@ -290,6 +297,11 @@ statusHandler ctx = do
                 fmap (Hex . unBlockId . snd) mcp
             , currentUtxoRoot = fmap Hex mRoot
             }
+
+-- | @GET \/eval-context@
+evalContextHandler :: Context IO -> Handler EvalContext
+evalContextHandler ctx =
+    liftIO (evalContext ctx)
 
 tokensHandler
     :: Context IO -> Handler TokensResponse
@@ -995,6 +1007,7 @@ factsUpdateHandler
     UpdateRequest
         { urToken = tokenId
         , urAddr = addrHex
+        , urRequests = requestRefs
         } = do
         let tid = tokenIdFromJSON tokenId
             cfg = cfgCage ctx
@@ -1002,7 +1015,8 @@ factsUpdateHandler
             requestAddr = requestAddrFromCfg cfg tid (network cfg)
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
-        (mSnap, mStateUtxo, requestUtxos, funding, eTrieFacts) <-
+        selectedRefs <- parseRequestSubset requestRefs
+        (mSnap, mStateUtxo, eRequestUtxos, funding) <-
             liftIO
                 $ runIndexerTx ctx
                 $ do
@@ -1012,16 +1026,23 @@ factsUpdateHandler
                             cageAddr
                             policyId
                             tid
-                    reqs <- readRequestUtxosAt requestAddr
+                    reqs <-
+                        if null selectedRefs
+                            then
+                                Left
+                                    <$> readRequestUtxosAt
+                                        requestAddr
+                            else
+                                Right
+                                    <$> readExactRequestSubset
+                                        requestAddr
+                                        selectedRefs
                     wallet <- readWalletInputsAt addr
-                    trieFacts <-
-                        readRequestTrieFacts tid reqs
                     pure
                         ( snap
                         , stateUtxo
                         , reqs
                         , wallet
-                        , trieFacts
                         )
         snap <- case mSnap of
             Nothing ->
@@ -1048,6 +1069,12 @@ factsUpdateHandler
                         "No wallet UTxOs at \
                         \address"
                     }
+        requestUtxos <-
+            case eRequestUtxos of
+                Left rows -> pure (canonicalRequestOrder rows)
+                Right rows ->
+                    canonicalRequestOrder
+                        <$> requireExactRequestSubset rows
         when (null requestUtxos)
             $ throwError
                 err400
@@ -1055,9 +1082,15 @@ factsUpdateHandler
                         "No pending request UTxOs \
                         \at request address"
                     }
-        trieFacts <- case eTrieFacts of
-            Left msg -> throwInternal msg
-            Right facts -> pure facts
+        unless (null selectedRefs) $ do
+            requireStateOwnerAddress
+                "facts/update.state_utxo"
+                addr
+                stateOutBytes
+            requireProcessableRequests
+                stateOutBytes
+                requestUtxos
+        trieFacts <- computeRequestTrieFacts ctx tid requestUtxos
         trieRoot <-
             case stateTrieRootBytes stateOutBytes of
                 Left msg -> throwInternal msg
@@ -1186,25 +1219,53 @@ factsRetractHandler
         let phase2Start = submittedAt + procTime
             phase2End =
                 submittedAt + procTime + retrTime
+        now <- liftIO currentPosixMs
+        when (now < phase2Start)
+            $ throwError
+                err400
+                    { errBody =
+                        "Request is not yet in the \
+                        \retract window"
+                    }
+        when (now >= phase2End)
+            $ throwError
+                err400
+                    { errBody =
+                        "Request is no longer \
+                        \retractable"
+                    }
         lowerSlot <-
             liftIO
                 $ Prov.posixMsCeilSlot
                     (provider ctx)
-                    phase2Start
-        upperSlot <-
-            liftIO
-                $ Prov.posixMsToSlot
-                    (provider ctx)
-                    phase2End
+                    now
+        ttl <- liftIO rejectTtlSlotsIO
+        evalCtx <- liftIO $ evalContext ctx
+        when
+            ( phase2End
+                <= now
+                    + ( toInteger ttl
+                            * toInteger (ecSlotLengthMs evalCtx)
+                      )
+            )
+            $ throwError
+                err400
+                    { errBody =
+                        "Retract window is too close \
+                        \to its end for a safe \
+                        \validity interval"
+                    }
         pp <-
             liftIO
                 $ queryProtocolParams
                     (provider ctx)
-        let startSlot =
-                toInteger (unSlotNo lowerSlot)
-            endSlotRaw =
-                toInteger (unSlotNo upperSlot)
-            endSlot = max 0 (endSlotRaw - 1)
+        let SlotNo snapSlot = snapshotSlot snap
+            SlotNo lowerRaw = lowerSlot
+            startSlot =
+                toInteger
+                    $ max lowerRaw (snapSlot + 1)
+            endSlot =
+                startSlot + toInteger ttl
         pure
             $ mkRetractFacts
                 snap
@@ -1251,32 +1312,165 @@ throwInternal msg =
             , errHeaders = []
             }
 
-readRequestTrieFacts
-    :: TokenId
-    -> [ResolvedWalletInput]
-    -> IndexerTx (Either Text [Tx.TrieFact])
-readRequestTrieFacts tid = go []
-  where
-    go acc [] = pure (Right (reverse acc))
-    go acc ((_, requestOutBytes, _) : rest) =
-        case requestDatumKeyBytes requestOutBytes of
-            Left msg -> pure (Left msg)
-            Right key -> do
-                fact <- readTrieFact tid key
-                go (fact : acc) rest
+parseRequestSubset :: [Text] -> Handler [TxIn]
+parseRequestSubset refs = do
+    txIns <- traverse parseUtxoRef refs
+    when (Set.size (Set.fromList txIns) /= length txIns)
+        $ throwError
+            err400
+                { errBody =
+                    "Duplicate request UTxO refs \
+                    \in request subset"
+                }
+    pure txIns
 
-requestDatumKeyBytes :: ByteString -> Either Text ByteString
-requestDatumKeyBytes bytes = do
-    out <-
-        decodeIndexedTxOutEither
-            "facts/update.request_utxos[]"
-            bytes
-    case extractCageDatum out of
-        Just (RequestDatum request) ->
-            Right (OnChain.requestKey request)
+readExactRequestSubset
+    :: Addr
+    -> [TxIn]
+    -> IndexerTx [(TxIn, Maybe ResolvedWalletInput)]
+readExactRequestSubset reqAddr =
+    traverse $ \txIn -> do
+        row <- readNamedRequestUtxo reqAddr txIn
+        pure (txIn, row)
+
+requireExactRequestSubset
+    :: [(TxIn, Maybe ResolvedWalletInput)]
+    -> Handler [ResolvedWalletInput]
+requireExactRequestSubset rows =
+    case [txIn | (txIn, Nothing) <- rows] of
+        [] ->
+            pure
+                [ row
+                | (_, Just row) <- rows
+                ]
+        missing ->
+            throwError
+                err400
+                    { errBody =
+                        BL.fromStrict
+                            $ TE.encodeUtf8
+                            $ "Selected request UTxO \
+                              \missing or not at this \
+                              \token's request address: "
+                                <> T.intercalate
+                                    ", "
+                                    (map txInRefText missing)
+                    }
+
+txInRefText :: TxIn -> Text
+txInRefText (TxIn (TxId sh) (TxIx ix)) =
+    TE.decodeUtf8
+        ( B16.encode
+            $ Crypto.hashToBytes
+            $ extractHash sh
+        )
+        <> "#"
+        <> T.pack (show ix)
+
+requireStateOwnerAddress
+    :: Text
+    -> Addr
+    -> ByteString
+    -> Handler ()
+requireStateOwnerAddress path addr stateOutBytes = do
+    stateOut <- decodeIndexedTxOut path stateOutBytes
+    ownerBytes <- case extractCageDatum stateOut of
+        Just (StateDatum state) ->
+            let BuiltinByteString bs =
+                    OnChain.stateOwner state
+            in  pure bs
         _ ->
-            Left
-                "facts/update.request_utxos[] missing request datum"
+            throwInternal
+                $ path
+                    <> " missing state datum"
+    when (addrKeyHashBytes addr /= ownerBytes)
+        $ throwError
+            err400
+                { errBody =
+                    "Supplied wallet address is not \
+                    \the token owner"
+                }
+
+requireProcessableRequests
+    :: ByteString
+    -> [ResolvedWalletInput]
+    -> Handler ()
+requireProcessableRequests stateOutBytes requestUtxos = do
+    stateOut <-
+        decodeIndexedTxOut
+            "facts/update.state_utxo"
+            stateOutBytes
+    processWindow <- case extractCageDatum stateOut of
+        Just (StateDatum state) ->
+            pure (OnChain.stateProcessTime state)
+        _ ->
+            throwInternal
+                "facts/update.state_utxo missing state datum"
+    now <- liftIO currentPosixMs
+    bad <-
+        fmap catMaybes
+            $ forM requestUtxos
+            $ \(txIn, outBytes, _) -> do
+                out <-
+                    decodeIndexedTxOut
+                        "facts/update.request_utxos[]"
+                        outBytes
+                case extractCageDatum out of
+                    Just (RequestDatum request) -> do
+                        let submittedAt =
+                                OnChain.requestSubmittedAt
+                                    request
+                            deadline =
+                                submittedAt
+                                    + processWindow
+                        pure
+                            $ if now >= submittedAt
+                                && now < deadline
+                                then Nothing
+                                else Just txIn
+                    _ -> pure (Just txIn)
+    unless (null bad)
+        $ throwError
+            err400
+                { errBody =
+                    BL.fromStrict
+                        $ TE.encodeUtf8
+                        $ "Selected request UTxO is \
+                          \not in the processable \
+                          \phase: "
+                            <> T.intercalate
+                                ", "
+                                (map txInRefText bad)
+                }
+
+computeRequestTrieFacts
+    :: Context IO
+    -> TokenId
+    -> [ResolvedWalletInput]
+    -> Handler [Tx.TrieFact]
+computeRequestTrieFacts ctx tid requestUtxos = do
+    rows <- traverse decodeRequest requestUtxos
+    trieReads <-
+        liftIO
+            $ fst
+                <$> UpdateTx.computeProofs
+                    (trieManager ctx)
+                    tid
+                    rows
+    pure (map UpdateTx.readTrieFact trieReads)
+  where
+    decodeRequest (txIn, requestOutBytes, _) = do
+        out <-
+            decodeIndexedTxOut
+                "facts/update.request_utxos[]"
+                requestOutBytes
+        pure (txIn, out)
+
+canonicalRequestOrder
+    :: [ResolvedWalletInput]
+    -> [ResolvedWalletInput]
+canonicalRequestOrder =
+    sortOn (\(txIn, _, _) -> txIn)
 
 stateTrieRootBytes :: ByteString -> Either Text ByteString
 stateTrieRootBytes bytes = do
@@ -1309,7 +1503,7 @@ updateValidityUpperSlot ctx stateOutBytes requestUtxos = do
         traverse decodeRequest requestUtxos
     slot <-
         liftIO
-            $ computeUpperSlot
+            $ UpdateTx.computeUpperSlot
                 (provider ctx)
                 oldState
                 requestPairs
@@ -1623,6 +1817,7 @@ factsRejectHandler
     RejectRequest
         { rejToken = tokenId
         , rejAddr = addrHex
+        , rejRequests = requestRefs
         } = do
         let tid = tokenIdFromJSON tokenId
             cfg = cfgCage ctx
@@ -1631,7 +1826,8 @@ factsRejectHandler
                 requestAddrFromCfg cfg tid (network cfg)
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
-        (mSnap, mStateUtxo, requestUtxos, walletInputs) <-
+        selectedRefs <- parseRequestSubset requestRefs
+        (mSnap, mStateUtxo, eRequestUtxos, walletInputs) <-
             liftIO
                 $ runIndexerTx ctx
                 $ do
@@ -1641,7 +1837,17 @@ factsRejectHandler
                             cageAddr
                             policyId
                             tid
-                    reqs <- readRequestUtxosAt requestAddr
+                    reqs <-
+                        if null selectedRefs
+                            then
+                                Left
+                                    <$> readRequestUtxosAt
+                                        requestAddr
+                            else
+                                Right
+                                    <$> readExactRequestSubset
+                                        requestAddr
+                                        selectedRefs
                     wallet <- readWalletInputsAt addr
                     pure (snap, stateUtxo, reqs, wallet)
         snap <- case mSnap of
@@ -1670,8 +1876,29 @@ factsRejectHandler
                         "No wallet UTxOs at \
                         \address"
                     }
+        requestUtxos <-
+            case eRequestUtxos of
+                Left rows -> pure (canonicalRequestOrder rows)
+                Right rows ->
+                    canonicalRequestOrder
+                        <$> requireExactRequestSubset rows
+        unless (null selectedRefs)
+            $ requireStateOwnerAddress
+                "facts/reject.state_utxo"
+                addr
+                stateOutBytes
         rejectable <-
             rejectableRequestUtxos stateOutBytes requestUtxos
+        when
+            ( not (null selectedRefs)
+                && length rejectable /= length requestUtxos
+            )
+            $ throwError
+                err400
+                    { errBody =
+                        "Selected request UTxO is not \
+                        \in the rejectable phase"
+                    }
         when (null rejectable)
             $ throwError
                 err400

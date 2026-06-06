@@ -256,14 +256,14 @@ mkApp env = component "App" \_ -> React.do
       withSelected \tid ->
         runWriteWith
           (\_ -> reloadLater (Just tid))
-          (\w -> env.helpers.updateToken (addr w) placeholderCageConfig tid)
+          (\w -> env.helpers.updateToken (addr w) placeholderCageConfig tid [])
 
     rejectExpired :: Effect Unit
     rejectExpired =
       withSelected \tid ->
         runWriteWith
           (\_ -> reloadLater (Just tid))
-          (\w -> env.helpers.rejectExpired (addr w) placeholderCageConfig tid)
+          (\w -> env.helpers.rejectExpired (addr w) placeholderCageConfig tid [])
 
     retractRequest :: RequestId -> Effect Unit
     retractRequest rid =
