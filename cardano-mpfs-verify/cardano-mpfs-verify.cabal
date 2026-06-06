@@ -67,6 +67,7 @@ library
     Cardano.MPFS.Client.TrustedRoot
     Cardano.MPFS.Client.Verify
     Cardano.MPFS.Client.Verify.Completeness
+    Cardano.MPFS.Client.Verify.MPF
     Cardano.MPFS.Client.Verify.Reactor
     Cardano.MPFS.Client.Verify.Read
     Cardano.MPFS.Client.Verify.Replay

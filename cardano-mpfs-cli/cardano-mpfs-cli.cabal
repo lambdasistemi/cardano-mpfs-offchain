@@ -46,6 +46,7 @@ library
     , cardano-ledger-core
     , cardano-mpfs-api
     , cardano-mpfs-cage
+    , cardano-mpfs-cage-tx
     , cardano-mpfs-client
     , cardano-mpfs-workflows
     , cardano-slotting

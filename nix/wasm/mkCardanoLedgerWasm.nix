@@ -8,29 +8,27 @@
 #
 # Bypasses haskell.nix for the WASM compile; haskell.nix's cabalProject'
 # is a native-GHC path, not a wasm32-wasi cross-compile.
-{ pkgs
-, lib
-, ghcWasmMeta
-, wasiSdk ? null        # ghc-wasm-meta.packages.<sys>.wasi-sdk; only required when cLibs != null
-, chap                  # Source tree of cardano-haskell-packages (flake input, flake = false)
+{ pkgs, lib, ghcWasmMeta, wasiSdk ?
+  null # ghc-wasm-meta.packages.<sys>.wasi-sdk; only required when cLibs != null
+, chap # Source tree of cardano-haskell-packages (flake input, flake = false)
 }:
 
-{ src                   # Source tree containing cabal-wasm.project + caller's cabal package
-, packages              # [ "<exe-target>" ... ] — build targets for wasm32-wasi-cabal build
-, dependenciesHash      # sha256 of the FOD dep-download phase; compute on first run
-, srpForks ? []         # Subset of forks.pins names to pre-fetch and splice as `packages:` paths
-, withCLibs ? false     # Build and wire wasm32-wasi-built libsodium + secp256k1 + blst
-, projectFile ? "cabal-wasm.project"
-, extraCabalProject ? ""
-, indexState ? null
-, ghcVersion ? "9.12"
-}:
+{ src # Source tree containing cabal-wasm.project + caller's cabal package
+, packages # [ "<exe-target>" ... ] — build targets for wasm32-wasi-cabal build
+, dependenciesHash # sha256 of the FOD dep-download phase; compute on first run
+, srpForks ?
+  [ ] # Subset of forks.pins names to pre-fetch and splice as `packages:` paths
+, withCLibs ?
+  false # Build and wire wasm32-wasi-built libsodium + secp256k1 + blst
+, projectFile ? "cabal-wasm.project", extraCabalProject ? "", indexState ? null
+, ghcVersion ? "9.12" }:
 
 let
   haskell-nix = pkgs.haskell-nix;
   forks = (import ./cabal-project-fragment.nix { inherit lib; }).forks;
 
-  hackageIndexState = if indexState == null then forks.indexState.hackage else indexState;
+  hackageIndexState =
+    if indexState == null then forks.indexState.hackage else indexState;
 
   # --- Hackage -------------------------------------------------------------
   truncatedHackageIndex = pkgs.fetchurl {
@@ -73,28 +71,29 @@ let
   # point cabal at it directly — no mkLocalHackageRepo (which re-signs with
   # fake keys that clash with the real root keys the index references).
 
-  bootstrappedChap = pkgs.runCommand "cabal-bootstrap-cardano-haskell-packages" {
-    nativeBuildInputs = [ haskell-nix.nix-tools.exes.cabal ]
-      ++ haskell-nix.cabal-issue-8352-workaround;
-  } ''
-    HOME=$(mktemp -d)
-    mkdir -p $HOME/.cabal/packages/cardano-haskell-packages
-    cat <<EOF > $HOME/.cabal/config
-    repository cardano-haskell-packages
-      url: file:${chap}
-      secure: True
-      root-keys:
-        3e0cce471cf09815f930210f7827266fd09045445d65923e6d0238a6cd15126f
-        443abb7fb497a134c343faf52f0b659bd7999bc06b7f63fa76dc99d631f9bea1
-        a86a1f6ce86c449c46666bda44268677abf29b5b2d2eb5ec7af903ec2f117a82
-        bcec67e8e99cabfa7764d75ad9b158d72bfacf70ca1d0ec8bc6b4406d1bf8413
-        c00aae8461a256275598500ea0e187588c35a5d5d7454fb57eac18d9edb86a56
-        d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
-      key-threshold: 3
-    EOF
-    cabal v2-update cardano-haskell-packages
-    cp -r $HOME/.cabal/packages/cardano-haskell-packages $out
-  '';
+  bootstrappedChap =
+    pkgs.runCommand "cabal-bootstrap-cardano-haskell-packages" {
+      nativeBuildInputs = [ haskell-nix.nix-tools.exes.cabal ]
+        ++ haskell-nix.cabal-issue-8352-workaround;
+    } ''
+      HOME=$(mktemp -d)
+      mkdir -p $HOME/.cabal/packages/cardano-haskell-packages
+      cat <<EOF > $HOME/.cabal/config
+      repository cardano-haskell-packages
+        url: file:${chap}
+        secure: True
+        root-keys:
+          3e0cce471cf09815f930210f7827266fd09045445d65923e6d0238a6cd15126f
+          443abb7fb497a134c343faf52f0b659bd7999bc06b7f63fa76dc99d631f9bea1
+          a86a1f6ce86c449c46666bda44268677abf29b5b2d2eb5ec7af903ec2f117a82
+          bcec67e8e99cabfa7764d75ad9b158d72bfacf70ca1d0ec8bc6b4406d1bf8413
+          c00aae8461a256275598500ea0e187588c35a5d5d7454fb57eac18d9edb86a56
+          d4a35cd3121aa00d18544bb0ac01c3e1691d618f462c46129271bccf39f7e8ee
+        key-threshold: 3
+      EOF
+      cabal v2-update cardano-haskell-packages
+      cp -r $HOME/.cabal/packages/cardano-haskell-packages $out
+    '';
 
   # --- Merged CABAL_DIR ----------------------------------------------------
   dotCabal = pkgs.runCommand "dot-cabal-wasm" {
@@ -154,7 +153,7 @@ let
     [ "exposed-modules" "other-modules" "autogen-modules" "signatures" ];
 
   isCabalFieldLine = line:
-    builtins.match "[ \t]*[A-Za-z][A-Za-z0-9-]*:.*" line != null;
+    builtins.match "[ 	]*[A-Za-z][A-Za-z0-9-]*:.*" line != null;
   # Structural lines that carry NO colon (so they are NOT field lines) but
   # MUST still terminate a module-inventory skip: stanza headers (`library`,
   # `executable foo`, `test-suite t`, …) and conditional headers (`if …`,
@@ -169,64 +168,56 @@ let
   # The native build never runs this stripper, so both only bite on wasm.
   isStanzaHeader = line:
     builtins.match
-      ("[ \t]*(library|executable|test-suite|benchmark|foreign-library"
-       + "|flag|common|source-repository|if|else)([ \t].*)?")
-      line != null;
+    ("[ 	]*(library|executable|test-suite|benchmark|foreign-library"
+      + "|flag|common|source-repository|if|else)([ 	].*)?") line != null;
   isModuleInventoryField = line:
-    lib.any
-      (field: builtins.match "[ \t]*${field}:.*" line != null)
-      moduleInventoryFields;
+    lib.any (field: builtins.match "[ 	]*${field}:.*" line != null)
+    moduleInventoryFields;
   stripModuleInventory = text:
     let
       step = state: line:
-        if isModuleInventoryField line then
-          { skipping = true; lines = state.lines; }
-        else if state.skipping
-             && !(isCabalFieldLine line)
-             && !(isStanzaHeader line) then
+        if isModuleInventoryField line then {
+          skipping = true;
+          lines = state.lines;
+        } else if state.skipping && !(isCabalFieldLine line)
+        && !(isStanzaHeader line) then
           state
-        else
-          { skipping = false; lines = state.lines ++ [ line ]; };
-      result =
-        builtins.foldl' step { skipping = false; lines = []; }
-          (lib.splitString "\n" text);
+        else {
+          skipping = false;
+          lines = state.lines ++ [ line ];
+        };
+      result = builtins.foldl' step {
+        skipping = false;
+        lines = [ ];
+      } (lib.splitString "\n" text);
     in lib.concatStringsSep "\n" result.lines;
 
   collectMetadataFiles = prefix: path:
-    lib.concatLists (
-      lib.mapAttrsToList
-        (name: type:
-          let
-            relPath = if prefix == "" then name else "${prefix}/${name}";
-            childPath = path + "/${name}";
-          in
-          if type == "directory" then
-            if builtins.elem name sourceTreeNames
-            then []
-            else collectMetadataFiles relPath childPath
-          else if relPath == projectFile
-               || relPath == "cabal.project"
-               || lib.hasSuffix ".cabal" name
-          then [ { inherit relPath; path = childPath; } ]
-          else []
-        )
-        (builtins.readDir path)
-    );
+    lib.concatLists (lib.mapAttrsToList (name: type:
+      let
+        relPath = if prefix == "" then name else "${prefix}/${name}";
+        childPath = path + "/${name}";
+      in if type == "directory" then
+        if builtins.elem name sourceTreeNames then
+          [ ]
+        else
+          collectMetadataFiles relPath childPath
+      else if relPath == projectFile || relPath == "cabal.project"
+      || lib.hasSuffix ".cabal" name then [{
+        inherit relPath;
+        path = childPath;
+      }] else
+        [ ]) (builtins.readDir path));
 
-  metadataFiles =
-    map
-      (file:
-        let
-          rawText = builtins.readFile file.path;
-        in
-        {
-          inherit (file) relPath;
-          text =
-            if lib.hasSuffix ".cabal" file.relPath
-            then stripModuleInventory rawText
-            else rawText;
-        })
-      (collectMetadataFiles "" src);
+  metadataFiles = map (file:
+    let rawText = builtins.readFile file.path;
+    in {
+      inherit (file) relPath;
+      text = if lib.hasSuffix ".cabal" file.relPath then
+        stripModuleInventory rawText
+      else
+        rawText;
+    }) (collectMetadataFiles "" src);
 
   # Names of the LOCAL packages (those whose .cabal lives in `src`, as
   # opposed to the source-repository-package forks). prebuiltDeps builds
@@ -235,35 +226,27 @@ let
   # from the .cabal `name:` field so the purge is version- and
   # repo-agnostic (the previous hardcoded `*-0.1.0.0` glob silently missed
   # any local package not at version 0.1.0.0).
-  localPackageNames =
-    let
-      nameOf = text:
-        let
-          matches =
-            lib.filter (m: m != null)
-              (map
-                (l: builtins.match "[ \t]*[Nn]ame:[ \t]*([A-Za-z0-9_-]+).*" l)
-                (lib.splitString "\n" text));
-        in if matches == [] then null else builtins.head (builtins.head matches);
-    in
-    lib.unique (lib.filter (n: n != null)
-      (map (file: nameOf file.text)
-        (lib.filter (file: lib.hasSuffix ".cabal" file.relPath) metadataFiles)));
+  localPackageNames = let
+    nameOf = text:
+      let
+        matches = lib.filter (m: m != null)
+          (map (l: builtins.match "[ 	]*[Nn]ame:[ 	]*([A-Za-z0-9_-]+).*" l)
+            (lib.splitString "\n" text));
+      in if matches == [ ] then null else builtins.head (builtins.head matches);
+  in lib.unique (lib.filter (n: n != null) (map (file: nameOf file.text)
+    (lib.filter (file: lib.hasSuffix ".cabal" file.relPath) metadataFiles)));
 
-  srcMetadata = pkgs.runCommand sandboxName {} (
-    lib.concatMapStringsSep "\n"
-      (file:
-        let
-          dir = builtins.dirOf file.relPath;
-          fileText = pkgs.writeText
-            "wasm-dependency-metadata-${builtins.baseNameOf file.relPath}"
-            file.text;
-        in ''
-          mkdir -p "$out/${dir}"
-          cp ${fileText} "$out/${file.relPath}"
-        '')
-      metadataFiles
-  );
+  srcMetadata = pkgs.runCommand sandboxName { } (lib.concatMapStringsSep "\n"
+    (file:
+      let
+        dir = builtins.dirOf file.relPath;
+        fileText = pkgs.writeText
+          "wasm-dependency-metadata-${builtins.baseNameOf file.relPath}"
+          file.text;
+      in ''
+        mkdir -p "$out/${dir}"
+        cp ${fileText} "$out/${file.relPath}"
+      '') metadataFiles);
 
   # Rewrap src under the same hardcoded `sandboxName`, so the wasm
   # derivation extracts to `/build/${sandboxName}` and matches the path
@@ -271,7 +254,7 @@ let
   # hash still tracks the real src content (so .hs edits properly
   # rebuild the wasm phase), but its `name` is constant — which keeps
   # prebuiltDeps' sandbox path in sync.
-  renamedSrc = pkgs.runCommand sandboxName {} ''
+  renamedSrc = pkgs.runCommand sandboxName { } ''
     mkdir -p $out
     cp -rL ${src}/. $out/
   '';
@@ -282,7 +265,9 @@ let
   # Adding every fork from forks.json globally would force unrelated packages
   # (plutus-core, etc.) into the solver as user goals.
   fetchFork = name:
-    let pin = forks.pins.${name} or (throw "Unknown fork '${name}'; check nix/wasm/forks.json");
+    let
+      pin = forks.pins.${name} or (throw
+        "Unknown fork '${name}'; check nix/wasm/forks.json");
     in pkgs.fetchgit {
       url = pin.location;
       rev = pin.rev;
@@ -291,55 +276,54 @@ let
 
   prefetchedForks = lib.genAttrs srpForks fetchFork;
 
-  forkPackageLines = lib.concatLists (
-    map (name:
-      let pin = forks.pins.${name};
-      in if pin.subdirs == []
-         then [ "  ${prefetchedForks.${name}}" ]
-         else map (sub: "  ${prefetchedForks.${name}}/${sub}") pin.subdirs
-    ) srpForks
-  );
+  forkPackageLines = lib.concatLists (map (name:
+    let pin = forks.pins.${name};
+    in if pin.subdirs == [ ] then
+      [ "  ${prefetchedForks.${name}}" ]
+    else
+      map (sub: "  ${prefetchedForks.${name}}/${sub}") pin.subdirs) srpForks);
 
-  forkPackagesBlock =
-    if forkPackageLines == [] then ""
-    else "packages:\n" + lib.concatStringsSep "\n" forkPackageLines + "\n";
+  forkPackagesBlock = if forkPackageLines == [ ] then
+    ""
+  else
+    ''
+      packages:
+    '' + lib.concatStringsSep "\n" forkPackageLines + "\n";
 
-  cLibs =
-    if withCLibs
-    then
-      assert lib.assertMsg (wasiSdk != null) ''
-        mkCardanoLedgerWasm: withCLibs = true requires wasiSdk (use
-        ghc-wasm-meta.packages.<sys>.wasi-sdk).
-      '';
-      import ./c-libs {
-        inherit pkgs;
-        wasi-sdk = wasiSdk;
-      }
-    else null;
+  cLibs = if withCLibs then
+    assert lib.assertMsg (wasiSdk != null) ''
+      mkCardanoLedgerWasm: withCLibs = true requires wasiSdk (use
+      ghc-wasm-meta.packages.<sys>.wasi-sdk).
+    '';
+    import ./c-libs {
+      inherit pkgs;
+      wasi-sdk = wasiSdk;
+    }
+  else
+    null;
 
-  cLibsInputs = if cLibs == null then [] else cLibs.all ++ [ pkgs.pkg-config ];
+  cLibsInputs = if cLibs == null then [ ] else cLibs.all ++ [ pkgs.pkg-config ];
   cLibsPkgConfigPath = if cLibs == null then "" else cLibs.pkgConfigPath;
 
   # cabal's --extra-lib-dirs / --extra-include-dirs so cardano-crypto-class's
   # configure step finds blst/secp256k1/libsodium via the linker and headers.
-  cLibsExtraLibDirs =
-    if cLibs == null then []
-    else [
-      "${cLibs.libsodium}/lib"
-      "${cLibs.secp256k1}/lib"
-      "${cLibs.blst}/lib"
-    ];
-  cLibsExtraIncludeDirs =
-    if cLibs == null then []
-    else [
-      "${cLibs.libsodium}/include"
-      "${cLibs.secp256k1.dev}/include"
-      "${cLibs.blst}/include"
-    ];
-  cabalExtraDirsArgs = lib.concatStringsSep " " (
-    (map (d: "--extra-lib-dirs=${d}") cLibsExtraLibDirs) ++
-    (map (d: "--extra-include-dirs=${d}") cLibsExtraIncludeDirs)
-  );
+  cLibsExtraLibDirs = if cLibs == null then
+    [ ]
+  else [
+    "${cLibs.libsodium}/lib"
+    "${cLibs.secp256k1}/lib"
+    "${cLibs.blst}/lib"
+  ];
+  cLibsExtraIncludeDirs = if cLibs == null then
+    [ ]
+  else [
+    "${cLibs.libsodium}/include"
+    "${cLibs.secp256k1.dev}/include"
+    "${cLibs.blst}/include"
+  ];
+  cabalExtraDirsArgs = lib.concatStringsSep " "
+    ((map (d: "--extra-lib-dirs=${d}") cLibsExtraLibDirs)
+      ++ (map (d: "--extra-include-dirs=${d}") cLibsExtraIncludeDirs));
 
   deps = pkgs.stdenv.mkDerivation {
     pname = "cardano-ledger-wasm-deps";
@@ -354,7 +338,8 @@ let
       mkdir -p $HOME
       export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
       export CURL_CA_BUNDLE=$SSL_CERT_FILE
-      ${lib.optionalString (cLibs != null) "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
+      ${lib.optionalString (cLibs != null)
+      "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
 
       export CABAL_DIR=$NIX_BUILD_TOP/cabal
       mkdir -p $CABAL_DIR
@@ -404,7 +389,8 @@ let
     configurePhase = ''
       export HOME=$NIX_BUILD_TOP/home
       mkdir -p $HOME
-      ${lib.optionalString (cLibs != null) "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
+      ${lib.optionalString (cLibs != null)
+      "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
 
       export CABAL_DIR=$NIX_BUILD_TOP/cabal
       mkdir -p $CABAL_DIR
@@ -422,7 +408,8 @@ let
 
     buildPhase = ''
       export CABAL_DIR=$NIX_BUILD_TOP/cabal
-      ${lib.optionalString (cLibs != null) "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
+      ${lib.optionalString (cLibs != null)
+      "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
       wasm32-wasi-cabal --project-file=${projectFile} build \
         --only-dependencies \
         ${cabalExtraDirsArgs} \
@@ -456,7 +443,8 @@ let
     configurePhase = ''
       export HOME=$NIX_BUILD_TOP/home
       mkdir -p $HOME
-      ${lib.optionalString (cLibs != null) "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
+      ${lib.optionalString (cLibs != null)
+      "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
 
       export CABAL_DIR=$NIX_BUILD_TOP/cabal
       mkdir -p $CABAL_DIR
@@ -498,7 +486,8 @@ let
 
     buildPhase = ''
       export CABAL_DIR=$NIX_BUILD_TOP/cabal
-      ${lib.optionalString (cLibs != null) "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
+      ${lib.optionalString (cLibs != null)
+      "export PKG_CONFIG_PATH=${cLibsPkgConfigPath}"}
       wasm32-wasi-cabal --project-file=${projectFile} build \
         ${cabalExtraDirsArgs} \
         ${buildTargetsArg}
@@ -517,5 +506,4 @@ let
       forks = forks;
     };
   };
-in
-wasm
+in wasm

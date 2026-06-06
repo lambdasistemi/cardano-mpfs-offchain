@@ -46,8 +46,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
-import Data.Foldable (toList)
+import Data.Foldable (toList, traverse_)
 import Data.Functor (($>))
+import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -93,12 +94,27 @@ import Cardano.Ledger.Address
 import Cardano.Ledger.Api.Tx
     ( bodyTxL
     , txIdTx
+    , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( mintTxBodyL
+    ( feeTxBodyL
+    , mintTxBodyL
     , outputsTxBodyL
     )
-import Cardano.Ledger.BaseTypes (Network (..), TxIx (..))
+import Cardano.Ledger.Api.Tx.Out
+    ( coinTxOutL
+    , getMinCoinTxOut
+    , mkBasicTxOut
+    )
+import Cardano.Ledger.Api.Tx.Wits
+    ( Redeemers (..)
+    , rdmrsTxWitsL
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
+    , Network (..)
+    , TxIx (..)
+    )
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
@@ -126,36 +142,46 @@ import Cardano.MPFS.API.Types
     , RequestDeleteFacts
     , RequestInsertFacts
     , RequestUpdateFacts
+    , RequestsResponse (..)
     , RetractFacts
     , RetractRequest (..)
     , StatusResponse (..)
+    , TxInJSON (..)
     , UpdateRequest (..)
     , UpdateValueRequest (..)
+    , WitnessedRequest (..)
+    , WitnessedUtxo (..)
     )
 import Cardano.MPFS.API.Types.Common
     ( TokenIdJSON (..)
+    , UtxoEntry (..)
+    , UtxoRef (..)
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.API.Types.Facts
-    ( RejectFacts
-    , UpdateFacts
+    ( RejectFacts (..)
+    , UpdateFacts (..)
     )
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
     )
-import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
-import Cardano.MPFS.Client.Cage.End (endCageTx)
+import Cardano.MPFS.Client.Cage.End (endCageTxWithEval)
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , decodeEvalContext
+    )
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
-import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Request
     ( requestDeleteCageTx
     , requestInsertCageTx
     , requestUpdateCageTx
     )
-import Cardano.MPFS.Client.Cage.Retract (retractCageTx)
-import Cardano.MPFS.Client.Cage.Update (updateCageTx)
+import Cardano.MPFS.Client.Cage.Retract (retractCageTxWithEval)
+import Cardano.MPFS.Client.Cage.Update (updateCageTxWithEval)
 import Cardano.MPFS.Client.Facts
     ( FactAbsentFacts (..)
     , FactPresentFacts (..)
@@ -178,6 +204,7 @@ import Cardano.MPFS.Core.Blueprint
     )
 import Cardano.MPFS.Core.OnChain
     ( CageDatum (..)
+    , OnChainRequest (..)
     , OnChainRoot (..)
     , OnChainTokenState (..)
     )
@@ -239,33 +266,36 @@ matrixSpec scripts =
         $ \cfg ctx -> do
             let app = mkApp ctx
             tokenId <- runBootRow cfg ctx app
-            runRequestInsertRow
-                cfg
-                ctx
-                app
-                tokenId
-                matrixInsertKey
-                matrixInsertValue
-            runUpdateRow cfg ctx app tokenId
+            insertBuffer <-
+                runRequestInsertRow
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                    matrixInsertKey
+                    matrixInsertValue
+            runUpdateRow cfg ctx app tokenId (Just insertBuffer)
             factIndexed app tokenId matrixInsertKey
-            runRequestUpdateRow
-                cfg
-                ctx
-                app
-                tokenId
-                matrixInsertKey
-                matrixInsertValue
-                matrixUpdatedValue
-            runUpdateRow cfg ctx app tokenId
+            updateBuffer <-
+                runRequestUpdateRow
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                    matrixInsertKey
+                    matrixInsertValue
+                    matrixUpdatedValue
+            runUpdateRow cfg ctx app tokenId (Just updateBuffer)
             factIndexed app tokenId matrixInsertKey
-            runRequestDeleteRow
-                cfg
-                ctx
-                app
-                tokenId
-                matrixInsertKey
-                matrixUpdatedValue
-            runUpdateRow cfg ctx app tokenId
+            deleteBuffer <-
+                runRequestDeleteRow
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                    matrixInsertKey
+                    matrixUpdatedValue
+            runUpdateRow cfg ctx app tokenId (Just deleteBuffer)
             factAbsent app tokenId matrixInsertKey
             -- Retract row: re-insert a fresh request to
             -- have something to retract, then exercise the
@@ -287,6 +317,10 @@ matrixSpec scripts =
                 tokenId
                 matrixRejectKey
                 matrixRejectValue
+            subsetUpdateTokenId <- runBootRow cfg ctx app
+            runUpdateSubsetRow cfg ctx app subsetUpdateTokenId
+            subsetRejectTokenId <- runBootRow cfg ctx app
+            runRejectSubsetRow cfg ctx app subsetRejectTokenId
             -- End requires an empty request set, but
             -- driving boot+insert+process+delete+process
             -- on a single token exhausts the wallet's
@@ -326,6 +360,20 @@ matrixRejectKey = "matrix-reject-key"
 matrixRejectValue :: ByteString
 matrixRejectValue = "matrix-reject-value"
 
+matrixSubsetUpdateRequests :: [(ByteString, ByteString)]
+matrixSubsetUpdateRequests =
+    [ ("subset-update-a", "value-a")
+    , ("subset-update-b", "value-b")
+    , ("subset-update-c", "value-c")
+    ]
+
+matrixSubsetRejectRequests :: [(ByteString, ByteString)]
+matrixSubsetRejectRequests =
+    [ ("subset-reject-a", "value-a")
+    , ("subset-reject-b", "value-b")
+    , ("subset-reject-c", "value-c")
+    ]
+
 -- ---------------------------------------------------------
 -- Row helpers
 -- ---------------------------------------------------------
@@ -346,8 +394,10 @@ runBootRow cfg ctx app = do
                     )
                     *> error "unreachable"
             Right value -> pure value
+    evalCtx <- decodedEvalContext ctx
     unsigned <-
-        case bootCageTx
+        case bootCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             verified of
@@ -356,6 +406,7 @@ runBootRow cfg ctx app = do
                     ("boot row: bootCageTx failed: " <> show err)
                     *> error "unreachable"
             Right tx -> pure tx
+    assertRealisticFee "boot row" unsigned
     let signed = addKeyWitness genesisSignKey unsigned
         tokenId = extractTokenId cfg signed
     result <- submitTx (submitter ctx) signed
@@ -375,7 +426,7 @@ runRequestInsertRow
     -> TokenId
     -> ByteString
     -> ByteString
-    -> IO ()
+    -> IO Coin
 runRequestInsertRow cfg ctx app tokenId key value = do
     trusted <- waitForTrustedRoot app
     facts <- postRequestInsertFacts app tokenId key value genesisAddr
@@ -402,11 +453,17 @@ runRequestInsertRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    feeCapacity <-
+        requestFeeCapacity
+            ctx
+            "insert row request buffer"
+            unsigned
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "insert row" result
     awaitTx app (txIdTx signed)
     pendingRequestsNonEmpty app tokenId
+    pure feeCapacity
 
 -- | Request-update row:
 -- @POST \/facts\/request\/update \-> verifyRequestUpdateFacts
@@ -421,7 +478,7 @@ runRequestUpdateRow
     -> ByteString
     -> ByteString
     -> ByteString
-    -> IO ()
+    -> IO Coin
 runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
     trusted <- waitForTrustedRoot app
     facts <-
@@ -455,11 +512,17 @@ runRequestUpdateRow cfg ctx app tokenId key oldValue newValue = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    feeCapacity <-
+        requestFeeCapacity
+            ctx
+            "update request row request buffer"
+            unsigned
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "update request row" result
     awaitTx app (txIdTx signed)
     pendingRequestsNonEmpty app tokenId
+    pure feeCapacity
 
 -- | Request-delete row:
 -- @POST \/facts\/request\/delete \-> verifyRequestDeleteFacts
@@ -474,7 +537,7 @@ runRequestDeleteRow
     -> TokenId
     -> ByteString
     -> ByteString
-    -> IO ()
+    -> IO Coin
 runRequestDeleteRow cfg ctx app tokenId key value = do
     trusted <- waitForTrustedRoot app
     facts <- postRequestDeleteFacts app tokenId key value genesisAddr
@@ -501,18 +564,29 @@ runRequestDeleteRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    feeCapacity <-
+        requestFeeCapacity
+            ctx
+            "delete row request buffer"
+            unsigned
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "delete row" result
     awaitTx app (txIdTx signed)
     pendingRequestsNonEmpty app tokenId
+    pure feeCapacity
 
 -- | Update row: @POST \/facts\/update \->
 -- verifyUpdateFacts \-> updateCageTx \-> submit \->
 -- expected trie root indexed@.
 runUpdateRow
-    :: CageConfig -> Context IO -> Application -> TokenId -> IO ()
-runUpdateRow cfg ctx app tokenId = do
+    :: CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> Maybe Coin
+    -> IO ()
+runUpdateRow cfg ctx app tokenId expectedFeeCapacity = do
     trusted <- waitForTrustedRoot app
     facts <- postUpdateFacts app tokenId genesisAddr
     verified <-
@@ -524,8 +598,10 @@ runUpdateRow cfg ctx app tokenId = do
                     )
                     *> error "unreachable"
             Right value -> pure value
+    evalCtx <- decodedEvalContext ctx
     unsigned <-
-        case updateCageTx
+        case updateCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             verified of
@@ -534,6 +610,15 @@ runUpdateRow cfg ctx app tokenId = do
                     ("update row: updateCageTx failed: " <> show err)
                     *> error "unreachable"
             Right tx -> pure tx
+    assertRealisticFee "update row" unsigned
+    traverse_
+        ( \feeCapacity ->
+            assertRequestBufferCovers
+                "update row request buffer"
+                feeCapacity
+                unsigned
+        )
+        expectedFeeCapacity
     expectedRoot <- expectedUpdateRoot unsigned
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
@@ -634,8 +719,10 @@ runRetractRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right v -> pure v
+    evalCtx <- decodedEvalContext ctx
     retractTx <-
-        case retractCageTx
+        case retractCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             retractVerified of
@@ -646,6 +733,7 @@ runRetractRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    assertRealisticFee "retract row" retractTx
     let signedRetract =
             addKeyWitness genesisSignKey retractTx
     retractResult <-
@@ -702,6 +790,11 @@ runRejectRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    rejectFeeCapacity <-
+        requestFeeCapacity
+            ctx
+            "reject row request buffer"
+            insertTx
     let signedInsert = addKeyWitness genesisSignKey insertTx
         insertTxId = txIdTx signedInsert
     insertResult <-
@@ -727,8 +820,10 @@ runRejectRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right v -> pure v
+    evalCtx <- decodedEvalContext ctx
     rejectTx <-
-        case rejectCageTx
+        case rejectCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             rejectVerified of
@@ -739,12 +834,167 @@ runRejectRow cfg ctx app tokenId key value = do
                     )
                     *> error "unreachable"
             Right tx -> pure tx
+    assertRealisticFee "reject row" rejectTx
+    assertRequestBufferCovers
+        "reject row request buffer"
+        rejectFeeCapacity
+        rejectTx
     let signedReject = addKeyWitness genesisSignKey rejectTx
     rejectResult <-
         submitTx (submitter ctx) signedReject
     assertSubmitted "reject row submit" rejectResult
     awaitTx app (txIdTx signedReject)
     pendingRequestsEmpty app tokenId
+
+-- | Strict-subset update row: submit three pending requests, ask
+-- @/facts/update@ for exactly two refs, and prove only those two are
+-- swept while the unselected request remains pending.
+runUpdateSubsetRow
+    :: CageConfig -> Context IO -> Application -> TokenId -> IO ()
+runUpdateSubsetRow cfg ctx app tokenId = do
+    reqIns <-
+        mapM
+            ( uncurry
+                ( submitInsertRequest
+                    "strict subset update"
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                )
+            )
+            matrixSubsetUpdateRequests
+    (selectedRefs, leftoverRef) <-
+        case reqIns of
+            [first, leftover, third] ->
+                pure
+                    ( map txInToHashIx [first, third]
+                    , txInToHashIx leftover
+                    )
+            _ ->
+                expectationFailure
+                    "strict subset update: expected three request refs"
+                    *> error "unreachable"
+    assertPendingRequestRefs app tokenId (map txInToHashIx reqIns)
+    trusted <- waitForTrustedRoot app
+    facts <- postUpdateFactsWithRefs app tokenId genesisAddr selectedRefs
+    assertUtxoEntryRefs
+        "strict subset update facts"
+        selectedRefs
+        (ufRequestUtxos facts)
+    verified <-
+        case verifyUpdateFacts trusted facts of
+            Left err ->
+                expectationFailure
+                    ( "strict subset update: verifyUpdateFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right value -> pure value
+    evalCtx <- decodedEvalContext ctx
+    unsigned <-
+        case updateCageTxWithEval
+            evalCtx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                expectationFailure
+                    ( "strict subset update: updateCageTxWithEval \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    assertRedeemerCount
+        "strict subset update"
+        (1 + length selectedRefs)
+        unsigned
+    assertRealisticFee "strict subset update" unsigned
+    expectedRoot <- expectedUpdateRoot unsigned
+    let signed = addKeyWitness genesisSignKey unsigned
+    result <- submitTx (submitter ctx) signed
+    assertSubmitted "strict subset update" result
+    awaitTx app (txIdTx signed)
+    assertPendingRequestRefs app tokenId [leftoverRef]
+    factIndexed app tokenId "subset-update-a"
+    factIndexed app tokenId "subset-update-c"
+    factAbsent app tokenId "subset-update-b"
+    tokenRootIndexed app tokenId expectedRoot
+
+-- | Strict-subset reject row: submit three pending requests, wait for
+-- Phase 3, reject exactly two refs, and assert the unselected request
+-- stays pending.
+runRejectSubsetRow
+    :: CageConfig -> Context IO -> Application -> TokenId -> IO ()
+runRejectSubsetRow cfg ctx app tokenId = do
+    reqIns <-
+        mapM
+            ( uncurry
+                ( submitInsertRequest
+                    "strict subset reject"
+                    cfg
+                    ctx
+                    app
+                    tokenId
+                )
+            )
+            matrixSubsetRejectRequests
+    (selectedRefs, leftoverRef) <-
+        case reqIns of
+            [first, leftover, third] ->
+                pure
+                    ( map txInToHashIx [first, third]
+                    , txInToHashIx leftover
+                    )
+            _ ->
+                expectationFailure
+                    "strict subset reject: expected three request refs"
+                    *> error "unreachable"
+    assertPendingRequestRefs app tokenId (map txInToHashIx reqIns)
+    threadDelay 11_000_000
+    trusted <- waitForTrustedRoot app
+    facts <- postRejectFactsWithRefs app tokenId genesisAddr selectedRefs
+    assertUtxoEntryRefs
+        "strict subset reject facts"
+        selectedRefs
+        (rfRequestUtxos facts)
+    verified <-
+        case verifyRejectFacts trusted facts of
+            Left err ->
+                expectationFailure
+                    ( "strict subset reject: verifyRejectFacts \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right value -> pure value
+    evalCtx <- decodedEvalContext ctx
+    unsigned <-
+        case rejectCageTxWithEval
+            evalCtx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                expectationFailure
+                    ( "strict subset reject: rejectCageTxWithEval \
+                      \failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    assertRedeemerCount
+        "strict subset reject"
+        (1 + length selectedRefs)
+        unsigned
+    assertRealisticFee "strict subset reject" unsigned
+    let signed = addKeyWitness genesisSignKey unsigned
+    result <- submitTx (submitter ctx) signed
+    assertSubmitted "strict subset reject" result
+    awaitTx app (txIdTx signed)
+    assertPendingRequestRefs app tokenId [leftoverRef]
 
 -- | End row: @POST \/facts\/end \-> verifyEndFacts \->
 -- endCageTx \-> submit \-> token removed@.
@@ -765,8 +1015,10 @@ runEndRow cfg ctx app tokenId = do
                     )
                     *> error "unreachable"
             Right value' -> pure value'
+    evalCtx <- decodedEvalContext ctx
     unsigned <-
-        case endCageTx
+        case endCageTxWithEval
+            evalCtx
             (toClientCageConfig cfg)
             permissiveWalletPolicy
             verified of
@@ -775,11 +1027,54 @@ runEndRow cfg ctx app tokenId = do
                     ("end row: endCageTx failed: " <> show err)
                     *> error "unreachable"
             Right tx -> pure tx
+    assertRealisticFee "end row" unsigned
     let signed = addKeyWitness genesisSignKey unsigned
     result <- submitTx (submitter ctx) signed
     assertSubmitted "end row" result
     awaitTx app (txIdTx signed)
     tokenRemoved app tokenId
+
+submitInsertRequest
+    :: String
+    -> CageConfig
+    -> Context IO
+    -> Application
+    -> TokenId
+    -> ByteString
+    -> ByteString
+    -> IO TxIn
+submitInsertRequest label cfg ctx app tokenId key value = do
+    trusted <- waitForTrustedRoot app
+    facts <- postRequestInsertFacts app tokenId key value genesisAddr
+    verified <-
+        case verifyRequestInsertFacts trusted facts of
+            Left err ->
+                expectationFailure
+                    ( label
+                        <> ": verifyRequestInsertFacts failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right v -> pure v
+    unsigned <-
+        case requestInsertCageTx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                expectationFailure
+                    ( label
+                        <> ": requestInsertCageTx failed: "
+                        <> show err
+                    )
+                    *> error "unreachable"
+            Right tx -> pure tx
+    let signed = addKeyWitness genesisSignKey unsigned
+        tid = txIdTx signed
+    result <- submitTx (submitter ctx) signed
+    assertSubmitted (label <> " insert") result
+    awaitTx app tid
+    pure (TxIn tid (TxIx 0))
 
 -- | Live-boundary check: every migrated facts endpoint has
 -- a replaced legacy @\/tx\/*@ route. POSTing to any of them
@@ -913,12 +1208,18 @@ postRequestUpdateFacts app tokenId key oldValue newValue addr =
 postUpdateFacts
     :: Application -> TokenId -> Addr -> IO UpdateFacts
 postUpdateFacts app tokenId addr =
+    postUpdateFactsWithRefs app tokenId addr []
+
+postUpdateFactsWithRefs
+    :: Application -> TokenId -> Addr -> [Text] -> IO UpdateFacts
+postUpdateFactsWithRefs app tokenId addr refs =
     postFactsRequest
         app
         "/facts/update"
         UpdateRequest
             { urToken = tokenIdJSON tokenId
             , urAddr = Hex (serialiseAddr addr)
+            , urRequests = refs
             }
         "update row"
         "UpdateFacts"
@@ -952,12 +1253,18 @@ postRetractFacts app reqTxIn addr =
 postRejectFacts
     :: Application -> TokenId -> Addr -> IO RejectFacts
 postRejectFacts app tokenId addr =
+    postRejectFactsWithRefs app tokenId addr []
+
+postRejectFactsWithRefs
+    :: Application -> TokenId -> Addr -> [Text] -> IO RejectFacts
+postRejectFactsWithRefs app tokenId addr refs =
     postFactsRequest
         app
         "/facts/reject"
         RejectRequest
             { rejToken = tokenIdJSON tokenId
             , rejAddr = Hex (serialiseAddr addr)
+            , rejRequests = refs
             }
         "reject row"
         "RejectFacts"
@@ -980,7 +1287,15 @@ postFactsRequest
     -> IO res
 postFactsRequest app path body label resName = do
     resp <- postJson app path body
-    simpleStatus resp `shouldBe` status200
+    when (simpleStatus resp /= status200)
+        $ expectationFailure
+        $ label
+            <> ": "
+            <> show path
+            <> " returned "
+            <> show (simpleStatus resp)
+            <> " body="
+            <> show (simpleBody resp)
     case eitherDecode (simpleBody resp) of
         Left err ->
             expectationFailure
@@ -1094,6 +1409,69 @@ pendingRequestsEmpty app tokenId = do
                 | null rs -> Just ()
                 | otherwise -> Nothing
             Left _ -> Nothing
+
+assertPendingRequestRefs
+    :: Application -> TokenId -> [Text] -> IO ()
+assertPendingRequestRefs app tokenId expected = do
+    mDone <-
+        pollUntilJust 60 $ do
+            refs <- requestRefs app tokenId
+            if sort refs == sort expected
+                then pure (Just ())
+                else pure Nothing
+    case mDone of
+        Just () -> pure ()
+        Nothing -> do
+            actual <- requestRefs app tokenId
+            expectationFailure
+                ( "pending request refs mismatch: expected "
+                    <> show (sort expected)
+                    <> ", got "
+                    <> show (sort actual)
+                )
+
+requestRefs :: Application -> TokenId -> IO [Text]
+requestRefs app tokenId = do
+    resp <-
+        get app
+            $ "/tokens/"
+                <> tokenIdHex tokenId
+                <> "/requests"
+    simpleStatus resp `shouldBe` status200
+    case eitherDecode (simpleBody resp) of
+        Left err ->
+            expectationFailure
+                ("requests response decode failed: " <> err)
+                *> error "unreachable"
+        Right RequestsResponse{rrRequests} ->
+            pure (map witnessedRequestRef rrRequests)
+
+witnessedRequestRef :: WitnessedRequest -> Text
+witnessedRequestRef
+    WitnessedRequest
+        { wrUtxo =
+            WitnessedUtxo
+                { wuTxIn =
+                    TxInJSON
+                        { tjTxId = Hex txId
+                        , tjTxIx = ix
+                        }
+                }
+        } =
+        TE.decodeUtf8 (B16.encode txId)
+            <> "#"
+            <> T.pack (show ix)
+
+assertUtxoEntryRefs :: String -> [Text] -> [UtxoEntry] -> IO ()
+assertUtxoEntryRefs _label expected entries = do
+    let actual = map utxoEntryRefText entries
+    length actual `shouldBe` length expected
+    sort actual `shouldBe` sort expected
+  where
+    utxoEntryRefText UtxoEntry{ueRef = UtxoRef{urTxId = Hex txId, urTxIx = ix}} =
+        TE.decodeUtf8 (B16.encode txId)
+            <> "#"
+            <> T.pack (show ix)
 
 -- | Poll @\/tokens\/:id\/root@ until it returns the
 -- expected root.
@@ -1282,6 +1660,98 @@ tokenIdHex (TokenId (AssetName sbs)) =
 txIdHex :: TxId -> ByteString
 txIdHex (TxId sh) =
     B16.encode $ Crypto.hashToBytes $ extractHash sh
+
+decodedEvalContext :: Context IO -> IO DecodedEvalContext
+decodedEvalContext ctx = do
+    wire <- evalContext ctx
+    case decodeEvalContext wire of
+        Left err ->
+            expectationFailure
+                ("eval context decode failed: " <> show err)
+                *> error "unreachable"
+        Right decoded -> pure decoded
+
+assertRealisticFee :: String -> ConwayTx -> IO ()
+assertRealisticFee label tx = do
+    let Coin fee = tx ^. bodyTxL . feeTxBodyL
+    when (fee > realisticScriptFeeUpperBound)
+        $ expectationFailure
+        $ label
+            <> ": fee "
+            <> show fee
+            <> " exceeds realistic hardening bound "
+            <> show realisticScriptFeeUpperBound
+
+realisticScriptFeeUpperBound :: Integer
+realisticScriptFeeUpperBound = 5_000_000
+
+requestFeeCapacity
+    :: Context IO -> String -> ConwayTx -> IO Coin
+requestFeeCapacity ctx label tx = do
+    evalCtx <- decodedEvalContext ctx
+    let pp = evalProtocolParameters evalCtx
+        Coin refundMin =
+            getMinCoinTxOut
+                pp
+                (mkBasicTxOut genesisAddr (inject (Coin 0)))
+        requestOutputs =
+            [ (out ^. coinTxOutL, requestFee req)
+            | out <- toList (tx ^. bodyTxL . outputsTxBodyL)
+            , Just (RequestDatum req) <- [extractCageDatum out]
+            ]
+    case requestOutputs of
+        [(Coin locked, tip)]
+            | locked >= tip + refundMin ->
+                pure (Coin (locked - tip - refundMin))
+            | otherwise ->
+                expectationFailure
+                    ( label
+                        <> ": request output "
+                        <> show locked
+                        <> " below tip+refundMin "
+                        <> show (tip + refundMin)
+                    )
+                    *> error "unreachable"
+        outs ->
+            expectationFailure
+                ( label
+                    <> ": expected one request output, got "
+                    <> show (length outs)
+                )
+                *> error "unreachable"
+
+assertRequestBufferCovers :: String -> Coin -> ConwayTx -> IO ()
+assertRequestBufferCovers label (Coin feeCapacity) tx = do
+    let Coin fee = tx ^. bodyTxL . feeTxBodyL
+    when (fee > feeCapacity)
+        $ expectationFailure
+        $ label
+            <> ": future tx fee "
+            <> show fee
+            <> " exceeds prepaid request buffer "
+            <> show feeCapacity
+    when (feeCapacity > realisticRequestBufferUpperBound)
+        $ expectationFailure
+        $ label
+            <> ": prepaid request buffer "
+            <> show feeCapacity
+            <> " exceeds realistic hardening bound "
+            <> show realisticRequestBufferUpperBound
+
+realisticRequestBufferUpperBound :: Integer
+realisticRequestBufferUpperBound = 5_000_000
+
+assertRedeemerCount :: String -> Int -> ConwayTx -> IO ()
+assertRedeemerCount label expected tx = do
+    let Redeemers redeemers = tx ^. witsTxL . rdmrsTxWitsL
+        actual = Map.size redeemers
+    when (actual /= expected)
+        $ expectationFailure
+        $ label
+            <> ": expected "
+            <> show expected
+            <> " redeemers, got "
+            <> show actual
 
 permissiveWalletPolicy :: WalletPolicy
 permissiveWalletPolicy =

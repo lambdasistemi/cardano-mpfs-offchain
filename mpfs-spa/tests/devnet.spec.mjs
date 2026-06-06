@@ -11,8 +11,10 @@ import {
 test.setTimeout(300_000);
 
 const devnetBaseUrl = process.env.MPFS_DEVNET_BASE_URL;
-const shotsDir = process.env.MPFS_SHOTS_DIR || "/tmp/orch-ui/shots";
+const shotsDir = process.env.MPFS_SHOTS_DIR || "/tmp/orch-ui/shots-integrated";
 const walletBalance = "1b006a94d74f430000";
+const devnetProcessTimeMs = 45_000;
+const devnetRetractTimeMs = 10_000;
 const uiTokenId =
   "9999999999999999999999999999999999999999999999999999999999999999";
 const uiOwnerHash = "11".repeat(28);
@@ -116,6 +118,8 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     update: [],
     delete: [],
     process: [],
+    retract: [],
+    reject: [],
     end: [],
   };
 
@@ -149,7 +153,26 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     .click();
   await expect(page.getByText("Mine", { exact: true })).toBeVisible();
   await expect(page.getByText("No committed facts for this token.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Facts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pending requests" })).toBeVisible();
+  await expect(page.getByText("you can manage this token")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add fact" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "End token" })).toBeVisible();
   await shot(page, "02-token-selected");
+
+  await page.getByLabel("Mine only").click();
+  await page.evaluate((address) => {
+    window.__mpfsWalletAddress = address;
+  }, uiOtherAddressHex);
+  await page.getByRole("button", { name: "Refresh account" }).click();
+  await expect(page.getByText("read-only for this token")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add fact" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "End token" })).toHaveCount(0);
+  await page.evaluate((address) => {
+    window.__mpfsWalletAddress = address;
+  }, devnetGenesisAddressHex);
+  await page.getByRole("button", { name: "Refresh account" }).click();
+  await expect(page.getByText("you can manage this token")).toBeVisible();
 
   await requestInsert(page, submittedTxIds);
   await awaitTx(request, submittedTxIds[1]);
@@ -198,13 +221,86 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
   await expect(page.getByText("No committed facts for this token.")).toBeVisible();
   await shot(page, "08-delete-processed");
 
+  await requestInsertWithKey(page, submittedTxIds, "subset-a", "one", 8);
+  await awaitTx(request, submittedTxIds[7]);
+  const subsetARequestId =
+    await waitForRequest(request, tokenId, "insert", "subset-a", "one");
+  await requestInsertWithKey(page, submittedTxIds, "subset-b", "two", 9);
+  await awaitTx(request, submittedTxIds[8]);
+  const subsetBRequestId =
+    await waitForRequest(request, tokenId, "insert", "subset-b", "two");
+  await requestInsertWithKey(page, submittedTxIds, "subset-c", "three", 10);
+  await awaitTx(request, submittedTxIds[9]);
+  const subsetCRequestId =
+    await waitForRequest(request, tokenId, "insert", "subset-c", "three");
+  await refreshWorkbench(page);
+  await expect(page.getByText("subset-a")).toBeVisible();
+  await shot(page, "09-process-subset-pending");
+
+  await processRequests(page, request, submittedTxIds, 11, [
+    subsetARequestId,
+    subsetCRequestId,
+  ]);
+  await waitForFact(request, tokenId, "subset-a", "one");
+  await waitForFact(request, tokenId, "subset-c", "three");
+  await waitForFactAbsent(request, tokenId, "subset-b");
+  await waitForRequestRefs(request, tokenId, [subsetBRequestId]);
+  await refreshWorkbench(page);
+  await shot(page, "10-process-subset-selected");
+
+  await processRequests(page, request, submittedTxIds, 12, [subsetBRequestId]);
+  await waitForFact(request, tokenId, "subset-b", "two");
+  await waitForRequestRefs(request, tokenId, []);
+
+  await requestInsertWithKey(page, submittedTxIds, "retract-me", "later", 13);
+  await awaitTx(request, submittedTxIds[12]);
+  const retractRequestId =
+    await waitForRequest(request, tokenId, "insert", "retract-me", "later");
+  await waitForRequestPhase(page, retractRequestId, "retractable");
+  await retractRequest(page, request, submittedTxIds, 14, retractRequestId);
+  await waitForRequestRefs(request, tokenId, []);
+  await waitForFactAbsent(request, tokenId, "retract-me");
+  await refreshWorkbench(page);
+  await shot(page, "11-retract-owned");
+
+  await requestInsertWithKey(page, submittedTxIds, "reject-a", "red", 15);
+  await awaitTx(request, submittedTxIds[14]);
+  const rejectARequestId =
+    await waitForRequest(request, tokenId, "insert", "reject-a", "red");
+  await requestInsertWithKey(page, submittedTxIds, "reject-b", "green", 16);
+  await awaitTx(request, submittedTxIds[15]);
+  const rejectBRequestId =
+    await waitForRequest(request, tokenId, "insert", "reject-b", "green");
+  await requestInsertWithKey(page, submittedTxIds, "reject-c", "blue", 17);
+  await awaitTx(request, submittedTxIds[16]);
+  const rejectCRequestId =
+    await waitForRequest(request, tokenId, "insert", "reject-c", "blue");
+  await waitForRequestPhase(page, rejectARequestId, "expired");
+  await waitForRequestPhase(page, rejectBRequestId, "expired");
+  await waitForRequestPhase(page, rejectCRequestId, "expired");
+  await refreshWorkbench(page);
+  await shot(page, "12-reject-subset-pending");
+
+  await rejectRequests(page, request, submittedTxIds, 18, [
+    rejectARequestId,
+    rejectCRequestId,
+  ]);
+  await waitForRequestRefs(request, tokenId, [rejectBRequestId]);
+  await waitForFactAbsent(request, tokenId, "reject-a");
+  await waitForFactAbsent(request, tokenId, "reject-c");
+  await refreshWorkbench(page);
+  await shot(page, "13-reject-subset-selected");
+
+  await rejectRequests(page, request, submittedTxIds, 19, [rejectBRequestId]);
+  await waitForRequestRefs(request, tokenId, []);
+
   await page.getByRole("button", { name: "End token" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "End token" }).click();
-  await waitForSubmitCount(page, submittedTxIds, 8);
-  await awaitTx(request, submittedTxIds[7]);
+  await waitForSubmitCount(page, submittedTxIds, 20);
+  await awaitTx(request, submittedTxIds[19]);
   await waitForTokenGone(request, tokenId);
   await refreshWorkbench(page);
-  await shot(page, "09-ended");
+  await shot(page, "14-ended");
 
   expect(proxiedFacts.boot).toEqual([{ address: devnetGenesisAddressHex }]);
   expect(proxiedFacts.insert).toEqual([
@@ -212,6 +308,48 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
       token: tokenId,
       key: utf8Hex("start"),
       value: utf8Hex("amaru"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("subset-a"),
+      value: utf8Hex("one"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("subset-b"),
+      value: utf8Hex("two"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("subset-c"),
+      value: utf8Hex("three"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("retract-me"),
+      value: utf8Hex("later"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("reject-a"),
+      value: utf8Hex("red"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("reject-b"),
+      value: utf8Hex("green"),
+      address: devnetGenesisAddressHex,
+    },
+    {
+      token: tokenId,
+      key: utf8Hex("reject-c"),
+      value: utf8Hex("blue"),
       address: devnetGenesisAddressHex,
     },
   ]);
@@ -236,13 +374,30 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     { token: tokenId, address: devnetGenesisAddressHex, requests: [insertRequestId] },
     { token: tokenId, address: devnetGenesisAddressHex, requests: [updateRequestId] },
     { token: tokenId, address: devnetGenesisAddressHex, requests: [deleteRequestId] },
+    {
+      token: tokenId,
+      address: devnetGenesisAddressHex,
+      requests: [subsetARequestId, subsetCRequestId],
+    },
+    { token: tokenId, address: devnetGenesisAddressHex, requests: [subsetBRequestId] },
+  ]);
+  expect(proxiedFacts.retract).toEqual([
+    { utxo: retractRequestId, address: devnetGenesisAddressHex },
+  ]);
+  expect(proxiedFacts.reject).toEqual([
+    {
+      token: tokenId,
+      address: devnetGenesisAddressHex,
+      requests: [rejectARequestId, rejectCRequestId],
+    },
+    { token: tokenId, address: devnetGenesisAddressHex, requests: [rejectBRequestId] },
   ]);
   expect(proxiedFacts.end).toEqual([
     { token: tokenId, address: devnetGenesisAddressHex },
   ]);
 
   const signArgs = await page.evaluate(() => window.__signArgs);
-  expect(signArgs).toHaveLength(8);
+  expect(signArgs).toHaveLength(20);
   expect(signArgs.every((arg) => arg.partial === true)).toBe(true);
   expect(signArgs.every((arg) => /^[0-9a-f]+$/.test(arg.tx))).toBe(true);
 
@@ -262,19 +417,53 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     "assemble",
     "update",
     "assemble",
+    "request_insert",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "update",
+    "assemble",
+    "update",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "retract",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "request_insert",
+    "assemble",
+    "reject",
+    "assemble",
+    "reject",
+    "assemble",
     "end",
     "assemble",
   ]);
   expect(reactorCalls.every((call) => call.exitOk)).toBe(true);
-  expect(reactorCalls.filter((call) => call.op === "assemble")).toHaveLength(8);
+  expect(reactorCalls.filter((call) => call.op === "assemble")).toHaveLength(20);
 });
 
 async function requestInsert(page, submittedTxIds) {
+  await requestInsertWithKey(page, submittedTxIds, "start", "amaru", 2);
+}
+
+async function requestInsertWithKey(
+  page,
+  submittedTxIds,
+  key,
+  value,
+  expectedSubmitCount,
+) {
   await page.getByRole("button", { name: "Add fact" }).first().click();
-  await page.getByLabel("Key").fill("start");
-  await page.getByLabel("Value").fill("amaru");
+  await page.getByLabel("Key").fill(key);
+  await page.getByLabel("Value").fill(value);
   await page.getByRole("button", { name: "Request insert" }).click();
-  await waitForSubmitCount(page, submittedTxIds, 2);
+  await waitForSubmitCount(page, submittedTxIds, expectedSubmitCount);
 }
 
 async function processRequests(
@@ -287,9 +476,59 @@ async function processRequests(
   for (const requestId of requestIds) {
     await page.getByRole("checkbox", { name: `Select request ${requestId}` }).check();
   }
-  await page.getByRole("button", { name: "Process selected" }).click();
+  await clickEnabledButton(page, "Process selected");
   await waitForSubmitCount(page, submittedTxIds, expectedSubmitCount);
   await awaitTx(request, submittedTxIds[expectedSubmitCount - 1]);
+}
+
+async function rejectRequests(
+  page,
+  request,
+  submittedTxIds,
+  expectedSubmitCount,
+  requestIds,
+) {
+  for (const requestId of requestIds) {
+    await page.getByRole("checkbox", { name: `Select request ${requestId}` }).check();
+  }
+  await clickEnabledButton(page, "Reject selected");
+  await waitForSubmitCount(page, submittedTxIds, expectedSubmitCount);
+  await awaitTx(request, submittedTxIds[expectedSubmitCount - 1]);
+}
+
+async function retractRequest(
+  page,
+  request,
+  submittedTxIds,
+  expectedSubmitCount,
+  requestId,
+) {
+  await page.getByRole("button", { name: `Retract request ${requestId}` }).click();
+  await waitForSubmitCount(page, submittedTxIds, expectedSubmitCount);
+  await awaitTx(request, submittedTxIds[expectedSubmitCount - 1]);
+}
+
+async function waitForRequestPhase(page, requestId, phase) {
+  const requestPattern = new RegExp(escapeRegExp(requestId));
+  await expect
+    .poll(
+      async () => {
+        await refreshWorkbench(page);
+        const text = await page
+          .getByRole("row", { name: requestPattern })
+          .textContent()
+          .catch(() => "");
+        return text && text.includes(phase) ? phase : text || "";
+      },
+      { timeout: 90_000 },
+    )
+    .toBe(phase);
+}
+
+async function clickEnabledButton(page, name) {
+  const button = page.getByRole("button", { name });
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  await button.evaluate((node) => node.click());
 }
 
 async function refreshWorkbench(page) {
@@ -306,8 +545,11 @@ async function shot(page, name) {
 async function installDevnetWallet(page) {
   await page.exposeFunction("__mpfsSignTx", async (txHex) => signWitnessSet(txHex));
   await page.addInitScript(
-    ({ address, balance, baseUrl }) => {
+    ({ address, balance, baseUrl, processTime, retractTime }) => {
       window.MPFS_BASE_URL = baseUrl;
+      window.MPFS_CAGE_DEFAULT_PROCESS_TIME = String(processTime);
+      window.MPFS_CAGE_DEFAULT_RETRACT_TIME = String(retractTime);
+      window.__mpfsWalletAddress = address;
       try {
         window.localStorage.setItem("mpfs-spa-theme-mode", "light");
       } catch (_error) {
@@ -345,8 +587,8 @@ async function installDevnetWallet(page) {
           icon: "",
           enable: async () => ({
             getNetworkId: async () => 0,
-            getUsedAddresses: async () => [address],
-            getChangeAddress: async () => address,
+            getUsedAddresses: async () => [window.__mpfsWalletAddress],
+            getChangeAddress: async () => window.__mpfsWalletAddress,
             getBalance: async () => balance,
             signTx: async (tx, partial) => {
               window.__signArgs.push({ tx, partial });
@@ -368,6 +610,8 @@ async function installDevnetWallet(page) {
       address: devnetGenesisAddressHex,
       balance: walletBalance,
       baseUrl: devnetBaseUrl,
+      processTime: devnetProcessTimeMs,
+      retractTime: devnetRetractTimeMs,
     },
   );
 }
@@ -464,6 +708,14 @@ async function installUiContractServer(page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ utxo_root: "cd".repeat(32) }),
+    });
+  });
+
+  await page.route("**/eval-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ era: "ui-contract" }),
     });
   });
 
@@ -578,6 +830,12 @@ async function installDevnetProxy(page, submittedTxIds, proxiedFacts) {
     }
     if (req.method() === "POST" && url.pathname === "/facts/update") {
       proxiedFacts.process.push(JSON.parse(req.postData() || "{}"));
+    }
+    if (req.method() === "POST" && url.pathname === "/facts/retract") {
+      proxiedFacts.retract.push(JSON.parse(req.postData() || "{}"));
+    }
+    if (req.method() === "POST" && url.pathname === "/facts/reject") {
+      proxiedFacts.reject.push(JSON.parse(req.postData() || "{}"));
     }
     if (req.method() === "POST" && url.pathname === "/facts/end") {
       proxiedFacts.end.push(JSON.parse(req.postData() || "{}"));
@@ -695,6 +953,31 @@ async function waitForNoFacts(request, tokenId) {
     .toBe(0);
 }
 
+async function waitForFactAbsent(request, tokenId, key) {
+  await expect
+    .poll(
+      async () => {
+        const facts = await getFacts(request, tokenId);
+        return facts.some((entry) => entry.key === utf8Hex(key));
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(false);
+}
+
+async function waitForRequestRefs(request, tokenId, expectedRefs) {
+  const expected = JSON.stringify([...expectedRefs].sort());
+  await expect
+    .poll(
+      async () => {
+        const refs = (await getRequests(request, tokenId)).map(requestRef).sort();
+        return JSON.stringify(refs);
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(expected);
+}
+
 async function waitForRequest(request, tokenId, operation, key, value) {
   let found = null;
   await expect
@@ -760,4 +1043,8 @@ function requestRef(entry) {
     return `${entry.tx_id}#${entry.tx_ix}`;
   }
   throw new Error(`request ref missing: ${JSON.stringify(entry)}`);
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

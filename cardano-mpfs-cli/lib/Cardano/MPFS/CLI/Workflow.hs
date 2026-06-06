@@ -14,6 +14,7 @@
 module Cardano.MPFS.CLI.Workflow
     ( mkHttpClient
     , resolveTrustedRoot
+    , resolveEvalContext
     , defaultWalletPolicy
     ) where
 
@@ -45,9 +46,16 @@ import Servant.Client
     , showBaseUrl
     )
 
-import Cardano.MPFS.API (StatusAPI)
+import Cardano.MPFS.API
+    ( EvalContextAPI
+    , StatusAPI
+    )
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types (StatusResponse (..))
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext
+    , decodeEvalContext
+    )
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Workflows (HttpClient (..), HttpError (..))
@@ -103,6 +111,24 @@ resolveTrustedRoot manager base Nothing = do
                     Left "server /status has no utxo_root yet"
   where
     statusClient = client (Proxy @StatusAPI)
+
+-- | Resolve the trusted, server-supplied ledger evaluation context.
+-- This is intentionally not proof-bearing yet; it is the interim trust
+-- anchor used to evaluate Plutus ex-units locally.
+resolveEvalContext
+    :: Manager -> BaseUrl -> IO (Either String DecodedEvalContext)
+resolveEvalContext manager base = do
+    result <- runClientM evalContextClient (mkClientEnv manager base)
+    pure $ case result of
+        Left err ->
+            Left ("failed to fetch /eval-context: " <> show err)
+        Right wire ->
+            case decodeEvalContext wire of
+                Left err ->
+                    Left ("failed to decode /eval-context: " <> show err)
+                Right ctx -> Right ctx
+  where
+    evalContextClient = client (Proxy @EvalContextAPI)
 
 -- | Permissive wallet policy caps for CLI-built transactions. The CLI
 -- builds and submits txs the operator already controls, so the caps are

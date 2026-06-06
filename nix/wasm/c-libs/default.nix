@@ -8,20 +8,21 @@
 let
   libsodium = pkgs.callPackage ./libsodium.nix { inherit wasi-sdk; };
 
-  secp256k1 = (pkgs.callPackage ./secp256k1.nix { inherit wasi-sdk; })
-    .overrideAttrs (_: { src = pkgs.secp256k1.src; });
+  secp256k1 =
+    (pkgs.callPackage ./secp256k1.nix { inherit wasi-sdk; }).overrideAttrs
+    (_: { src = pkgs.secp256k1.src; });
 
   blst = (pkgs.callPackage ./blst.nix {
     inherit wasi-sdk;
     version = pkgs.blst.version;
   }).overrideAttrs (_: { src = pkgs.blst.src; });
-in
-{
+in {
   inherit libsodium secp256k1 blst;
 
   # Convenience: all three at once, plus a PKG_CONFIG_PATH pointing at their
   # pkg-config files. Consumers add `all` to nativeBuildInputs and export
   # `pkgConfigPath` as PKG_CONFIG_PATH.
   all = [ libsodium secp256k1 blst ];
-  pkgConfigPath = "${libsodium}/lib/pkgconfig:${secp256k1.dev}/lib/pkgconfig:${blst}/lib/pkgconfig";
+  pkgConfigPath =
+    "${libsodium}/lib/pkgconfig:${secp256k1.dev}/lib/pkgconfig:${blst}/lib/pkgconfig";
 }

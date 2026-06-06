@@ -3,8 +3,8 @@
 #
 # `pkgs` here must already carry the purescript-overlay and
 # mkSpagoDerivation overlays (see flake.nix psPkgs).
-{ pkgs
-, cageReactorWasm ? null # path to mpfs-cage-reactor.wasm; integration branch passes the real reactor artifact
+{ pkgs, cageReactorWasm ?
+  null # path to mpfs-cage-reactor.wasm; integration branch passes the real reactor artifact
 }:
 let
   src = ../mpfs-spa;
@@ -12,24 +12,20 @@ let
     npmRoot = src;
     nodejs = pkgs.nodejs_20;
   };
-  placeholderReactorWasm = pkgs.runCommand "mpfs-cage-reactor-placeholder.wasm" { } ''
-    printf '\000asm\001\000\000\000' > $out
-  '';
+  placeholderReactorWasm =
+    pkgs.runCommand "mpfs-cage-reactor-placeholder.wasm" { } ''
+      printf '\000asm\001\000\000\000' > $out
+    '';
   reactorWasm =
     if cageReactorWasm == null then placeholderReactorWasm else cageReactorWasm;
-in
-pkgs.mkSpagoDerivation {
+in pkgs.mkSpagoDerivation {
   pname = "mpfs-spa";
   version = "1.0.0";
   inherit src;
   spagoYaml = ../mpfs-spa/spago.yaml;
   spagoLock = ../mpfs-spa/spago.lock;
-  nativeBuildInputs = [
-    pkgs.purs
-    pkgs.spago-unstable
-    pkgs.esbuild
-    pkgs.nodejs_20
-  ];
+  nativeBuildInputs =
+    [ pkgs.purs pkgs.spago-unstable pkgs.esbuild pkgs.nodejs_20 ];
   buildPhase = ''
     ln -s ${nodeModules}/node_modules node_modules
 

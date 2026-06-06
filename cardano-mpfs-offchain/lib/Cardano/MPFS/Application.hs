@@ -211,6 +211,7 @@ import Cardano.MPFS.Indexer.Persistent
     )
 import Cardano.MPFS.Provider.NodeClient
     ( mkNodeClientProvider
+    , queryEvalContext
     )
 import Cardano.MPFS.State qualified as CageSt
 import Cardano.MPFS.Submitter.N2C (mkN2CSubmitter)
@@ -674,6 +675,8 @@ withApplication cfg action = do
                                         resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
+                                , evalContext =
+                                    queryEvalContext genesis lsqCh
                                 , runIndexerTx =
                                     \(IndexerTx body) ->
                                         run body

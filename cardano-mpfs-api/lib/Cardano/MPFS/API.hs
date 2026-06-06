@@ -18,6 +18,7 @@ module Cardano.MPFS.API
 
       -- * Query endpoints
     , StatusAPI
+    , EvalContextAPI
     , TokensAPI
     , TokenAPI
     , TokenRootAPI
@@ -74,6 +75,7 @@ import Cardano.MPFS.API.Types
     ( BootRequest
     , DeleteRequest
     , EndRequest
+    , EvalContext (..)
     , FactEntry (..)
     , FactResponse
     , FactsResponse (..)
@@ -106,6 +108,11 @@ import Cardano.MPFS.API.Types.Facts
 
 -- | @GET \/status@ — indexer chain tip and checkpoint.
 type StatusAPI = "status" :> Get '[JSON] StatusResponse
+
+-- | @GET \/eval-context@ — trusted-not-proven ledger
+-- context required for wallet-side ex-unit evaluation.
+type EvalContextAPI =
+    "eval-context" :> Get '[JSON] EvalContext
 
 -- | @GET \/tokens@ — get the complete token-state
 -- UTxO set with a prefix-completeness witness.
@@ -305,6 +312,7 @@ api = Proxy
 -- | Complete MPFS HTTP API.
 type API =
     StatusAPI
+        :<|> EvalContextAPI
         :<|> TokensAPI
         :<|> TokenAPI
         :<|> TokenRootAPI

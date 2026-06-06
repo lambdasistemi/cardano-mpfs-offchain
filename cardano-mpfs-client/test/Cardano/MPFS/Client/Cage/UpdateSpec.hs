@@ -218,9 +218,13 @@ import Cardano.MPFS.Client.Cage.Policy
 import Cardano.MPFS.Client.Cage.Request
     ( requestUpdateCageTx
     )
+import Cardano.MPFS.Client.Cage.TestEvalContext
+    ( testEvalContext
+    , testEvalPParams
+    )
 import Cardano.MPFS.Client.Cage.Update
     ( foldUpdateTrieFacts
-    , updateCageTx
+    , updateCageTxWithEval
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedUpdateFacts
@@ -229,6 +233,9 @@ import Cardano.MPFS.Client.Facts
     )
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
+    )
+import Cardano.MPFS.Client.Verify
+    ( VerifyError (..)
     )
 import Cardano.Slotting.Slot
     ( SlotNo (..)
@@ -273,7 +280,11 @@ spec = describe "updateCageTx" $ do
         let UpdateFixture{trustedRoot, facts} =
                 honestUpdateFixture cfg []
         verified <- expectVerified trustedRoot facts
-        updateCageTx cfg permissiveWalletPolicy verified
+        updateCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
             `shouldBe` Left EmptyFunding
 
     it "rejects wallet policy caps before signing" $ do
@@ -285,7 +296,11 @@ spec = describe "updateCageTx" $ do
                     { wpMaxMinUtxoCoinPerByte = Coin 1
                     }
         verified <- expectVerified trustedRoot facts
-        updateCageTx cfg policy verified
+        updateCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( MinUtxoCoinPerByteTooHigh
@@ -302,12 +317,11 @@ spec = describe "updateCageTx" $ do
                     [(walletTxId, 2, walletTxOutBytes)]
             mismatchedFacts =
                 facts{ufTrieFacts = []}
-        verified <- expectVerified trustedRoot mismatchedFacts
-        updateCageTx cfg permissiveWalletPolicy verified
+        verifyUpdateFacts trustedRoot mismatchedFacts
             `shouldBe` Left
-                ( MalformedTxOut
-                    "update.trie_facts length must match \
-                    \update.request_utxos"
+                ( TxBindingFailed
+                    "update.trie_facts"
+                    "length must match update.request_utxos"
                 )
 
     it "builds an unsigned update transaction for verified facts" $ do
@@ -335,7 +349,7 @@ spec = describe "updateCageTx" $ do
             expectedIntegrity =
                 computeScriptIntegrity
                     (Set.singleton PlutusV3)
-                    realisticPParams
+                    (testEvalPParams realisticPParams)
                     redeemers
                     (TxDats mempty)
         Set.member stateInput inputs `shouldBe` True
@@ -404,6 +418,7 @@ spec = describe "updateCageTx" $ do
         let Coin perReqFee = tx ^. bodyTxL . feeTxBodyL
             Coin feeBound = feeBufferUpperBound realisticPParams
         feeBound `shouldSatisfy` (>= perReqFee)
+        feeBound `shouldSatisfy` (<= grossFeeBufferUpperBound)
 
     it "keeps the refund non-negative at minimum request funding" $ do
         cfg <- testCageConfig
@@ -495,7 +510,7 @@ spec = describe "updateCageTx" $ do
         body ^. scriptIntegrityHashTxBodyL
             `shouldBe` computeScriptIntegrity
                 (Set.singleton PlutusV3)
-                realisticPParams
+                (testEvalPParams realisticPParams)
                 redeemers
                 (TxDats mempty)
 
@@ -658,7 +673,11 @@ expectVerified trusted facts =
 expectUpdateTx
     :: CageConfig -> VerifiedUpdateFacts -> IO ConwayTx
 expectUpdateTx cfg verified =
-    case updateCageTx cfg permissiveWalletPolicy verified of
+    case updateCageTxWithEval
+        (testEvalContext realisticPParams)
+        cfg
+        permissiveWalletPolicy
+        verified of
         Left err ->
             expectationFailure ("updateCageTx failed: " <> show err)
                 *> error "unreachable"
@@ -737,15 +756,24 @@ feeBufferUpperBound pp =
         Coin minFeeA = fromCompact minFeeACompact
         Coin minFeeB = pp ^. ppTxFeeFixedL
         Coin scriptFee =
-            txscriptfee (pp ^. ppPricesL) (pp ^. ppMaxTxExUnitsL)
+            txscriptfee
+                (pp ^. ppPricesL)
+                perRequestFutureSpendExUnits
     in  Coin
             ( minFeeB
                 + minFeeA * maxUpdateTxBytes
                 + scriptFee
             )
 
+perRequestFutureSpendExUnits :: ExUnits
+perRequestFutureSpendExUnits =
+    ExUnits 40_000_000 3_000_000_000
+
+grossFeeBufferUpperBound :: Integer
+grossFeeBufferUpperBound = 5_000_000
+
 maxUpdateTxBytes :: Integer
-maxUpdateTxBytes = 16384
+maxUpdateTxBytes = 16_384
 
 singleRequestRefundOutput :: ConwayTx -> TxOut ConwayEra
 singleRequestRefundOutput tx =

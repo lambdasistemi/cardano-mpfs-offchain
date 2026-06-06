@@ -218,14 +218,14 @@ assertTokenEntries resp expected =
             TokensResponse
                 { trsTokens = TokenSetWitness{tswEntries}
                 } ->
-            map
-                ( \TokenUtxoEntry
-                    { tueTokenId = TokenIdJSON tokenId
-                    , tueTxOutCbor = Hex txOut
-                    } -> (tokenId, txOut)
-                )
-                tswEntries
-                `shouldBe` expected
+                map
+                    ( \TokenUtxoEntry
+                        { tueTokenId = TokenIdJSON tokenId
+                        , tueTxOutCbor = Hex txOut
+                        } -> (tokenId, txOut)
+                    )
+                    tswEntries
+                    `shouldBe` expected
         _ ->
             expectationFailure
                 "Expected TokensResponse"

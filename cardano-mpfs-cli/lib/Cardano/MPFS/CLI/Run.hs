@@ -36,6 +36,7 @@ import Cardano.MPFS.CLI.Submit
 import Cardano.MPFS.CLI.Workflow
     ( defaultWalletPolicy
     , mkHttpClient
+    , resolveEvalContext
     , resolveTrustedRoot
     )
 import Cardano.MPFS.Client.Cage.Config (network)
@@ -128,7 +129,13 @@ run cmd = case cmd of
             ownerKey
             cageConfig
             trustedRoot
-            (RejectRequest tid)
+            ( \addr ->
+                RejectRequest
+                    { rejToken = tid
+                    , rejAddr = addr
+                    , rejRequests = []
+                    }
+            )
             rejectExpired
     TokenEnd{..} -> do
         tid <- decodeToken token
@@ -180,11 +187,13 @@ runWrite name server ownerKey cageConfig trustedRoot mkReq workflow = do
     troot <-
         resolveTrustedRoot manager base (hexBytes <$> trustedRoot)
             >>= orDie "trusted-root"
+    evalCtx <- resolveEvalContext manager base >>= orDie "eval-context"
     let config =
             WorkflowsConfig
                 { wcCage = cage
                 , wcPolicy = defaultWalletPolicy
                 , wcTrustedRoot = troot
+                , wcEvalContext = evalCtx
                 }
         httpClient = mkHttpClient manager base
         request = mkReq (Hex (ownerAddressBytes (network cage) sk))

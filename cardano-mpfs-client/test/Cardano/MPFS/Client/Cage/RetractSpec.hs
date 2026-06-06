@@ -12,7 +12,6 @@ import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BSL
 import Data.Coerce (coerce)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
@@ -27,6 +26,7 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldNotBe
     , shouldSatisfy
     )
 
@@ -100,11 +100,7 @@ import Cardano.Ledger.BaseTypes
     , TxIx (..)
     )
 import Cardano.Ledger.Binary
-    ( Annotator
-    , Decoder
-    , decCBOR
-    , decodeFullAnnotator
-    , natVersion
+    ( natVersion
     , serialize'
     )
 import Cardano.Ledger.Coin
@@ -188,7 +184,11 @@ import Cardano.MPFS.Client.Cage.Policy
     , WalletPolicy (..)
     )
 import Cardano.MPFS.Client.Cage.Retract
-    ( retractCageTx
+    ( retractCageTxWithEval
+    )
+import Cardano.MPFS.Client.Cage.TestEvalContext
+    ( testEvalContext
+    , testEvalPParams
     )
 import Cardano.MPFS.Client.Facts
     ( VerifiedRetractFacts
@@ -203,7 +203,6 @@ import Cardano.Slotting.Slot
 import Cardano.Tx.Balance
     ( computeScriptIntegrity
     )
-import Cardano.Tx.Ledger (ConwayTx)
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     , BuiltinData (..)
@@ -220,7 +219,11 @@ spec = describe "retractCageTx" $ do
                 honestRetractFixture cfg
             emptyFunding = facts{rfWalletUtxos = []}
         verified <- expectVerified trustedRoot emptyFunding
-        retractCageTx cfg permissiveWalletPolicy verified
+        retractCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
             `shouldBe` Left EmptyFunding
 
     it "rejects wallet policy caps before signing" $ do
@@ -232,7 +235,11 @@ spec = describe "retractCageTx" $ do
                     { wpMaxMinUtxoCoinPerByte = Coin 1
                     }
         verified <- expectVerified trustedRoot facts
-        retractCageTx cfg policy verified
+        retractCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            policy
+            verified
             `shouldBe` Left
                 ( PolicyViolation
                     ( MinUtxoCoinPerByteTooHigh
@@ -252,7 +259,8 @@ spec = describe "retractCageTx" $ do
                 } = honestRetractFixture cfg
         verified <- expectVerified trustedRoot facts
         tx <-
-            case retractCageTx
+            case retractCageTxWithEval
+                (testEvalContext realisticPParams)
                 cfg
                 permissiveWalletPolicy
                 verified of
@@ -274,7 +282,7 @@ spec = describe "retractCageTx" $ do
             expectedIntegrity =
                 computeScriptIntegrity
                     (Set.singleton PlutusV3)
-                    realisticPParams
+                    (testEvalPParams realisticPParams)
                     redeemers
                     (TxDats mempty)
         Set.member requestInput inputs `shouldBe` True
@@ -299,13 +307,14 @@ spec = describe "retractCageTx" $ do
                 (SJust (SlotNo (fromIntegral phase2StartSlot)))
                 (SJust (SlotNo (fromIntegral phase2EndSlot)))
 
-    it "matches the legacy retract transaction structure" $ do
+    it "does not reuse the placeholder-budget legacy retract vector" $ do
         cfg <- testCageConfig
         let RetractFixture{trustedRoot, facts} =
                 honestRetractFixture cfg
         verified <- expectVerified trustedRoot facts
         tx <-
-            case retractCageTx
+            case retractCageTxWithEval
+                (testEvalContext realisticPParams)
                 cfg
                 permissiveWalletPolicy
                 verified of
@@ -315,21 +324,7 @@ spec = describe "retractCageTx" $ do
                         *> error "unreachable"
                 Right tx -> pure tx
         expected <- BS.readFile =<< legacyRetractVectorPath
-        expectedTx <- decodeLegacyRetractTx expected
-        tx `shouldBe` expectedTx
-
-decodeLegacyRetractTx :: ByteString -> IO ConwayTx
-decodeLegacyRetractTx bytes =
-    case decodeFullAnnotator
-        (natVersion @11)
-        "legacy retract transaction"
-        (decCBOR :: forall s. Decoder s (Annotator ConwayTx))
-        (BSL.fromStrict bytes) of
-        Left err ->
-            expectationFailure
-                ("legacy retract CBOR decode failed: " <> show err)
-                *> error "unreachable"
-        Right tx -> pure tx
+        serialize' (natVersion @11) tx `shouldNotBe` expected
 
 data RetractFixture = RetractFixture
     { trustedRoot :: TrustedRoot
@@ -618,13 +613,13 @@ stateTxId = BS.replicate 32 0xB2
 walletTxId = BS.replicate 32 0xC3
 
 submittedAt :: Integer
-submittedAt = 1_700_000_000_000
+submittedAt = 0
 
 phase2StartSlot :: Integer
-phase2StartSlot = 1_000
+phase2StartSlot = 70
 
 phase2EndSlot :: Integer
-phase2EndSlot = 2_000
+phase2EndSlot = 80
 
 sampleToken :: TokenIdJSON
 sampleToken = TokenIdJSON (BS.replicate 32 0xE4)

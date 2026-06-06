@@ -1,17 +1,11 @@
 # Ported from IntersectMBO/cardano-api master nix/blst.nix.
 # Builds blst for wasm32-wasi. Caller supplies `src` (typically
 # `nixpkgs.blst.src`) via overrideAttrs and `version`.
-{
-  stdenvNoCC,
-  wasi-sdk,
-  version,
-}:
+{ stdenvNoCC, wasi-sdk, version, }:
 stdenvNoCC.mkDerivation (finalAttrs: {
   name = "blst-wasm32-wasi";
 
-  nativeBuildInputs = [
-    wasi-sdk
-  ];
+  nativeBuildInputs = [ wasi-sdk ];
 
   buildPhase = ''
     runHook preBuild

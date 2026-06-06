@@ -19,6 +19,7 @@ module Cardano.MPFS.Context
 
 import Data.ByteString (ByteString)
 
+import Cardano.MPFS.API.Types (EvalContext)
 import Cardano.MPFS.Core.Types (TxIn)
 import Cardano.MPFS.Indexer.Reads (IndexerTx)
 import Cardano.MPFS.Provider (Provider)
@@ -65,6 +66,9 @@ data Context m = Context
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
     -- ^ CSMT inclusion proof for a TxIn (raw bytes)
+    , evalContext :: m EvalContext
+    -- ^ Trusted-not-proven ledger evaluation context for
+    -- pure wallet-side ex-unit evaluation.
     , runIndexerTx :: forall a. IndexerTx a -> m a
     -- ^ Run a composed indexer-read action inside one
     -- underlying transaction. Handlers compose the
