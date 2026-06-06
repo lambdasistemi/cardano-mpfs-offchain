@@ -116,6 +116,8 @@ fixedEnvelopes :: [ByteString]
 fixedEnvelopes =
     [ bootEnvelope
     , assembleEnvelope
+    , integerToByteStringEnvelope
+    , bitwiseConversionsEnvelope
     , endEnvelope
     , requestInsertEnvelope
     , requestUpdateEnvelope
@@ -142,6 +144,20 @@ assembleEnvelope =
             [ "op" .= ("assemble" :: Text)
             , "unsigned_tx" .= hexText unsignedTx
             , "witness_set" .= hexText emptyWitnessSet
+            ]
+
+integerToByteStringEnvelope :: ByteString
+integerToByteStringEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("self_test_integer_to_byte_string" :: Text)
+            ]
+
+bitwiseConversionsEnvelope :: ByteString
+bitwiseConversionsEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("self_test_bitwise_conversions" :: Text)
             ]
 
 endEnvelope :: ByteString
