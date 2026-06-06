@@ -64,12 +64,14 @@ library
     , microlens
     , mts:mpf-write
     , plutus-tx
+    , serialise
     , text                       >=2.0  && <2.2
 
   exposed-modules:
     Cardano.MPFS.Client.Cage.Boot
     Cardano.MPFS.Client.Cage.BuildError
     Cardano.MPFS.Client.Cage.End
+    Cardano.MPFS.Client.Cage.Eval
     Cardano.MPFS.Client.Cage.Policy
     Cardano.MPFS.Client.Cage.Reactor
     Cardano.MPFS.Client.Cage.Reject

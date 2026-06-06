@@ -4,7 +4,7 @@
 -- Module      : Cardano.MPFS.Client.Cage.Retract
 -- Description : Client-side retract cage transaction builder.
 module Cardano.MPFS.Client.Cage.Retract
-    ( retractCageTx
+    ( retractCageTxWithEval
     ) where
 
 import Data.ByteString (ByteString)
@@ -17,7 +17,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word32, Word64)
-import Lens.Micro ((&), (.~), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
@@ -40,7 +40,6 @@ import Cardano.Ledger.Alonzo.TxBody
 import Cardano.Ledger.Api.PParams
     ( CoinPerByte (..)
     , ppCoinsPerUTxOByteL
-    , ppMaxTxExUnitsL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -122,8 +121,7 @@ import Cardano.MPFS.API.Encoding
     ( Hex (..)
     )
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
-    , UtxoEntry (..)
+    ( UtxoEntry (..)
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts
@@ -145,6 +143,10 @@ import Cardano.MPFS.Client.Cage.BuildError
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
     )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , evaluateAndBalancePure
+    )
 import Cardano.MPFS.Client.Cage.Identity
     ( requestScriptBytesFromCfg
     , tokenIdFromJSON
@@ -158,27 +160,22 @@ import Cardano.MPFS.Client.Facts
     , verifiedRetractFacts
     )
 import Cardano.Tx.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    , computeScriptIntegrity
+    ( computeScriptIntegrity
+    , evalBudgetExUnits
     )
 import Cardano.Tx.Build qualified as TxBuild
 
 data NoCtx a
 
--- | Build an unsigned retract transaction from already-verified
--- retract facts. The function decodes the supplied ledger facts,
--- enforces wallet caps, applies the server-derived Phase 2
--- validity interval, and returns a transaction ready for the
--- request owner to sign.
-retractCageTx
-    :: CageConfig
+retractCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
     -> WalletPolicy
     -> VerifiedRetractFacts
     -> Either BuildError ConwayTx
-retractCageTx cfg policy verified = do
+retractCageTxWithEval evalCtx cfg policy verified = do
     let facts = verifiedRetractFacts verified
-    pp <- decodePParams (rfProtocolParameters facts)
+        pp = evalProtocolParameters evalCtx
     enforcePParamsPolicy policy pp
     requestRow <-
         decodeUtxo "retract.request_utxo" (rfRequestUtxo facts)
@@ -196,6 +193,7 @@ retractCageTx cfg policy verified = do
                 (SJust (slot (rfValidityEndSlot facts)))
     tx <-
         buildRetractTx
+            evalCtx
             cfg
             pp
             token
@@ -229,17 +227,6 @@ selectFeeRow rows =
     case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
         row : _ -> Right row
         [] -> Left EmptyFunding
-
-decodePParams
-    :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)
-decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
-    case decodeFull (natVersion @11) (BSL.fromStrict ppBytes) of
-        Left err ->
-            Left
-                $ MalformedPParams
-                $ T.pack
-                $ show err
-        Right pp -> Right pp
 
 decodeUtxo :: Text -> UtxoEntry -> Either BuildError InputRow
 decodeUtxo path UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
@@ -345,7 +332,8 @@ extractCageDatum txOut =
         _ -> Nothing
 
 buildRetractTx
-    :: CageConfig
+    :: DecodedEvalContext
+    -> CageConfig
     -> PParams ConwayEra
     -> TokenId
     -> InputRow
@@ -356,6 +344,7 @@ buildRetractTx
     -> ValidityInterval
     -> Either BuildError ConwayTx
 buildRetractTx
+    evalCtx
     cfg
     pp
     token
@@ -365,24 +354,18 @@ buildRetractTx
     changeAddr
     ownerSigner
     validity =
-        case balanceTx pp ledgerPairs [] changeAddr draft of
-            Left err ->
-                Left (DSLBuildFailed $ T.pack $ show err)
-            Right BalanceResult{balancedTx} ->
-                Right
-                    $ stripBalancingCollateralFields
-                    $ patchRetractRedeemers
-                        pp
-                        budget
-                        requestRef
-                        redeemer
-                        balancedTx
+        stripBalancingCollateralFields
+            <$> evaluateAndBalancePure
+                evalCtx
+                ledgerPairs
+                [(stateRef, rowOut stateRow)]
+                changeAddr
+                draft
       where
         requestRef = rowRef requestRow
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
         script = mkRequestScript cfg token
-        budget = retractRedeemerBudget pp
         redeemer = Retract (txInToOnChainRef stateRef)
         program = do
             _ <- TxBuild.spendScript requestRef redeemer
@@ -393,12 +376,19 @@ buildRetractTx
                 (witnessKeyHashToGuard ownerSigner)
             applyValidity validity
         draft =
-            patchRedeemerBudgets pp budget
+            patchRetractRedeemers
+                pp
+                evalBudgetExUnits
+                requestRef
+                redeemer
                 $ TxBuild.draft
                     pp
                     ( program
                         :: TxBuild.TxBuild NoCtx BuildError ()
                     )
+                & bodyTxL . inputsTxBodyL
+                    %~ Set.union
+                        (Set.fromList (map fst ledgerPairs))
         ledgerPairs =
             [ (rowRef requestRow, rowOut requestRow)
             , (rowRef feeRow, rowOut feeRow)
@@ -412,31 +402,6 @@ applyValidity ValidityInterval{invalidBefore, invalidHereafter} = do
     case invalidHereafter of
         SNothing -> pure ()
         SJust slot -> TxBuild.validTo slot
-
-patchRedeemerBudgets
-    :: PParams ConwayEra
-    -> ExUnits
-    -> ConwayTx
-    -> ConwayTx
-patchRedeemerBudgets pp budget tx =
-    tx
-        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
-        & bodyTxL . scriptIntegrityHashTxBodyL
-            .~ computeScriptIntegrity
-                (Set.singleton PlutusV3)
-                pp
-                budgetedRedeemers
-                (TxDats mempty)
-  where
-    Redeemers rdmrs =
-        tx ^. witsTxL . rdmrsTxWitsL
-    budgetedRedeemers =
-        Redeemers
-            $ fmap
-                ( \(dat, _) ->
-                    (dat, budget)
-                )
-                rdmrs
 
 patchRetractRedeemers
     :: PParams ConwayEra
@@ -506,23 +471,6 @@ toLedgerData :: (ToData a) => a -> Data ConwayEra
 toLedgerData value =
     let BuiltinData d = toBuiltinData value
     in  Data d
-
-retractRedeemerBudget :: PParams ConwayEra -> ExUnits
-retractRedeemerBudget pp =
-    capExUnits legacyEvalBudgetExUnits
-        $ halfExUnits
-        $ pp ^. ppMaxTxExUnitsL
-
-legacyEvalBudgetExUnits :: ExUnits
-legacyEvalBudgetExUnits = ExUnits 14_000_000 10_000_000_000
-
-capExUnits :: ExUnits -> ExUnits -> ExUnits
-capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
-    ExUnits (min mem maxMem) (min steps maxSteps)
-
-halfExUnits :: ExUnits -> ExUnits
-halfExUnits (ExUnits mem steps) =
-    ExUnits (mem `div` 2) (steps `div` 2)
 
 enforcePParamsPolicy
     :: WalletPolicy

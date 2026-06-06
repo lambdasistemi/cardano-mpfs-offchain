@@ -33,7 +33,7 @@ import Foreign.Object as Object
 
 import MpfsSpa.CageHelpers (CageHelpers, CageResult)
 import MpfsSpa.Config (serverConfig, walletPolicyJson)
-import MpfsSpa.Http (Config, getTrustedRoot, postBootFacts)
+import MpfsSpa.Http (Config, getEvalContext, getTrustedRoot, postBootFacts)
 import MpfsSpa.Types
   ( CageConfig
   , CageError(..)
@@ -87,12 +87,14 @@ registerToken :: WalletAddr -> CageConfig -> CageResult
 registerToken addr cfg = do
   httpCfg <- liftEffect serverConfig
   eroot <- getTrustedRoot httpCfg
+  ectx <- getEvalContext httpCfg
   efacts <- postBootFacts httpCfg addr
-  case eroot, efacts of
-    Left err, _ -> pure (Left (CageError err))
-    _, Left err -> pure (Left (CageError err))
-    Right root, Right facts -> do
-      result <- runCageReactor (buildBootEnvelope root cfg facts)
+  case eroot, ectx, efacts of
+    Left err, _, _ -> pure (Left (CageError err))
+    _, Left err, _ -> pure (Left (CageError err))
+    _, _, Left err -> pure (Left (CageError err))
+    Right root, Right evalContext, Right facts -> do
+      result <- runCageReactor (buildBootEnvelope root evalContext cfg facts)
       pure (UnsignedTxCbor <$> parseCageTxOutput result)
 
 insertFact :: WalletAddr -> CageConfig -> TokenId -> Key -> Value -> CageResult
@@ -130,12 +132,14 @@ endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
   httpCfg <- liftEffect serverConfig
   eroot <- getTrustedRoot httpCfg
+  ectx <- getEvalContext httpCfg
   efacts <- postEndFacts httpCfg addr token
-  case eroot, efacts of
-    Left err, _ -> pure (Left (CageError err))
-    _, Left err -> pure (Left (CageError err))
-    Right root, Right facts -> do
-      result <- runCageReactor (buildEndEnvelope root cfg facts)
+  case eroot, ectx, efacts of
+    Left err, _, _ -> pure (Left (CageError err))
+    _, Left err, _ -> pure (Left (CageError err))
+    _, _, Left err -> pure (Left (CageError err))
+    Right root, Right evalContext, Right facts -> do
+      result <- runCageReactor (buildEndEnvelope root evalContext cfg facts)
       pure (UnsignedTxCbor <$> parseCageTxOutput result)
 
 assembleTx :: String -> String -> Aff (Either CageError String)
@@ -143,17 +147,17 @@ assembleTx unsignedTx witnessSet = do
   result <- runCageReactor (buildAssembleEnvelope unsignedTx witnessSet)
   pure (parseSignedTxOutput result)
 
-buildBootEnvelope :: TrustedRoot -> CageConfig -> Json -> String
-buildBootEnvelope root cfg facts =
-  stringify (buildEnvelope "boot" root cfg facts)
+buildBootEnvelope :: TrustedRoot -> Json -> CageConfig -> Json -> String
+buildBootEnvelope root evalContext cfg facts =
+  stringify (buildEnvelope "boot" root evalContext cfg facts)
 
-buildEndEnvelope :: TrustedRoot -> CageConfig -> Json -> String
-buildEndEnvelope root cfg facts =
-  stringify (buildEnvelope "end" root cfg facts)
+buildEndEnvelope :: TrustedRoot -> Json -> CageConfig -> Json -> String
+buildEndEnvelope root evalContext cfg facts =
+  stringify (buildEnvelope "end" root evalContext cfg facts)
 
-buildRequestEnvelope :: String -> TrustedRoot -> CageConfig -> Json -> String
-buildRequestEnvelope op root cfg facts =
-  stringify (buildEnvelope op root cfg facts)
+buildRequestEnvelope :: String -> TrustedRoot -> Json -> CageConfig -> Json -> String
+buildRequestEnvelope op root evalContext cfg facts =
+  stringify (buildEnvelope op root evalContext cfg facts)
 
 buildAssembleEnvelope :: String -> String -> String
 buildAssembleEnvelope unsignedTx witnessSet =
@@ -179,12 +183,14 @@ requestCageTx
 requestCageTx op cfg fetchFacts = do
   httpCfg <- liftEffect serverConfig
   eroot <- getTrustedRoot httpCfg
+  ectx <- getEvalContext httpCfg
   efacts <- fetchFacts httpCfg
-  case eroot, efacts of
-    Left err, _ -> pure (Left (CageError err))
-    _, Left err -> pure (Left (CageError err))
-    Right root, Right facts -> do
-      result <- runCageReactor (buildRequestEnvelope op root cfg facts)
+  case eroot, ectx, efacts of
+    Left err, _, _ -> pure (Left (CageError err))
+    _, Left err, _ -> pure (Left (CageError err))
+    _, _, Left err -> pure (Left (CageError err))
+    Right root, Right evalContext, Right facts -> do
+      result <- runCageReactor (buildRequestEnvelope op root evalContext cfg facts)
       pure (UnsignedTxCbor <$> parseCageTxOutput result)
 
 postInsertFacts :: Config -> WalletAddr -> TokenId -> Key -> Value -> Aff (Either String Json)
@@ -248,31 +254,22 @@ postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json
 postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
   postFacts cfg "/facts/retract" (encodeJson { utxo, address })
 
-postRejectFacts
-  :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
+postRejectFacts :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
 postRejectFacts cfg (WalletAddr address) (TokenId token) requestIds =
   postFacts cfg "/facts/reject"
-    ( encodeJson
-        { token
-        , address
-        , requests: map requestIdText requestIds
-        }
-    )
+    (encodeJson { token, address, requests: requestIdStrings requestIds })
 
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
   postFacts cfg "/facts/end" (encodeJson { token, address })
 
-postUpdateRootFacts
-  :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
+postUpdateRootFacts :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
 postUpdateRootFacts cfg (WalletAddr address) (TokenId token) requestIds =
   postFacts cfg "/facts/update"
-    ( encodeJson
-        { token
-        , address
-        , requests: map requestIdText requestIds
-        }
-    )
+    (encodeJson { token, address, requests: requestIdStrings requestIds })
+
+requestIdStrings :: Array RequestId -> Array String
+requestIdStrings = map \(RequestId requestId) -> requestId
 
 postFacts :: Config -> String -> Json -> Aff (Either String Json)
 postFacts cfg path body = do
@@ -286,11 +283,12 @@ postFacts cfg path body = do
     if res.ok then Right res.json
     else Left ("HTTP " <> show res.status <> ": " <> res.text)
 
-buildEnvelope :: String -> TrustedRoot -> CageConfig -> Json -> Json
-buildEnvelope op (TrustedRoot trustedRoot) cfg facts =
+buildEnvelope :: String -> TrustedRoot -> Json -> CageConfig -> Json -> Json
+buildEnvelope op (TrustedRoot trustedRoot) evalContext cfg facts =
   obj
     [ Tuple "op" (fromString op)
     , Tuple "trusted_root" (fromString trustedRoot)
+    , Tuple "eval_context" evalContext
     , Tuple "cage_config" (cageConfigJson cfg)
     , Tuple "wallet_policy" walletPolicyJson
     , Tuple "facts" facts
@@ -336,6 +334,3 @@ intJson = fromNumber <<< toNumber
 
 obj :: Array (Tuple String Json) -> Json
 obj = fromObject <<< Object.fromFoldable
-
-requestIdText :: RequestId -> String
-requestIdText (RequestId requestId) = requestId

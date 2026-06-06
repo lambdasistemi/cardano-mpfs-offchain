@@ -5,7 +5,7 @@
 -- Module      : Cardano.MPFS.Client.Cage.Update
 -- Description : Client-side update cage transaction builder.
 module Cardano.MPFS.Client.Cage.Update
-    ( updateCageTx
+    ( updateCageTxWithEval
     , foldUpdateTrieFacts
     ) where
 
@@ -23,7 +23,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word32, Word64, Word8)
-import Lens.Micro ((&), (.~), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
@@ -48,7 +48,6 @@ import Cardano.Ledger.Alonzo.TxBody
 import Cardano.Ledger.Api.PParams
     ( CoinPerByte (..)
     , ppCoinsPerUTxOByteL
-    , ppMaxTxExUnitsL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -127,8 +126,7 @@ import Cardano.MPFS.API.Encoding
     ( Hex (..)
     )
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
-    , UtxoEntry (..)
+    ( UtxoEntry (..)
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts
@@ -159,6 +157,10 @@ import Cardano.MPFS.Client.Cage.Config
     , cageAddrFromCfg
     , mkCageScript
     )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , evaluateAndBalancePureAtFee
+    )
 import Cardano.MPFS.Client.Cage.Identity
     ( requestScriptBytesFromCfg
     , tokenIdFromJSON
@@ -175,9 +177,7 @@ import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
 import Cardano.Tx.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    , computeScriptIntegrity
+    ( computeScriptIntegrity
     , evalBudgetExUnits
     )
 import Cardano.Tx.Build qualified as TxBuild
@@ -207,27 +207,28 @@ import PlutusTx.IsData.Class
 
 data NoCtx a
 
--- | Build an unsigned update transaction from verified update facts.
-updateCageTx
-    :: CageConfig
+updateCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
     -> WalletPolicy
     -> VerifiedUpdateFacts
     -> Either BuildError ConwayTx
-updateCageTx cfg policy verified = do
+updateCageTxWithEval evalCtx cfg policy verified = do
     let facts = verifiedUpdateFacts verified
         token = tokenIdFromJSON (ufToken facts)
-    pp <- decodePParams (ufProtocolParameters facts)
+        pp = evalProtocolParameters evalCtx
     enforcePParamsPolicy policy pp
     stateRow <- decodeUtxo "update.state_utxo" (ufStateUtxo facts)
     requestRows <-
         traverse
             (uncurry decodeRequestUtxo)
             (zip [0 :: Int ..] (ufRequestUtxos facts))
+    let orderedRequestRows = canonicalRequestRows requestRows
     fundingRows <- decodeWalletUtxos (ufWalletUtxos facts)
     feeRow <- selectFeeRow fundingRows
     oldState <- stateDatum stateRow
-    requestDatums <- traverse requestDatum requestRows
-    ensureRequestTrieFactCount requestRows (ufTrieFacts facts)
+    requestDatums <- traverse requestDatum orderedRequestRows
+    ensureRequestTrieFactCount orderedRequestRows (ufTrieFacts facts)
     let Hex oldRoot = ufTrieRoot facts
     newRoot <-
         foldUpdateTrieFacts
@@ -248,11 +249,12 @@ updateCageTx cfg policy verified = do
                 $ ufValidityUpperSlot facts
     tx <-
         buildUpdateTx
+            evalCtx
             cfg
             pp
             token
             stateRow
-            requestRows
+            orderedRequestRows
             feeRow
             changeAddr
             oldState
@@ -358,16 +360,9 @@ selectFeeRow rows =
         row : _ -> Right row
         [] -> Left EmptyFunding
 
-decodePParams
-    :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)
-decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
-    case decodeFull (natVersion @11) (BSL.fromStrict ppBytes) of
-        Left err ->
-            Left
-                $ MalformedPParams
-                $ T.pack
-                $ show err
-        Right pp -> Right pp
+canonicalRequestRows :: [InputRow] -> [InputRow]
+canonicalRequestRows =
+    sortOn rowRef
 
 decodeUtxo :: Text -> UtxoEntry -> Either BuildError InputRow
 decodeUtxo path UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
@@ -478,7 +473,8 @@ ownerPaymentKeyHash ownerBytes =
                     "update.state_utxo.datum.owner must be 28 bytes"
 
 buildUpdateTx
-    :: CageConfig
+    :: DecodedEvalContext
+    -> CageConfig
     -> PParams ConwayEra
     -> TokenId
     -> InputRow
@@ -492,6 +488,7 @@ buildUpdateTx
     -> SlotNo
     -> Either BuildError ConwayTx
 buildUpdateTx
+    evalCtx
     cfg
     pp
     token
@@ -517,26 +514,33 @@ buildUpdateTx
                         else converge (Set.insert finalFee seenFees) finalFee
 
         buildWithFee feeForRefunds =
-            case balanceTx pp ledgerPairs [] changeAddr draft of
-                Left err ->
-                    Left (DSLBuildFailed $ T.pack $ show err)
-                Right BalanceResult{balancedTx} ->
-                    Right
-                        $ patchUpdateRedeemers
-                            pp
-                            budget
-                            stateRef
-                            (map fst requestRefs)
-                            proofs
-                            balancedTx
+            evaluateAndBalancePureAtFee
+                evalCtx
+                feeForRefunds
+                ledgerPairs
+                []
+                changeAddr
+                draft
           where
             draft =
-                patchRedeemerBudgets pp budget
-                    $ TxBuild.draft
-                        pp
-                        ( program
-                            :: TxBuild.TxBuild NoCtx BuildError ()
-                        )
+                patchUpdateRedeemers
+                    (evalProtocolParameters evalCtx)
+                    evalBudgetExUnits
+                    stateRef
+                    (map fst requestRefs)
+                    proofs
+                    withAllInputs
+            rawDraft =
+                TxBuild.draft
+                    pp
+                    ( program
+                        :: TxBuild.TxBuild NoCtx BuildError ()
+                    )
+            withAllInputs =
+                rawDraft
+                    & bodyTxL . inputsTxBodyL
+                        %~ Set.union
+                            (Set.fromList (map fst ledgerPairs))
             program = do
                 _ <-
                     TxBuild.spendScript
@@ -572,7 +576,6 @@ buildUpdateTx
             ]
         stateScript = mkCageScript cfg
         requestScript = mkRequestScript cfg token
-        budget = updateRedeemerBudget pp
         newStateOut =
             mkBasicTxOut
                 (cageAddrFromCfg cfg (network cfg))
@@ -602,31 +605,6 @@ buildUpdateTx
                       refundCoin =
                         Coin (reqValue - tipAmount - perReqFee - extra)
                 ]
-
-patchRedeemerBudgets
-    :: PParams ConwayEra
-    -> ExUnits
-    -> ConwayTx
-    -> ConwayTx
-patchRedeemerBudgets pp budget tx =
-    tx
-        & witsTxL . rdmrsTxWitsL .~ budgetedRedeemers
-        & bodyTxL . scriptIntegrityHashTxBodyL
-            .~ computeScriptIntegrity
-                (Set.singleton PlutusV3)
-                pp
-                budgetedRedeemers
-                (TxDats mempty)
-  where
-    Redeemers rdmrs =
-        tx ^. witsTxL . rdmrsTxWitsL
-    budgetedRedeemers =
-        Redeemers
-            $ fmap
-                ( \(dat, _) ->
-                    (dat, budget)
-                )
-                rdmrs
 
 patchUpdateRedeemers
     :: PParams ConwayEra
@@ -722,16 +700,6 @@ toLedgerData value =
     let BuiltinData d = toBuiltinData value
     in  Data d
 
-updateRedeemerBudget :: PParams ConwayEra -> ExUnits
-updateRedeemerBudget pp =
-    capExUnits evalBudgetExUnits
-        $ halfExUnits
-        $ pp ^. ppMaxTxExUnitsL
-
-capExUnits :: ExUnits -> ExUnits -> ExUnits
-capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
-    ExUnits (min mem maxMem) (min steps maxSteps)
-
 spendingIndex :: TxIn -> Set.Set TxIn -> Word32
 spendingIndex needle inputs =
     go 0 (Set.toAscList inputs)
@@ -741,10 +709,6 @@ spendingIndex needle inputs =
     go n (x : xs)
         | x == needle = n
         | otherwise = go (n + 1) xs
-
-halfExUnits :: ExUnits -> ExUnits
-halfExUnits (ExUnits mem steps) =
-    ExUnits (mem `div` 2) (steps `div` 2)
 
 trieFactProofSteps :: TrieFact -> Either BuildError [ProofStep]
 trieFactProofSteps TrieFact{tfMpfProof = Hex proofBytes} =

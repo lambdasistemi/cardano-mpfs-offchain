@@ -136,6 +136,7 @@ test-suite unit-tests
     , mts:mpf-write
     , plutus-tx
     , text
+    , time
     , wai                     >=3.2  && <3.3
     , warp                    >=3.4  && <3.5
 
@@ -149,6 +150,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.Cage.RequestSpec
     Cardano.MPFS.Client.Cage.RetractSpec
     Cardano.MPFS.Client.Cage.SerializeSpec
+    Cardano.MPFS.Client.Cage.TestEvalContext
     Cardano.MPFS.Client.Cage.UpdateSpec
     Cardano.MPFS.Client.EndFactsSpec
     Cardano.MPFS.Client.Fixtures

@@ -4,7 +4,7 @@
 -- Module      : Cardano.MPFS.Client.Cage.End
 -- Description : Client-side end cage transaction builder.
 module Cardano.MPFS.Client.Cage.End
-    ( endCageTx
+    ( endCageTxWithEval
     ) where
 
 import Data.ByteString (ByteString)
@@ -17,7 +17,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word64)
-import Lens.Micro ((&), (.~), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_224
@@ -34,7 +34,6 @@ import Cardano.Ledger.Alonzo.TxBody
 import Cardano.Ledger.Api.PParams
     ( CoinPerByte (..)
     , ppCoinsPerUTxOByteL
-    , ppMaxTxExUnitsL
     , ppPricesL
     )
 import Cardano.Ledger.Api.Scripts.Data
@@ -48,6 +47,7 @@ import Cardano.Ledger.Api.Tx
     )
 import Cardano.Ledger.Api.Tx.Body
     ( feeTxBodyL
+    , inputsTxBodyL
     , vldtTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -95,8 +95,7 @@ import Cardano.MPFS.API.Encoding
     ( Hex (..)
     )
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
-    , UtxoEntry (..)
+    ( UtxoEntry (..)
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts
@@ -120,6 +119,10 @@ import Cardano.MPFS.Client.Cage.Config
     , cagePolicyIdFromCfg
     , mkCageScript
     )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , evaluateAndBalancePure
+    )
 import Cardano.MPFS.Client.Cage.Identity
     ( onChainTokenId
     , tokenIdFromJSON
@@ -136,9 +139,7 @@ import Cardano.Slotting.Slot
     ( SlotNo (..)
     )
 import Cardano.Tx.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    , computeScriptIntegrity
+    ( computeScriptIntegrity
     , evalBudgetExUnits
     )
 import Cardano.Tx.Build qualified as TxBuild
@@ -153,17 +154,15 @@ import PlutusTx.IsData.Class
 
 data NoCtx a
 
--- | Build an unsigned end transaction from already-verified end
--- facts. The function decodes the supplied ledger facts, enforces
--- wallet caps, and returns a transaction ready for owner signing.
-endCageTx
-    :: CageConfig
+endCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
     -> WalletPolicy
     -> VerifiedEndFacts
     -> Either BuildError ConwayTx
-endCageTx cfg policy verified = do
+endCageTxWithEval evalCtx cfg policy verified = do
     let facts = verifiedEndFacts verified
-    pp <- decodePParams (efProtocolParameters facts)
+        pp = evalProtocolParameters evalCtx
     enforcePParamsPolicy policy pp
     stateRow <- decodeStateUtxo (efStateUtxo facts)
     fundingRows <- decodeWalletUtxos (efWalletUtxos facts)
@@ -173,6 +172,7 @@ endCageTx cfg policy verified = do
     let changeAddr = rowAddress collateralRow
     tx <-
         buildEndTx
+            evalCtx
             cfg
             pp
             stateRow
@@ -203,17 +203,6 @@ selectFeeRow rows =
     case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
         row : _ -> Right row
         [] -> Left EmptyFunding
-
-decodePParams
-    :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)
-decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
-    case decodeFull (natVersion @11) (BSL.fromStrict ppBytes) of
-        Left err ->
-            Left
-                $ MalformedPParams
-                $ T.pack
-                $ show err
-        Right pp -> Right pp
 
 decodeStateUtxo :: UtxoEntry -> Either BuildError InputRow
 decodeStateUtxo UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
@@ -320,7 +309,8 @@ extractCageDatum txOut =
         _ -> Nothing
 
 buildEndTx
-    :: CageConfig
+    :: DecodedEvalContext
+    -> CageConfig
     -> PParams ConwayEra
     -> InputRow
     -> [InputRow]
@@ -330,6 +320,7 @@ buildEndTx
     -> TokenId
     -> Either BuildError ConwayTx
 buildEndTx
+    evalCtx
     cfg
     pp
     stateRow
@@ -338,11 +329,12 @@ buildEndTx
     ownerAddr
     ownerSigner
     token =
-        case balanceTx pp ledgerPairs [] ownerAddr draft of
-            Left err ->
-                Left (DSLBuildFailed $ T.pack $ show err)
-            Right BalanceResult{balancedTx} ->
-                Right balancedTx
+        evaluateAndBalancePure
+            evalCtx
+            ledgerPairs
+            []
+            ownerAddr
+            draft
       where
         stateRef = rowRef stateRow
         collateralRef = rowRef collateralRow
@@ -350,8 +342,6 @@ buildEndTx
         script = mkCageScript cfg
         tokenAsset = unTokenId token
         allRows = stateRow : fundingRows
-        endBudget =
-            endRedeemerBudget pp
         program = do
             _ <- TxBuild.spendScript stateRef End
             mapM_
@@ -366,12 +356,15 @@ buildEndTx
             TxBuild.requireSignature
                 (witnessKeyHashToGuard ownerSigner)
         draft =
-            patchRedeemerBudgets pp endBudget
+            patchRedeemerBudgets pp evalBudgetExUnits
                 $ TxBuild.draft
                     pp
                     ( program
                         :: TxBuild.TxBuild NoCtx BuildError ()
                     )
+                & bodyTxL . inputsTxBodyL
+                    %~ Set.union
+                        (Set.fromList (map fst ledgerPairs))
         ledgerPairs =
             [ (rowRef row, rowOut row)
             | row <- allRows
@@ -401,20 +394,6 @@ patchRedeemerBudgets pp budget tx =
                     (dat, budget)
                 )
                 rdmrs
-
-endRedeemerBudget :: PParams ConwayEra -> ExUnits
-endRedeemerBudget pp =
-    capExUnits evalBudgetExUnits
-        $ halfExUnits
-        $ pp ^. ppMaxTxExUnitsL
-
-capExUnits :: ExUnits -> ExUnits -> ExUnits
-capExUnits (ExUnits mem steps) (ExUnits maxMem maxSteps) =
-    ExUnits (min mem maxMem) (min steps maxSteps)
-
-halfExUnits :: ExUnits -> ExUnits
-halfExUnits (ExUnits mem steps) =
-    ExUnits (mem `div` 2) (steps `div` 2)
 
 enforcePParamsPolicy
     :: WalletPolicy

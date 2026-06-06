@@ -7,7 +7,7 @@
 -- Module      : Cardano.MPFS.Client.Cage.Boot
 -- Description : Client-side boot cage transaction builder.
 module Cardano.MPFS.Client.Cage.Boot
-    ( bootCageTx
+    ( bootCageTxWithEval
     ) where
 
 import Data.ByteString (ByteString)
@@ -21,7 +21,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word16, Word64)
-import Lens.Micro ((&), (.~), (^.))
+import Lens.Micro ((%~), (&), (.~), (^.))
 
 import Cardano.Crypto.Hash
     ( Blake2b_256
@@ -90,8 +90,7 @@ import Cardano.Ledger.Plutus.Language
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types.Common
-    ( UnverifiedPParams (..)
-    , UtxoEntry (..)
+    ( UtxoEntry (..)
     , UtxoRef (..)
     )
 import Cardano.MPFS.API.Types.Facts (BootFacts (..))
@@ -115,6 +114,10 @@ import Cardano.MPFS.Client.Cage.Config
     , cagePolicyIdFromCfg
     , mkCageScript
     )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , evaluateAndBalancePure
+    )
 import Cardano.MPFS.Client.Cage.Policy
     ( PolicyViolationDetail (..)
     , WalletPolicy (..)
@@ -125,9 +128,7 @@ import Cardano.MPFS.Client.Facts
     )
 import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Balance
-    ( BalanceResult (..)
-    , balanceTx
-    , computeScriptIntegrity
+    ( computeScriptIntegrity
     , evalBudgetExUnits
     )
 import Cardano.Tx.Build
@@ -142,21 +143,22 @@ import PlutusTx.Builtins.Internal
 
 -- | Build an unsigned boot transaction from already-verified boot
 -- facts. The function performs all decoding and wallet policy checks
--- before returning a transaction for signing.
-bootCageTx
-    :: CageConfig
+bootCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
     -> WalletPolicy
     -> VerifiedBootFacts
     -> Either BuildError ConwayTx
-bootCageTx cfg policy verified = do
+bootCageTxWithEval evalCtx cfg policy verified = do
     let facts = verifiedBootFacts verified
-    pp <- decodePParams (bfProtocolParameters facts)
+        pp = evalProtocolParameters evalCtx
     enforcePParamsPolicy policy pp
     rows <- decodeWalletUtxos (bfWalletUtxos facts)
     (pickedRows, seedRow, collateralRow) <- selectBootRows rows
     let ownerAddr = rowAddress seedRow
     tx <-
         buildBootTx
+            evalCtx
             cfg
             pp
             seedRow
@@ -189,17 +191,6 @@ data InputRow = InputRow
     { rowRef :: !TxIn
     , rowOut :: !(TxOut ConwayEra)
     }
-
-decodePParams
-    :: UnverifiedPParams -> Either BuildError (PParams ConwayEra)
-decodePParams UnverifiedPParams{uppCbor = Hex ppBytes} =
-    case decodeFull (natVersion @11) (BSL.fromStrict ppBytes) of
-        Left err ->
-            Left
-                $ MalformedPParams
-                $ T.pack
-                $ show err
-        Right pp -> Right pp
 
 decodeWalletUtxos
     :: [UtxoEntry] -> Either BuildError [InputRow]
@@ -261,19 +252,21 @@ rowAddress row =
     rowOut row ^. addrTxOutL
 
 buildBootTx
-    :: CageConfig
+    :: DecodedEvalContext
+    -> CageConfig
     -> PParams ConwayEra
     -> InputRow
     -> InputRow
     -> [InputRow]
     -> Addr
     -> Either BuildError ConwayTx
-buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
-    case balanceTx pp ledgerPairs [] ownerAddr withSubmitBudget of
-        Left err ->
-            Left (DSLBuildFailed $ T.pack $ show err)
-        Right BalanceResult{balancedTx} ->
-            Right balancedTx
+buildBootTx evalCtx cfg pp seedRow collateralRow rows ownerAddr =
+    evaluateAndBalancePure
+        evalCtx
+        ledgerPairs
+        []
+        ownerAddr
+        withSubmitBudget
   where
     seedRef = rowRef seedRow
     collateralRef = rowRef collateralRow
@@ -286,9 +279,7 @@ buildBootTx cfg pp seedRow collateralRow rows ownerAddr =
     withAllInputs =
         draft
             & bodyTxL . inputsTxBodyL
-                .~ Set.union
-                    allInputs
-                    (draft ^. bodyTxL . inputsTxBodyL)
+                %~ Set.union allInputs
     withSubmitBudget =
         patchRedeemerBudgets pp withAllInputs
     ledgerPairs =

@@ -18,6 +18,7 @@ data BuildError
     | MalformedTxOut !Text
     | MalformedPParams !Text
     | LegacyRejectRefundRequiresTopUp !Text
+    | EvaluationFailed !Text
     | PolicyViolation !PolicyViolationDetail
     | DSLBuildFailed !Text
     deriving stock (Eq, Show)

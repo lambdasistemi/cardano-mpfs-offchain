@@ -91,8 +91,9 @@ import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
     )
-import Cardano.MPFS.Client.Cage.Boot (bootCageTx)
+import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
+import Cardano.MPFS.Client.Cage.Eval (decodeEvalContext)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
 import Cardano.MPFS.Client.Facts (verifyBootFacts)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
@@ -161,14 +162,25 @@ bootFactsSpec scripts =
                             )
                             *> error "unreachable"
                     Right value -> pure value
+            evalCtxWire <- evalContext ctx
+            evalCtx <-
+                case decodeEvalContext evalCtxWire of
+                    Left err ->
+                        expectationFailure
+                            ( "decodeEvalContext failed: "
+                                <> show err
+                            )
+                            *> error "unreachable"
+                    Right value -> pure value
             unsigned <-
-                case bootCageTx
+                case bootCageTxWithEval
+                    evalCtx
                     (toClientCageConfig cfg)
                     permissiveWalletPolicy
                     verified of
                     Left err ->
                         expectationFailure
-                            ("bootCageTx failed: " <> show err)
+                            ("bootCageTxWithEval failed: " <> show err)
                             *> error "unreachable"
                     Right tx -> pure tx
             let signed =

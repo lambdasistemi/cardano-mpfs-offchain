@@ -176,7 +176,6 @@ import Cardano.MPFS.Client
     , runForgeUpdateFacts
     , shouldAccept
     , shouldRejectWith
-    , updateCageTx
     , verifyEndFacts
     , verifyFactPresentFacts
     , verifyRejectFacts
@@ -185,9 +184,14 @@ import Cardano.MPFS.Client
     , withReason
     )
 import Cardano.MPFS.Client.Cage.Config qualified as Client
-import Cardano.MPFS.Client.Cage.End (endCageTx)
+import Cardano.MPFS.Client.Cage.End (endCageTxWithEval)
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext
+    , decodeEvalContext
+    )
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
-import Cardano.MPFS.Client.Cage.Reject (rejectCageTx)
+import Cardano.MPFS.Client.Cage.Reject (rejectCageTxWithEval)
+import Cardano.MPFS.Client.Cage.Update (updateCageTxWithEval)
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 
 -- | Skips when @MPFS_BLUEPRINT@ is not set.
@@ -364,7 +368,7 @@ proofsSpec scripts =
                 expectUpdateFactsVerified
                     updateTrusted
                     updateFacts
-            void (buildUpdateTx cfg verifiedUpdateFacts)
+            void (buildUpdateTx ctx cfg verifiedUpdateFacts)
 
             -- Reject (Addendum 001): wait past the Phase 3
             -- deadline, fetch facts via /facts/reject, verify
@@ -395,7 +399,7 @@ proofsSpec scripts =
                 expectRejectFactsVerified
                     rejectTrusted
                     rejectFactsResp
-            rejectTx <- buildRejectTx cfg verifiedRejectFacts
+            rejectTx <- buildRejectTx ctx cfg verifiedRejectFacts
             _ <-
                 submitResponseTx
                     awaitTimeout
@@ -424,7 +428,7 @@ proofsSpec scripts =
                     `withReason` "malformed proof CBOR"
             verifiedEndFacts <-
                 expectEndFactsVerified cfg trusted endFacts
-            void (buildEndTx cfg verifiedEndFacts)
+            void (buildEndTx ctx cfg verifiedEndFacts)
 
 -- -------------------------------------------------
 -- Assertions on response shape
@@ -566,18 +570,21 @@ expectUpdateFactsVerified trusted facts =
                 *> error "unreachable"
 
 buildUpdateTx
-    :: CageConfig
+    :: Context IO
+    -> CageConfig
     -> VerifiedUpdateFacts
     -> IO ConwayTx
-buildUpdateTx cfg verified =
-    case updateCageTx
+buildUpdateTx ctx cfg verified = do
+    evalCtx <- expectDecodedEvalContext ctx
+    case updateCageTxWithEval
+        evalCtx
         (toClientCageConfig cfg)
         permissiveWalletPolicy
         verified of
         Right tx -> pure tx
         Left err ->
             expectationFailure
-                ("updateCageTx failed: " <> show err)
+                ("updateCageTxWithEval failed: " <> show err)
                 *> error "unreachable"
 
 -- | The trusted root for facts-only reject verification is
@@ -601,18 +608,21 @@ expectRejectFactsVerified trusted facts =
                 *> error "unreachable"
 
 buildRejectTx
-    :: CageConfig
+    :: Context IO
+    -> CageConfig
     -> VerifiedRejectFacts
     -> IO ConwayTx
-buildRejectTx cfg verified =
-    case rejectCageTx
+buildRejectTx ctx cfg verified = do
+    evalCtx <- expectDecodedEvalContext ctx
+    case rejectCageTxWithEval
+        evalCtx
         (toClientCageConfig cfg)
         permissiveWalletPolicy
         verified of
         Right tx -> pure tx
         Left err ->
             expectationFailure
-                ("rejectCageTx failed: " <> show err)
+                ("rejectCageTxWithEval failed: " <> show err)
                 *> error "unreachable"
 
 encodeTxHex :: ConwayTx -> Hex
@@ -624,18 +634,31 @@ encodeTxHex tx =
         )
 
 buildEndTx
-    :: CageConfig
+    :: Context IO
+    -> CageConfig
     -> VerifiedEndFacts
     -> IO ConwayTx
-buildEndTx cfg verified =
-    case endCageTx
+buildEndTx ctx cfg verified = do
+    evalCtx <- expectDecodedEvalContext ctx
+    case endCageTxWithEval
+        evalCtx
         (toClientCageConfig cfg)
         permissiveWalletPolicy
         verified of
         Right tx -> pure tx
         Left err ->
             expectationFailure
-                ("endCageTx failed: " <> show err)
+                ("endCageTxWithEval failed: " <> show err)
+                *> error "unreachable"
+
+expectDecodedEvalContext :: Context IO -> IO DecodedEvalContext
+expectDecodedEvalContext ctx = do
+    wire <- evalContext ctx
+    case decodeEvalContext wire of
+        Right value -> pure value
+        Left err ->
+            expectationFailure
+                ("decodeEvalContext failed: " <> show err)
                 *> error "unreachable"
 
 submitResponseTx

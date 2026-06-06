@@ -77,6 +77,7 @@ library
     , rocksdb-haskell-jprupp
     , rocksdb-kv-transactions
     , rocksdb-kv-transactions:kv-transactions
+    , serialise
     , servant                                  >=0.20 && <0.21
     , servant-server                           >=0.20 && <0.21
     , servant-swagger
@@ -355,6 +356,7 @@ test-suite e2e-tests
     , cardano-ledger-core
     , cardano-ledger-mary
     , cardano-mpfs-api
+    , cardano-mpfs-cage-tx
     , cardano-mpfs-client
     , cardano-mpfs-offchain
     , cardano-mpfs-verify

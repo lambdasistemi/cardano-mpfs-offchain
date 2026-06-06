@@ -23,6 +23,7 @@ module Cardano.MPFS.API.Types.Common
     , UtxoEntryRefOnly (..)
     , UtxoSetWitness (..)
     , UnverifiedPParams (..)
+    , EvalContext (..)
     ) where
 
 #if !defined(wasm32_HOST_ARCH)
@@ -37,6 +38,7 @@ import Data.Aeson
     , (.=)
     )
 import Data.ByteString (ByteString)
+import Data.Text (Text)
 #if !defined(wasm32_HOST_ARCH)
 import Data.ByteString.Base16 qualified as B16
 import Data.Proxy (Proxy (..))
@@ -273,6 +275,64 @@ instance FromJSON UnverifiedPParams where
                 <$> o .: "verified"
                 <*> o .: "cbor"
 
+-- | Trusted evaluation context for pure wallet-side
+-- ledger ex-unit evaluation.
+--
+-- This endpoint is an interim trust boundary: the
+-- offchain service reports the ledger parameters and
+-- hard-fork history needed to evaluate a transaction
+-- locally, but clients must treat those bytes as
+-- trusted-not-proven until they are included in a
+-- proof system.
+data EvalContext = EvalContext
+    { ecProtocolParameters :: UnverifiedPParams
+    -- ^ Full Conway protocol parameters.
+    , ecSystemStartCbor :: Hex
+    -- ^ CBOR-encoded @SystemStart@.
+    , ecEpochSize :: Word64
+    -- ^ Fixed Shelley-era epoch size in slots.
+    , ecSlotLengthMs :: Word64
+    -- ^ Fixed Shelley-era slot length in milliseconds.
+    , ecEraHistoryCbor :: Hex
+    -- ^ Reserved for future proof-bearing hard-fork
+    -- history. Browser builders use the explicit
+    -- epoch fields above to avoid consensus dependencies.
+    , ecTrusted :: Bool
+    -- ^ Whether the service is asserting this context
+    -- as trusted.
+    , ecTrustAssumption :: Text
+    -- ^ Human-readable trust-boundary note.
+    }
+    deriving (Eq, Show)
+
+instance ToJSON EvalContext where
+    toJSON EvalContext{..} =
+        object
+            [ "protocol_parameters"
+                .= ecProtocolParameters
+            , "system_start_cbor"
+                .= ecSystemStartCbor
+            , "epoch_size" .= ecEpochSize
+            , "slot_length_ms" .= ecSlotLengthMs
+            , "era_history_cbor"
+                .= ecEraHistoryCbor
+            , "trusted" .= ecTrusted
+            , "trust_assumption"
+                .= ecTrustAssumption
+            ]
+
+instance FromJSON EvalContext where
+    parseJSON =
+        withObject "EvalContext" $ \o ->
+            EvalContext
+                <$> o .: "protocol_parameters"
+                <*> o .: "system_start_cbor"
+                <*> o .: "epoch_size"
+                <*> o .: "slot_length_ms"
+                <*> o .: "era_history_cbor"
+                <*> o .: "trusted"
+                <*> o .: "trust_assumption"
+
 #if !defined(wasm32_HOST_ARCH)
 instance ToSchema ChainPointJSON where
     declareNamedSchema _ = do
@@ -440,4 +500,45 @@ instance ToSchema UnverifiedPParams where
             & required .~ ["verified", "cbor"]
             & description
                 ?~ "CBOR-encoded protocol parameters reported as unverified facts."
+
+instance ToSchema EvalContext where
+    declareNamedSchema _ = do
+        ppSchema <-
+            declareSchemaRef
+                (Proxy @UnverifiedPParams)
+        hexSchema <-
+            declareSchemaRef (Proxy @Hex)
+        boolSchema <-
+            declareSchemaRef (Proxy @Bool)
+        word64Schema <-
+            declareSchemaRef (Proxy @Word64)
+        textSchema <-
+            declareSchemaRef (Proxy @Text)
+        pure
+            $ Swagger.NamedSchema
+                (Just "EvalContext")
+            $ mempty
+            & Swagger.type_
+                ?~ Swagger.SwaggerObject
+            & properties
+                .~ fromList
+                    [ ("protocol_parameters", ppSchema)
+                    , ("system_start_cbor", hexSchema)
+                    , ("epoch_size", word64Schema)
+                    , ("slot_length_ms", word64Schema)
+                    , ("era_history_cbor", hexSchema)
+                    , ("trusted", boolSchema)
+                    , ("trust_assumption", textSchema)
+                    ]
+            & required
+                .~ [ "protocol_parameters"
+                   , "system_start_cbor"
+                   , "epoch_size"
+                   , "slot_length_ms"
+                   , "era_history_cbor"
+                   , "trusted"
+                   , "trust_assumption"
+                   ]
+            & description
+                ?~ "Trusted-not-proven ledger evaluation context for wallet-side ex-unit evaluation."
 #endif
