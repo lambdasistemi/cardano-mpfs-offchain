@@ -115,16 +115,16 @@ retractRequest addr cfg _token requestId =
   requestCageTx "retract" cfg
     (\httpCfg -> postRetractFacts httpCfg addr requestId)
 
-rejectExpired :: WalletAddr -> CageConfig -> TokenId -> CageResult
-rejectExpired addr cfg token =
+rejectExpired :: WalletAddr -> CageConfig -> TokenId -> Array RequestId -> CageResult
+rejectExpired addr cfg token requestIds =
   requestCageTx "reject" cfg
-    (\httpCfg -> postRejectFacts httpCfg addr token)
+    (\httpCfg -> postRejectFacts httpCfg addr token requestIds)
 
 -- | Owner/oracle op: fold all pending requests into the trie root.
-updateToken :: WalletAddr -> CageConfig -> TokenId -> CageResult
-updateToken addr cfg token =
+updateToken :: WalletAddr -> CageConfig -> TokenId -> Array RequestId -> CageResult
+updateToken addr cfg token requestIds =
   requestCageTx "update" cfg
-    (\httpCfg -> postUpdateRootFacts httpCfg addr token)
+    (\httpCfg -> postUpdateRootFacts httpCfg addr token requestIds)
 
 endCage :: WalletAddr -> CageConfig -> TokenId -> CageResult
 endCage addr cfg token = do
@@ -248,17 +248,31 @@ postRetractFacts :: Config -> WalletAddr -> RequestId -> Aff (Either String Json
 postRetractFacts cfg (WalletAddr address) (RequestId utxo) =
   postFacts cfg "/facts/retract" (encodeJson { utxo, address })
 
-postRejectFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
-postRejectFacts cfg (WalletAddr address) (TokenId token) =
-  postFacts cfg "/facts/reject" (encodeJson { token, address })
+postRejectFacts
+  :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
+postRejectFacts cfg (WalletAddr address) (TokenId token) requestIds =
+  postFacts cfg "/facts/reject"
+    ( encodeJson
+        { token
+        , address
+        , requests: map requestIdText requestIds
+        }
+    )
 
 postEndFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
 postEndFacts cfg (WalletAddr address) (TokenId token) =
   postFacts cfg "/facts/end" (encodeJson { token, address })
 
-postUpdateRootFacts :: Config -> WalletAddr -> TokenId -> Aff (Either String Json)
-postUpdateRootFacts cfg (WalletAddr address) (TokenId token) =
-  postFacts cfg "/facts/update" (encodeJson { token, address })
+postUpdateRootFacts
+  :: Config -> WalletAddr -> TokenId -> Array RequestId -> Aff (Either String Json)
+postUpdateRootFacts cfg (WalletAddr address) (TokenId token) requestIds =
+  postFacts cfg "/facts/update"
+    ( encodeJson
+        { token
+        , address
+        , requests: map requestIdText requestIds
+        }
+    )
 
 postFacts :: Config -> String -> Json -> Aff (Either String Json)
 postFacts cfg path body = do
@@ -322,3 +336,6 @@ intJson = fromNumber <<< toNumber
 
 obj :: Array (Tuple String Json) -> Json
 obj = fromObject <<< Object.fromFoldable
+
+requestIdText :: RequestId -> String
+requestIdText (RequestId requestId) = requestId

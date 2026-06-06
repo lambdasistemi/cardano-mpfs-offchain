@@ -11,9 +11,96 @@ import {
 test.setTimeout(300_000);
 
 const devnetBaseUrl = process.env.MPFS_DEVNET_BASE_URL;
-const shotsDir =
-  process.env.MPFS_SHOTS_DIR || "/tmp/orch-spa-ux/shots-v2";
+const shotsDir = process.env.MPFS_SHOTS_DIR || "/tmp/orch-ui/shots";
 const walletBalance = "1b006a94d74f430000";
+const uiTokenId =
+  "9999999999999999999999999999999999999999999999999999999999999999";
+const uiOwnerHash = "11".repeat(28);
+const uiRequesterHash = "22".repeat(28);
+const uiOtherHash = "33".repeat(28);
+const uiOwnerAddressHex = `00${uiOwnerHash}`;
+const uiRequesterAddressHex = `00${uiRequesterHash}`;
+const uiOtherAddressHex = `00${uiOtherHash}`;
+
+test("separates facts and selectable requests with owner-gated actions", async ({
+  page,
+}) => {
+  await mkdir(shotsDir, { recursive: true });
+
+  const seen = await installUiContractServer(page);
+  await installUiContractWallet(page, uiOwnerAddressHex);
+
+  await page.goto("/");
+  await installReactorStub(page);
+
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Facts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pending requests" })).toBeVisible();
+  await expect(page.getByText("owner 11111111...111111 (you)").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Process selected" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reject selected" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add fact" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "End token" })).toBeVisible();
+  await expect(page.getByText("amaru")).toBeVisible();
+  await expect(page.getByText("Pending requests are selected individually")).toBeVisible();
+  await shot(page, "ui-contract-light");
+
+  await page.getByRole("checkbox", { name: "Select request aaa#0" }).check();
+  await page.getByRole("button", { name: "Process selected" }).click();
+  await expect.poll(() => seen.update.length).toBe(1);
+  await expect.poll(() => seen.submit.length).toBe(1);
+  expect(seen.update[0]).toEqual({
+    token: uiTokenId,
+    address: uiOwnerAddressHex,
+    requests: ["aaa#0"],
+  });
+
+  await refreshWorkbench(page);
+  await page.getByRole("checkbox", { name: "Select request aaa#0" }).check();
+  await page.getByRole("checkbox", { name: "Select request bbb#1" }).check();
+  await page.getByRole("button", { name: "Process selected" }).click();
+  await expect.poll(() => seen.update.length).toBe(2);
+  await expect.poll(() => seen.submit.length).toBe(2);
+  expect(seen.update[1]).toEqual({
+    token: uiTokenId,
+    address: uiOwnerAddressHex,
+    requests: ["aaa#0", "bbb#1"],
+  });
+
+  await refreshWorkbench(page);
+  await page.getByRole("checkbox", { name: "Select request ccc#2" }).check();
+  await page.getByRole("checkbox", { name: "Select request ddd#3" }).check();
+  await page.getByRole("button", { name: "Reject selected" }).click();
+  await expect.poll(() => seen.reject.length).toBe(1);
+  await expect.poll(() => seen.submit.length).toBe(3);
+  expect(seen.reject[0]).toEqual({
+    token: uiTokenId,
+    address: uiOwnerAddressHex,
+    requests: ["ccc#2", "ddd#3"],
+  });
+
+  await refreshWorkbench(page);
+  await page.getByLabel("Mine only").click();
+  await page.evaluate((address) => {
+    window.__mpfsWalletAddress = address;
+  }, uiRequesterAddressHex);
+  await page.getByRole("button", { name: "Refresh account" }).click();
+  await expect(page.getByText("read-only for this token")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Process selected" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reject selected" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add fact" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "End token" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Retract request eee#4" }).click();
+  await expect.poll(() => seen.retract.length).toBe(1);
+  await expect.poll(() => seen.submit.length).toBe(4);
+  expect(seen.retract[0]).toEqual({
+    utxo: "eee#4",
+    address: uiRequesterAddressHex,
+  });
+
+  await page.getByRole("button", { name: "Toggle theme" }).click();
+  await shot(page, "ui-contract-dark");
+});
 
 test("runs the full token facts lifecycle from the polished workbench", async ({
   page,
@@ -51,7 +138,7 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
   await page.getByRole("button", { name: "Toggle theme" }).click();
   await shot(page, "01-connected-dark");
 
-  await page.getByRole("button", { name: "Register token" }).first().click();
+  await page.getByRole("button", { name: "Register new token" }).first().click();
   await waitForSubmitCount(page, submittedTxIds, 1);
   await awaitTx(request, submittedTxIds[0]);
 
@@ -61,17 +148,18 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     .getByRole("button", { name: new RegExp(tokenId.slice(0, 12)) })
     .click();
   await expect(page.getByText("Mine", { exact: true })).toBeVisible();
-  await expect(page.getByText("No facts for this token.")).toBeVisible();
+  await expect(page.getByText("No committed facts for this token.")).toBeVisible();
   await shot(page, "02-token-selected");
 
   await requestInsert(page, submittedTxIds);
   await awaitTx(request, submittedTxIds[1]);
-  await waitForRequest(request, tokenId, "insert", "start", "amaru");
+  const insertRequestId =
+    await waitForRequest(request, tokenId, "insert", "start", "amaru");
   await refreshWorkbench(page);
   await expect(page.getByText("Insert", { exact: true })).toBeVisible();
   await shot(page, "03-insert-pending");
 
-  await processRequests(page, request, submittedTxIds, 3);
+  await processRequests(page, request, submittedTxIds, 3, [insertRequestId]);
   await waitForFact(request, tokenId, "start", "amaru");
   await refreshWorkbench(page);
   await expect(page.getByText("amaru").first()).toBeVisible();
@@ -82,12 +170,13 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
   await page.getByRole("button", { name: "Request update" }).click();
   await waitForSubmitCount(page, submittedTxIds, 4);
   await awaitTx(request, submittedTxIds[3]);
-  await waitForRequest(request, tokenId, "update", "start", "cardano");
+  const updateRequestId =
+    await waitForRequest(request, tokenId, "update", "start", "cardano");
   await refreshWorkbench(page);
   await expect(page.getByText("Update", { exact: true })).toBeVisible();
   await shot(page, "05-update-pending");
 
-  await processRequests(page, request, submittedTxIds, 5);
+  await processRequests(page, request, submittedTxIds, 5, [updateRequestId]);
   await waitForFact(request, tokenId, "start", "cardano");
   await refreshWorkbench(page);
   await expect(page.getByText("cardano").first()).toBeVisible();
@@ -97,15 +186,16 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
   await page.getByRole("button", { name: "Request delete" }).click();
   await waitForSubmitCount(page, submittedTxIds, 6);
   await awaitTx(request, submittedTxIds[5]);
-  await waitForRequest(request, tokenId, "delete", "start", null);
+  const deleteRequestId =
+    await waitForRequest(request, tokenId, "delete", "start", null);
   await refreshWorkbench(page);
   await expect(page.getByText("Delete", { exact: true })).toBeVisible();
   await shot(page, "07-delete-pending");
 
-  await processRequests(page, request, submittedTxIds, 7);
+  await processRequests(page, request, submittedTxIds, 7, [deleteRequestId]);
   await waitForNoFacts(request, tokenId);
   await refreshWorkbench(page);
-  await expect(page.getByText("No facts for this token.")).toBeVisible();
+  await expect(page.getByText("No committed facts for this token.")).toBeVisible();
   await shot(page, "08-delete-processed");
 
   await page.getByRole("button", { name: "End token" }).first().click();
@@ -143,9 +233,9 @@ test("runs the full token facts lifecycle from the polished workbench", async ({
     },
   ]);
   expect(proxiedFacts.process).toEqual([
-    { token: tokenId, address: devnetGenesisAddressHex },
-    { token: tokenId, address: devnetGenesisAddressHex },
-    { token: tokenId, address: devnetGenesisAddressHex },
+    { token: tokenId, address: devnetGenesisAddressHex, requests: [insertRequestId] },
+    { token: tokenId, address: devnetGenesisAddressHex, requests: [updateRequestId] },
+    { token: tokenId, address: devnetGenesisAddressHex, requests: [deleteRequestId] },
   ]);
   expect(proxiedFacts.end).toEqual([
     { token: tokenId, address: devnetGenesisAddressHex },
@@ -187,8 +277,17 @@ async function requestInsert(page, submittedTxIds) {
   await waitForSubmitCount(page, submittedTxIds, 2);
 }
 
-async function processRequests(page, request, submittedTxIds, expectedSubmitCount) {
-  await page.getByRole("button", { name: "Process requests" }).click();
+async function processRequests(
+  page,
+  request,
+  submittedTxIds,
+  expectedSubmitCount,
+  requestIds,
+) {
+  for (const requestId of requestIds) {
+    await page.getByRole("checkbox", { name: `Select request ${requestId}` }).check();
+  }
+  await page.getByRole("button", { name: "Process selected" }).click();
   await waitForSubmitCount(page, submittedTxIds, expectedSubmitCount);
   await awaitTx(request, submittedTxIds[expectedSubmitCount - 1]);
 }
@@ -271,6 +370,174 @@ async function installDevnetWallet(page) {
       baseUrl: devnetBaseUrl,
     },
   );
+}
+
+async function installUiContractWallet(page, initialAddress) {
+  await page.addInitScript(
+    ({ address, balance }) => {
+      window.__mpfsWalletAddress = address;
+      window.__signArgs = [];
+      window.cardano = {
+        uiwallet: {
+          name: "UI Contract Wallet",
+          icon: "",
+          enable: async () => ({
+            getNetworkId: async () => 0,
+            getUsedAddresses: async () => [window.__mpfsWalletAddress],
+            getChangeAddress: async () => window.__mpfsWalletAddress,
+            getBalance: async () => balance,
+            signTx: async (tx, partial) => {
+              window.__signArgs.push({ tx, partial });
+              return "bead";
+            },
+            submitTx: async () => "unused-ui-submit",
+          }),
+        },
+      };
+    },
+    { address: initialAddress, balance: walletBalance },
+  );
+}
+
+async function installUiContractServer(page) {
+  const now = Date.now();
+  const seen = {
+    update: [],
+    reject: [],
+    retract: [],
+    submit: [],
+  };
+  const requests = [
+    uiRequest("aaa", 0, "insert", "alpha", "one", uiRequesterHash, now - 500),
+    uiRequest("bbb", 1, "update", "beta", "two", uiOtherHash, now - 600),
+    uiRequest("ccc", 2, "delete", "gamma", null, uiOtherHash, now - 300_000),
+    uiRequest("ddd", 3, "insert", "delta", "four", uiRequesterHash, now - 310_000),
+    uiRequest("eee", 4, "update", "epsilon", "five", uiRequesterHash, now - 180_000),
+  ];
+
+  await page.route("**/tokens", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tokens: { entries: [{ token_id: uiTokenId }] } }),
+    });
+  });
+
+  await page.route(`**/tokens/${uiTokenId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        state: {
+          state: {
+            owner: uiOwnerHash,
+            root: "ab".repeat(32),
+            tip: 2_000_000,
+            process_time: 120_000,
+            retract_time: 120_000,
+          },
+        },
+      }),
+    });
+  });
+
+  await page.route(`**/tokens/${uiTokenId}/facts`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        facts: [{ key: utf8Hex("start"), value: utf8Hex("amaru") }],
+      }),
+    });
+  });
+
+  await page.route(`**/tokens/${uiTokenId}/requests`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ requests }),
+    });
+  });
+
+  await page.route("**/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ utxo_root: "cd".repeat(32) }),
+    });
+  });
+
+  await page.route("**/facts/update", async (route) => {
+    seen.update.push(JSON.parse(route.request().postData() || "{}"));
+    await fulfillUiFacts(route);
+  });
+
+  await page.route("**/facts/reject", async (route) => {
+    seen.reject.push(JSON.parse(route.request().postData() || "{}"));
+    await fulfillUiFacts(route);
+  });
+
+  await page.route("**/facts/retract", async (route) => {
+    seen.retract.push(JSON.parse(route.request().postData() || "{}"));
+    await fulfillUiFacts(route);
+  });
+
+  await page.route("**/submit", async (route) => {
+    seen.submit.push(JSON.parse(route.request().postData() || "{}"));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ txId: `ui-tx-${seen.submit.length}` }),
+    });
+  });
+
+  return seen;
+}
+
+async function installReactorStub(page) {
+  await page.evaluate(() => {
+    globalThis.runCageReactor = async (stdin) => {
+      const envelope = JSON.parse(stdin);
+      if (envelope.op === "assemble") {
+        return { stdout: "signed_tx: f00d", stderr: "", exitOk: true };
+      }
+      return { stdout: "cage_tx: cafe" + envelope.op.length, stderr: "", exitOk: true };
+    };
+  });
+}
+
+async function fulfillUiFacts(route) {
+  await route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      snapshot: { utxo_root: "cd".repeat(32), chainpoint: "ui" },
+      token: uiTokenId,
+      owner: uiOwnerHash,
+      requests: [],
+      protocol_parameters: { cbor: "00", verified: false },
+    }),
+  });
+}
+
+function uiRequest(txId, txIx, operation, key, value, owner, submittedAt) {
+  const request = {
+    token: uiTokenId,
+    owner,
+    key: utf8Hex(key),
+    operation,
+    fee: 2_000_000,
+    submitted_at: submittedAt,
+  };
+  if (value !== null) request.value = utf8Hex(value);
+  return {
+    request,
+    utxo: {
+      tx_in: { tx_id: txId, tx_ix: txIx },
+      txout_cbor: "00",
+      inclusion_proof: "proof",
+    },
+  };
 }
 
 async function installDevnetProxy(page, submittedTxIds, proxiedFacts) {
@@ -429,11 +696,12 @@ async function waitForNoFacts(request, tokenId) {
 }
 
 async function waitForRequest(request, tokenId, operation, key, value) {
+  let found = null;
   await expect
     .poll(
       async () => {
         const requests = await getRequests(request, tokenId);
-        return requests.some((entry) => {
+        found = requests.find((entry) => {
           const req = entry.request || entry;
           return (
             req.operation === operation &&
@@ -441,10 +709,12 @@ async function waitForRequest(request, tokenId, operation, key, value) {
             (value === null ? req.value == null : req.value === utf8Hex(value))
           );
         });
+        return found ? requestRef(found) : null;
       },
       { timeout: 60_000 },
     )
-    .toBe(true);
+    .toMatch(/^[0-9a-f]+#\d+$/);
+  return requestRef(found);
 }
 
 async function getTokens(request) {
@@ -478,4 +748,16 @@ async function getRequests(request, tokenId) {
 
 function utf8Hex(text) {
   return Buffer.from(text, "utf8").toString("hex");
+}
+
+function requestRef(entry) {
+  if (entry.requestId) return entry.requestId;
+  if (entry.request_id) return entry.request_id;
+  if (entry.utxo?.tx_in) {
+    return `${entry.utxo.tx_in.tx_id}#${entry.utxo.tx_in.tx_ix}`;
+  }
+  if (entry.tx_id != null && entry.tx_ix != null) {
+    return `${entry.tx_id}#${entry.tx_ix}`;
+  }
+  throw new Error(`request ref missing: ${JSON.stringify(entry)}`);
 }

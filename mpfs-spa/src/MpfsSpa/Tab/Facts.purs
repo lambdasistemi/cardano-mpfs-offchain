@@ -154,10 +154,10 @@ mkFactsTab = component "FactsTab" \props -> React.do
             (Value form.delVal)
 
         onRejectExpired = op \w ->
-          helpers.rejectExpired (addr w) placeholderCageConfig tid
+          helpers.rejectExpired (addr w) placeholderCageConfig tid []
 
         onUpdateRoot = op \w ->
-          helpers.updateToken (addr w) placeholderCageConfig tid
+          helpers.updateToken (addr w) placeholderCageConfig tid []
 
         onRetract rid = op \w ->
           helpers.retractRequest (addr w) placeholderCageConfig tid rid
