@@ -61,6 +61,9 @@
               inherit system;
             };
             cardano-node-pkgs = cardano-node.packages.${system};
+            # Validator identity source for the server and SPA. The wasm
+            # Haskell fork pins are separate library-code inputs; this unifies
+            # only cage/request validator identity, not those rev pins.
             mpfs-blueprint = cardano-mpfs-onchain.packages.${system}.default;
             devnet-genesis =
               cardano-node-clients.packages.${system}.devnet-genesis;
@@ -105,6 +108,7 @@
             cardanoAddress = cardanoAddressHaskellPackages.cardano-addresses;
             mpfs-spa = import ./nix/mpfs-spa.nix {
               pkgs = psPkgs;
+              mpfsBlueprint = mpfs-blueprint;
               # Integration (298): feed the real reactor wasm built by the
               # wasm target instead of the placeholder, so the SPA bundles
               # and loads the live mpfs-cage-reactor.
