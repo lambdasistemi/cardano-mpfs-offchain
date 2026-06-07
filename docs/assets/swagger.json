@@ -129,6 +129,48 @@
             ],
             "type": "object"
         },
+        "EvalContext": {
+            "description": "Trusted-not-proven ledger evaluation context for wallet-side ex-unit evaluation.",
+            "properties": {
+                "epoch_size": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "era_history_cbor": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "slot_length_ms": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "system_start_cbor": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "trust_assumption": {
+                    "type": "string"
+                },
+                "trusted": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "protocol_parameters",
+                "system_start_cbor",
+                "epoch_size",
+                "slot_length_ms",
+                "era_history_cbor",
+                "trusted",
+                "trust_assumption"
+            ],
+            "type": "object"
+        },
         "FactEntry": {
             "description": "One enumerated token fact entry",
             "properties": {
@@ -182,7 +224,7 @@
             "type": "object"
         },
         "FactsResponse": {
-            "description": "Proof-bearing complete token facts response",
+            "description": "Proof-bearing complete token facts                    \response",
             "properties": {
                 "facts": {
                     "items": {
@@ -442,6 +484,12 @@
             "properties": {
                 "address": {
                     "$ref": "#/definitions/Hex"
+                },
+                "requests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "token": {
                     "$ref": "#/definitions/TokenIdJSON"
@@ -819,6 +867,25 @@
             ],
             "type": "object"
         },
+        "TokenSetWitness": {
+            "description": "Enumerated token-state UTxOs with explicit token ids and a CSMT prefix-completeness proof",
+            "properties": {
+                "completeness_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/TokenUtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "entries",
+                "completeness_proof"
+            ],
+            "type": "object"
+        },
         "TokenStateJSON": {
             "description": "On-chain token state",
             "properties": {
@@ -847,14 +914,34 @@
             ],
             "type": "object"
         },
+        "TokenUtxoEntry": {
+            "description": "Token-state UTxO entry with the token_id carried explicitly",
+            "properties": {
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "token_id": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "token_id",
+                "ref",
+                "txout_cbor"
+            ],
+            "type": "object"
+        },
         "TokensResponse": {
-            "description": "Proof-bearing complete token set response",
+            "description": "Proof-bearing complete token set                    \response",
             "properties": {
                 "snapshot": {
                     "$ref": "#/definitions/VerificationSnapshot"
                 },
                 "tokens": {
-                    "$ref": "#/definitions/UtxoSetWitness"
+                    "$ref": "#/definitions/TokenSetWitness"
                 }
             },
             "required": [
@@ -976,6 +1063,12 @@
             "properties": {
                 "address": {
                     "$ref": "#/definitions/Hex"
+                },
+                "requests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "token": {
                     "$ref": "#/definitions/TokenIdJSON"
@@ -1167,6 +1260,21 @@
         "version": "0.0.0"
     },
     "paths": {
+        "/eval-context": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/EvalContext"
+                        }
+                    }
+                }
+            }
+        },
         "/facts/boot": {
             "post": {
                 "consumes": [
