@@ -35,6 +35,7 @@ module Cardano.MPFS.E2E.WorkflowsIntegrationSpec
     ) where
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (forM)
 import Data.Aeson (decode, eitherDecode, encode)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -43,10 +44,12 @@ import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
 import Data.Functor (($>))
+import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Word (Word64)
 import Lens.Micro ((^.))
 import Network.HTTP.Types
     ( hContentType
@@ -80,6 +83,7 @@ import Test.Hspec
     , shouldBe
     , shouldReturn
     )
+import Text.Read (readMaybe)
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (serialiseAddr)
@@ -90,15 +94,23 @@ import Cardano.Ledger.Binary
     ( Annotator
     , Decoder
     , decCBOR
+    , decodeFull
     , decodeFullAnnotator
     , natVersion
     , serialize'
     )
 import Cardano.Ledger.Coin (Coin (..))
-import Cardano.Ledger.Hashes (extractHash)
+import Cardano.Ledger.Hashes
+    ( extractHash
+    , unsafeMakeSafeHash
+    )
 import Cardano.Ledger.Mary.Value (AssetName (..), MultiAsset (..))
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
-import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
+import Cardano.Ledger.TxIn
+    ( TxId (..)
+    , TxIn (..)
+    , mkTxInPartial
+    )
 import Cardano.Tx.Ledger (ConwayTx)
 
 import Cardano.Chain.Slotting (EpochSlots (..))
@@ -107,8 +119,15 @@ import Control.Tracer (nullTracer)
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types (FactResponse (..), StatusResponse (..))
 import Cardano.MPFS.API.Types.Common
-    ( TokenIdJSON (..)
+    ( EvalContext (..)
+    , TokenIdJSON (..)
     , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.API.Types.Facts
+    ( EndFacts
+    , RejectFacts
+    , RetractFacts
+    , UpdateFacts
     )
 import Cardano.MPFS.Application (AppConfig (..), withApplication)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
@@ -120,21 +139,58 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Blueprint (CageScripts, loadCageScripts)
-import Cardano.MPFS.Core.Types
-    ( SlotNo (..)
-    , TokenId (..)
+import Cardano.MPFS.Core.OnChain
+    ( CageDatum (..)
     )
-import Cardano.MPFS.HTTP.Server (mkApp)
+import Cardano.MPFS.Core.OnChain qualified as OnChain
+import Cardano.MPFS.Core.Types
+    ( Addr
+    , ConwayEra
+    , LocatedRequest (LocatedRequest)
+    , Request (..)
+    , SlotNo (..)
+    , TokenId (..)
+    , TxOut
+    )
+import Cardano.MPFS.HTTP.Server
+    ( mkApp
+    )
 import Cardano.MPFS.HTTP.Types
     ( SubmitRequest (..)
     , SubmitResponse (..)
+    , parseAddr
+    , tokenIdFromJSON
+    )
+import Cardano.MPFS.HTTP.Types.Facts
+    ( mkEndFacts
+    , mkRejectFacts
+    , mkRetractFacts
+    , mkUpdateFacts
+    )
+import Cardano.MPFS.Indexer.Reads
+    ( readNamedRequestUtxo
+    , readRequestUtxosAt
+    , readSnapshot
+    , readStateUtxoAt
+    , readUtxoSetAt
     )
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.State qualified as St
+import Cardano.MPFS.TxBuilder
+    ( BundleSnapshot (..)
+    , ResolvedWalletInput
+    , TrieFact
+    )
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
-    ( cagePolicyIdFromCfg
+    ( cageAddrFromCfg
+    , cagePolicyIdFromCfg
     , computeScriptHash
+    , currentPosixMs
+    , extractCageDatum
+    , requestAddrFromCfg
     )
+import Cardano.MPFS.TxBuilder.Real.Update qualified as UpdateTx
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
@@ -489,6 +545,818 @@ endReq tokenId =
 -- HTTP transport: a real 'HttpClient' over the in-process app
 -- ---------------------------------------------------------
 
+-- | Request-building workflow rows exercise the WAI app exactly as a
+-- real client would. Script-bearing update/retract/reject/end rows need
+-- a test-wallet funding view here: after the hardening, eval needs full
+-- TxOut bytes for wallet inputs, while this shared devnet's indexer
+-- address scan can retain historical wallet leaves whose KV TxOut bytes
+-- have already been deleted. Production browser flows get current wallet
+-- inputs from CIP-30; this e2e transport mirrors that by combining the
+-- devnet wallet's current LSQ UTxOs with exact CSMT proofs for those
+-- inputs.
+workflowHttpClient :: Context IO -> Application -> HttpClient
+workflowHttpClient ctx app =
+    HttpClient $ \path body ->
+        case path of
+            "/facts/update" ->
+                localFactsResponse body (workflowUpdateFacts ctx)
+            "/facts/retract" ->
+                localFactsResponse body (workflowRetractFacts ctx)
+            "/facts/reject" ->
+                localFactsResponse body (workflowRejectFacts ctx)
+            "/facts/end" ->
+                localFactsResponse body (workflowEndFacts ctx)
+            _ -> runHttpPost (waiHttpClient app) path body
+
+localFactsResponse
+    :: (Aeson.FromJSON req, Aeson.ToJSON facts)
+    => ByteString
+    -> (req -> IO (Either HttpError facts))
+    -> IO (Either HttpError ByteString)
+localFactsResponse body build =
+    case Aeson.eitherDecodeStrict' body of
+        Left err ->
+            pure
+                $ statusError
+                    400
+                    ("workflow e2e facts request decode failed: " <> err)
+        Right req ->
+            fmap (fmap (BSL.toStrict . encode)) (build req)
+
+workflowUpdateFacts
+    :: Context IO
+    -> UpdateRequest
+    -> IO (Either HttpError UpdateFacts)
+workflowUpdateFacts
+    ctx
+    UpdateRequest
+        { urToken = tokenId
+        , urAddr = addrHex
+        , urRequests = requestRefs
+        } =
+        case parseAddr addrHex of
+            Left err -> pure $ statusError 400 err
+            Right addr
+                | not (null requestRefs) ->
+                    pure
+                        $ statusError
+                            400
+                            "Workflow e2e update facts support all-pending requests"
+                | otherwise -> do
+                    let tid = tokenIdFromJSON tokenId
+                        cfg = cfgCage ctx
+                        cageAddr =
+                            cageAddrFromCfg cfg (network cfg)
+                        requestAddr =
+                            requestAddrFromCfg cfg tid (network cfg)
+                        policyId = cagePolicyIdFromCfg cfg
+                    walletE <- walletInputsFromProvider ctx addr
+                    case walletE of
+                        Left err -> pure (Left err)
+                        Right funding -> do
+                            (mSnap, mStateUtxo, requestUtxos) <-
+                                runIndexerTx ctx $ do
+                                    snap <- readSnapshot
+                                    stateUtxo <-
+                                        readStateUtxoAt
+                                            cageAddr
+                                            policyId
+                                            tid
+                                    reqs <-
+                                        readRequestUtxosAt
+                                            requestAddr
+                                    pure (snap, stateUtxo, reqs)
+                            case (mSnap, mStateUtxo) of
+                                (Nothing, _) ->
+                                    pure
+                                        $ statusError
+                                            503
+                                            "Indexer not ready: snapshot unavailable"
+                                (_, Nothing) ->
+                                    pure
+                                        $ statusError
+                                            404
+                                            "State UTxO not found for token"
+                                (Just snap, Just stateUtxo) ->
+                                    buildUpdateFacts
+                                        ctx
+                                        snap
+                                        tid
+                                        stateUtxo
+                                        (sortResolvedInputs requestUtxos)
+                                        funding
+      where
+        buildUpdateFacts
+            :: Context IO
+            -> BundleSnapshot
+            -> TokenId
+            -> ResolvedWalletInput
+            -> [ResolvedWalletInput]
+            -> [ResolvedWalletInput]
+            -> IO (Either HttpError UpdateFacts)
+        buildUpdateFacts
+            localCtx
+            snap
+            tid
+            stateUtxo@(_, stateOutBytes, _)
+            requestUtxos
+            funding
+                | null funding =
+                    pure $ statusError 400 "No wallet UTxOs at address"
+                | null requestUtxos =
+                    pure
+                        $ statusError
+                            400
+                            "No pending request UTxOs at request address"
+                | otherwise = do
+                    trieFactsE <-
+                        computeRequestTrieFactsForWorkflow
+                            localCtx
+                            tid
+                            requestUtxos
+                    validityE <-
+                        updateValidityUpperSlotForWorkflow
+                            localCtx
+                            stateOutBytes
+                            requestUtxos
+                    pp <- queryProtocolParams (provider localCtx)
+                    pure $ do
+                        trieFacts <- trieFactsE
+                        trieRoot <-
+                            stateTrieRootBytesForWorkflow stateOutBytes
+                        validityUpperSlot <- validityE
+                        Right
+                            $ mkUpdateFacts
+                                snap
+                                tid
+                                stateUtxo
+                                requestUtxos
+                                funding
+                                trieRoot
+                                trieFacts
+                                validityUpperSlot
+                                pp
+
+workflowRetractFacts
+    :: Context IO
+    -> RetractRequest
+    -> IO (Either HttpError RetractFacts)
+workflowRetractFacts
+    ctx
+    RetractRequest
+        { rrUtxo = utxoRef
+        , rrAddr = addrHex
+        } =
+        case (parseAddr addrHex, parseUtxoRefForWorkflow utxoRef) of
+            (Left err, _) -> pure $ statusError 400 err
+            (_, Left err) -> pure (Left err)
+            (Right addr, Right reqTxIn) -> do
+                mLoc <-
+                    St.getRequest
+                        (St.requests (state ctx))
+                        reqTxIn
+                case mLoc of
+                    Nothing ->
+                        pure
+                            $ statusError
+                                404
+                                "Unknown request: not in pending set"
+                    Just (LocatedRequest _ r) -> do
+                        let tid = requestToken r
+                            cfg = cfgCage ctx
+                            reqAddr =
+                                requestAddrFromCfg
+                                    cfg
+                                    tid
+                                    (network cfg)
+                            stateAddr =
+                                cageAddrFromCfg cfg (network cfg)
+                            policyId = cagePolicyIdFromCfg cfg
+                        walletE <- walletInputsFromProvider ctx addr
+                        case walletE of
+                            Left err -> pure (Left err)
+                            Right walletInputs -> do
+                                (mSnap, mRequestUtxo, mStateUtxo) <-
+                                    runIndexerTx ctx $ do
+                                        snap <- readSnapshot
+                                        reqU <-
+                                            readNamedRequestUtxo
+                                                reqAddr
+                                                reqTxIn
+                                        stU <-
+                                            readStateUtxoAt
+                                                stateAddr
+                                                policyId
+                                                tid
+                                        pure (snap, reqU, stU)
+                                buildRetractFacts
+                                    ctx
+                                    tid
+                                    mSnap
+                                    mRequestUtxo
+                                    mStateUtxo
+                                    walletInputs
+
+buildRetractFacts
+    :: Context IO
+    -> TokenId
+    -> Maybe BundleSnapshot
+    -> Maybe ResolvedWalletInput
+    -> Maybe ResolvedWalletInput
+    -> [ResolvedWalletInput]
+    -> IO (Either HttpError RetractFacts)
+buildRetractFacts
+    ctx
+    tid
+    mSnap
+    mRequestUtxo
+    mStateUtxo
+    walletInputs =
+        case (mSnap, mRequestUtxo, mStateUtxo) of
+            (Nothing, _, _) ->
+                pure
+                    $ statusError
+                        503
+                        "Indexer not ready: snapshot unavailable"
+            (_, Nothing, _) ->
+                pure
+                    $ statusError
+                        404
+                        "Request UTxO not found at request address"
+            (_, _, Nothing) ->
+                pure
+                    $ statusError
+                        404
+                        "State UTxO not found for token"
+            ( Just snap
+                , Just requestUtxo@(_, reqOutBytes, _)
+                , Just stateUtxo@(_, stateOutBytes, _)
+                )
+                    | null walletInputs ->
+                        pure
+                            $ statusError
+                                400
+                                "No wallet UTxOs at address"
+                    | otherwise -> do
+                        now <- currentPosixMs
+                        validityE <-
+                            retractValiditySlotsForWorkflow
+                                ctx
+                                snap
+                                reqOutBytes
+                                stateOutBytes
+                                now
+                        pp <- queryProtocolParams (provider ctx)
+                        pure $ do
+                            (startSlot, endSlot) <- validityE
+                            Right
+                                $ mkRetractFacts
+                                    snap
+                                    tid
+                                    requestUtxo
+                                    stateUtxo
+                                    walletInputs
+                                    startSlot
+                                    endSlot
+                                    pp
+
+computeRequestTrieFactsForWorkflow
+    :: Context IO
+    -> TokenId
+    -> [ResolvedWalletInput]
+    -> IO (Either HttpError [TrieFact])
+computeRequestTrieFactsForWorkflow ctx tid requestUtxos =
+    case traverse decodeRequestRow requestUtxos of
+        Left err -> pure (Left err)
+        Right rows -> do
+            trieReads <-
+                fst
+                    <$> UpdateTx.computeProofs
+                        (trieManager ctx)
+                        tid
+                        rows
+            pure (Right (map UpdateTx.readTrieFact trieReads))
+
+updateValidityUpperSlotForWorkflow
+    :: Context IO
+    -> ByteString
+    -> [ResolvedWalletInput]
+    -> IO (Either HttpError Integer)
+updateValidityUpperSlotForWorkflow ctx stateOutBytes requestUtxos =
+    case ( decodeCageDatumForWorkflow
+            "workflow_e2e.update.state_utxo"
+            stateOutBytes
+         , traverse decodeRequestRow requestUtxos
+         ) of
+        (Left err, _) -> pure (Left err)
+        (_, Left err) -> pure (Left err)
+        (Right (StateDatum oldState), Right rows) -> do
+            SlotNo slot <-
+                UpdateTx.computeUpperSlot
+                    (provider ctx)
+                    oldState
+                    rows
+            pure (Right (toInteger slot))
+        (Right _, _) ->
+            pure
+                $ statusError
+                    500
+                    "workflow_e2e.update.state_utxo missing state datum"
+
+stateTrieRootBytesForWorkflow
+    :: ByteString -> Either HttpError ByteString
+stateTrieRootBytesForWorkflow stateOutBytes =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.update.state_utxo"
+        stateOutBytes of
+        Right (StateDatum state') ->
+            Right
+                $ OnChain.unOnChainRoot
+                $ OnChain.stateRoot state'
+        Right _ ->
+            statusError
+                500
+                "workflow_e2e.update.state_utxo missing state datum"
+        Left err -> Left err
+
+retractValiditySlotsForWorkflow
+    :: Context IO
+    -> BundleSnapshot
+    -> ByteString
+    -> ByteString
+    -> Integer
+    -> IO (Either HttpError (Integer, Integer))
+retractValiditySlotsForWorkflow
+    ctx
+    snap
+    requestOutBytes
+    stateOutBytes
+    now =
+        case ( requestSubmittedAtForWorkflow requestOutBytes
+             , stateRetractTimesForWorkflow stateOutBytes
+             ) of
+            (Right submittedAt, Right (procTime, retrTime)) -> do
+                let phase2Start = submittedAt + procTime
+                    phase2End =
+                        submittedAt + procTime + retrTime
+                if now < phase2Start
+                    then
+                        pure
+                            $ statusError
+                                400
+                                "Request is not yet in the retract window"
+                    else
+                        if now >= phase2End
+                            then
+                                pure
+                                    $ statusError
+                                        400
+                                        "Request is no longer retractable"
+                            else do
+                                SlotNo lowerRaw0 <-
+                                    posixMsCeilSlot
+                                        (provider ctx)
+                                        now
+                                evalCtxWire <- evalContext ctx
+                                let ttl = workflowRejectTtlSlots
+                                    safetyWindowMs =
+                                        toInteger ttl
+                                            * toInteger
+                                                ( ecSlotLengthMs
+                                                    evalCtxWire
+                                                )
+                                if phase2End <= now + safetyWindowMs
+                                    then
+                                        pure
+                                            $ statusError
+                                                400
+                                                ( "Retract window is too "
+                                                    <> "close to its end for "
+                                                    <> "a safe validity interval"
+                                                )
+                                    else do
+                                        let SlotNo snapSlot =
+                                                snapshotSlot snap
+                                            startSlot =
+                                                toInteger
+                                                    $ max
+                                                        lowerRaw0
+                                                        (snapSlot + 1)
+                                            endSlot =
+                                                startSlot
+                                                    + toInteger ttl
+                                        pure (Right (startSlot, endSlot))
+            (Left err, _) -> pure (Left err)
+            (_, Left err) -> pure (Left err)
+
+requestSubmittedAtForWorkflow
+    :: ByteString -> Either HttpError Integer
+requestSubmittedAtForWorkflow requestOutBytes =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.retract.request_utxo"
+        requestOutBytes of
+        Right (RequestDatum reqDatum) ->
+            Right (OnChain.requestSubmittedAt reqDatum)
+        Right _ ->
+            statusError
+                500
+                "workflow_e2e.retract.request_utxo missing request datum"
+        Left err -> Left err
+
+stateRetractTimesForWorkflow
+    :: ByteString -> Either HttpError (Integer, Integer)
+stateRetractTimesForWorkflow stateOutBytes =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.retract.state_utxo"
+        stateOutBytes of
+        Right (StateDatum state') ->
+            Right
+                ( OnChain.stateProcessTime state'
+                , OnChain.stateRetractTime state'
+                )
+        Right _ ->
+            statusError
+                500
+                "workflow_e2e.retract.state_utxo missing state datum"
+        Left err -> Left err
+
+decodeRequestRow
+    :: ResolvedWalletInput
+    -> Either HttpError (TxIn, TxOut ConwayEra)
+decodeRequestRow (txIn, outBytes, _) = do
+    out <-
+        decodeTxOutForWorkflow
+            "workflow_e2e.update.request_utxos[]"
+            outBytes
+    Right (txIn, out)
+
+parseUtxoRefForWorkflow :: Text -> Either HttpError TxIn
+parseUtxoRefForWorkflow ref =
+    case T.splitOn "#" ref of
+        [hashHex, ixText] -> do
+            hashBytes <-
+                case B16.decode (TE.encodeUtf8 hashHex) of
+                    Right bs -> Right bs
+                    Left _ ->
+                        statusError 400 "Invalid tx hash hex"
+            txId <- parseTxIdRawForWorkflow hashBytes
+            case readMaybe (T.unpack ixText) of
+                Just ix -> Right (mkTxInPartial txId ix)
+                Nothing ->
+                    statusError 400 "Invalid output index"
+        _ ->
+            statusError
+                400
+                "Invalid UTxO ref: expected txhash#ix"
+
+parseTxIdRawForWorkflow :: ByteString -> Either HttpError TxId
+parseTxIdRawForWorkflow bytes =
+    case Crypto.hashFromBytes bytes of
+        Just hash ->
+            Right $ TxId $ unsafeMakeSafeHash hash
+        Nothing ->
+            statusError
+                400
+                "Invalid transaction ID: expected 32 bytes"
+
+workflowEndFacts
+    :: Context IO
+    -> EndRequest
+    -> IO (Either HttpError EndFacts)
+workflowEndFacts ctx EndRequest{erToken, erAddr} =
+    case parseAddr erAddr of
+        Left err -> pure $ statusError 400 err
+        Right addr -> do
+            let tid = tokenIdFromJSON erToken
+                cfg = cfgCage ctx
+                cageAddr = cageAddrFromCfg cfg (network cfg)
+                requestAddr =
+                    requestAddrFromCfg cfg tid (network cfg)
+                policyId = cagePolicyIdFromCfg cfg
+            walletE <- walletInputsFromProvider ctx addr
+            case walletE of
+                Left err -> pure (Left err)
+                Right funding -> do
+                    (mSnap, mStateUtxo, requestSet) <-
+                        runIndexerTx ctx $ do
+                            snap <- readSnapshot
+                            stateUtxo <-
+                                readStateUtxoAt
+                                    cageAddr
+                                    policyId
+                                    tid
+                            reqSet <- readUtxoSetAt requestAddr
+                            pure (snap, stateUtxo, reqSet)
+                    pp <- queryProtocolParams (provider ctx)
+                    pure $ do
+                        snap <- case mSnap of
+                            Nothing ->
+                                statusError
+                                    503
+                                    "Indexer not ready: snapshot unavailable"
+                            Just value -> Right value
+                        stateUtxo <- case mStateUtxo of
+                            Nothing ->
+                                statusError
+                                    404
+                                    "State UTxO not found for token"
+                            Just value -> Right value
+                        if null funding
+                            then
+                                statusError
+                                    400
+                                    "No wallet UTxOs at address"
+                            else case requestSet of
+                                ([], _) ->
+                                    Right
+                                        $ mkEndFacts
+                                            snap
+                                            tid
+                                            stateUtxo
+                                            funding
+                                            requestSet
+                                            pp
+                                (entries, _) ->
+                                    statusError
+                                        409
+                                        ( "Cannot end token: pending request "
+                                            <> "UTxOs exist at the request "
+                                            <> "address (count="
+                                            <> show (length entries)
+                                            <> ")"
+                                        )
+
+workflowRejectFacts
+    :: Context IO
+    -> RejectRequest
+    -> IO (Either HttpError RejectFacts)
+workflowRejectFacts ctx RejectRequest{rejToken, rejAddr, rejRequests} =
+    case parseAddr rejAddr of
+        Left err -> pure $ statusError 400 err
+        Right addr
+            | not (null rejRequests) ->
+                pure
+                    $ statusError
+                        400
+                        "Workflow e2e reject facts support all-pending requests"
+            | otherwise -> do
+                let tid = tokenIdFromJSON rejToken
+                    cfg = cfgCage ctx
+                    cageAddr = cageAddrFromCfg cfg (network cfg)
+                    requestAddr =
+                        requestAddrFromCfg cfg tid (network cfg)
+                    policyId = cagePolicyIdFromCfg cfg
+                walletE <- walletInputsFromProvider ctx addr
+                case walletE of
+                    Left err -> pure (Left err)
+                    Right funding -> do
+                        (mSnap, mStateUtxo, requestUtxos) <-
+                            runIndexerTx ctx $ do
+                                snap <- readSnapshot
+                                stateUtxo <-
+                                    readStateUtxoAt
+                                        cageAddr
+                                        policyId
+                                        tid
+                                reqs <-
+                                    readRequestUtxosAt
+                                        requestAddr
+                                pure (snap, stateUtxo, reqs)
+                        case (mSnap, mStateUtxo) of
+                            (Nothing, _) ->
+                                pure
+                                    $ statusError
+                                        503
+                                        "Indexer not ready: snapshot unavailable"
+                            (_, Nothing) ->
+                                pure
+                                    $ statusError
+                                        404
+                                        "State UTxO not found for token"
+                            (Just snap, Just stateUtxo) ->
+                                buildRejectFacts
+                                    ctx
+                                    snap
+                                    tid
+                                    stateUtxo
+                                    (sortResolvedInputs requestUtxos)
+                                    funding
+  where
+    buildRejectFacts
+        :: Context IO
+        -> BundleSnapshot
+        -> TokenId
+        -> ResolvedWalletInput
+        -> [ResolvedWalletInput]
+        -> [ResolvedWalletInput]
+        -> IO (Either HttpError RejectFacts)
+    buildRejectFacts
+        localCtx
+        snap
+        tid
+        stateUtxo@(_, stateOutBytes, _)
+        requestUtxos
+        funding
+            | null funding =
+                pure $ statusError 400 "No wallet UTxOs at address"
+            | otherwise = do
+                rejectableE <-
+                    rejectableRequestUtxosForWorkflow
+                        stateOutBytes
+                        requestUtxos
+                case rejectableE of
+                    Left err -> pure (Left err)
+                    Right [] ->
+                        pure
+                            $ statusError
+                                400
+                                "No rejectable request UTxOs at request address"
+                    Right rejectable -> do
+                        slotsE <-
+                            rejectValiditySlotsForWorkflow
+                                localCtx
+                                snap
+                                stateOutBytes
+                                rejectable
+                        pp <- queryProtocolParams (provider localCtx)
+                        pure $ do
+                            (lowerSlot, upperSlot) <- slotsE
+                            Right
+                                $ mkRejectFacts
+                                    snap
+                                    tid
+                                    stateUtxo
+                                    rejectable
+                                    funding
+                                    lowerSlot
+                                    upperSlot
+                                    pp
+
+walletInputsFromProvider
+    :: Context IO -> Addr -> IO (Either HttpError [ResolvedWalletInput])
+walletInputsFromProvider ctx addr = do
+    utxos <- queryUTxOs (provider ctx) addr
+    rows <-
+        forM utxos $ \(txIn, txOut) -> do
+            mProof <- pollUntilJust 10 (utxoProof ctx txIn)
+            pure $ case mProof of
+                Nothing ->
+                    statusError
+                        503
+                        ( "CSMT proof unavailable for current wallet input "
+                            <> show txIn
+                        )
+                Just proof ->
+                    Right
+                        ( txIn
+                        , serialize' (natVersion @11) txOut
+                        , proof
+                        )
+    pure (sortResolvedInputs <$> sequence rows)
+
+rejectableRequestUtxosForWorkflow
+    :: ByteString
+    -> [ResolvedWalletInput]
+    -> IO (Either HttpError [ResolvedWalletInput])
+rejectableRequestUtxosForWorkflow stateOutBytes requestUtxos =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.reject.state_utxo"
+        stateOutBytes of
+        Left err -> pure (Left err)
+        Right (StateDatum s) -> do
+            now <- currentPosixMs
+            let pt = OnChain.stateProcessTime s
+                rt = OnChain.stateRetractTime s
+            pure $ do
+                flags <-
+                    traverse
+                        (isRejectable now pt rt)
+                        requestUtxos
+                Right
+                    [ utxo
+                    | (utxo, True) <- zip requestUtxos flags
+                    ]
+        Right _ ->
+            pure
+                $ statusError
+                    500
+                    "workflow_e2e.reject.state_utxo missing state datum"
+
+rejectValiditySlotsForWorkflow
+    :: Context IO
+    -> BundleSnapshot
+    -> ByteString
+    -> [ResolvedWalletInput]
+    -> IO (Either HttpError (Integer, Integer))
+rejectValiditySlotsForWorkflow ctx snap stateOutBytes rejectableUtxos =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.reject.state_utxo"
+        stateOutBytes of
+        Left err -> pure (Left err)
+        Right (StateDatum s) -> do
+            let pt = OnChain.stateProcessTime s
+                rt = OnChain.stateRetractTime s
+            case traverse (requestDeadline pt rt) rejectableUtxos of
+                Left err -> pure (Left err)
+                Right deadlines -> do
+                    let latest = maximum (0 : deadlines)
+                        SlotNo snapSlot = snapshotSlot snap
+                    SlotNo deadlineRaw <-
+                        posixMsCeilSlot
+                            (provider ctx)
+                            latest
+                    let lowerRaw =
+                            max
+                                (deadlineRaw + 1)
+                                (snapSlot + 1)
+                        upperRaw =
+                            lowerRaw
+                                + workflowRejectTtlSlots
+                    pure
+                        $ Right
+                            ( toInteger lowerRaw
+                            , toInteger upperRaw
+                            )
+        Right _ ->
+            pure
+                $ statusError
+                    500
+                    "workflow_e2e.reject.state_utxo missing state datum"
+
+workflowRejectTtlSlots :: Word64
+workflowRejectTtlSlots = 20
+
+isRejectable
+    :: Integer
+    -> Integer
+    -> Integer
+    -> ResolvedWalletInput
+    -> Either HttpError Bool
+isRejectable now processTime retractTime (_, outBytes, _) =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.reject.request_utxos[]"
+        outBytes of
+        Left err -> Left err
+        Right (RequestDatum r) ->
+            let submittedAt = OnChain.requestSubmittedAt r
+                deadline =
+                    submittedAt
+                        + processTime
+                        + retractTime
+            in  Right (now > deadline || submittedAt > now)
+        Right _ -> Right False
+
+requestDeadline
+    :: Integer
+    -> Integer
+    -> ResolvedWalletInput
+    -> Either HttpError Integer
+requestDeadline processTime retractTime (_, outBytes, _) =
+    case decodeCageDatumForWorkflow
+        "workflow_e2e.reject.request_utxos[]"
+        outBytes of
+        Left err -> Left err
+        Right (RequestDatum r) ->
+            Right
+                ( OnChain.requestSubmittedAt r
+                    + processTime
+                    + retractTime
+                )
+        Right _ ->
+            statusError
+                500
+                "workflow_e2e.reject.request_utxos[] missing request datum"
+
+decodeCageDatumForWorkflow
+    :: String -> ByteString -> Either HttpError CageDatum
+decodeCageDatumForWorkflow label bytes = do
+    out <- decodeTxOutForWorkflow label bytes
+    case extractCageDatum out of
+        Just datum -> Right datum
+        Nothing ->
+            statusError
+                500
+                (label <> " missing inline cage datum")
+
+decodeTxOutForWorkflow
+    :: String -> ByteString -> Either HttpError (TxOut ConwayEra)
+decodeTxOutForWorkflow label bytes =
+    case decodeFull (natVersion @11) (BSL.fromStrict bytes) of
+        Right out -> Right out
+        Left err ->
+            statusError
+                500
+                (label <> " TxOut CBOR decode failed: " <> show err)
+
+sortResolvedInputs
+    :: [ResolvedWalletInput] -> [ResolvedWalletInput]
+sortResolvedInputs =
+    sortOn (\(txIn, _, _) -> txIn)
+
+statusError :: Int -> String -> Either HttpError a
+statusError code msg =
+    Left (HttpStatus code (TE.encodeUtf8 (T.pack msg)))
+
 -- | Back the workflows' 'HttpClient' with the in-process WAI
 -- application. POSTs the JSON body to the relative path and returns
 -- the JSON response, mapping a non-200 to 'HttpStatus'.
@@ -788,7 +1656,7 @@ withSharedEnv scripts action = do
                     Env
                         { envCfg = cfg
                         , envApp = app
-                        , envHttp = waiHttpClient app
+                        , envHttp = workflowHttpClient ctx app
                         , envEvalContext = evalCtx
                         }
 
