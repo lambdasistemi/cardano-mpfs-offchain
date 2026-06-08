@@ -66,6 +66,13 @@ data Context m = Context
     , utxoProof
         :: TxIn -> m (Maybe ByteString)
     -- ^ CSMT inclusion proof for a TxIn (raw bytes)
+    , indexerProofsReady :: m Bool
+    -- ^ True only when proof-serving reads may use the
+    -- UTxO CSMT. During KVOnly restoration and live
+    -- follower writes, the tree can be transiently
+    -- inconsistent with KVCol, so HTTP proof endpoints
+    -- must return a syncing/not-ready response instead
+    -- of reading from the transient tree.
     , evalContext :: m EvalContext
     -- ^ Trusted-not-proven ledger evaluation context for
     -- pure wallet-side ex-unit evaluation.

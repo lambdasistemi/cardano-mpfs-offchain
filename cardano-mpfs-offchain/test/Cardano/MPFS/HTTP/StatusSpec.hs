@@ -12,7 +12,7 @@ module Cardano.MPFS.HTTP.StatusSpec
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
-import Network.HTTP.Types (status200)
+import Network.HTTP.Types (status200, status503)
 import Network.Wai.Test
     ( SResponse (..)
     , defaultRequest
@@ -76,6 +76,7 @@ mkTestContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , indexerProofsReady = pure True
             , evalContext = pure dummyEvalContext
             , runIndexerTx =
                 \_ ->
@@ -185,3 +186,19 @@ spec = describe "GET /status" $ do
                 expectationFailure
                     "Expected both endpoints to return a \
                     \utxo root"
+
+    it "returns 503 for /utxo/root while proofs are not ready" $ do
+        ctx <-
+            fmap
+                ( \c ->
+                    c
+                        { indexerProofsReady = pure False
+                        , utxoRoot =
+                            fail
+                                "utxoRoot must not be read \
+                                \while proof reads are gated"
+                        }
+                )
+                mkTestContext
+        resp <- getUtxoRoot ctx
+        simpleStatus resp `shouldBe` status503

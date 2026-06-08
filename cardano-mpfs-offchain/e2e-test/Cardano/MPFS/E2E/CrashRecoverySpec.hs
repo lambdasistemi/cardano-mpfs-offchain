@@ -32,7 +32,8 @@ import Cardano.MPFS.Core.Types
     , TokenId
     )
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( walletBootInputs
+    ( awaitProofReadsReady
+    , walletBootInputs
     , withBootFactsTxBuilder
     )
 import Cardano.MPFS.State
@@ -273,7 +274,10 @@ withMpfsSynced socketPath cfg dbPath callback = do
             timeout 60_000_000
                 $ atomically
                 $ readTMVar syncedVar
-        -- Let a few more blocks process
+        awaitProofReadsReady ctx'
+        -- Readiness only says CSMT proofs can be served; keep the
+        -- previous settle window so the crash-recovery root
+        -- comparison observes the same followed tip after restart.
         threadDelay 5_000_000
         callback ctx'
 

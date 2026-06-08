@@ -283,8 +283,7 @@ let
         chmod -R u+w $out
         cd $out
       '' + lib.concatMapStringsSep "\n"
-        (patch: "${pkgs.patch}/bin/patch -p1 < ${./. + "/${patch}"}")
-        patches);
+        (patch: "${pkgs.patch}/bin/patch -p1 < ${./. + "/${patch}"}") patches);
 
   prefetchedForks = lib.genAttrs srpForks fetchFork;
 

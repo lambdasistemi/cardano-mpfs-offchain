@@ -278,7 +278,11 @@ statusHandler ctx = do
         liftIO
             $ St.getCheckpoint
                 (St.checkpoints (state ctx))
-    mRoot <- liftIO $ utxoRoot ctx
+    proofsReady <- liftIO $ indexerProofsReady ctx
+    mRoot <-
+        if proofsReady
+            then liftIO $ utxoRoot ctx
+            else pure Nothing
     pure
         StatusResponse
             { tipSlot =
@@ -385,6 +389,7 @@ tokenHandler
     -> TokenIdJSON
     -> Handler TokenResponse
 tokenHandler ctx tokenId = do
+    requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
     mts <-
         liftIO
@@ -429,6 +434,7 @@ requireToken ctx tid = do
 requireSnapshot
     :: Context IO -> Handler VerificationSnapshot
 requireSnapshot ctx = do
+    requireProofReadsReady ctx
     mRoot <- liftIO $ utxoRoot ctx
     mCp <-
         liftIO
@@ -458,6 +464,7 @@ requireSnapshot ctx = do
 requireUtxoWitness
     :: Context IO -> TxIn -> Handler WitnessedUtxo
 requireUtxoWitness ctx txIn = do
+    requireProofReadsReady ctx
     mOut <- liftIO $ resolveUtxo ctx txIn
     mProof <- liftIO $ utxoProof ctx txIn
     case (mOut, mProof) of
@@ -487,6 +494,7 @@ tokenFactsHandler
     -> TokenIdJSON
     -> Handler FactsResponse
 tokenFactsHandler ctx tokenId = do
+    requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
@@ -522,6 +530,7 @@ tokenFactHandler
     -> Hex
     -> Handler FactResponse
 tokenFactHandler ctx tokenId (Hex k) = do
+    requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
@@ -560,6 +569,7 @@ tokenProofHandler
     -> Hex
     -> Handler ProofResponse
 tokenProofHandler ctx tokenId (Hex k) = do
+    requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
@@ -605,6 +615,7 @@ tokenRequestsHandler
     -> TokenIdJSON
     -> Handler RequestsResponse
 tokenRequestsHandler ctx tokenId = do
+    requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
         cfg = cfgCage ctx
         requestAddr = requestAddrFromCfg cfg tid (network cfg)
@@ -668,6 +679,7 @@ utxoProofHandler
     -> Word64
     -> Handler Hex
 utxoProofHandler ctx txIdHex txIx = do
+    requireProofReadsReady ctx
     txIn <- requireTxIn txIdHex txIx
     mbs <- liftIO $ utxoProof ctx txIn
     case mbs of
@@ -678,6 +690,7 @@ utxoProofHandler ctx txIdHex txIx = do
 utxoRootHandler
     :: Context IO -> Handler Hex
 utxoRootHandler ctx = do
+    requireProofReadsReady ctx
     mbs <- liftIO $ utxoRoot ctx
     case mbs of
         Nothing -> throwError err404
@@ -760,6 +773,26 @@ requireAddr h =
                         BL.pack msg
                     }
 
+-- | Proof-bearing HTTP responses are valid only after
+-- KVOnly restoration has replayed to Full CSMT mode
+-- and no live follower write is in progress.
+requireProofReadsReady :: Context IO -> Handler ()
+requireProofReadsReady ctx = do
+    ready <- liftIO $ indexerProofsReady ctx
+    unless ready
+        $ throwError
+            err503
+                { errBody =
+                    "Indexer syncing: proof reads \
+                    \unavailable until the CSMT \
+                    \is ready"
+                }
+
+runProofIndexerTx :: Context IO -> IndexerTx a -> Handler a
+runProofIndexerTx ctx body = do
+    requireProofReadsReady ctx
+    liftIO $ runIndexerTx ctx body
+
 -- | @POST \/facts\/boot@. Reads snapshot and wallet
 -- inputs at the owner address inside ONE indexer
 -- transaction, then returns facts for wallet-side
@@ -771,8 +804,7 @@ factsBootHandler
 factsBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
     (mSnap, inputs) <-
-        liftIO
-            $ runIndexerTx ctx
+        runProofIndexerTx ctx
             $ do
                 snap <- readSnapshot
                 ins <- readWalletInputsAt addr
@@ -844,8 +876,7 @@ factsRequestInsertHandler
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         (mSnap, inputs) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
@@ -902,8 +933,7 @@ factsRequestDeleteHandler
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         (mSnap, inputs) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
@@ -961,8 +991,7 @@ factsRequestUpdateHandler
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
         (mSnap, inputs) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
@@ -1024,8 +1053,7 @@ factsUpdateHandler
         addr <- requireAddr addrHex
         selectedRefs <- parseRequestSubset requestRefs
         (mSnap, mStateUtxo, eRequestUtxos, funding) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     stateUtxo <-
@@ -1138,6 +1166,7 @@ factsRetractHandler
         } = do
         addr <- requireAddr addrHex
         reqTxIn <- parseUtxoRef utxoRef
+        requireProofReadsReady ctx
         mLoc <-
             liftIO
                 $ St.getRequest
@@ -1167,8 +1196,7 @@ factsRetractHandler
             , mStateUtxo
             , walletInputs
             ) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     reqU <-
@@ -1734,8 +1762,7 @@ factsEndHandler
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
         (mSnap, funding, mStateUtxo, requestSet) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
@@ -1835,8 +1862,7 @@ factsRejectHandler
         addr <- requireAddr addrHex
         selectedRefs <- parseRequestSubset requestRefs
         (mSnap, mStateUtxo, eRequestUtxos, walletInputs) <-
-            liftIO
-                $ runIndexerTx ctx
+            runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     stateUtxo <-

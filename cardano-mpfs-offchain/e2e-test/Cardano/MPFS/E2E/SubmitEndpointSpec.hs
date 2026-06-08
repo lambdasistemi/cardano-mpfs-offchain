@@ -18,7 +18,6 @@ module Cardano.MPFS.E2E.SubmitEndpointSpec
     ( spec
     ) where
 
-import Control.Concurrent (threadDelay)
 import Data.Aeson (decode, encode)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -92,7 +91,8 @@ import Cardano.MPFS.Core.Blueprint
     )
 import Cardano.MPFS.Core.Types (Coin (..))
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( withBootFactsTxBuilder
+    ( awaitProofReadsReady
+    , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -297,7 +297,7 @@ withE2E scripts action = do
                     _ <-
                         queryProtocolParams
                             (provider ctx')
-                    threadDelay 10_000_000
+                    awaitProofReadsReady ctx'
                     action cfg ctx'
 
 -- -------------------------------------------------
