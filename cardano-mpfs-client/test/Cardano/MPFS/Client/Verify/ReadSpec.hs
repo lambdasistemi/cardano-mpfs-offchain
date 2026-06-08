@@ -9,30 +9,85 @@
 -- 'VerifyError'.
 module Cardano.MPFS.Client.Verify.ReadSpec (spec) where
 
+import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Control.Monad (void)
 import Data.Bits (xor)
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.Text.Encoding qualified as T
-import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
+import System.Environment (getEnv)
+import Test.Hspec
+    ( Spec
+    , describe
+    , expectationFailure
+    , it
+    , shouldBe
+    , shouldSatisfy
+    )
 
+import CSMT
+    ( Direction
+    , Standalone (StandaloneCSMTCol)
+    )
+import CSMT.Backend.Pure (runPureTransaction)
+import CSMT.Core.CBOR (renderCompletenessProof)
+import CSMT.Core.Hash
+    ( Hash
+    , byteStringToKey
+    , renderHash
+    )
+import CSMT.Hashes
+    ( mkHash
+    )
+import CSMT.Proof.Completeness
+    ( CompletenessProof
+    , generateProof
+    )
+import CSMT.Test.Lib
+    ( evalPureFromEmptyDB
+    , getRootHashM
+    , hashCodecs
+    , insertMHash
+    )
 import MPF.Hashes (renderMPFHash)
 import MPF.Test.Lib (insertByteStringM, runMPFPure')
 import MPF.Test.Lib qualified as MPFTest (getRootHashM)
 
+import Cardano.Ledger.BaseTypes (Network (Testnet))
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( ChainPointJSON (..)
     , FactEntry (..)
     , FactsResponse (..)
+    , RequestJSON (..)
+    , RequestsResponse (..)
+    , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenStateJSON (..)
     , TxInJSON (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
+    , UtxoSetWitness (..)
     , VerificationSnapshot (..)
+    , WitnessedRequest (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
     )
+import Cardano.MPFS.Cage.Blueprint
+    ( extractCompiledCode
+    , loadBlueprint
+    )
+import Cardano.MPFS.Cage.Ledger (Coin (..))
 import Cardano.MPFS.Client.Bundle qualified as Bundle
+import Cardano.MPFS.Client.Cage.Config
+    ( CageConfig (..)
+    , computeScriptHash
+    )
+import Cardano.MPFS.Client.Cage.Identity
+    ( requestSetPrefixFromCfg
+    )
 import Cardano.MPFS.Client.Fixtures
     ( bundleFunding
     , bundleRoot
@@ -42,6 +97,7 @@ import Cardano.MPFS.Client.Snapshot qualified as Snap
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify.Read
     ( verifyTokenFacts
+    , verifyTokenRequests
     , verifyTokenState
     )
 import Cardano.MPFS.Client.Verify.Replay (VerifyError (..))
@@ -87,6 +143,38 @@ spec = describe "Read-side verifiers" $ do
                 honestTrustedRoot
                 (tamperFirstFactValue honestFactsResponse)
             `shouldSatisfy` isMpfReplayFailed
+    describe "verifyTokenRequests" $ do
+        it "accepts an honest requests response with a complete request set"
+            $ do
+                cfg <- testCageConfig
+                let RequestFixture{requestTrustedRoot, requestResponse} =
+                        honestRequestFixture cfg
+                verifyTokenRequestsUnit
+                    cfg
+                    sampleToken
+                    requestTrustedRoot
+                    requestResponse
+                    `shouldBe` Right ()
+        it "rejects a tampered request-set completeness proof" $ do
+            cfg <- testCageConfig
+            let RequestFixture{requestTrustedRoot, requestResponse} =
+                    honestRequestFixture cfg
+            verifyTokenRequestsUnit
+                cfg
+                sampleToken
+                requestTrustedRoot
+                (tamperRequestSetProof requestResponse)
+                `shouldSatisfy` isCompletenessProofInvalid
+        it "rejects a dropped request-set entry" $ do
+            cfg <- testCageConfig
+            let RequestFixture{requestTrustedRoot, requestResponse} =
+                    honestRequestFixture cfg
+            verifyTokenRequestsUnit
+                cfg
+                sampleToken
+                requestTrustedRoot
+                (dropFirstRequestSetEntry requestResponse)
+                `shouldSatisfy` isCompletenessProofInvalid
 
 -- | Discard the opaque witness so we can assert on @Right ()@.
 verifyTokenStateUnit
@@ -98,6 +186,15 @@ verifyTokenFactsUnit
     :: TrustedRoot -> FactsResponse -> Either VerifyError ()
 verifyTokenFactsUnit trusted =
     void . verifyTokenFacts trusted
+
+verifyTokenRequestsUnit
+    :: CageConfig
+    -> TokenIdJSON
+    -> TrustedRoot
+    -> RequestsResponse
+    -> Either VerifyError ()
+verifyTokenRequestsUnit cfg token trusted =
+    void . verifyTokenRequests cfg token trusted
 
 -- | The complete fact set for the honest token. The on-chain trie
 -- root is derived from these via the real MPF write backend, so the
@@ -160,6 +257,106 @@ tamperFirstFactValue resp =
     overFirst _ [] = []
     overFirst f (x : xs) = f x : xs
 
+data RequestFixture = RequestFixture
+    { requestTrustedRoot :: TrustedRoot
+    , requestResponse :: RequestsResponse
+    }
+
+honestRequestFixture :: CageConfig -> RequestFixture
+honestRequestFixture cfg =
+    let requestPrefix = requestSetPrefixFromCfg cfg sampleToken
+        (root, requestSet) = csmtRequestRows requestPrefix
+        response =
+            RequestsResponse
+                { rrSnapshot = snapshotWithRoot root
+                , rrRequestSet = requestSet
+                , rrRequests =
+                    [ WitnessedRequest
+                        { wrUtxo =
+                            WitnessedUtxo
+                                { wuTxIn =
+                                    TxInJSON
+                                        { tjTxId = Hex requestTxId
+                                        , tjTxIx = 0
+                                        }
+                                , wuTxOut = Hex requestTxOut
+                                , wuProof = Hex "\x82\x01\x02"
+                                }
+                        , wrRequest =
+                            RequestJSON
+                                { rjToken = sampleToken
+                                , rjOwner = "owner"
+                                , rjKey = Hex "apple"
+                                , rjOperation = "insert"
+                                , rjValue = Just (Hex "fruit")
+                                , rjFee = 1000000
+                                , rjSubmittedAt = 42
+                                }
+                        }
+                    ]
+                }
+    in  RequestFixture
+            { requestTrustedRoot = TrustedRoot (Hex root)
+            , requestResponse = response
+            }
+
+csmtRequestRows :: [Direction] -> (ByteString, UtxoSetWitness)
+csmtRequestRows requestPrefix = evalPureFromEmptyDB $ do
+    let requestKey =
+            requestPrefix
+                <> byteStringToKey
+                    (encodeTxIn requestTxId 0)
+    insertMHash requestKey (mkHash requestTxOut)
+    completenessProof <-
+        runPureTransaction hashCodecs
+            $ generateProof StandaloneCSMTCol [] requestPrefix
+    root <- maybe BS.empty renderHash <$> getRootHashM
+    pure
+        ( root
+        , UtxoSetWitness
+            { uswEntries =
+                [ UtxoEntryRefOnly
+                    { uerRef =
+                        UtxoRef
+                            { urTxId = Hex requestTxId
+                            , urTxIx = 0
+                            }
+                    , uerTxOutCbor = Hex requestTxOut
+                    }
+                ]
+            , uswCompletenessProof =
+                Hex
+                    $ case completenessProof of
+                        Just proof ->
+                            renderCompletenessProof
+                                (proof :: CompletenessProof Hash)
+                        Nothing ->
+                            error
+                                "expected request-set completeness proof"
+            }
+        )
+
+tamperRequestSetProof :: RequestsResponse -> RequestsResponse
+tamperRequestSetProof resp =
+    resp
+        { rrRequestSet =
+            (rrRequestSet resp)
+                { uswCompletenessProof =
+                    flipLastHexByte
+                        (uswCompletenessProof (rrRequestSet resp))
+                }
+        }
+
+dropFirstRequestSetEntry :: RequestsResponse -> RequestsResponse
+dropFirstRequestSetEntry resp =
+    resp
+        { rrRequestSet =
+            (rrRequestSet resp)
+                { uswEntries =
+                    drop 1 (uswEntries (rrRequestSet resp))
+                }
+        }
+
 honestTrustedRoot :: TrustedRoot
 honestTrustedRoot = TrustedRoot (Hex (bundleRoot honestWitness))
 
@@ -196,6 +393,71 @@ honestSnapshot =
                 }
         }
 
+snapshotWithRoot :: ByteString -> VerificationSnapshot
+snapshotWithRoot root =
+    VerificationSnapshot
+        { vsUtxoRoot = Hex root
+        , vsChainPoint =
+            ChainPointJSON
+                { cpSlot = 42
+                , cpBlockId = Hex (BS.replicate 32 0x11)
+                }
+        }
+
+sampleToken :: TokenIdJSON
+sampleToken = TokenIdJSON "cafe"
+
+requestTxId :: ByteString
+requestTxId = BS.replicate 32 0x33
+
+requestTxOut :: ByteString
+requestTxOut = "request-tx-out-cbor"
+
+encodeTxIn :: ByteString -> Word -> ByteString
+encodeTxIn txIdBytes txIx =
+    CBOR.toStrictByteString
+        $ mconcat
+            [ CBOR.encodeListLen 2
+            , CBOR.encodeBytes txIdBytes
+            , CBOR.encodeWord64 (fromIntegral txIx)
+            ]
+
+testCageConfig :: IO CageConfig
+testCageConfig = do
+    blueprintPath <- getEnv "MPFS_BLUEPRINT"
+    eBlueprint <- loadBlueprint blueprintPath
+    blueprint <- case eBlueprint of
+        Left err ->
+            expectationFailure
+                ("loadBlueprint failed: " <> err)
+                *> error "unreachable"
+        Right bp -> pure bp
+    scriptBytes <-
+        case extractCompiledCode "state." blueprint of
+            Just bytes -> pure bytes
+            Nothing ->
+                expectationFailure
+                    "state script not found in MPFS_BLUEPRINT"
+                    *> error "unreachable"
+    requestBytes <-
+        case extractCompiledCode "request." blueprint of
+            Just bytes -> pure bytes
+            Nothing ->
+                expectationFailure
+                    "request script not found in MPFS_BLUEPRINT"
+                    *> error "unreachable"
+    let scriptHash = computeScriptHash scriptBytes
+    pure
+        CageConfig
+            { cageScriptBytes = scriptBytes
+            , requestScriptBytes = requestBytes
+            , cfgScriptHash = scriptHash
+            , defaultProcessTime = 60_000
+            , defaultRetractTime = 30_000
+            , defaultTip = Coin 1_000_000
+            , network = Testnet
+            }
+
 -- | Flip a byte in the state UTxO's @tx_out@ so the advertised value
 -- no longer matches the value bound into the CSMT inclusion proof.
 tamperStateTxOut :: TokenResponse -> TokenResponse
@@ -231,6 +493,10 @@ isCsmtReplayFailed _ = False
 isMpfReplayFailed :: Either VerifyError () -> Bool
 isMpfReplayFailed (Left (MpfReplayFailed _ _)) = True
 isMpfReplayFailed _ = False
+
+isCompletenessProofInvalid :: Either VerifyError () -> Bool
+isCompletenessProofInvalid (Left (CompletenessProofInvalid _)) = True
+isCompletenessProofInvalid _ = False
 
 -- | Flip the first byte of a hex-wrapped bytestring.
 flipHexByte :: Hex -> Hex
