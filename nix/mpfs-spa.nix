@@ -25,7 +25,15 @@ in pkgs.mkSpagoDerivation {
   spagoYaml = ../mpfs-spa/spago.yaml;
   spagoLock = ../mpfs-spa/spago.lock;
   nativeBuildInputs =
-    [ pkgs.purs pkgs.spago-unstable pkgs.esbuild pkgs.nodejs_20 pkgs.jq ];
+    [
+      pkgs.purs
+      pkgs.spago-unstable
+      pkgs.esbuild
+      pkgs.nodejs_20
+      pkgs.jq
+      pkgs.gzip
+      pkgs.brotli
+    ];
   buildPhase = ''
     ln -s ${nodeModules}/node_modules node_modules
 
@@ -67,7 +75,9 @@ in pkgs.mkSpagoDerivation {
       --outfile=dist/deps.js \
       --format=iife \
       --platform=browser \
-      --loader:.wasm=binary \
+      --loader:.wasm=file \
+      --asset-names='[name].[hash]' \
+      --public-path=. \
       --minify
 
     spago bundle --offline --module Main --outfile dist/index.js
@@ -80,6 +90,11 @@ in pkgs.mkSpagoDerivation {
     mkdir -p $out
     cp dist/index.html $out/
     cp dist/index.js $out/
-    cp src/assets/mpfs-cage-reactor.wasm $out/
+    cp dist/*.wasm $out/
+
+    for asset in $out/index.html $out/index.js $out/*.wasm; do
+      gzip -9 -n -k "$asset"
+      brotli --best --keep "$asset"
+    done
   '';
 }

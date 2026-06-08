@@ -1,13 +1,17 @@
-// Bootstrap the MPFS cage reactor for the browser bundle.
-//
-// esbuild embeds the WASM bytes via --loader:.wasm=binary. Each reactor call
-// gets a fresh WASI instance while the compiled WebAssembly.Module is shared.
+// Bootstrap the MPFS cage reactor for the browser bundle. The wasm file is
+// emitted as a separate hashed asset by esbuild, so browsers can stream and
+// cache it independently from the JavaScript bundle.
 
 import { WASI, File, OpenFile, ConsoleStdout }
   from "@bjorn3/browser_wasi_shim";
-import wasmBytes from "./assets/mpfs-cage-reactor.wasm";
+import reactorWasmAssetUrl from "./assets/mpfs-cage-reactor.wasm";
 
-const compiledModulePromise = WebAssembly.compile(wasmBytes);
+const reactorWasmUrl = new URL(
+  reactorWasmAssetUrl,
+  globalThis.document?.baseURI ?? globalThis.location?.href ?? "http://localhost/"
+).toString();
+
+let compiledModulePromise = null;
 
 globalThis.runCageReactor = async (stdinText) => {
   const stdin = new OpenFile(
@@ -19,8 +23,7 @@ globalThis.runCageReactor = async (stdinText) => {
   const stderr = new ConsoleStdout((chunk) => stderrChunks.push(chunk));
 
   const wasi = new WASI([], [], [stdin, stdout, stderr]);
-  const mod = await compiledModulePromise;
-  const inst = await WebAssembly.instantiate(mod, {
+  const inst = await instantiateReactor({
     wasi_snapshot_preview1: wasi.wasiImport,
   });
 
@@ -38,6 +41,55 @@ globalThis.runCageReactor = async (stdinText) => {
     exitOk,
   };
 };
+
+async function instantiateReactor(imports) {
+  if (compiledModulePromise !== null) {
+    const mod = await compiledModulePromise;
+    return WebAssembly.instantiate(mod, imports);
+  }
+
+  if (WebAssembly.instantiateStreaming) {
+    try {
+      const result = await WebAssembly.instantiateStreaming(
+        fetchReactorWasm(),
+        imports
+      );
+      compiledModulePromise = Promise.resolve(result.module);
+      return result.instance;
+    } catch (_err) {
+      compiledModulePromise = compileReactorWasm();
+      const mod = await compiledModulePromise;
+      return WebAssembly.instantiate(mod, imports);
+    }
+  }
+
+  compiledModulePromise = compileReactorWasm();
+  const mod = await compiledModulePromise;
+  return WebAssembly.instantiate(mod, imports);
+}
+
+async function compileReactorWasm() {
+  if (WebAssembly.compileStreaming) {
+    try {
+      return await WebAssembly.compileStreaming(fetchReactorWasm());
+    } catch (_err) {
+      // Fall back for servers that miss application/wasm on the response.
+    }
+  }
+
+  const response = await fetchReactorWasm();
+  return WebAssembly.compile(await response.arrayBuffer());
+}
+
+async function fetchReactorWasm() {
+  const response = await fetch(reactorWasmUrl);
+  if (!response.ok) {
+    throw new Error(
+      `failed to fetch reactor wasm: HTTP ${response.status}`
+    );
+  }
+  return response;
+}
 
 function decodeChunks(chunks) {
   const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
