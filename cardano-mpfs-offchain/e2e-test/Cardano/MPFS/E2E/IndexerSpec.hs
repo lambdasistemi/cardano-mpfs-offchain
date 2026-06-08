@@ -15,6 +15,8 @@ module Cardano.MPFS.E2E.IndexerSpec (spec) where
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
+import Lens.Micro ((^.))
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -28,7 +30,13 @@ import Test.Hspec
     , shouldSatisfy
     )
 
-import Cardano.Ledger.Api.Tx (txIdTx)
+import Cardano.Ledger.Api.Tx
+    ( bodyTxL
+    , txIdTx
+    )
+import Cardano.Ledger.Api.Tx.Body
+    ( inputsTxBodyL
+    )
 import Cardano.Ledger.Api.Tx.Out (TxOut)
 import Cardano.Ledger.BaseTypes
     ( Network (..)
@@ -74,6 +82,9 @@ import Cardano.MPFS.Indexer.Follower
     , applyCageInverses
     , computeInverse
     , detectFromTx
+    )
+import Cardano.MPFS.Indexer.Reads
+    ( readWalletInputsAt
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -144,6 +155,61 @@ spec = describe "Indexer E2E" $ do
 -- | All indexer E2E test cases.
 indexerSpecs :: CageScripts -> Spec
 indexerSpecs scripts = do
+    it "spent wallet UTxOs are removed from CSMT address scan"
+        $ withE2EFollower scripts
+        $ \_ ctx -> do
+            before <-
+                runIndexerTx ctx
+                    $ readWalletInputsAt genesisAddr
+            before `shouldSatisfy` (not . null)
+
+            signedBoot <-
+                buildAndSubmit ctx
+                    $ bootToken
+                        (txBuilder ctx)
+                        emptySnap
+                        []
+                        genesisAddr
+            let spentInputs =
+                    Set.toAscList
+                        $ signedBoot
+                            ^. bodyTxL
+                                . inputsTxBodyL
+                indexedOutput =
+                    TxIn
+                        (txIdTx signedBoot)
+                        (TxIx 0)
+            spentInputs `shouldSatisfy` (not . null)
+
+            mIndexed <-
+                awaitUtxo
+                    ctx
+                    indexedOutput
+                    (Just 20)
+            case mIndexed of
+                Nothing ->
+                    expectationFailure
+                        "indexer did not index boot output"
+                Just _ ->
+                    pure ()
+
+            after <-
+                runIndexerTx ctx
+                    $ readWalletInputsAt genesisAddr
+            let liveInputs =
+                    [ txIn
+                    | (txIn, _, _) <- after
+                    ]
+            liveInputs
+                `shouldSatisfy` \live ->
+                    all (`notElem` live) spentInputs
+            mapM_
+                ( \txIn -> do
+                    exists <- utxoExists ctx txIn
+                    exists `shouldBe` False
+                )
+                spentInputs
+
     -- Test 1: boot indexes token
     it "boot indexes token"
         $ withE2E scripts
@@ -961,7 +1027,28 @@ withE2E
          -> IO a
        )
     -> IO a
-withE2E scripts action = do
+withE2E =
+    withE2EWithFollower False
+
+withE2EFollower
+    :: CageScripts
+    -> ( CageConfig
+         -> Context IO
+         -> IO a
+       )
+    -> IO a
+withE2EFollower =
+    withE2EWithFollower True
+
+withE2EWithFollower
+    :: Bool
+    -> CageScripts
+    -> ( CageConfig
+         -> Context IO
+         -> IO a
+       )
+    -> IO a
+withE2EWithFollower enableFollower scripts action = do
     gDir <- genesisDir
     withCardanoNode gDir $ \sock _startMs ->
         withSystemTempDirectory "mpfs-e2e"
@@ -986,7 +1073,7 @@ withE2E scripts action = do
                             , byronGenesisPath =
                                 Nothing
                             , followerEnabled =
-                                False
+                                enableFollower
                             , appTracer =
                                 nullTracer
                             }
