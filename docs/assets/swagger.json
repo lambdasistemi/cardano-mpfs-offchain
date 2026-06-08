@@ -672,6 +672,9 @@
         "RequestsResponse": {
             "description": "Proof-bearing pending requests response",
             "properties": {
+                "request_set": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                },
                 "requests": {
                     "items": {
                         "$ref": "#/definitions/WitnessedRequest"
@@ -684,6 +687,7 @@
             },
             "required": [
                 "snapshot",
+                "request_set",
                 "requests"
             ],
             "type": "object"

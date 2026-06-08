@@ -164,6 +164,7 @@ import Cardano.MPFS.HTTP.Types.Facts
     , mkRequestUpdateFacts
     , mkRetractFacts
     , mkUpdateFacts
+    , utxoSetToJSON
     )
 import Cardano.MPFS.Indexer.Reads
     ( IndexerTx
@@ -617,8 +618,13 @@ tokenRequestsHandler
 tokenRequestsHandler ctx tokenId = do
     requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
+        cfg = cfgCage ctx
+        requestAddr = requestAddrFromCfg cfg tid (network cfg)
     _ <- requireToken ctx tid
     snapshot <- requireSnapshot ctx
+    requestSet <-
+        runProofIndexerTx ctx
+            $ readUtxoSetAt requestAddr
     reqs <-
         liftIO
             $ St.requestsByToken
@@ -628,6 +634,7 @@ tokenRequestsHandler ctx tokenId = do
     pure
         RequestsResponse
             { rrSnapshot = snapshot
+            , rrRequestSet = utxoSetToJSON requestSet
             , rrRequests = witnessed
             }
 
