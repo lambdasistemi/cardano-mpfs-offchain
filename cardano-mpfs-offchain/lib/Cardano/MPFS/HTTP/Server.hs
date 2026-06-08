@@ -617,14 +617,8 @@ tokenRequestsHandler
 tokenRequestsHandler ctx tokenId = do
     requireProofReadsReady ctx
     let tid = tokenIdFromJSON tokenId
-        cfg = cfgCage ctx
-        requestAddr = requestAddrFromCfg cfg tid (network cfg)
     _ <- requireToken ctx tid
     snapshot <- requireSnapshot ctx
-    requestSet <-
-        liftIO
-            $ runIndexerTx ctx
-            $ readUtxoSetAt requestAddr
     reqs <-
         liftIO
             $ St.requestsByToken
@@ -634,7 +628,6 @@ tokenRequestsHandler ctx tokenId = do
     pure
         RequestsResponse
             { rrSnapshot = snapshot
-            , rrRequestSet = utxoSetToJSON requestSet
             , rrRequests = witnessed
             }
 

@@ -34,6 +34,10 @@ serverConfig = do
 
 foreign import _baseUrl :: Effect String
 
+foreign import _defaultProcessTime :: Int
+
+foreign import _defaultRetractTime :: Int
+
 -- | Backward-compatible name used by the existing tab code.
 placeholderCageConfig :: CageConfig
 placeholderCageConfig = preprodCageConfig
@@ -49,8 +53,8 @@ preprodCageConfig =
   -- 30-minute process/retract windows (vs the 5-min default) so an owner
   -- has time to fold/reject requests by hand in the browser. Baked into a
   -- token's state datum at boot; only affects tokens newly registered here.
-  , defaultProcessTime: 1800000
-  , defaultRetractTime: 1800000
+  , defaultProcessTime: _defaultProcessTime
+  , defaultRetractTime: _defaultRetractTime
   , defaultTip: 2000000
   , network: "preprod"
   }
