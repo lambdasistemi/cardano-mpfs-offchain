@@ -85,6 +85,10 @@ pointToSlot (Network.Point Origin) = SlotNo 0
 pointToSlot
     (Network.Point (At (Block s _))) = s
 
+phaseProofReadsReady :: AppPhase hash cf op -> Bool
+phaseProofReadsReady (InFollowing _ _) = True
+phaseProofReadsReady (InRestoration _) = False
+
 -- | Build an 'Intersector' for the cage follower.
 -- Phase is threaded through continuations (no IORef).
 mkCageIntersector
@@ -116,6 +120,11 @@ mkCageIntersector
     -- ^ Armageddon action (wipe + reset)
     -> IO ()
     -- ^ Post-commit callback (e.g. TVar notification)
+    -> (Bool -> IO ())
+    -- ^ Proof-read readiness callback. False while the
+    -- runner is restoring in KVOnly mode or applying a
+    -- live write; True only in idle following/full CSMT
+    -- mode.
     -> AppPhase hash cf op
     -- ^ Current phase
     -> Intersector Point SlotNo Fetched
@@ -125,6 +134,7 @@ mkCageIntersector
     backendInit
     armageddon
     onCommit
+    setProofReadsReady
     phase =
         Intersector
             { intersectFound = \_point ->
@@ -135,6 +145,7 @@ mkCageIntersector
                         backendInit
                         armageddon
                         onCommit
+                        setProofReadsReady
                         phase
             , intersectNotFound =
                 pure
@@ -144,6 +155,7 @@ mkCageIntersector
                         backendInit
                         armageddon
                         onCommit
+                        setProofReadsReady
                         phase
                     , [Network.Point Origin]
                     )
@@ -184,6 +196,8 @@ mkCageFollower
     -- ^ Armageddon action (wipe + reset)
     -> IO ()
     -- ^ Post-commit callback (e.g. TVar notification)
+    -> (Bool -> IO ())
+    -- ^ Proof-read readiness callback.
     -> AppPhase hash cf op
     -- ^ Current phase
     -> Follower Point SlotNo Fetched
@@ -192,7 +206,8 @@ mkCageFollower
     run
     backendInit
     armageddon
-    onCommit =
+    onCommit
+    setProofReadsReady =
         go
       where
         go phase =
@@ -208,6 +223,7 @@ mkCageFollower
                     unSlotNo slot
                         + fromIntegral securityParam
                         >= unSlotNo tipSlot
+            setProofReadsReady False
             phase' <-
                 processBlock
                     nullTracer
@@ -218,6 +234,8 @@ mkCageFollower
                     slot
                     fetched
                     phase
+            setProofReadsReady
+                (phaseProofReadsReady phase')
             onCommit
             pure $ go phase'
 
@@ -225,6 +243,7 @@ mkCageFollower
             let targetSlot = pointToSlot point
             case phase of
                 InFollowing n f -> do
+                    setProofReadsReady False
                     (result, n') <-
                         run
                             $ rollbackTo
@@ -233,7 +252,8 @@ mkCageFollower
                                 n
                                 targetSlot
                     case result of
-                        Store.RollbackSucceeded _ ->
+                        Store.RollbackSucceeded _ -> do
+                            setProofReadsReady True
                             pure
                                 $ Progress
                                 $ go (InFollowing n' f)
@@ -242,13 +262,17 @@ mkCageFollower
                             -- rollback predates any block
                             -- we processed — safe to ignore
                             | n' == 0 ->
-                                pure
-                                    $ Progress
-                                    $ go (InFollowing 0 f)
+                                do
+                                    setProofReadsReady True
+                                    pure
+                                        $ Progress
+                                        $ go
+                                        $ InFollowing 0 f
                             | otherwise -> do
                                 armageddon
                                 restoring <-
                                     start backendInit
+                                setProofReadsReady False
                                 pure
                                     $ Reset
                                     $ mkCageIntersector
@@ -257,6 +281,7 @@ mkCageFollower
                                         backendInit
                                         armageddon
                                         onCommit
+                                        setProofReadsReady
                                         ( InRestoration
                                             restoring
                                         )

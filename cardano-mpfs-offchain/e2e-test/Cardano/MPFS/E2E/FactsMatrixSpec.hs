@@ -216,6 +216,9 @@ import Cardano.MPFS.Core.Types
     ( SlotNo (..)
     , TokenId (..)
     )
+import Cardano.MPFS.E2E.Helpers.Boot
+    ( awaitProofReadsReady
+    )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.Submitter
@@ -2028,7 +2031,7 @@ withE2E scripts action = do
                         }
             withApplication appCfg $ \ctx -> do
                 _ <- queryProtocolParams (provider ctx)
-                threadDelay 10_000_000
+                awaitProofReadsReady ctx
                 action cfg ctx
 
 cageCfg :: CageScripts -> CageConfig

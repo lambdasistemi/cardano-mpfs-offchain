@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module      : Cardano.MPFS.Application
@@ -116,9 +115,6 @@ import Ouroboros.Network.Point
 import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
-    )
-import CSMT.MTS
-    ( toFull
     )
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
@@ -434,12 +430,7 @@ withApplication cfg action = do
                             armageddonParams
 
                     -- Open CSMT ops with crash
-                    -- recovery. MPFS serves proof
-                    -- reads while the follower is
-                    -- live, so resolve the handle to
-                    -- Full before exposing the
-                    -- context: Full ops mutate KVCol
-                    -- and CSMTCol together.
+                    -- recovery.
                     let utxoRunUnguarded =
                             runTransactionUnguarded
                                 unifiedDb
@@ -460,15 +451,10 @@ withApplication cfg action = do
                     let resolveDb (NeedsRecovery recover) =
                             recover >>= resolveDb
                         resolveDb (Ready (ChooseKVOnly ops)) =
-                            toFull ops >>= \case
-                                Just resolvedOps ->
-                                    pure resolvedOps
-                                Nothing ->
-                                    fail
-                                        "openCSMTOps: toFull failed"
-                        resolveDb (Ready (ChooseFull mkFull)) =
-                            mkFull
-                    liveOps <- resolveDb dbState
+                            pure ops
+                        resolveDb (Ready (ChooseFull _)) =
+                            error "openCSMTOps: unexpected ChooseFull"
+                    kvOnlyOps <- resolveDb dbState
 
                     -- Initialize chain-follower Backend
                     let backendInit =
@@ -476,7 +462,7 @@ withApplication cfg action = do
                                 ( cfgScriptHash
                                     $ cageConfig cfg
                                 )
-                                liveOps
+                                kvOnlyOps
 
                     -- Count rollback points and sample
                     -- intersection candidates from
@@ -501,8 +487,8 @@ withApplication cfg action = do
                                 ]
 
                     -- Initialize Phase:
-                    -- Existing DB: resume from rollback history
-                    -- Fresh DB: restore from origin with Full CSMT ops
+                    -- Existing DB: toFollowing replays journal
+                    -- Fresh DB: InRestoration (fast KVOnly)
                     restoring <-
                         start backendInit
                     initialPhase <-
@@ -517,6 +503,12 @@ withApplication cfg action = do
                             else
                                 pure
                                     $ InRestoration restoring
+                    proofReadsReadyRef <-
+                        newIORef
+                            $ case initialPhase of
+                                InFollowing _ _ -> True
+                                InRestoration _ ->
+                                    not (followerEnabled cfg)
                     -- Metrics pipeline: fold events
                     -- into a Metrics snapshot stored
                     -- in an IORef
@@ -556,6 +548,9 @@ withApplication cfg action = do
                                             $ modifyTVar'
                                                 commitNotify'
                                                 (+ 1)
+                                    setProofReadsReady =
+                                        writeIORef
+                                            proofReadsReadyRef
                                     cageIntersector =
                                         mkCageIntersector
                                             (fromIntegral stabilityWindow)
@@ -563,6 +558,7 @@ withApplication cfg action = do
                                             backendInit
                                             csmtArmageddon
                                             onCommit
+                                            setProofReadsReady
                                             initialPhase
                                     chainSyncApp =
                                         mkN2CChainSyncApplication
@@ -689,6 +685,9 @@ withApplication cfg action = do
                                         resolve
                                 , utxoRoot = root
                                 , utxoProof = proof
+                                , indexerProofsReady =
+                                    readIORef
+                                        proofReadsReadyRef
                                 , evalContext =
                                     queryEvalContext genesis lsqCh
                                 , runIndexerTx =

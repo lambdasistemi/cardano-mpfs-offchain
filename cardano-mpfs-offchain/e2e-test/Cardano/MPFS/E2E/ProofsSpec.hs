@@ -124,7 +124,8 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( walletBootInputs
+    ( awaitProofReadsReady
+    , walletBootInputs
     , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -927,7 +928,7 @@ withE2E scripts action = do
                     _ <-
                         queryProtocolParams
                             (provider ctx')
-                    threadDelay 10_000_000
+                    awaitProofReadsReady ctx'
                     action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig

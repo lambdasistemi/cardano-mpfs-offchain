@@ -60,6 +60,7 @@ mkMockContext = do
             , awaitUtxo = \_ _ -> pure Nothing
             , utxoRoot = pure Nothing
             , utxoProof = \_ -> pure Nothing
+            , indexerProofsReady = pure True
             , evalContext = pure dummyEvalContext
             , runIndexerTx =
                 \_ ->

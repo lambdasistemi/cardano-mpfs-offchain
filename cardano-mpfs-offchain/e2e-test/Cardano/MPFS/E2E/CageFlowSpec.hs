@@ -70,7 +70,8 @@ import Cardano.MPFS.Core.Types
     , TokenState (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( walletBootInputs
+    ( awaitProofReadsReady
+    , walletBootInputs
     , withBootFactsTxBuilder
     )
 import Cardano.MPFS.Provider
@@ -686,7 +687,7 @@ withE2E scripts action = do
                             (provider ctx')
                     -- Let ChainSync catch up to
                     -- the tip before submitting txs
-                    threadDelay 10_000_000
+                    awaitProofReadsReady ctx'
                     action cfg ctx'
 
 -- ---------------------------------------------------------

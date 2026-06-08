@@ -5,10 +5,12 @@
 -- Description : Test helper — wallet-side boot inputs
 -- License     : Apache-2.0
 --
--- Tests act as their own wallet on a private LSQ
--- connection against a tiny devnet UTxO set, so
--- 'queryUTxOs' is acceptable here even though it is
--- forbidden on the server-side hot path (see #252).
+-- Some legacy boot-builder tests act as their own
+-- wallet on a private devnet UTxO set, so
+-- 'queryUTxOs' remains acceptable for wallet-side
+-- sentinel inputs. Proof-bearing facts helpers below
+-- wait for CSMT readiness and read through the local
+-- indexer path.
 --
 -- 'walletBootInputs' materialises the legacy
 -- @[ResolvedWalletInput]@ argument still present in the
@@ -23,15 +25,16 @@
 --    CSMT root is empty, so the proofs are not
 --    verified).
 --
--- Production servers MUST NOT use this path. They
--- get their @[ResolvedWalletInput]@ from
--- 'Cardano.MPFS.Context.AtomicCageReader' which
--- reads the local indexer in a single transaction.
+-- Production servers MUST NOT use this path for
+-- proof-bearing facts. They read the local CSMT-backed
+-- indexer in a single transaction.
 module Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
     , withBootFactsTxBuilder
+    , awaitProofReadsReady
     ) where
 
+import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
 
 import Control.Applicative ((<|>))
@@ -114,12 +117,29 @@ withBootFactsTxBuilder cfg ctx =
                 }
         }
 
+-- | Wait until the application may serve CSMT proof reads.
+awaitProofReadsReady :: Context IO -> IO ()
+awaitProofReadsReady ctx = go (120 :: Int)
+  where
+    go 0 =
+        fail
+            "E2E proof reads did not become ready \
+            \after CSMT restoration"
+    go n = do
+        ready <- indexerProofsReady ctx
+        if ready
+            then pure ()
+            else do
+                threadDelay 500_000
+                go (n - 1)
+
 buildBootEnvelopeFromFacts
     :: CageConfig
     -> Context IO
     -> Addr
     -> IO (ProofEnvelope BootProof)
 buildBootEnvelopeFromFacts cfg ctx addr = do
+    awaitProofReadsReady ctx
     (mSnap, mRoot, inputs) <-
         runIndexerTx ctx $ do
             snap <- readSnapshot

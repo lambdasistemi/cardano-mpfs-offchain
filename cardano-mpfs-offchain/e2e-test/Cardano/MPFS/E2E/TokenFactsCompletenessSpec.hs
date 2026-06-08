@@ -33,7 +33,8 @@ import Cardano.MPFS.Core.Types
     , TokenId (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( walletBootInputs
+    ( awaitProofReadsReady
+    , walletBootInputs
     , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -61,7 +62,6 @@ import Cardano.Node.Client.E2E.Setup
     , genesisSignKey
     )
 import Cardano.Tx.Ledger (ConwayTx)
-import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Control.Tracer (nullTracer)
 import Data.Aeson (Value (..), eitherDecode)
@@ -256,7 +256,7 @@ withE2E scripts action = do
             withApplication appCfg $ \ctx -> do
                 let ctx' = withBootFactsTxBuilder cfg ctx
                 _ <- queryProtocolParams (provider ctx')
-                threadDelay 10_000_000
+                awaitProofReadsReady ctx'
                 action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig
