@@ -101,7 +101,7 @@ jobs:
           CLI_URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
 
           printf 'class MpfsServe < Formula\n  desc "Cardano Merkle Patricia Forestry offchain service"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-serve"\n    (libexec/"lib").install Dir["lib/*"]\n  end\nend\n' "$SERVE_URL" "$SERVE_SHA" "$VERSION" > /tmp/mpfs-serve.rb
-          printf 'class MpfsCli < Formula\n  desc "Command-line front-end for the Cardano MPFS server"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-cli"\n    lib.install Dir["lib/*"]\n  end\nend\n' "$CLI_URL" "$CLI_SHA" "$VERSION" > /tmp/mpfs-cli.rb
+          printf 'class MpfsCli < Formula\n  desc "Command-line front-end for the Cardano MPFS server"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-cli"\n    lib.install Dir["lib/*"]\n  end\n\n  test do\n    system "#{bin}/mpfs-cli", "--help"\n  end\nend\n' "$CLI_URL" "$CLI_SHA" "$VERSION" > /tmp/mpfs-cli.rb
 
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/lambdasistemi/homebrew-tap.git" /tmp/tap
           mkdir -p /tmp/tap/Formula
