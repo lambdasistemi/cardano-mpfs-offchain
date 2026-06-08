@@ -71,8 +71,8 @@ source-repository-package
 
 source-repository-package
   type: git
-  location: https://github.com/intersectmbo/plutus.git
-  tag: d1684df33d1b7226dfa5f2247aa67a46c2d5453b
+  location: https://github.com/lambdasistemi/plutus.git
+  tag: 96b864ed77065923ba0e134f571b8bf6f3d8ce9d
   subdir:
     plutus-core
     plutus-ledger-api
