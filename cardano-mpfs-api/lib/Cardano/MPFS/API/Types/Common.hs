@@ -294,9 +294,8 @@ data EvalContext = EvalContext
     , ecSlotLengthMs :: Word64
     -- ^ Fixed Shelley-era slot length in milliseconds.
     , ecEraHistoryCbor :: Hex
-    -- ^ Reserved for future proof-bearing hard-fork
-    -- history. Browser builders use the explicit
-    -- epoch fields above to avoid consensus dependencies.
+    -- ^ CBOR-encoded hard-fork era history used to build
+    -- the ledger 'EpochInfo' for local script evaluation.
     , ecTrusted :: Bool
     -- ^ Whether the service is asserting this context
     -- as trusted.
