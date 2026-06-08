@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module      : Cardano.MPFS.Application
@@ -115,6 +116,9 @@ import Ouroboros.Network.Point
 import CSMT.Hashes
     ( generateInclusionProof
     , renderHash
+    )
+import CSMT.MTS
+    ( toFull
     )
 import Cardano.Ledger.Shelley.Genesis
     ( ShelleyGenesis
@@ -396,7 +400,7 @@ withApplication cfg action = do
 
                     -- CSMT operations (for both
                     -- bootstrap and block processing)
-                    let fullOps =
+                    let seedOps =
                             mkCSMTOps
                                 (fromKV context)
                                 (hashing context)
@@ -407,7 +411,7 @@ withApplication cfg action = do
                         (byronGenesisPath cfg)
                         st
                         utxoRt
-                        fullOps
+                        seedOps
 
                     -- Ensure UTxO rollback points
                     -- are initialized (Origin entry).
@@ -430,7 +434,12 @@ withApplication cfg action = do
                             armageddonParams
 
                     -- Open CSMT ops with crash
-                    -- recovery
+                    -- recovery. MPFS serves proof
+                    -- reads while the follower is
+                    -- live, so resolve the handle to
+                    -- Full before exposing the
+                    -- context: Full ops mutate KVCol
+                    -- and CSMTCol together.
                     let utxoRunUnguarded =
                             runTransactionUnguarded
                                 unifiedDb
@@ -451,10 +460,15 @@ withApplication cfg action = do
                     let resolveDb (NeedsRecovery recover) =
                             recover >>= resolveDb
                         resolveDb (Ready (ChooseKVOnly ops)) =
-                            pure ops
-                        resolveDb (Ready (ChooseFull _)) =
-                            error "openCSMTOps: unexpected ChooseFull"
-                    kvOnlyOps <- resolveDb dbState
+                            toFull ops >>= \case
+                                Just resolvedOps ->
+                                    pure resolvedOps
+                                Nothing ->
+                                    fail
+                                        "openCSMTOps: toFull failed"
+                        resolveDb (Ready (ChooseFull mkFull)) =
+                            mkFull
+                    liveOps <- resolveDb dbState
 
                     -- Initialize chain-follower Backend
                     let backendInit =
@@ -462,7 +476,7 @@ withApplication cfg action = do
                                 ( cfgScriptHash
                                     $ cageConfig cfg
                                 )
-                                kvOnlyOps
+                                liveOps
 
                     -- Count rollback points and sample
                     -- intersection candidates from
@@ -487,8 +501,8 @@ withApplication cfg action = do
                                 ]
 
                     -- Initialize Phase:
-                    -- Existing DB: toFollowing replays journal
-                    -- Fresh DB: InRestoration (fast KVOnly)
+                    -- Existing DB: resume from rollback history
+                    -- Fresh DB: restore from origin with Full CSMT ops
                     restoring <-
                         start backendInit
                     initialPhase <-

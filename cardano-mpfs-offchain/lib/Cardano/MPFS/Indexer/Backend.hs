@@ -21,7 +21,6 @@ module Cardano.MPFS.Indexer.Backend
     ) where
 
 import Control.Monad (forM_)
-import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Lazy (LazyByteString)
 import Data.ByteString.Short qualified as SBS
 
@@ -43,7 +42,7 @@ import Cardano.Ledger.Binary
     , serialize
     )
 
-import CSMT.MTS (Ops, kvCommon, toFull)
+import CSMT.MTS (Ops)
 import Cardano.UTxOCSMT.Application.BlockFetch
     ( Fetched (..)
     )
@@ -53,7 +52,6 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTOps (..)
     , fullOpsToCSMTOps
-    , kvCommonToCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Database.Interface
     ( Operation (..)
@@ -158,14 +156,15 @@ resolveUtxoT txIn = do
 -- | Create a composed 'Backend.Init' for both
 -- UTxO CSMT and cage state.
 --
--- Takes the KVOnly 'Ops' (same as @createBackend@
--- in cardano-utxo-csmt). 'start' returns a Restoring
--- with KVOnly ops; 'toFollowing' calls 'toFull' for
--- journal replay and switches to Full ops.
+-- MPFS serves proof-bearing facts while restoration may
+-- still be applying blocks. Therefore restoration must
+-- use Full CSMT ops too: each spend deletes from both
+-- KVCol and CSMTCol in the same transaction instead of
+-- creating a KVOnly journal window with stale CSMT leaves.
 composedInit
     :: ScriptHash
     -> Ops
-        'MTS.KVOnly
+        'MTS.Full
         IO
         cf
         ( Columns
@@ -186,12 +185,12 @@ composedInit
         BlockId
 composedInit scriptHash ops =
     Init
-        { start = pure $ mkRestoring kvOps
+        { start = pure $ mkRestoring csmtOps
         }
   where
-    kvOps = kvCommonToCSMTOps (kvCommon ops)
+    csmtOps = fullOpsToCSMTOps ops
 
-    mkRestoring csmtOps =
+    mkRestoring activeOps =
         Restoring
             { restore = \fetched -> do
                 let conwayTxs =
@@ -217,30 +216,23 @@ composedInit scriptHash ops =
                             mkUnifiedTrieManager
                             events
 
-                -- 3. Apply UTxO ops (KVOnly)
+                -- 3. Apply UTxO ops, keeping KVCol and
+                -- CSMTCol synchronized.
                 mapColumns InUtxo
                     $ forM_
                         utxoOps
                     $ \case
                         Insert k v ->
-                            csmtInsert csmtOps k v
+                            csmtInsert activeOps k v
                         Delete k ->
-                            csmtDelete csmtOps k
+                            csmtDelete activeOps k
 
-                pure $ mkRestoring csmtOps
-            , toFollowing = do
-                mFull <- liftIO (toFull ops)
-                case mFull of
-                    Just fullOps ->
-                        pure
-                            $ mkFollowing
-                                (fullOpsToCSMTOps fullOps)
-                    Nothing ->
-                        fail
-                            "mkRestoring: toFull failed"
+                pure $ mkRestoring activeOps
+            , toFollowing =
+                pure $ mkFollowing activeOps
             }
 
-    mkFollowing csmtOps =
+    mkFollowing activeOps =
         Following
             { follow = \fetched -> do
                 let conwayTxs =
@@ -277,7 +269,7 @@ composedInit scriptHash ops =
                                 ( \case
                                     Insert k v -> do
                                         csmtInsert
-                                            csmtOps
+                                            activeOps
                                             k
                                             v
                                         pure [Delete k]
@@ -285,7 +277,7 @@ composedInit scriptHash ops =
                                         mOld <-
                                             query KVCol k
                                         csmtDelete
-                                            csmtOps
+                                            activeOps
                                             k
                                         pure $ case mOld of
                                             Nothing -> []
@@ -303,10 +295,10 @@ composedInit scriptHash ops =
                 pure
                     ( inv
                     , Just blockId
-                    , mkFollowing csmtOps
+                    , mkFollowing activeOps
                     )
             , toRestoring =
-                pure $ mkRestoring kvOps
+                pure $ mkRestoring activeOps
             , applyInverse =
                 \ComposedInv{utxoInverses, cageInverses} ->
                     do
@@ -322,7 +314,7 @@ composedInit scriptHash ops =
                                 (reverse utxoInverses)
                             $ \case
                                 Insert k v ->
-                                    csmtInsert csmtOps k v
+                                    csmtInsert activeOps k v
                                 Delete k ->
-                                    csmtDelete csmtOps k
+                                    csmtDelete activeOps k
             }
