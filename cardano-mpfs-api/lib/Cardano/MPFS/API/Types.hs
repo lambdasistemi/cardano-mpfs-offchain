@@ -595,6 +595,8 @@ instance FromJSON ProofResponse where
 data RequestsResponse = RequestsResponse
     { rrSnapshot :: VerificationSnapshot
     -- ^ Snapshot the bundled proofs target
+    , rrRequestSet :: UtxoSetWitness
+    -- ^ Complete request-address UTxO set witness
     , rrRequests :: [WitnessedRequest]
     -- ^ Witnessed pending requests
     }
@@ -604,6 +606,7 @@ instance ToJSON RequestsResponse where
     toJSON RequestsResponse{..} =
         object
             [ "snapshot" .= rrSnapshot
+            , "request_set" .= rrRequestSet
             , "requests" .= rrRequests
             ]
 
@@ -611,6 +614,7 @@ instance FromJSON RequestsResponse where
     parseJSON = withObject "RequestsResponse" $ \o ->
         RequestsResponse
             <$> o .: "snapshot"
+            <*> o .: "request_set"
             <*> o .: "requests"
 
 -- | @POST \/tx\/boot@ request body.
@@ -1875,6 +1879,9 @@ instance ToSchema RequestsResponse where
         reqListSchema <-
             declareSchemaRef
                 (Proxy @[WitnessedRequest])
+        requestSetSchema <-
+            declareSchemaRef
+                (Proxy @UtxoSetWitness)
         pure
             $ Swagger.NamedSchema
                 (Just "RequestsResponse")
@@ -1884,10 +1891,11 @@ instance ToSchema RequestsResponse where
             & properties
                 .~ fromList
                     [ ("snapshot", snapshotSchema)
+                    , ("request_set", requestSetSchema)
                     , ("requests", reqListSchema)
                     ]
             & required
-                .~ ["snapshot", "requests"]
+                .~ ["snapshot", "request_set", "requests"]
             & description
                 ?~ "Proof-bearing pending requests \
                    \response"
