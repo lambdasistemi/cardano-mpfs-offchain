@@ -15,9 +15,6 @@ module Cardano.MPFS.Client.Verify.Read
     , VerifiedTokenFacts
     , verifiedTokenFacts
     , verifyTokenFacts
-    , VerifiedTokenRequests
-    , verifiedTokenRequests
-    , verifyTokenRequests
     ) where
 
 import Data.ByteString qualified as BS
@@ -40,8 +37,6 @@ import Cardano.MPFS.API.Types
     ( ChainPointJSON (..)
     , FactEntry (..)
     , FactsResponse (..)
-    , RequestsResponse (..)
-    , TokenIdJSON
     , TokenResponse (..)
     , TokenStateJSON (..)
     , TxInJSON (..)
@@ -50,18 +45,9 @@ import Cardano.MPFS.API.Types
     , WitnessedUtxo (..)
     )
 import Cardano.MPFS.Client.Bundle qualified as ClientWire
-import Cardano.MPFS.Client.Cage.Config
-    ( CageConfig
-    )
-import Cardano.MPFS.Client.Cage.Identity
-    ( requestSetPrefixFromCfg
-    )
 import Cardano.MPFS.Client.Snapshot qualified as ClientSnapshot
 import Cardano.MPFS.Client.TrustedRoot
     ( TrustedRoot (..)
-    )
-import Cardano.MPFS.Client.Verify.Completeness
-    ( verifyUtxoSetCompleteness
     )
 import Cardano.MPFS.Client.Verify.Replay
     ( VerifyError (..)
@@ -134,42 +120,6 @@ verifyTokenFacts (TrustedRoot (Hex trustedBs)) resp@FactsResponse{..} = do
     factPair FactEntry{feKey = Hex keyBs, feValue = Hex valueBs} =
         (keyBs, valueBs)
 
--- | Opaque witness that a requests response has been checked against
--- the caller-supplied trusted root: the snapshot is pinned to that
--- root, and the request-address UTxO set witness proves the complete
--- set for the requested token's locally-derived request prefix.
-newtype VerifiedTokenRequests = VerifiedTokenRequests RequestsResponse
-    deriving stock (Eq, Show)
-
--- | Extract the verified response after 'verifyTokenRequests' has
--- established the trusted-root and request-set completeness checks.
-verifiedTokenRequests :: VerifiedTokenRequests -> RequestsResponse
-verifiedTokenRequests (VerifiedTokenRequests resp) = resp
-
--- | Verify a @GET \/tokens\/:id\/requests@ 'RequestsResponse'
--- against an externally-supplied trusted UTxO-CSMT root and the token
--- id from the request path. The response body does not repeat the
--- path token id, so callers must supply it explicitly for local
--- request-address prefix derivation.
-verifyTokenRequests
-    :: CageConfig
-    -> TokenIdJSON
-    -> TrustedRoot
-    -> RequestsResponse
-    -> Either VerifyError VerifiedTokenRequests
-verifyTokenRequests
-    cfg
-    token
-    (TrustedRoot (Hex trustedBs))
-    resp@RequestsResponse{..} = do
-        verifyTrustedSnapshot "requests" trustedBs rrSnapshot
-        verifyUtxoSetCompleteness
-            "requests.request_set"
-            trustedBs
-            (requestSetPrefixFromCfg cfg token)
-            rrRequestSet
-        Right (VerifiedTokenRequests resp)
-
 -- | Reconstruct the Aiken-compatible MPF trie root from a complete
 -- set of @(key, value)@ byte pairs, purely. Each key becomes its
 -- Aiken nibble path and each value its MPF value hash, then the trie
@@ -202,18 +152,6 @@ verifyAnchoredState
     -> WitnessedTokenState
     -> Either VerifyError ()
 verifyAnchoredState prefix trustedBs snapshot state = do
-    verifyTrustedSnapshot prefix trustedBs snapshot
-    replayWitnessedUtxo
-        (prefix <> ".state.utxo")
-        trustedBs
-        (toClientWitnessedUtxo (wtsUtxo state))
-
-verifyTrustedSnapshot
-    :: Text
-    -> BS.ByteString
-    -> VerificationSnapshot
-    -> Either VerifyError ()
-verifyTrustedSnapshot prefix trustedBs snapshot = do
     checkLength (prefix <> ".trusted_root") trustedBs
     verifyVerificationSnapshot (toClientSnapshot snapshot)
     let snapshotPath = prefix <> ".snapshot.utxo_root"
@@ -221,6 +159,10 @@ verifyTrustedSnapshot prefix trustedBs snapshot = do
     if snapshotBs == trustedBs
         then Right ()
         else Left (TrustedRootMismatch snapshotPath)
+    replayWitnessedUtxo
+        (prefix <> ".state.utxo")
+        trustedBs
+        (toClientWitnessedUtxo (wtsUtxo state))
   where
     checkLength field bs
         | BS.length bs == 32 = Right ()
