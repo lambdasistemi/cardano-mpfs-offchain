@@ -60,6 +60,7 @@ library
     , cardano-mpfs-verify
     , cardano-slotting
     , cardano-tx-tools:tx-build
+    , cborg                      >=0.2  && <0.3
     , containers                 >=0.6  && <0.8
     , microlens
     , mts:mpf-write

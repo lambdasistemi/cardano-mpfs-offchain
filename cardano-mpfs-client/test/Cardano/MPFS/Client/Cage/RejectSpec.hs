@@ -14,7 +14,7 @@ import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Coerce (coerce)
-import Data.Foldable (toList)
+import Data.Foldable (forM_, toList)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust)
 import Data.Ratio ((%))
@@ -78,6 +78,8 @@ import Cardano.Ledger.Api.Scripts.Data
     )
 import Cardano.Ledger.Api.Tx
     ( bodyTxL
+    , evalTxExUnits
+    , txIdTx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -143,6 +145,9 @@ import Cardano.Ledger.Plutus.ExUnits
 import Cardano.Ledger.Plutus.Language
     ( Language (..)
     )
+import Cardano.Ledger.State
+    ( UTxO (..)
+    )
 import Cardano.Ledger.TxIn
     ( TxId (..)
     , TxIn (..)
@@ -185,6 +190,10 @@ import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
     , cagePolicyIdFromCfg
     , computeScriptHash
+    )
+import Cardano.MPFS.Client.Cage.Eval
+    ( DecodedEvalContext (..)
+    , patchEvaluatedRedeemers
     )
 import Cardano.MPFS.Client.Cage.Identity
     ( onChainTokenId
@@ -398,6 +407,16 @@ spec = describe "rejectCageTx" $ do
         feeBound `shouldSatisfy` (>= rejectFee)
         feeBound `shouldSatisfy` (<= grossFeeBufferUpperBound)
 
+    it
+        "returns the same reject body evaluated for final budgets"
+        $ do
+            cfg <- testCageConfig
+            let fixture@RejectFixture{trustedRoot, facts} =
+                    honestRejectFixture cfg
+            verified <- expectVerified trustedRoot facts
+            tx <- expectBuilt cfg verified
+            assertFinalRejectBudgetsAreStable cfg fixture tx
+
 -- ---------------------------------------------------------------
 -- Redeemer decoding helpers (test-only)
 -- ---------------------------------------------------------------
@@ -552,6 +571,78 @@ expectBuilt cfg verified =
                 ("rejectCageTx failed: " <> show err)
                 *> error "unreachable"
         Right tx -> pure tx
+
+assertFinalRejectBudgetsAreStable
+    :: CageConfig
+    -> RejectFixture
+    -> ConwayTx
+    -> IO ()
+assertFinalRejectBudgetsAreStable cfg fixture tx = do
+    let ctx = testEvalContext realisticPParams
+        inputUtxos = rejectInputUtxos cfg fixture
+        report =
+            evalTxExUnits
+                (evalProtocolParameters ctx)
+                tx
+                (UTxO $ Map.fromList inputUtxos)
+                (evalEpochInfo ctx)
+                (evalSystemStart ctx)
+        Redeemers budgets =
+            tx ^. witsTxL . rdmrsTxWitsL
+    actuals <-
+        case sequenceA report of
+            Left err ->
+                expectationFailure
+                    ("final reject evaluation failed: " <> show err)
+                    *> error "unreachable"
+            Right xs -> pure xs
+    Map.keysSet actuals `shouldBe` Map.keysSet budgets
+    forM_ (Map.toList actuals) $ \(purpose, actual) ->
+        case Map.lookup purpose budgets of
+            Nothing ->
+                expectationFailure
+                    ("missing final budget for " <> show purpose)
+            Just (_, budget) ->
+                budget `shouldCoverExUnits` actual
+    case patchEvaluatedRedeemers ctx [] tx report of
+        Left err ->
+            expectationFailure
+                ("patching final reject budgets failed: " <> show err)
+        Right patched ->
+            txIdTx patched `shouldBe` txIdTx tx
+
+rejectInputUtxos
+    :: CageConfig
+    -> RejectFixture
+    -> [(TxIn, TxOut ConwayEra)]
+rejectInputUtxos cfg RejectFixture{stateInput, requestInput, walletInput} =
+    let token = tokenIdFromJSON sampleToken
+        requestAddr =
+            requestAddrFromCfg cfg token Testnet
+        stateAddr =
+            Addr
+                Testnet
+                (ScriptHashObj $ cfgScriptHash cfg)
+                StakeRefNull
+    in  [
+            ( stateInput
+            , stateTxOut stateAddr cfg (unTokenId token)
+            )
+        , (requestInput, requestTxOut requestAddr token)
+        , (walletInput, walletTxOut)
+        ]
+
+shouldCoverExUnits :: ExUnits -> ExUnits -> IO ()
+shouldCoverExUnits budget@(ExUnits budgetMem budgetSteps) actual@(ExUnits actualMem actualSteps) =
+    if budgetMem >= actualMem && budgetSteps >= actualSteps
+        then pure ()
+        else
+            expectationFailure
+                ( "final budget "
+                    <> show budget
+                    <> " is below actual "
+                    <> show actual
+                )
 
 requestTxOut :: Addr -> TokenId -> TxOut ConwayEra
 requestTxOut requestAddr token =

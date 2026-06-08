@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -14,15 +15,38 @@ module Cardano.MPFS.Client.Cage.Eval
     , patchEvaluatedRedeemers
     ) where
 
+import Codec.CBOR.Decoding
+    ( Decoder
+    , TokenType (..)
+    , decodeBreakOr
+    , decodeListLen
+    , decodeListLenOrIndef
+    , decodeNull
+    , decodeWord8
+    , peekTokenType
+    )
+import Codec.CBOR.Read
+    ( deserialiseFromBytes
+    )
 import Codec.Serialise
     ( Serialise
     , deserialiseOrFail
+    )
+import Codec.Serialise qualified as Serialise
+import Control.Monad
+    ( replicateM
+    , unless
+    , void
+    , when
     )
 import Data.ByteString.Lazy qualified as BSL
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word
+    ( Word64
+    )
 import Lens.Micro ((&), (.~), (^.))
 
 import Cardano.Ledger.Address
@@ -44,6 +68,7 @@ import Cardano.Ledger.Api.PParams
 import Cardano.Ledger.Api.Tx
     ( bodyTxL
     , evalTxExUnits
+    , txIdTx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
@@ -92,14 +117,19 @@ import Cardano.MPFS.Client.Cage.BuildError
     )
 import Cardano.Slotting.EpochInfo
     ( EpochInfo
-    , fixedEpochInfo
     )
+import Cardano.Slotting.EpochInfo qualified as EpochInfo
 import Cardano.Slotting.Slot
-    ( EpochSize (..)
+    ( EpochNo (..)
+    , EpochSize (..)
+    , SlotNo (..)
     )
 import Cardano.Slotting.Time
-    ( SystemStart
-    , slotLengthFromMillisec
+    ( RelativeTime (..)
+    , SlotLength
+    , SystemStart
+    , addRelativeTime
+    , getSlotLength
     )
 import Cardano.Tx.Balance
     ( BalanceResult (..)
@@ -118,6 +148,19 @@ data DecodedEvalContext = DecodedEvalContext
     , evalEpochInfo :: !(EpochInfo (Either Text))
     }
 
+data EraSummaryLite = EraSummaryLite
+    { esStart :: !EraBoundLite
+    , esEnd :: !(Maybe EraBoundLite)
+    , esEpochSize :: !EpochSize
+    , esSlotLength :: !SlotLength
+    }
+
+data EraBoundLite = EraBoundLite
+    { ebRelativeTime :: !RelativeTime
+    , ebSlot :: !SlotNo
+    , ebEpoch :: !EpochNo
+    }
+
 decodeEvalContext
     :: Wire.EvalContext
     -> Either BuildError DecodedEvalContext
@@ -127,16 +170,12 @@ decodeEvalContext Wire.EvalContext{..} = do
         decodeSerialise
             "eval_context.system_start_cbor"
             ecSystemStartCbor
+    epochInfo <- decodeEraHistoryEpochInfo ecEraHistoryCbor
     pure
         DecodedEvalContext
             { evalProtocolParameters = pp
             , evalSystemStart = systemStart
-            , evalEpochInfo =
-                fixedEpochInfo
-                    (EpochSize ecEpochSize)
-                    ( slotLengthFromMillisec
-                        (fromIntegral ecSlotLengthMs)
-                    )
+            , evalEpochInfo = epochInfo
             }
 
 decodePParams
@@ -163,6 +202,240 @@ decodeSerialise label (Hex bytes) =
                 $ EvaluationFailed
                 $ label <> ": " <> T.pack (show err)
         Right value -> Right value
+
+decodeEraHistoryEpochInfo
+    :: Hex
+    -> Either BuildError (EpochInfo (Either Text))
+decodeEraHistoryEpochInfo (Hex bytes) = do
+    summaries <-
+        case deserialiseFromBytes
+            decodeEraSummaries
+            (BSL.fromStrict bytes) of
+            Left err ->
+                Left
+                    $ EvaluationFailed
+                    $ "eval_context.era_history_cbor: "
+                        <> T.pack (show err)
+            Right (trailing, value)
+                | BSL.null trailing -> Right value
+                | otherwise ->
+                    Left
+                        $ EvaluationFailed
+                            "eval_context.era_history_cbor: trailing bytes"
+    case summaries of
+        [] ->
+            Left
+                $ EvaluationFailed
+                    "eval_context.era_history_cbor: empty era history"
+        _ -> Right $ eraSummariesEpochInfo summaries
+
+decodeEraSummaries :: Decoder s [EraSummaryLite]
+decodeEraSummaries =
+    decodeListLenOrIndef >>= \case
+        Just n -> replicateM n decodeEraSummaryLite
+        Nothing -> go []
+  where
+    go acc = do
+        done <- decodeBreakOr
+        if done
+            then pure $ reverse acc
+            else do
+                summary <- decodeEraSummaryLite
+                go (summary : acc)
+
+decodeEraSummaryLite :: Decoder s EraSummaryLite
+decodeEraSummaryLite = do
+    enforceListLen "EraSummary" 3
+    esStart <- decodeEraBoundLite
+    esEnd <- decodeEraEndLite
+    (esEpochSize, esSlotLength) <- decodeEraParamsLite
+    pure EraSummaryLite{..}
+
+decodeEraBoundLite :: Decoder s EraBoundLite
+decodeEraBoundLite = do
+    len <- decodeListLen
+    unless (len == 3 || len == 4)
+        $ fail "Bound: expected list length 3 or 4"
+    ebRelativeTime <- Serialise.decode
+    ebSlot <- Serialise.decode
+    ebEpoch <- Serialise.decode
+    when (len == 4)
+        $ void (Serialise.decode @Word64)
+    pure EraBoundLite{..}
+
+decodeEraEndLite :: Decoder s (Maybe EraBoundLite)
+decodeEraEndLite =
+    peekTokenType >>= \case
+        TypeNull -> do
+            decodeNull
+            pure Nothing
+        _ -> Just <$> decodeEraBoundLite
+
+decodeEraParamsLite :: Decoder s (EpochSize, SlotLength)
+decodeEraParamsLite = do
+    len <- decodeListLen
+    unless (len == 4 || len == 5)
+        $ fail "EraParams: expected list length 4 or 5"
+    epochSize <- EpochSize <$> Serialise.decode @Word64
+    slotLength <- Serialise.decode
+    decodeSafeZoneLite
+    void (Serialise.decode @Word64)
+    when (len == 5)
+        $ void (Serialise.decode @Word64)
+    pure (epochSize, slotLength)
+
+decodeSafeZoneLite :: Decoder s ()
+decodeSafeZoneLite = do
+    size <- decodeListLen
+    tag <- decodeWord8
+    case (size, tag) of
+        (3, 0) -> do
+            void (Serialise.decode @Word64)
+            decodeSafeBeforeEpochLite
+        (1, 1) ->
+            pure ()
+        _ ->
+            fail
+                $ "SafeZone: invalid size and tag "
+                    <> show (size, tag)
+
+decodeSafeBeforeEpochLite :: Decoder s ()
+decodeSafeBeforeEpochLite = do
+    size <- decodeListLen
+    tag <- decodeWord8
+    case (size, tag) of
+        (1, 0) ->
+            pure ()
+        (2, 1) ->
+            void (Serialise.decode @EpochNo)
+        _ ->
+            fail
+                $ "SafeBeforeEpoch: invalid size and tag "
+                    <> show (size, tag)
+
+enforceListLen :: String -> Int -> Decoder s ()
+enforceListLen label expected = do
+    actual <- decodeListLen
+    unless (actual == expected)
+        $ fail
+        $ label
+            <> ": expected list length "
+            <> show expected
+            <> ", got "
+            <> show actual
+
+eraSummariesEpochInfo
+    :: [EraSummaryLite]
+    -> EpochInfo (Either Text)
+eraSummariesEpochInfo summaries =
+    EpochInfo.EpochInfo
+        { EpochInfo.epochInfoSize_ =
+            fmap esEpochSize . findEraByEpoch
+        , EpochInfo.epochInfoFirst_ = epochToSlot
+        , EpochInfo.epochInfoEpoch_ = slotToEpoch
+        , EpochInfo.epochInfoSlotToRelativeTime_ =
+            slotToRelativeTime
+        , EpochInfo.epochInfoSlotLength_ =
+            fmap esSlotLength . findEraBySlot
+        }
+  where
+    findEraBySlot slot =
+        maybe
+            ( Left
+                $ "slot "
+                    <> T.pack (show slot)
+                    <> " outside eval-context era history"
+            )
+            Right
+            $ findFirst (eraContainsSlot slot) summaries
+
+    findEraByEpoch epoch =
+        maybe
+            ( Left
+                $ "epoch "
+                    <> T.pack (show epoch)
+                    <> " outside eval-context era history"
+            )
+            Right
+            $ findFirst (eraContainsEpoch epoch) summaries
+
+    slotToRelativeTime slot = do
+        EraSummaryLite{esStart, esSlotLength} <- findEraBySlot slot
+        slotDelta <- countSlotDelta slot (ebSlot esStart)
+        let timeDelta =
+                fromIntegral slotDelta * getSlotLength esSlotLength
+        Right
+            $ addRelativeTime
+                timeDelta
+                (ebRelativeTime esStart)
+
+    slotToEpoch slot = do
+        EraSummaryLite{esStart, esEpochSize = EpochSize epochSize} <-
+            findEraBySlot slot
+        slotDelta <- countSlotDelta slot (ebSlot esStart)
+        Right
+            $ addEpochs
+                (slotDelta `div` epochSize)
+                (ebEpoch esStart)
+
+    epochToSlot epoch = do
+        EraSummaryLite{esStart, esEpochSize = EpochSize epochSize} <-
+            findEraByEpoch epoch
+        epochDelta <- countEpochDelta epoch (ebEpoch esStart)
+        Right
+            $ addSlots
+                (epochDelta * epochSize)
+                (ebSlot esStart)
+
+eraContainsSlot :: SlotNo -> EraSummaryLite -> Bool
+eraContainsSlot slot EraSummaryLite{esStart, esEnd} =
+    ebSlot esStart <= slot
+        && maybe True ((slot <) . ebSlot) esEnd
+
+eraContainsEpoch :: EpochNo -> EraSummaryLite -> Bool
+eraContainsEpoch epoch EraSummaryLite{esStart, esEnd} =
+    ebEpoch esStart <= epoch
+        && maybe True ((epoch <) . ebEpoch) esEnd
+
+countSlotDelta
+    :: SlotNo
+    -> SlotNo
+    -> Either Text Word64
+countSlotDelta (SlotNo hi) (SlotNo lo)
+    | hi >= lo = Right $ hi - lo
+    | otherwise =
+        Left
+            $ "slot "
+                <> T.pack (show hi)
+                <> " precedes era start slot "
+                <> T.pack (show lo)
+
+countEpochDelta
+    :: EpochNo
+    -> EpochNo
+    -> Either Text Word64
+countEpochDelta (EpochNo hi) (EpochNo lo)
+    | hi >= lo = Right $ hi - lo
+    | otherwise =
+        Left
+            $ "epoch "
+                <> T.pack (show hi)
+                <> " precedes era start epoch "
+                <> T.pack (show lo)
+
+addSlots :: Word64 -> SlotNo -> SlotNo
+addSlots delta (SlotNo slot) =
+    SlotNo $ slot + delta
+
+addEpochs :: Word64 -> EpochNo -> EpochNo
+addEpochs delta (EpochNo epoch) =
+    EpochNo $ epoch + delta
+
+findFirst :: (a -> Bool) -> [a] -> Maybe a
+findFirst _ [] = Nothing
+findFirst p (x : xs)
+    | p x = Just x
+    | otherwise = findFirst p xs
 
 evaluateAndBalancePure
     :: DecodedEvalContext
@@ -206,22 +479,19 @@ evaluateAndBalancePure ctx inputUtxos refUtxos changeAddr tx =
                     txForEval
                     preBalanceReport
             preBalanced <- balance preBalancePatched
-            balancedReport <-
-                evaluateRedeemers ctx inputUtxos refUtxos preBalanced
             finalPatched <-
-                patchEvaluatedRedeemers
+                stabilizeSubmittedRedeemers
                     ctx
+                    inputUtxos
                     refUtxos
-                    txForEval
-                    balancedReport
-            balanced <- balance finalPatched
+                    preBalanced
             let finalFee =
-                    balanced ^. bodyTxL . feeTxBodyL
+                    finalPatched ^. bodyTxL . feeTxBodyL
                 finalExUnits =
-                    redeemerExUnits balanced
+                    redeemerExUnits finalPatched
             if finalFee == previousFee
                 && maybe True (== finalExUnits) previousExUnits
-                then Right balanced
+                then Right finalPatched
                 else go (n + 1) finalFee (Just finalExUnits)
 
     balance candidate =
@@ -269,15 +539,13 @@ evaluateAndBalancePureAtFee ctx expectedFee inputUtxos refUtxos changeAddr tx = 
     if balancedFee /= expectedFee
         then Right preBalanced
         else do
-            balancedReport <-
-                evaluateRedeemers ctx inputUtxos refUtxos preBalanced
             finalPatched <-
-                patchEvaluatedRedeemers
+                stabilizeSubmittedRedeemers
                     ctx
+                    inputUtxos
                     refUtxos
-                    txForEval
-                    balancedReport
-            balance finalPatched
+                    preBalanced
+            Right finalPatched
   where
     pp = evalProtocolParameters ctx
     existingInputs =
@@ -310,10 +578,31 @@ evaluateRedeemers
     -> ConwayTx
     -> Either BuildError (RedeemerReport ConwayEra)
 evaluateRedeemers ctx inputUtxos refUtxos tx = do
+    evaluateRedeemersWith
+        ctx
+        inputUtxos
+        refUtxos
+        (placeholderRedeemers ctx refUtxos tx)
+
+evaluateSubmittedRedeemers
+    :: DecodedEvalContext
+    -> [(TxIn, TxOut ConwayEra)]
+    -> [(TxIn, TxOut ConwayEra)]
+    -> ConwayTx
+    -> Either BuildError (RedeemerReport ConwayEra)
+evaluateSubmittedRedeemers = evaluateRedeemersWith
+
+evaluateRedeemersWith
+    :: DecodedEvalContext
+    -> [(TxIn, TxOut ConwayEra)]
+    -> [(TxIn, TxOut ConwayEra)]
+    -> ConwayTx
+    -> Either BuildError (RedeemerReport ConwayEra)
+evaluateRedeemersWith ctx inputUtxos refUtxos tx = do
     let report =
             evalTxExUnits
                 (evalProtocolParameters ctx)
-                (placeholderRedeemers ctx refUtxos tx)
+                tx
                 (UTxO $ Map.fromList $ inputUtxos <> refUtxos)
                 (evalEpochInfo ctx)
                 (evalSystemStart ctx)
@@ -328,6 +617,38 @@ evaluateRedeemers ctx inputUtxos refUtxos tx = do
                 $ EvaluationFailed
                 $ "script evaluation failed: "
                     <> T.pack (show failures)
+
+stabilizeSubmittedRedeemers
+    :: DecodedEvalContext
+    -> [(TxIn, TxOut ConwayEra)]
+    -> [(TxIn, TxOut ConwayEra)]
+    -> ConwayTx
+    -> Either BuildError ConwayTx
+stabilizeSubmittedRedeemers ctx inputUtxos refUtxos =
+    go (0 :: Int)
+  where
+    go n tx
+        | n > 10 =
+            Left
+                $ EvaluationFailed
+                    "submitted ex-unit convergence failed"
+        | otherwise = do
+            report <-
+                evaluateSubmittedRedeemers
+                    ctx
+                    inputUtxos
+                    refUtxos
+                    tx
+            patched <-
+                patchEvaluatedRedeemers
+                    ctx
+                    refUtxos
+                    tx
+                    report
+            if txIdTx patched == txIdTx tx
+                then Right patched
+                else go (n + 1) patched
+
 type RedeemerReport era =
     Map.Map
         (PlutusPurpose AsIx era)

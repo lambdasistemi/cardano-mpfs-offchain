@@ -118,6 +118,7 @@ test-suite unit-tests
     , cardano-ledger-mary
     , cardano-mpfs-api
     , cardano-mpfs-cage
+    , cardano-mpfs-cage-tx
     , cardano-mpfs-client
     , cardano-slotting
     , cardano-tx-tools
@@ -135,6 +136,7 @@ test-suite unit-tests
     , mts:mpf-test-lib
     , mts:mpf-write
     , plutus-tx
+    , serialise
     , text
     , time
     , wai                     >=3.2  && <3.3
@@ -146,6 +148,7 @@ test-suite unit-tests
     Cardano.MPFS.Client.BundleSpec
     Cardano.MPFS.Client.Cage.BootSpec
     Cardano.MPFS.Client.Cage.EndSpec
+    Cardano.MPFS.Client.Cage.EvalSpec
     Cardano.MPFS.Client.Cage.RejectSpec
     Cardano.MPFS.Client.Cage.RequestSpec
     Cardano.MPFS.Client.Cage.RetractSpec
