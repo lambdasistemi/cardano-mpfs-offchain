@@ -68,7 +68,7 @@ transactions; the client signs and submits via `POST /tx/submit`.
 | GET | `/tokens/:id/facts` | Enumerate facts with witnessed state |
 | GET | `/tokens/:id/facts/:key` | Value lookup |
 | GET | `/tokens/:id/proofs/:key` | Merkle proof |
-| GET | `/tokens/:id/requests` | Pending requests |
+| GET | `/tokens/:id/requests` | Pending requests with completeness witness |
 | GET | `/tx/:txId?timeout=30` | Block until tx is indexed |
 | POST | `/facts/boot` | Return boot facts for wallet-side transaction construction |
 | POST | `/facts/request/insert` | Return insert-request facts for wallet-side transaction construction |

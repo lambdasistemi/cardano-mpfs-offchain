@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.RequestsSpec
@@ -6,12 +9,16 @@
 -- License     : Apache-2.0
 module Cardano.MPFS.HTTP.RequestsSpec (spec) where
 
+import Control.Monad (forM_)
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+import Data.Text qualified as T
 import Data.Vector qualified as V
 import Network.HTTP.Types
     ( status200
@@ -31,18 +38,60 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldSatisfy
     )
 import Test.QuickCheck (generate)
 
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , mkBasicTxOut
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
+    , Network (..)
+    )
+import Cardano.Ledger.Binary
+    ( natVersion
+    , serialize
+    , serialize'
+    )
 import Cardano.Ledger.Mary.Value (AssetName (..))
+import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
+    ( CSMTContext (..)
+    , CSMTOps (..)
+    , mkCSMTOps
+    )
+import Cardano.UTxOCSMT.Application.Run.Config (context)
+import Database.KV.Database (mkColumns)
+import Database.KV.RocksDB (mkRocksDBDatabase)
+import Database.KV.Transaction
+    ( RunTransaction (..)
+    , mapColumns
+    , newRunTransaction
+    )
+import Database.RocksDB
+    ( DB (..)
+    , withDBCF
+    )
+import System.Directory (doesFileExist)
+import System.IO.Temp (withSystemTempDirectory)
+import System.IO.Unsafe (unsafePerformIO)
 
+import Cardano.MPFS.Application
+    ( allColumnFamilies
+    , dbConfig
+    , unifiedCodecs
+    )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , Coin (..)
+    , ConwayEra
     , LocatedRequest (LocatedRequest)
     , LocatedTokenState (..)
     , SlotNo (..)
     , TokenId (..)
+    , TxIn
     )
 import Cardano.MPFS.Generators
     ( genRequest
@@ -51,7 +100,15 @@ import Cardano.MPFS.Generators
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.TokensSpec (mkDummyTokenState)
+import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
+import Cardano.MPFS.Indexer.Reads (IndexerTx (..))
+import Cardano.MPFS.Indexer.TxFixtures (testScriptHash)
 import Cardano.MPFS.State qualified as St
+import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
+import Cardano.MPFS.TxBuilder.Real.Internal
+    ( cageAddrFromCfg
+    , requestAddrFromCfg
+    )
 
 -- | "cafe" as hex = "63616665".
 cafeTid :: TokenId
@@ -80,7 +137,130 @@ withSnapshot rootBs outBs proofBs ctx = do
             { utxoRoot = pure (Just rootBs)
             , resolveUtxo = \_ -> pure (Just outBs)
             , utxoProof = \_ -> pure (Just proofBs)
+            , cfgCage = testCageConfig
             }
+
+-- | Run the handler against a real UTxO CSMT indexer
+-- transaction, seeded with request-address UTxO bytes.
+withRequestSet
+    :: [(TxIn, ByteString)]
+    -> Context IO
+    -> (Context IO -> IO a)
+    -> IO a
+withRequestSet entries ctx action =
+    withSystemTempDirectory "requests-indexer-test"
+        $ \dir ->
+            withDBCF
+                dir
+                dbConfig
+                allColumnFamilies
+                $ \db -> do
+                    let database =
+                            mkRocksDBDatabase
+                                db
+                                ( mkColumns
+                                    (columnFamilies db)
+                                    unifiedCodecs
+                                )
+                        CSMTContext{fromKV, hashing} = context
+                        csmtOps = mkCSMTOps fromKV hashing
+                    RunTransaction{runTransaction} <-
+                        newRunTransaction database
+                    let seededEntries =
+                            ( "sentinel-key"
+                            , otherAddressTxOutBytes
+                            )
+                                : [ ( serialize
+                                        (natVersion @11)
+                                        txIn
+                                    , BSL.fromStrict txOutBytes
+                                    )
+                                  | (txIn, txOutBytes) <- entries
+                                  ]
+                    runTransaction
+                        $ mapColumns InUtxo
+                        $ forM_ seededEntries
+                        $ uncurry
+                            (csmtInsert csmtOps)
+                    action
+                        ctx
+                            { runIndexerTx =
+                                \(IndexerTx body) ->
+                                    runTransaction body
+                            }
+
+testCageConfig :: CageConfig
+testCageConfig =
+    CageConfig
+        { cageScriptBytes = SBS.toShort "dummy"
+        , requestScriptBytes = testRequestScriptBytes
+        , cfgScriptHash = testScriptHash
+        , defaultProcessTime = 60_000
+        , defaultRetractTime = 30_000
+        , defaultTip = Coin 1_000_000
+        , network = Testnet
+        }
+
+testRequestScriptBytes :: SBS.ShortByteString
+testRequestScriptBytes =
+    unsafePerformIO loadTestRequestScriptBytes
+{-# NOINLINE testRequestScriptBytes #-}
+
+loadTestRequestScriptBytes :: IO SBS.ShortByteString
+loadTestRequestScriptBytes = do
+    hex <- tryRead candidatePaths
+    let trimmed =
+            BS.takeWhile
+                (\b -> b /= 10 && b /= 13)
+                hex
+    case B16.decode trimmed of
+        Right bs -> pure (SBS.toShort bs)
+        Left err ->
+            error
+                $ "loadTestRequestScriptBytes: "
+                    <> err
+  where
+    candidatePaths =
+        [ "test-data/request.uplc.hex"
+        , "cardano-mpfs-offchain/test-data/request.uplc.hex"
+        ]
+    tryRead [] =
+        error
+            "loadTestRequestScriptBytes: \
+            \test-data/request.uplc.hex not found \
+            \in any of the candidate paths"
+    tryRead (p : ps) = do
+        exists <- doesFileExist p
+        if exists
+            then BS.readFile p
+            else tryRead ps
+
+-- | Serialized request UTxO bytes at the token's
+-- per-cage request address.
+sampleRequestOutBytes
+    :: TokenId
+    -> Integer
+    -> ByteString
+sampleRequestOutBytes tid _submittedAt =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
+  where
+    txOut =
+        mkBasicTxOut
+            (requestAddrFromCfg testCageConfig tid Testnet)
+            (inject (Coin 2_000_000))
+
+otherAddressTxOutBytes :: BSL.ByteString
+otherAddressTxOutBytes =
+    BSL.fromStrict
+        $ serialize'
+            (natVersion @11)
+            ( mkBasicTxOut
+                (cageAddrFromCfg testCageConfig Testnet)
+                (inject (Coin 2_000_000))
+                :: TxOut ConwayEra
+            )
 
 -- | Seed an indexed token state for a token id so
 -- the proof-bearing handler can find a state UTxO
@@ -101,9 +281,10 @@ spec = describe "GET /tokens/:id/requests" $ do
         ctx <-
             withSnapshot "root" "tx-out" "proof" ctx0
         seedTokenState ctx cafeTid
-        resp <- getRequests ctx "63616665"
-        simpleStatus resp `shouldBe` status200
-        assertEnvelope resp 0
+        withRequestSet [] ctx $ \ctxWithSet -> do
+            resp <- getRequests ctxWithSet "63616665"
+            simpleStatus resp `shouldBe` status200
+            assertEnvelope resp 0
 
     it
         "returns a single witnessed request after \
@@ -122,10 +303,14 @@ spec = describe "GET /tokens/:id/requests" $ do
             St.putRequest
                 (St.requests (state ctx))
                 (LocatedRequest txIn req)
-            resp <- getRequests ctx "63616665"
-            simpleStatus resp `shouldBe` status200
-            assertEnvelope resp 1
-            assertWitnessedRequestFields resp
+            withRequestSet
+                [(txIn, sampleRequestOutBytes cafeTid 0)]
+                ctx
+                $ \ctxWithSet -> do
+                    resp <- getRequests ctxWithSet "63616665"
+                    simpleStatus resp `shouldBe` status200
+                    assertEnvelope resp 1
+                    assertWitnessedRequestFields resp
 
     it
         "returns multiple witnessed requests for same \
@@ -149,9 +334,15 @@ spec = describe "GET /tokens/:id/requests" $ do
             St.putRequest
                 (St.requests (state ctx))
                 (LocatedRequest txIn2 req2)
-            resp <- getRequests ctx "63616665"
-            simpleStatus resp `shouldBe` status200
-            assertEnvelope resp 2
+            withRequestSet
+                [ (txIn1, sampleRequestOutBytes cafeTid 0)
+                , (txIn2, sampleRequestOutBytes cafeTid 1)
+                ]
+                ctx
+                $ \ctxWithSet -> do
+                    resp <- getRequests ctxWithSet "63616665"
+                    simpleStatus resp `shouldBe` status200
+                    assertEnvelope resp 2
 
     it "filters by token — other tokens excluded" $ do
         ctx0 <- mkTestContext
@@ -169,12 +360,20 @@ spec = describe "GET /tokens/:id/requests" $ do
         St.putRequest
             (St.requests (state ctx))
             (LocatedRequest txIn2 req2)
-        resp1 <- getRequests ctx "63616665"
-        simpleStatus resp1 `shouldBe` status200
-        assertEnvelope resp1 1
-        resp2 <- getRequests ctx "61616262"
-        simpleStatus resp2 `shouldBe` status200
-        assertEnvelope resp2 1
+        withRequestSet
+            [(txIn1, sampleRequestOutBytes cafeTid 0)]
+            ctx
+            $ \ctxWithCafeSet -> do
+                resp1 <- getRequests ctxWithCafeSet "63616665"
+                simpleStatus resp1 `shouldBe` status200
+                assertEnvelope resp1 1
+        withRequestSet
+            [(txIn2, sampleRequestOutBytes aabbTid 0)]
+            ctx
+            $ \ctxWithAabbSet -> do
+                resp2 <- getRequests ctxWithAabbSet "61616262"
+                simpleStatus resp2 `shouldBe` status200
+                assertEnvelope resp2 1
 
     it "returns 404 for unknown token" $ do
         ctx0 <- mkTestContext
@@ -223,6 +422,27 @@ assertEnvelope resp n =
                 _ ->
                     expectationFailure
                         "requests is not an array"
+            case KM.lookup "request_set" obj of
+                Just (Object requestSetObj) -> do
+                    case KM.lookup "entries" requestSetObj of
+                        Just (Array entries) ->
+                            V.length entries `shouldBe` n
+                        _ ->
+                            expectationFailure
+                                "request_set.entries is not an array"
+                    case KM.lookup
+                        "completeness_proof"
+                        requestSetObj of
+                        Just (String proof) ->
+                            proof
+                                `shouldSatisfy` (not . T.null)
+                        _ ->
+                            expectationFailure
+                                "request_set.completeness_proof \
+                                \is not a string"
+                _ ->
+                    expectationFailure
+                        "request_set is not an object"
         _ ->
             expectationFailure
                 "Expected JSON object"
