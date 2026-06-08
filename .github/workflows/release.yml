@@ -11,7 +11,169 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  cli-linux-release:
+    name: Build mpfs-cli for x86_64-linux
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: nixos
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build mpfs-cli
+        run: nix build .#mpfs-cli -L --print-out-paths > /tmp/nix-out
+
+      - name: Bundle
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bundle/bin /tmp/bundle/lib /tmp/bundle/libexec
+          cp "$(cat /tmp/nix-out)/bin/mpfs-cli" /tmp/bundle/libexec/
+          chmod +x /tmp/bundle/libexec/mpfs-cli
+
+          LD_TRACE_LOADED_OBJECTS=1 /tmp/bundle/libexec/mpfs-cli \
+            | awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' \
+            | sort -u \
+            | while read -r lib; do
+              case "$lib" in
+                /lib/*|/lib64/*|/usr/lib/*|/usr/lib64/*) ;;
+                *) cp -L "$lib" "/tmp/bundle/lib/$(basename "$lib")" ;;
+              esac
+            done
+
+          cat > /tmp/bundle/bin/mpfs-cli <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+          LOADER="$DIR/../lib/ld-linux-x86-64.so.2"
+          if [[ -x "$LOADER" ]]; then
+            exec "$LOADER" --library-path "$DIR/../lib" "$DIR/../libexec/mpfs-cli" "$@"
+          fi
+          exec "$DIR/../libexec/mpfs-cli" "$@"
+          EOF
+          sed -i 's/^          //' /tmp/bundle/bin/mpfs-cli
+          chmod +x /tmp/bundle/bin/mpfs-cli
+
+          echo "==> Verify:"
+          /tmp/bundle/bin/mpfs-cli --help
+
+      - name: Create tarball
+        id: package
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          VERSION="${TAG#v}"
+          TARBALL="/tmp/mpfs-cli-${VERSION}-x86_64-linux.tar.gz"
+          tar czf "$TARBALL" -C /tmp/bundle .
+          sha256sum "$TARBALL"
+          {
+            echo "tag=$TAG"
+            echo "tarball=$TARBALL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          nix shell --inputs-from . nixpkgs#gh -c gh release upload \
+            "${{ steps.package.outputs.tag }}" \
+            "${{ steps.package.outputs.tarball }}" \
+            --clobber
+
+  cli-darwin-release:
+    name: Build mpfs-cli for aarch64-darwin
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            extra-substituters = https://cache.iog.io https://paolino.cachix.org
+            extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ= paolino.cachix.org-1:ecmgO3CXdgSWA2cHlm4srknd/cLFMLmK3i3NrzeDFaE=
+
+      - name: Build mpfs-cli
+        run: nix build .#mpfs-cli -L --print-out-paths > /tmp/nix-out
+
+      - name: Bundle
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bundle/bin /tmp/bundle/lib
+          cp "$(cat /tmp/nix-out)/bin/mpfs-cli" /tmp/bundle/bin/
+
+          otool -L /tmp/bundle/bin/mpfs-cli \
+            | grep -v /usr/lib | grep -v /System | grep -v ":" \
+            | awk '{print $1}' | while read -r lib; do
+              libname=$(basename "$lib")
+              cp "$lib" /tmp/bundle/lib/
+              install_name_tool -change "$lib" "@executable_path/../lib/$libname" /tmp/bundle/bin/mpfs-cli
+            done
+
+          echo "==> Verify:"
+          otool -L /tmp/bundle/bin/mpfs-cli
+          /tmp/bundle/bin/mpfs-cli --help
+
+      - name: Create tarball
+        id: package
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          VERSION="${TAG#v}"
+          TARBALL="/tmp/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
+          tar czf "$TARBALL" -C /tmp/bundle .
+          shasum -a 256 "$TARBALL"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "tarball=$TARBALL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload \
+            "${{ steps.package.outputs.tag }}" \
+            "${{ steps.package.outputs.tarball }}" \
+            --clobber
+
+      - name: Update homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          TAG="${{ steps.package.outputs.tag }}"
+          TARBALL="${{ steps.package.outputs.tarball }}"
+          SHA=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+          URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
+
+          printf 'class MpfsCli < Formula\n  desc "Command-line front-end for the Cardano MPFS server"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-cli"\n    lib.install Dir["lib/*"]\n  end\nend\n' "$URL" "$SHA" "$VERSION" > /tmp/mpfs-cli.rb
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/lambdasistemi/homebrew-tap.git" /tmp/tap
+          mkdir -p /tmp/tap/Formula
+          cp /tmp/mpfs-cli.rb /tmp/tap/Formula/mpfs-cli.rb
+          cd /tmp/tap
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add Formula/mpfs-cli.rb
+          git diff --cached --quiet || git commit -m "update mpfs-cli to ${TAG}"
+          git push

@@ -26,6 +26,7 @@ jobs:
           .#client-tests
           .#e2e-tests
           .#cardano-mpfs-offchain
+          .#mpfs-cli
           .#mpfs-spa
           .#docker-image
           .#checks.x86_64-linux.swagger-up-to-date

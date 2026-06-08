@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build-and-release:
-    name: Build mpfs-serve for aarch64-darwin
+    name: Build mpfs-serve and mpfs-cli for aarch64-darwin
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v6
@@ -24,30 +24,52 @@ jobs:
             extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ= paolino.cachix.org-1:ecmgO3CXdgSWA2cHlm4srknd/cLFMLmK3i3NrzeDFaE=
 
       - name: Build mpfs-serve
-        run: nix build .#mpfs-serve -L --print-out-paths > /tmp/nix-out
+        run: nix build .#mpfs-serve -L --print-out-paths > /tmp/nix-out-serve
 
-      - name: Bundle
+      - name: Bundle mpfs-serve
         run: |
-          mkdir -p /tmp/bundle/bin /tmp/bundle/lib
-          cp "$(cat /tmp/nix-out)/bin/mpfs-serve" /tmp/bundle/bin/
+          mkdir -p /tmp/bundle-serve/bin /tmp/bundle-serve/lib
+          cp "$(cat /tmp/nix-out-serve)/bin/mpfs-serve" /tmp/bundle-serve/bin/
 
-          otool -L /tmp/bundle/bin/mpfs-serve \
+          otool -L /tmp/bundle-serve/bin/mpfs-serve \
             | grep -v /usr/lib | grep -v /System | grep -v ":" \
-            | awk '{print $1}' | while read lib; do
+            | awk '{print $1}' | while read -r lib; do
               libname=$(basename "$lib")
-              cp "$lib" /tmp/bundle/lib/
-              install_name_tool -change "$lib" "@executable_path/../lib/$libname" /tmp/bundle/bin/mpfs-serve
+              cp "$lib" /tmp/bundle-serve/lib/
+              install_name_tool -change "$lib" "@executable_path/../lib/$libname" /tmp/bundle-serve/bin/mpfs-serve
             done
 
           echo "==> Verify:"
-          otool -L /tmp/bundle/bin/mpfs-serve
-          /tmp/bundle/bin/mpfs-serve --help || true
+          otool -L /tmp/bundle-serve/bin/mpfs-serve
+          /tmp/bundle-serve/bin/mpfs-serve --help || true
+
+      - name: Build mpfs-cli
+        run: nix build .#mpfs-cli -L --print-out-paths > /tmp/nix-out-cli
+
+      - name: Bundle mpfs-cli
+        run: |
+          mkdir -p /tmp/bundle-cli/bin /tmp/bundle-cli/lib
+          cp "$(cat /tmp/nix-out-cli)/bin/mpfs-cli" /tmp/bundle-cli/bin/
+
+          otool -L /tmp/bundle-cli/bin/mpfs-cli \
+            | grep -v /usr/lib | grep -v /System | grep -v ":" \
+            | awk '{print $1}' | while read -r lib; do
+              libname=$(basename "$lib")
+              cp "$lib" /tmp/bundle-cli/lib/
+              install_name_tool -change "$lib" "@executable_path/../lib/$libname" /tmp/bundle-cli/bin/mpfs-cli
+            done
+
+          echo "==> Verify:"
+          otool -L /tmp/bundle-cli/bin/mpfs-cli
+          /tmp/bundle-cli/bin/mpfs-cli --help
 
       - name: Create tarball
         run: |
           VERSION=$(git rev-parse --short HEAD)
-          tar czf /tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz -C /tmp/bundle .
-          shasum -a 256 /tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz
+          tar czf "/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz" -C /tmp/bundle-serve .
+          tar czf "/tmp/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz" -C /tmp/bundle-cli .
+          shasum -a 256 "/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          shasum -a 256 "/tmp/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
           echo "$VERSION" > /tmp/version.txt
 
       - name: Create release
@@ -56,12 +78,14 @@ jobs:
         run: |
           VERSION=$(cat /tmp/version.txt)
           TAG="darwin-${VERSION}"
-          TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          SERVE_TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          CLI_TARBALL="/tmp/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
           gh release delete "$TAG" -y 2>/dev/null || true
           gh release create "$TAG" \
-            --title "mpfs-serve $TAG (aarch64-darwin)" \
+            --title "MPFS $TAG (aarch64-darwin)" \
             --notes "aarch64-darwin build from $(git rev-parse HEAD)" \
-            "$TARBALL"
+            "$SERVE_TARBALL" \
+            "$CLI_TARBALL"
 
       - name: Update homebrew tap
         env:
@@ -69,18 +93,23 @@ jobs:
         run: |
           VERSION=$(cat /tmp/version.txt)
           TAG="darwin-${VERSION}"
-          TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
-          SHA=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
-          URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          SERVE_TARBALL="/tmp/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          CLI_TARBALL="/tmp/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
+          SERVE_SHA=$(shasum -a 256 "$SERVE_TARBALL" | cut -d' ' -f1)
+          CLI_SHA=$(shasum -a 256 "$CLI_TARBALL" | cut -d' ' -f1)
+          SERVE_URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-serve-${VERSION}-aarch64-darwin.tar.gz"
+          CLI_URL="https://github.com/lambdasistemi/cardano-mpfs-offchain/releases/download/${TAG}/mpfs-cli-${VERSION}-aarch64-darwin.tar.gz"
 
-          printf 'class MpfsServe < Formula\n  desc "Cardano Merkle Patricia Forestry offchain service"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-serve"\n    (libexec/"lib").install Dir["lib/*"]\n  end\nend\n' "$URL" "$SHA" "$VERSION" > /tmp/mpfs-serve.rb
+          printf 'class MpfsServe < Formula\n  desc "Cardano Merkle Patricia Forestry offchain service"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-serve"\n    (libexec/"lib").install Dir["lib/*"]\n  end\nend\n' "$SERVE_URL" "$SERVE_SHA" "$VERSION" > /tmp/mpfs-serve.rb
+          printf 'class MpfsCli < Formula\n  desc "Command-line front-end for the Cardano MPFS server"\n  homepage "https://github.com/lambdasistemi/cardano-mpfs-offchain"\n  url "%s"\n  sha256 "%s"\n  version "%s"\n\n  def install\n    bin.install "bin/mpfs-cli"\n    lib.install Dir["lib/*"]\n  end\nend\n' "$CLI_URL" "$CLI_SHA" "$VERSION" > /tmp/mpfs-cli.rb
 
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/lambdasistemi/homebrew-tap.git /tmp/tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/lambdasistemi/homebrew-tap.git" /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp /tmp/mpfs-serve.rb /tmp/tap/Formula/mpfs-serve.rb
+          cp /tmp/mpfs-cli.rb /tmp/tap/Formula/mpfs-cli.rb
           cd /tmp/tap
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add Formula/mpfs-serve.rb
-          git diff --cached --quiet || git commit -m "update mpfs-serve to ${TAG}"
+          git add Formula/mpfs-serve.rb Formula/mpfs-cli.rb
+          git diff --cached --quiet || git commit -m "update darwin formulae to ${TAG}"
           git push

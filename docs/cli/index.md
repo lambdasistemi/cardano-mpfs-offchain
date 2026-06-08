@@ -11,6 +11,24 @@ owns argument parsing, key loading, local signing, submission, and
 output formatting. See the [walkthrough](walkthrough.md) for a recorded
 session and [troubleshooting](troubleshooting.md) for known issues.
 
+## Install
+
+Release builds are attached to
+[GitHub Releases](https://github.com/lambdasistemi/cardano-mpfs-offchain/releases):
+
+- `mpfs-cli-<version>-x86_64-linux.tar.gz`
+- `mpfs-cli-<version>-aarch64-darwin.tar.gz`
+
+Unpack the tarball for your platform and put `bin/mpfs-cli` on your
+`PATH`.
+
+On macOS with Homebrew:
+
+```bash
+brew tap lambdasistemi/tap
+brew install mpfs-cli
+```
+
 ## Quick start
 
 ```bash
