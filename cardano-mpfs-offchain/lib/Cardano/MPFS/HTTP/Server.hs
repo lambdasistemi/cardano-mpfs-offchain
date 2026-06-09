@@ -1155,7 +1155,11 @@ factsUpdateHandler
                 Left msg -> throwInternal msg
                 Right root -> pure root
         validityUpperSlot <-
-            updateValidityUpperSlot ctx stateOutBytes requestUtxos
+            updateValidityUpperSlot
+                ctx
+                snap
+                stateOutBytes
+                requestUtxos
         pp <-
             liftIO
                 $ queryProtocolParams
@@ -1581,10 +1585,11 @@ stateTrieRootBytes bytes = do
 
 updateValidityUpperSlot
     :: Context IO
+    -> BundleSnapshot
     -> ByteString
     -> [ResolvedWalletInput]
     -> Handler Integer
-updateValidityUpperSlot ctx stateOutBytes requestUtxos = do
+updateValidityUpperSlot ctx snap stateOutBytes requestUtxos = do
     stateOut <-
         decodeIndexedTxOut "facts/update.state_utxo" stateOutBytes
     oldState <- case extractCageDatum stateOut of
@@ -1597,6 +1602,7 @@ updateValidityUpperSlot ctx stateOutBytes requestUtxos = do
         liftIO
             $ UpdateTx.computeUpperSlot
                 (provider ctx)
+                (snapshotSlot snap)
                 oldState
                 requestPairs
     pure (toInteger (unSlotNo slot))
