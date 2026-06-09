@@ -17,9 +17,6 @@ import Data.ByteString (ByteString)
 import Data.List (sort)
 import Data.Text (Text)
 
-import CSMT.Core.CBOR
-    ( renderCompletenessProof
-    )
 import CSMT.Core.Hash
     ( Hash (..)
     , byteStringToKey
@@ -29,9 +26,7 @@ import CSMT.Core.Types
     , Key
     )
 import CSMT.Verify
-    ( CompletenessProof (..)
-    , parseCompletenessProof
-    , verifyCompletenessProof
+    ( verifyCompletenessProof
     )
 import CSMT.Verify.Blake2b
     ( blake2b256
@@ -60,7 +55,7 @@ verifyUtxoSetCompleteness
     -> UtxoSetWitness
     -> Either VerifyError ()
 verifyUtxoSetCompleteness path trustedRoot prefix UtxoSetWitness{..}
-    | verifyCompletenessProofCompat
+    | verifyCompletenessProof
         trustedRoot
         prefix
         (sort (map (entryLeaf prefix) uswEntries))
@@ -71,24 +66,6 @@ verifyUtxoSetCompleteness path trustedRoot prefix UtxoSetWitness{..}
             ( CompletenessProofInvalid
                 (path <> ".completeness_proof")
             )
-
-verifyCompletenessProofCompat
-    :: ByteString
-    -> Key
-    -> [Indirect Hash]
-    -> ByteString
-    -> Bool
-verifyCompletenessProofCompat trustedRoot prefix leaves proofBytes =
-    verifyCompletenessProof trustedRoot prefix leaves proofBytes
-        || verifyReversedLiveWitness
-  where
-    verifyReversedLiveWitness =
-        case parseCompletenessProof proofBytes of
-            Just (CompletenessWitness ops steps) ->
-                verifyCompletenessProof trustedRoot prefix leaves
-                    $ renderCompletenessProof
-                    $ CompletenessWitness ops (reverse steps)
-            _ -> False
 
 entryLeaf :: Key -> UtxoEntryRefOnly -> Indirect Hash
 entryLeaf prefix UtxoEntryRefOnly{..} =
