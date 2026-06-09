@@ -27,12 +27,11 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
-import Data.Time.Clock (getCurrentTime)
-import Data.Time.Clock.POSIX
-    ( utcTimeToPOSIXSeconds
-    )
 import Data.Void (Void)
+import Data.Word (Word64)
 import Lens.Micro ((&), (.~), (^.))
+import System.Environment (lookupEnv)
+import Text.Read (readMaybe)
 
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
@@ -97,7 +96,7 @@ import Cardano.MPFS.Trie
     , TrieManager (..)
     )
 import Cardano.MPFS.TxBuilder
-    ( BundleSnapshot
+    ( BundleSnapshot (..)
     , ProofEnvelope (..)
     , TrieFact (..)
     , UpdateProof (..)
@@ -107,7 +106,7 @@ import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
-import Cardano.Slotting.Slot (SlotNo)
+import Cardano.Slotting.Slot (SlotNo (..))
 import Cardano.Tx.Build qualified as Tx
 
 -- | Empty query GADT (no context needed).
@@ -158,7 +157,7 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                     newRoot
     -- 4. Compute validity upper slot
     upperSlot <-
-        computeUpperSlot prov oldState reqUtxos
+        computeUpperSlot prov (snapshotSlot snap) oldState reqUtxos
     -- 5. Build DSL program and execute
     let evalTx = mkEvalTx prov
         prog =
@@ -327,15 +326,18 @@ prepareState cfg tid stateOut newRoot =
         )
 
 -- | Compute the validity upper slot from the
--- earliest request deadline. Falls back to
--- now + 30s/5s/2s if the slot is past the
--- Ouroboros forecast horizon.
+-- earliest request deadline. If that future-time
+-- conversion is past the Ouroboros forecast horizon,
+-- fall back to a fixed slot offset above the indexed
+-- snapshot slot. The fallback avoids a second
+-- POSIX→slot conversion for another future time.
 computeUpperSlot
     :: Provider IO
+    -> SlotNo
     -> OnChainTokenState
     -> [(TxIn, TxOut ConwayEra)]
     -> IO SlotNo
-computeUpperSlot prov oldState reqUtxos = do
+computeUpperSlot prov snapshotSlotNo oldState reqUtxos = do
     let extractSubmittedAt (_, rOut) =
             case extractCageDatum rOut of
                 Just (RequestDatum r) ->
@@ -355,17 +357,32 @@ computeUpperSlot prov oldState reqUtxos = do
             (posixMsToSlot prov earliestDeadline)
     case mUpperSlot of
         Right s -> pure s
-        Left _ -> do
-            nowUtc <- getCurrentTime
-            let posixSec =
-                    utcTimeToPOSIXSeconds nowUtc
-            trySlots prov
-                $ map
-                    ( \d ->
-                        round
-                            ((posixSec + d) * 1000)
-                    )
-                    [30, 5, 2]
+        Left _ ->
+            updateUpperSlotFallback snapshotSlotNo
+
+updateUpperSlotFallback :: SlotNo -> IO SlotNo
+updateUpperSlotFallback (SlotNo lower) = do
+    ttl <- updateTtlSlotsIO
+    pure (SlotNo (lower + ttl))
+
+-- | Slot TTL added to the in-horizon snapshot slot
+-- when update deadline conversion is past the
+-- forecast horizon. Kept small for devnet's short
+-- safe zone and within the client verifier's
+-- update validity buffer.
+updateTtlSlots :: Word64
+updateTtlSlots = 20
+
+-- | Update TTL resolved at request time. The
+-- @MPFS_UPDATE_TTL_SLOTS@ environment variable
+-- overrides 'updateTtlSlots' when set to an integer
+-- in @[1, 600]@.
+updateTtlSlotsIO :: IO Word64
+updateTtlSlotsIO = do
+    mv <- lookupEnv "MPFS_UPDATE_TTL_SLOTS"
+    pure $ case mv >>= readMaybe of
+        Just n | n >= 1 && n <= 600 -> n
+        _ -> updateTtlSlots
 
 -- | Wrap the Provider's evaluateTx for the DSL.
 mkEvalTx

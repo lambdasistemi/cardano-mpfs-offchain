@@ -5,6 +5,7 @@
 
 module Cardano.MPFS.TxBuilderSpec (spec) where
 
+import Control.Exception (throwIO)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
@@ -174,6 +175,9 @@ import Cardano.MPFS.TxBuilder.Real
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( requestAddrFromCfg
     )
+import Cardano.MPFS.TxBuilder.Real.Update
+    ( computeUpperSlot
+    )
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -329,6 +333,31 @@ mkTestProvider utxos =
         , evaluateTx = \_ -> pure Map.empty
         , posixMsToSlot = \_ -> pure (SlotNo 0)
         , posixMsCeilSlot = \_ -> pure (SlotNo 0)
+        }
+
+failingSlotProvider :: Provider IO
+failingSlotProvider =
+    (mkTestProvider [])
+        { posixMsToSlot = \_ ->
+            throwIO (userError "past horizon")
+        , posixMsCeilSlot = \_ ->
+            throwIO (userError "past horizon")
+        }
+
+fallbackState :: OnChainTokenState
+fallbackState =
+    OnChainTokenState
+        { stateOwner =
+            BuiltinByteString
+                ( hashToBytes
+                    $ let KeyHash h = testKh
+                      in  h
+                )
+        , stateRoot =
+            OnChainRoot (BS.replicate 32 0)
+        , stateMaxFee = 1_000_000
+        , stateProcessTime = 300_000
+        , stateRetractTime = 600_000
         }
 
 -- | Dummy CSMT proof function that always returns
@@ -508,6 +537,7 @@ spec = describe "Cardano.MPFS.TxBuilder.Real" $ do
     requestDeleteSpec
     retractRequestSpec
     updateTokenSpec
+    computeUpperSlotSpec
     endTokenSpec
     rejectRequestsSpec
     requestLockedAdaProps
@@ -752,6 +782,21 @@ updateTokenSpec =
                     tx ^. witsTxL . rdmrsTxWitsL
             -- one Modify + one Contribute
             Map.size rdmrs `shouldBe` 2
+
+computeUpperSlotSpec :: Spec
+computeUpperSlotSpec =
+    describe "computeUpperSlot" $ do
+        it
+            "falls back to an in-horizon slot offset when POSIX conversion fails"
+            $ do
+                txIn <- generate genTxIn
+                slot <-
+                    computeUpperSlot
+                        failingSlotProvider
+                        (SlotNo 42)
+                        fallbackState
+                        [(txIn, mkRequestTxOut)]
+                slot `shouldBe` SlotNo 62
 
 -- ---------------------------------------------------------
 -- endToken
