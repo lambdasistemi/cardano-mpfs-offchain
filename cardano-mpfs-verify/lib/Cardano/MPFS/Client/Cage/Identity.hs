@@ -9,6 +9,7 @@
 -- identity calculation without depending on the server package.
 module Cardano.MPFS.Client.Cage.Identity
     ( onChainTokenId
+    , cageSetPrefixFromCfg
     , requestAddrFromCfg
     , requestScriptBytesFromCfg
     , requestSetPrefixFromCfg
@@ -63,6 +64,7 @@ import Cardano.MPFS.Cage.Types
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , cageAddrFromCfg
     , computeScriptHash
     )
 
@@ -112,3 +114,13 @@ requestSetPrefixFromCfg cfg token =
             cfg
             (tokenIdFromJSON token)
             (network cfg)
+
+-- | Derive the cage-state UTxO-set CSMT prefix locally from config.
+-- Matches offchain @hashAddressKey (serialiseAddr addr)@ for
+-- @GET /tokens@ completeness verification.
+cageSetPrefixFromCfg :: CageConfig -> Key
+cageSetPrefixFromCfg cfg =
+    byteStringToKey
+        $ blake2b256
+        $ serialiseAddr
+        $ cageAddrFromCfg cfg (network cfg)

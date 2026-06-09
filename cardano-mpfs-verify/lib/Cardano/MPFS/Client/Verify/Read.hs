@@ -9,7 +9,10 @@
 -- @Verified*@ value whose constructor is not exported, so public
 -- callers cannot bypass verification.
 module Cardano.MPFS.Client.Verify.Read
-    ( VerifiedTokenState
+    ( VerifiedTokens
+    , verifiedTokens
+    , verifyTokens
+    , VerifiedTokenState
     , verifiedTokenState
     , verifyTokenState
     , VerifiedTokenFacts
@@ -43,8 +46,13 @@ import Cardano.MPFS.API.Types
     , RequestsResponse (..)
     , TokenIdJSON
     , TokenResponse (..)
+    , TokenSetWitness (..)
     , TokenStateJSON (..)
+    , TokenUtxoEntry (..)
+    , TokensResponse (..)
     , TxInJSON (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
@@ -54,7 +62,8 @@ import Cardano.MPFS.Client.Cage.Config
     ( CageConfig
     )
 import Cardano.MPFS.Client.Cage.Identity
-    ( requestSetPrefixFromCfg
+    ( cageSetPrefixFromCfg
+    , requestSetPrefixFromCfg
     )
 import Cardano.MPFS.Client.Snapshot qualified as ClientSnapshot
 import Cardano.MPFS.Client.TrustedRoot
@@ -70,6 +79,49 @@ import Cardano.MPFS.Client.Verify.Replay
 import Cardano.MPFS.Client.Verify.Snapshot
     ( verifyVerificationSnapshot
     )
+
+-- | Opaque witness that a token listing has been checked against the
+-- caller-supplied trusted root: the snapshot is pinned to that root,
+-- and the cage-state UTxO-set witness proves the complete set for the
+-- locally-derived cage address prefix.
+newtype VerifiedTokens = VerifiedTokens TokensResponse
+    deriving stock (Eq, Show)
+
+-- | Extract the verified response after 'verifyTokens' has established
+-- the trusted-root and token-set completeness checks.
+verifiedTokens :: VerifiedTokens -> TokensResponse
+verifiedTokens (VerifiedTokens resp) = resp
+
+-- | Verify a @GET \/tokens@ 'TokensResponse' against an
+-- externally-supplied trusted UTxO-CSMT root and locally-owned cage
+-- config.
+verifyTokens
+    :: CageConfig
+    -> TrustedRoot
+    -> TokensResponse
+    -> Either VerifyError VerifiedTokens
+verifyTokens cfg (TrustedRoot (Hex trustedBs)) resp@TokensResponse{..} = do
+    verifyTrustedSnapshot "tokens" trustedBs trsSnapshot
+    verifyUtxoSetCompleteness
+        "tokens.token_set"
+        trustedBs
+        (cageSetPrefixFromCfg cfg)
+        (tokenSetToUtxoSet trsTokens)
+    Right (VerifiedTokens resp)
+
+tokenSetToUtxoSet :: TokenSetWitness -> UtxoSetWitness
+tokenSetToUtxoSet TokenSetWitness{..} =
+    UtxoSetWitness
+        { uswEntries = map tokenEntryRefOnly tswEntries
+        , uswCompletenessProof = tswCompletenessProof
+        }
+
+tokenEntryRefOnly :: TokenUtxoEntry -> UtxoEntryRefOnly
+tokenEntryRefOnly TokenUtxoEntry{..} =
+    UtxoEntryRefOnly
+        { uerRef = tueRef
+        , uerTxOutCbor = tueTxOutCbor
+        }
 
 -- | Opaque witness that a token response has been checked against the
 -- caller-supplied trusted root: the embedded 'WitnessedTokenState' is
