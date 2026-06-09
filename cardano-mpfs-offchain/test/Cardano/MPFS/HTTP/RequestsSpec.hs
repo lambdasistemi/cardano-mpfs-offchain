@@ -18,6 +18,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Network.HTTP.Types
@@ -62,6 +63,7 @@ import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     , mkCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Run.Config (context)
+import ChainFollower.Rollbacks.Store qualified as Store
 import Database.KV.Database (mkColumns)
 import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
@@ -100,6 +102,7 @@ import Cardano.MPFS.Generators
     ( genRequest
     , genTxIn
     )
+import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.TokensSpec (mkDummyTokenState)
@@ -159,6 +162,16 @@ withRequestSet
     -> (Context IO -> IO a)
     -> IO a
 withRequestSet entries ctx action =
+    withRequestSetRoot Nothing entries ctx
+        $ \_ ctxWithSet -> action ctxWithSet
+
+withRequestSetRoot
+    :: Maybe ByteString
+    -> [(TxIn, ByteString)]
+    -> Context IO
+    -> (ByteString -> Context IO -> IO a)
+    -> IO a
+withRequestSetRoot mOutOfTxRoot entries ctx action =
     withSystemTempDirectory "requests-indexer-test"
         $ \dir ->
             withDBCF
@@ -177,8 +190,11 @@ withRequestSet entries ctx action =
                         csmtOps = mkCSMTOps fromKV hashing
                     RunTransaction{runTransaction} <-
                         newRunTransaction database
+                    sentinelTxIn <- generate genTxIn
                     let seededEntries =
-                            ( "sentinel-key"
+                            ( serialize
+                                (natVersion @11)
+                                sentinelTxIn
                             , otherAddressTxOutBytes
                             )
                                 : [ ( serialize
@@ -193,15 +209,31 @@ withRequestSet entries ctx action =
                         $ forM_ seededEntries
                         $ uncurry
                             (csmtInsert csmtOps)
+                    runTransaction
+                        $ Store.armageddonSetup
+                            InRollbacks
+                            (SlotNo 42)
+                            (Just (BlockId "block-id-bytes"))
                     let IndexerTx readRoot = readMerkleRoot
                     mRoot <- runTransaction readRoot
-                    action
-                        ctx
-                            { runIndexerTx =
-                                \(IndexerTx body) ->
-                                    runTransaction body
-                            , utxoRoot = pure mRoot
-                            }
+                    case mRoot of
+                        Nothing ->
+                            failExpectation
+                                "request-set helper did not seed a UTxO root"
+                        Just txRoot ->
+                            action
+                                txRoot
+                                ctx
+                                    { runIndexerTx =
+                                        \(IndexerTx body) ->
+                                            runTransaction body
+                                    , utxoRoot =
+                                        pure
+                                            $ Just
+                                            $ fromMaybe
+                                                txRoot
+                                                mOutOfTxRoot
+                                    }
 
 testCageConfig :: CageConfig
 testCageConfig =
@@ -290,6 +322,32 @@ seedTokenState ctx tid = do
 
 spec :: Spec
 spec = describe "GET /tokens/:id/requests" $ do
+    it
+        "uses the in-transaction root for the response snapshot"
+        $ do
+            ctx0 <- mkTestContext
+            ctx <-
+                withSnapshot
+                    "stale-root-r1"
+                    "tx-out"
+                    "proof"
+                    ctx0
+            seedTokenState ctx cafeTid
+            txIn <- generate genTxIn
+            req <- generate (genRequest cafeTid)
+            St.putRequest
+                (St.requests (state ctx))
+                (LocatedRequest txIn req)
+            withRequestSetRoot
+                (Just "stale-root-r1")
+                [(txIn, sampleRequestOutBytes cafeTid 0)]
+                ctx
+                $ \txRoot ctxWithSet -> do
+                    resp <- getRequests ctxWithSet "63616665"
+                    simpleStatus resp `shouldBe` status200
+                    root <- responseSnapshotRoot resp
+                    root `shouldBe` txRoot
+
     it "returns empty list when no requests exist" $ do
         ctx0 <- mkTestContext
         ctx <-
@@ -399,7 +457,8 @@ spec = describe "GET /tokens/:id/requests" $ do
 
     it "returns 503 when snapshot not yet available"
         $ do
-            ctx <- mkTestContext
+            ctx0 <- mkTestContext
+            let ctx = ctx0{indexerProofsReady = pure False}
             seedTokenState ctx cafeTid
             resp <- getRequests ctx "63616665"
             simpleStatus resp `shouldBe` status503
@@ -461,6 +520,19 @@ assertEnvelope resp n =
         _ ->
             expectationFailure
                 "Expected JSON object"
+
+responseSnapshotRoot :: SResponse -> IO ByteString
+responseSnapshotRoot resp =
+    case decode (simpleBody resp) of
+        Just
+            RequestsResponse
+                { rrSnapshot =
+                    VerificationSnapshot
+                        { vsUtxoRoot = Hex root
+                        }
+                } -> pure root
+        Nothing ->
+            failExpectation "Expected RequestsResponse JSON"
 
 -- | Assert the first witnessed request has both the
 -- @utxo@ witness and the decoded @request@ payload.
@@ -546,3 +618,8 @@ toClientCageConfig cfg =
         , Client.defaultTip = defaultTip cfg
         , Client.network = network cfg
         }
+
+failExpectation :: String -> IO a
+failExpectation msg = do
+    expectationFailure msg
+    pure (error msg)

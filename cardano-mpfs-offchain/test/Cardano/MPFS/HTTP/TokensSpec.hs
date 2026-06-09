@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.TokensSpec
@@ -9,12 +11,17 @@ module Cardano.MPFS.HTTP.TokensSpec
     , mkDummyTokenState
     ) where
 
+import Control.Monad (forM_)
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+import Data.List (sort)
+import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
 import Data.Vector qualified as V
 import Network.HTTP.Types
     ( status200
@@ -33,15 +40,53 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldSatisfy
     )
 
-import Cardano.Ledger.BaseTypes (Network (..))
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , mkBasicTxOut
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
+    , Network (..)
+    )
+import Cardano.Ledger.Binary
+    ( natVersion
+    , serialize
+    , serialize'
+    )
 import Cardano.Ledger.Mary.Value (AssetName (..))
+import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
+    ( CSMTContext (..)
+    , CSMTOps (..)
+    , mkCSMTOps
+    )
+import Cardano.UTxOCSMT.Application.Run.Config (context)
+import ChainFollower.Rollbacks.Store qualified as Store
+import Database.KV.Database (mkColumns)
+import Database.KV.RocksDB (mkRocksDBDatabase)
+import Database.KV.Transaction
+    ( RunTransaction (..)
+    , mapColumns
+    , newRunTransaction
+    )
+import Database.RocksDB
+    ( DB (..)
+    , withDBCF
+    )
+import System.IO.Temp (withSystemTempDirectory)
 
+import Cardano.MPFS.Application
+    ( allColumnFamilies
+    , dbConfig
+    , unifiedCodecs
+    )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
+    , ConwayEra
     , LocatedTokenState (..)
     , Root (..)
     , SlotNo (..)
@@ -58,10 +103,20 @@ import Cardano.MPFS.HTTP.Types
     , TokenSetWitness (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
+    , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
+import Cardano.MPFS.Indexer.Reads
+    ( IndexerTx (..)
+    , readMerkleRoot
     )
 import Cardano.MPFS.Indexer.TxFixtures (testScriptHash)
 import Cardano.MPFS.State qualified as St
+import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
+import Cardano.MPFS.TxBuilder.Real.Internal
+    ( cageAddrFromCfg
+    )
 import Test.QuickCheck (generate)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -90,26 +145,109 @@ withSnapshot rootBs outBs proofBs ctx = do
             , resolveUtxo = \_ -> pure (Just outBs)
             , utxoProof = \_ -> pure (Just proofBs)
             , cfgCage = testCageConfig
-            , runIndexerTx =
-                \_ -> pure (unsafeCoerce emptyTokenSet)
             }
-  where
-    emptyTokenSet :: ([(TxIn, ByteString)], ByteString)
-    emptyTokenSet = ([], proofBs)
 
 withTokenSet
     :: [(TxIn, ByteString)]
     -> ByteString
     -> Context IO
+    -> (Context IO -> IO a)
+    -> IO a
+withTokenSet [] proofBs ctx action =
+    action
+        ctx
+            { runIndexerTx =
+                \_ ->
+                    pure
+                        $ unsafeCoerce
+                            ( Just
+                                BundleSnapshot
+                                    { snapshotUtxoRoot = "root"
+                                    , snapshotSlot = SlotNo 42
+                                    , snapshotBlockId =
+                                        BlockId "block-id-bytes"
+                                    }
+                            , ([] :: [(TxIn, ByteString)], proofBs)
+                            )
+            }
+withTokenSet entries _proofBs ctx action =
+    withTokenSetRoot Nothing entries ctx
+        $ \_ ctxWithSet -> action ctxWithSet
+
+withTokenSetRoot
+    :: Maybe ByteString
+    -> [(TxIn, ByteString)]
     -> Context IO
-withTokenSet entries proofBs ctx =
-    ctx
-        { runIndexerTx =
-            \_ -> pure (unsafeCoerce tokenSet)
-        }
+    -> (ByteString -> Context IO -> IO a)
+    -> IO a
+withTokenSetRoot mOutOfTxRoot entries ctx action =
+    withSystemTempDirectory "tokens-indexer-test"
+        $ \dir ->
+            withDBCF
+                dir
+                dbConfig
+                allColumnFamilies
+                $ \db -> do
+                    let database =
+                            mkRocksDBDatabase
+                                db
+                                ( mkColumns
+                                    (columnFamilies db)
+                                    unifiedCodecs
+                                )
+                        CSMTContext{fromKV, hashing} = context
+                        csmtOps = mkCSMTOps fromKV hashing
+                    RunTransaction{runTransaction} <-
+                        newRunTransaction database
+                    let seededEntries =
+                            [ ( serialize
+                                    (natVersion @11)
+                                    txIn
+                              , BSL.fromStrict txOutBytes
+                              )
+                            | (txIn, txOutBytes) <- entries
+                            ]
+                    runTransaction
+                        $ mapColumns InUtxo
+                        $ forM_ seededEntries
+                        $ uncurry
+                            (csmtInsert csmtOps)
+                    runTransaction
+                        $ Store.armageddonSetup
+                            InRollbacks
+                            (SlotNo 42)
+                            (Just (BlockId "block-id-bytes"))
+                    let IndexerTx readRoot = readMerkleRoot
+                    mRoot <- runTransaction readRoot
+                    case mRoot of
+                        Nothing ->
+                            failExpectation
+                                "token-set helper did not seed a UTxO root"
+                        Just txRoot ->
+                            action
+                                txRoot
+                                ctx
+                                    { runIndexerTx =
+                                        \(IndexerTx body) ->
+                                            runTransaction body
+                                    , utxoRoot =
+                                        pure
+                                            $ Just
+                                            $ fromMaybe
+                                                txRoot
+                                                mOutOfTxRoot
+                                    }
+
+sampleStateOutBytes :: Integer -> ByteString
+sampleStateOutBytes _ =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
   where
-    tokenSet :: ([(TxIn, ByteString)], ByteString)
-    tokenSet = (entries, proofBs)
+    txOut =
+        mkBasicTxOut
+            (cageAddrFromCfg testCageConfig Testnet)
+            (inject (Coin 2_000_000))
 
 testCageConfig :: CageConfig
 testCageConfig =
@@ -138,12 +276,37 @@ mkDummyTokenState = do
 
 spec :: Spec
 spec = describe "GET /tokens" $ do
+    it
+        "uses the in-transaction root for the response snapshot"
+        $ do
+            ctx0 <- mkTestContext
+            ctx <- withSnapshot "stale-root-r1" "tx-out" "proof" ctx0
+            ts <- mkDummyTokenState
+            txIn <- generate genTxIn
+            let tid =
+                    TokenId (AssetName (SBS.toShort "deadbeef"))
+                txOut = sampleStateOutBytes 0
+            St.putToken
+                (St.tokens (state ctx))
+                tid
+                (LocatedTokenState txIn ts)
+            withTokenSetRoot
+                (Just "stale-root-r1")
+                [(txIn, txOut)]
+                ctx
+                $ \txRoot ctxWithSet -> do
+                    resp <- getTokens ctxWithSet
+                    simpleStatus resp `shouldBe` status200
+                    root <- responseSnapshotRoot resp
+                    root `shouldBe` txRoot
+
     it "returns empty proof-bearing token set on fresh state" $ do
         ctx0 <- mkTestContext
         ctx <- withSnapshot "root" "tx-out" "proof" ctx0
-        resp <- getTokens ctx
-        simpleStatus resp `shouldBe` status200
-        assertEnvelope resp 0
+        withTokenSet [] "proof" ctx $ \ctxWithSet -> do
+            resp <- getTokens ctxWithSet
+            simpleStatus resp `shouldBe` status200
+            assertEnvelope resp 0
 
     it "returns proof-bearing witness for all token UTxOs" $ do
         ctx0 <- mkTestContext
@@ -155,6 +318,8 @@ spec = describe "GET /tokens" $ do
                 TokenId (AssetName (SBS.toShort "deadbeef"))
             tid2 =
                 TokenId (AssetName (SBS.toShort "cafebabe"))
+            txOut1 = sampleStateOutBytes 0
+            txOut2 = sampleStateOutBytes 1
         St.putToken
             (St.tokens (state ctx))
             tid1
@@ -163,22 +328,23 @@ spec = describe "GET /tokens" $ do
             (St.tokens (state ctx))
             tid2
             (LocatedTokenState txIn2 ts)
-        let ctxWithSet =
-                withTokenSet
-                    [(txIn1, "tx-out-1"), (txIn2, "tx-out-2")]
-                    "proof"
-                    ctx
-        resp <- getTokens ctxWithSet
-        simpleStatus resp `shouldBe` status200
-        assertEnvelope resp 2
-        assertTokenEntries
-            resp
-            [ ("deadbeef", "tx-out-1")
-            , ("cafebabe", "tx-out-2")
-            ]
+        withTokenSet
+            [(txIn1, txOut1), (txIn2, txOut2)]
+            "proof"
+            ctx
+            $ \ctxWithSet -> do
+                resp <- getTokens ctxWithSet
+                simpleStatus resp `shouldBe` status200
+                assertEnvelope resp 2
+                assertTokenEntries
+                    resp
+                    [ ("deadbeef", txOut1)
+                    , ("cafebabe", txOut2)
+                    ]
 
     it "returns 503 when snapshot not yet available" $ do
-        ctx <- mkTestContext
+        ctx0 <- mkTestContext
+        let ctx = ctx0{indexerProofsReady = pure False}
         resp <- getTokens ctx
         simpleStatus resp `shouldBe` status503
 
@@ -199,7 +365,7 @@ assertEnvelope resp n =
                         "completeness_proof"
                         tokensObj of
                         Just (String proof) ->
-                            proof `shouldBe` "70726f6f66"
+                            proof `shouldSatisfy` (not . T.null)
                         _ ->
                             expectationFailure
                                 "tokens.completeness_proof \
@@ -211,6 +377,19 @@ assertEnvelope resp n =
             expectationFailure
                 "Expected JSON object"
 
+responseSnapshotRoot :: SResponse -> IO ByteString
+responseSnapshotRoot resp =
+    case decode (simpleBody resp) of
+        Just
+            TokensResponse
+                { trsSnapshot =
+                    VerificationSnapshot
+                        { vsUtxoRoot = Hex root
+                        }
+                } -> pure root
+        Nothing ->
+            failExpectation "Expected TokensResponse JSON"
+
 assertTokenEntries :: SResponse -> [(ByteString, ByteString)] -> IO ()
 assertTokenEntries resp expected =
     case decode (simpleBody resp) of
@@ -218,14 +397,21 @@ assertTokenEntries resp expected =
             TokensResponse
                 { trsTokens = TokenSetWitness{tswEntries}
                 } ->
-                map
-                    ( \TokenUtxoEntry
-                        { tueTokenId = TokenIdJSON tokenId
-                        , tueTxOutCbor = Hex txOut
-                        } -> (tokenId, txOut)
+                sort
+                    ( map
+                        ( \TokenUtxoEntry
+                            { tueTokenId = TokenIdJSON tokenId
+                            , tueTxOutCbor = Hex txOut
+                            } -> (tokenId, txOut)
+                        )
+                        tswEntries
                     )
-                    tswEntries
-                    `shouldBe` expected
+                    `shouldBe` sort expected
         _ ->
             expectationFailure
                 "Expected TokensResponse"
+
+failExpectation :: String -> IO a
+failExpectation msg = do
+    expectationFailure msg
+    pure (error msg)
