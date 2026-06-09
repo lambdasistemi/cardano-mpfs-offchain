@@ -102,6 +102,7 @@ import Cardano.MPFS.Generators
     ( genRequest
     , genTxIn
     )
+import Cardano.MPFS.HTTP.AtomicReadFixture (staleRoot)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
@@ -328,7 +329,7 @@ spec = describe "GET /tokens/:id/requests" $ do
             ctx0 <- mkTestContext
             ctx <-
                 withSnapshot
-                    "stale-root-r1"
+                    staleRoot
                     "tx-out"
                     "proof"
                     ctx0
@@ -339,7 +340,7 @@ spec = describe "GET /tokens/:id/requests" $ do
                 (St.requests (state ctx))
                 (LocatedRequest txIn req)
             withRequestSetRoot
-                (Just "stale-root-r1")
+                (Just staleRoot)
                 [(txIn, sampleRequestOutBytes cafeTid 0)]
                 ctx
                 $ \txRoot ctxWithSet -> do
@@ -347,6 +348,7 @@ spec = describe "GET /tokens/:id/requests" $ do
                     simpleStatus resp `shouldBe` status200
                     root <- responseSnapshotRoot resp
                     root `shouldBe` txRoot
+                    assertVerifiesForCafe resp
 
     it "returns empty list when no requests exist" $ do
         ctx0 <- mkTestContext

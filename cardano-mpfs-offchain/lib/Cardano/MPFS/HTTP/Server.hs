@@ -115,7 +115,6 @@ import Cardano.MPFS.HTTP.Swagger
 import Cardano.MPFS.HTTP.Types
     ( BootFacts (..)
     , BootRequest (..)
-    , ChainPointJSON (..)
     , DeleteRequest (..)
     , EndRequest (..)
     , EvalContext (..)
@@ -174,7 +173,10 @@ import Cardano.MPFS.Indexer.Reads
     , readRequestUtxosAt
     , readSnapshot
     , readStateUtxoAt
+    , readTrieFact
+    , readTrieFacts
     , readUtxoSetAt
+    , readUtxoWitness
     , readWalletInputsAt
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -414,9 +416,16 @@ tokenHandler ctx tokenId = do
                 { tokenStateRef
                 , tokenState = ts
                 } -> do
-                snapshot <- requireSnapshot ctx
-                witness <-
-                    requireUtxoWitness ctx tokenStateRef
+                (mSnap, mWitness) <-
+                    runProofIndexerTx ctx
+                        $ do
+                            snap <- readSnapshot
+                            witness <-
+                                readUtxoWitness
+                                    tokenStateRef
+                            pure (snap, witness)
+                snapshot <- snapshotFromIndexer mSnap
+                witness <- witnessFromIndexer mWitness
                 pure
                     TokenResponse
                         { trSnapshot = snapshot
@@ -441,36 +450,19 @@ requireToken ctx tid = do
         Nothing -> throwError err404
         Just lts -> pure lts
 
--- | Read the current 'VerificationSnapshot' from
--- context, or 503 if the indexer has not yet
--- produced a UTxO-CSMT root or a checkpoint.
-requireSnapshot
-    :: Context IO -> Handler VerificationSnapshot
-requireSnapshot ctx = do
-    requireProofReadsReady ctx
-    mRoot <- liftIO $ utxoRoot ctx
-    mCp <-
-        liftIO
-            $ St.getCheckpoint
-                (St.checkpoints (state ctx))
-    case (mRoot, mCp) of
-        (Just r, Just (SlotNo s, BlockId b)) ->
-            pure
-                VerificationSnapshot
-                    { vsUtxoRoot = Hex r
-                    , vsChainPoint =
-                        ChainPointJSON
-                            { cpSlot = s
-                            , cpBlockId = Hex b
-                            }
-                    }
-        _ ->
+snapshotFromIndexer
+    :: Maybe BundleSnapshot -> Handler VerificationSnapshot
+snapshotFromIndexer mSnap =
+    case mSnap of
+        Nothing ->
             throwError
                 err503
                     { errBody =
-                        "Verification snapshot \
-                        \not yet available"
+                        "Indexer not ready: \
+                        \snapshot unavailable"
                     }
+        Just snap ->
+            pure (bundleSnapshotToJSON snap)
 
 -- | Resolve a 'TxIn' to a 'WitnessedUtxo', or
 -- @404@ if the UTxO or its CSMT proof is missing.
@@ -489,6 +481,21 @@ requireUtxoWitness ctx txIn = do
                     , wuProof = Hex proof
                     }
         _ -> throwError err404
+
+witnessFromIndexer
+    :: Maybe ResolvedWalletInput -> Handler WitnessedUtxo
+witnessFromIndexer mInput =
+    case mInput of
+        Nothing -> throwError err404
+        Just input -> pure (resolvedInputToWitnessedUtxo input)
+
+resolvedInputToWitnessedUtxo :: ResolvedWalletInput -> WitnessedUtxo
+resolvedInputToWitnessedUtxo (txIn, out, proof) =
+    WitnessedUtxo
+        { wuTxIn = txInToJSON txIn
+        , wuTxOut = Hex out
+        , wuProof = Hex proof
+        }
 
 tokenRootHandler
     :: Context IO
@@ -514,12 +521,15 @@ tokenFactsHandler ctx tokenId = do
         , tokenState = ts
         } <-
         requireToken ctx tid
-    snapshot <- requireSnapshot ctx
-    witness <- requireUtxoWitness ctx tokenStateRef
-    facts <-
-        liftIO
-            $ Trie.withTrie (trieManager ctx) tid
-            $ \trie -> Trie.enumerate trie
+    (mSnap, mWitness, facts) <-
+        runProofIndexerTx ctx
+            $ do
+                snap <- readSnapshot
+                witness <- readUtxoWitness tokenStateRef
+                fs <- readTrieFacts tid
+                pure (snap, witness, fs)
+    snapshot <- snapshotFromIndexer mSnap
+    witness <- witnessFromIndexer mWitness
     pure
         FactsResponse
             { frsSnapshot = snapshot
@@ -550,16 +560,19 @@ tokenFactHandler ctx tokenId (Hex k) = do
         , tokenState = ts
         } <-
         requireToken ctx tid
-    snapshot <- requireSnapshot ctx
-    witness <- requireUtxoWitness ctx tokenStateRef
-    mv <-
-        liftIO
-            $ Trie.withTrie (trieManager ctx) tid
-            $ \trie -> Trie.lookup trie k
-    v <- case mv of
+    (mSnap, mWitness, trieFact) <-
+        runProofIndexerTx ctx
+            $ do
+                snap <- readSnapshot
+                witness <- readUtxoWitness tokenStateRef
+                fact <- readTrieFact tid k
+                pure (snap, witness, fact)
+    snapshot <- snapshotFromIndexer mSnap
+    witness <- witnessFromIndexer mWitness
+    v <- case Tx.factValue trieFact of
         Just v -> pure v
         Nothing -> throwError err404
-    proof <- requireMpfProof ctx tid k
+    let proof = Hex (Tx.factMpfProof trieFact)
     pure
         FactResponse
             { frSnapshot = snapshot
@@ -589,9 +602,16 @@ tokenProofHandler ctx tokenId (Hex k) = do
         , tokenState = ts
         } <-
         requireToken ctx tid
-    snapshot <- requireSnapshot ctx
-    witness <- requireUtxoWitness ctx tokenStateRef
-    proof <- requireMpfProof ctx tid k
+    (mSnap, mWitness, trieFact) <-
+        runProofIndexerTx ctx
+            $ do
+                snap <- readSnapshot
+                witness <- readUtxoWitness tokenStateRef
+                fact <- readTrieFact tid k
+                pure (snap, witness, fact)
+    snapshot <- snapshotFromIndexer mSnap
+    witness <- witnessFromIndexer mWitness
+    let proof = Hex (Tx.factMpfProof trieFact)
     pure
         ProofResponse
             { prSnapshot = snapshot
@@ -606,22 +626,6 @@ tokenProofHandler ctx tokenId (Hex k) = do
                     , fwMpfProof = proof
                     }
             }
-
--- | Compute an MPF inclusion proof for a key under
--- a token's trie, or @404@ if absent.
-requireMpfProof
-    :: Context IO
-    -> TokenId
-    -> ByteString
-    -> Handler Hex
-requireMpfProof ctx tid k = do
-    mp <-
-        liftIO
-            $ Trie.withTrie (trieManager ctx) tid
-            $ \trie -> Trie.getProof trie k
-    case mp of
-        Nothing -> throwError err404
-        Just p -> pure (Hex (Trie.unProof p))
 
 tokenRequestsHandler
     :: Context IO

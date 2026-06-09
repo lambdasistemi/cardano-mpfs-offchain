@@ -33,11 +33,13 @@ module Cardano.MPFS.Indexer.Reads
     , readCheckpoint
     , readMerkleRoot
     , readSnapshot
+    , readUtxoWitness
     , readStateUtxoAt
     , readNamedRequestUtxo
     , readRequestUtxosAt
     , readUtxoSetAt
     , readTrieFact
+    , readTrieFacts
     , readWalletInputsAt
     , ResolvedUtxoSet
 
@@ -65,6 +67,7 @@ import Cardano.Ledger.Binary
     ( DecoderError
     , decodeFull
     , natVersion
+    , serialize
     )
 import Cardano.Ledger.Mary.Value
     ( MaryValue (..)
@@ -320,6 +323,45 @@ readWalletInputsAt addr =
                         , proofBytes
                         )
 
+-- | Resolve a 'TxIn' and its CSMT inclusion proof inside the
+-- indexer transaction. Returns 'Nothing' when the UTxO is absent.
+readUtxoWitness :: TxIn -> IndexerTx (Maybe ResolvedWalletInput)
+readUtxoWitness txIn =
+    IndexerTx
+        $ mapColumns InUtxo
+        $ do
+            let fkv = fromKV context
+                key = serialize (natVersion @11) txIn
+            mTxOut <- query KVCol key
+            case mTxOut of
+                Nothing -> pure Nothing
+                Just txOutBytes -> do
+                    mProof <-
+                        generateInclusionProof
+                            fkv
+                            KVCol
+                            CSMTCol
+                            key
+                    proofBytes <- case mProof of
+                        Just (_, proof) -> pure proof
+                        Nothing ->
+                            error
+                                $ "readUtxoWitness: \
+                                  \indexer corruption — \
+                                  \KV column contains a \
+                                  \TxOut but \
+                                  \generateInclusionProof \
+                                  \returned Nothing \
+                                  \(input: "
+                                    <> show txIn
+                                    <> ")"
+                    pure
+                        $ Just
+                            ( txIn
+                            , BSL.toStrict txOutBytes
+                            , proofBytes
+                            )
+
 -- | Read the current state UTxO for a token at the state
 -- validator address and return it with a CSMT inclusion proof.
 readStateUtxoAt
@@ -457,6 +499,17 @@ readTrieFact tid key =
                     error
                         "readTrieFact: persistent trie \
                         \could not produce an MPF proof"
+
+-- | Enumerate all raw facts for a token's trie inside the
+-- indexer transaction.
+readTrieFacts
+    :: TokenId -> IndexerTx [(ByteString, ByteString)]
+readTrieFacts tid =
+    IndexerTx
+        $ mapColumns InCage
+        $ Trie.enumerate
+        $ mkUnifiedTrie
+        $ tokenHexPrefix tid
 
 addressScopedLeafKey
     :: FromKV key value hash
