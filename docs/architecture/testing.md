@@ -2,17 +2,25 @@
 
 ## Unit Tests
 
-Two unit test suites:
+The repository has several focused unit suites:
 
-- **`merkle-patricia-forestry:unit-tests`** — MPF trie operations,
-  hashing, proofs, insertion/deletion round-trips
-- **`cardano-mpfs-offchain:unit-tests`** — balance, on-chain type
-  encoding, proof serialization, trie manager, state tracking,
-  HTTP API
+- **`cardano-mpfs-offchain:unit-tests`** — indexer persistence,
+  atomic block processing, on-chain encodings, trie managers, state
+  tracking, HTTP facts/read endpoints, and server-side proof envelopes.
+- **`cardano-mpfs-client:unit-tests`** — native client facade,
+  read/facts verifiers, HTTP wrappers, and cage builder integration.
+- **`cardano-mpfs-workflows:unit-tests`** — higher-level workflow
+  helpers over the API/client surface.
+- **`cardano-mpfs-cli:unit-tests`** — CLI behavior. CLI documentation is
+  owned separately and is intentionally not covered here.
+- **`cardano-mpfs-cage-tx:byte-identity`** — native/wasm cage reactor
+  output parity for deterministic envelopes.
 
 ```bash
-just unit            # MPF unit tests
-just unit-offchain   # offchain unit tests
+just unit
+just unit-client
+just unit-workflows
+just unit-cli
 ```
 
 Unit tests use mock implementations (`mkMockState`,
@@ -21,16 +29,32 @@ running Cardano node.
 
 ### HTTP API unit tests
 
-16 tests exercise the REST API via WAI test sessions against a
-mock `Context`:
+The REST API is exercised through WAI test sessions against a mock
+`Context`. Current coverage includes:
 
-| Spec | Tests | What it covers |
-|------|-------|----------------|
-| `StatusSpec` | 3 | `GET /status` field validation |
-| `TokensSpec` | 2 | `GET /tokens` list |
-| `TokenSpec` | 2 | `GET /tokens/:id` lookup + 404 |
-| `RequestsSpec` | 4 | `GET /tokens/:id/requests` filtering |
-| `TrieSpec` | 5 | `GET /tokens/:id/root`, facts, proofs |
+| Spec | What it covers |
+|------|----------------|
+| `StatusSpec` | `GET /status` field validation and UTxO root exposure |
+| `TokensSpec` | `GET /tokens` completeness witness and explicit `token_id` entries |
+| `TokenSpec` | `GET /tokens/:id` witnessed token-state lookup and 404s |
+| `TokenFactsSpec` | `GET /tokens/:id/facts` enumeration and witnessed state |
+| `RequestsSpec` | `GET /tokens/:id/requests` filtering and request witnesses |
+| `TrieSpec` | `GET /tokens/:id/root`, facts, and MPF proofs |
+| `BootFactsSpec` | `POST /facts/boot` facts-only response |
+| `RequestInsertFactsSpec` | `POST /facts/request/insert` |
+| `RequestDeleteFactsSpec` | `POST /facts/request/delete` |
+| `RequestUpdateFactsSpec` | `POST /facts/request/update` |
+| `UpdateFactsSpec` | `POST /facts/update`, including request subset selection |
+| `RetractFactsSpec` | `POST /facts/retract` |
+| `RejectFactsSpec` | `POST /facts/reject`, including request subset selection |
+| `EndFactsSpec` | `POST /facts/end` |
+| `SubmitSpec` | `POST /submit` signed transaction submission |
+
+Client tests cover `verifyTokenState`, `verifyTokenFacts`,
+`verifyTokenRequests`, the `verify*Facts` family, CSMT replay failures,
+MPF fact present/absent checks, and the `*WithEval` cage APIs. The eval
+context tests assert the reactor derives `EpochInfo` from live
+era-history, covering the former 502 era-history failure mode.
 
 ## E2E Tests
 
@@ -71,7 +95,7 @@ single-node devnet:
 ### Test Specs
 
 - **ProviderSpec** — N2C LocalStateQuery for protocol parameters
-  and UTxOs
+  and evaluation metadata
 - **SubmitterSpec** — build, balance, sign, and submit an ADA
   transfer via N2C LocalTxSubmission
 - **CageSpec** — cage event detection from real transactions
@@ -83,6 +107,15 @@ single-node devnet:
 - **HTTPLifecycleSpec** — full token lifecycle via HTTP API
   (boot, insert, update, insert, retract, end), confirmed via
   `GET /tx/:txId` blocking endpoint
+- **ProofsSpec** — proof-bearing reads and facts checked against the
+  indexed trusted root
+- **TokensCompletenessSpec** — token set completeness witnesses
+- **TokenFactsCompletenessSpec** — fact enumeration completeness
+- **FactsMatrixSpec** — local-cluster matrix for facts endpoints,
+  request subsets, update/retract/reject/end, and bounded-refund cases
+- **SubmitEndpointSpec** — signed submit endpoint behavior
+- **WorkflowsIntegrationSpec** — workflow helpers over facts plus local
+  construction
 
 ### Prerequisites
 
@@ -105,3 +138,17 @@ just e2e
 | `securityParam` | 10 | 1-second stability window (10 × 0.1s) |
 | `systemStart` | patched at runtime | UTC now + 5 seconds |
 | All hard forks | epoch 0 | Instant Conway |
+
+## Browser SPA Tests
+
+The PureScript SPA is exercised with Playwright:
+
+```bash
+just e2e-spa          # local devnet
+just e2e-spa-preprod  # https://umpfs.plutimus.com
+```
+
+The preprod smoke points the browser at the live server, injects a
+CIP-30 signer, fetches facts and `GET /eval-context`, runs the wasm cage
+reactor, signs locally, and submits via `POST /submit`. The SPA itself
+is served at `https://umpfs.plutimus.com/spa/`.

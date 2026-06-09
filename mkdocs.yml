@@ -64,5 +64,6 @@ nav:
       - Data Sources: architecture/data-sources.md
       - Singletons: architecture/singletons.md
       - Testing: architecture/testing.md
+      - Phase 4 Design: PHASE4-DESIGN.md
   - API Reference:
       - Swagger UI: swagger-ui.md

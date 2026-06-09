@@ -1,5 +1,27 @@
 # Phase 4 — Indexer + Persistence
 
+!!! note "Status: implemented, then superseded in public API shape"
+
+    This design records the Phase 4 persistence/indexer work. Its core
+    invariant still holds: ChainSync applies UTxO CSMT, cage state, MPF
+    trie mutations, rollback data, and checkpoints in one atomic RocksDB
+    transaction per block.
+
+    Later trust-minimized fact-provider work changed the public write
+    surface. Script-bearing HTTP endpoints now return proof-bearing
+    facts, not unsigned transactions. Clients verify facts with
+    `cardano-mpfs-verify`, build locally with `cardano-mpfs-cage-tx`
+    (including `*WithEval` builders), sign with wallet keys, and submit
+    through `POST /submit`. `GET /eval-context` is a trusted interim
+    source for PlutusV3 cost models/protocol parameters, `SystemStart`,
+    and live era-history; follow-up #311 will trust-anchor it.
+
+    The current production schema has 14 RocksDB column families (6
+    UTxO/CSMT, 7 cage/trie, 1 composed rollback), not the smaller early
+    Phase 4 sketch below. The old `c0f05a30...` cage hash is legacy; the
+    #62 bounded-refund cutover uses
+    `ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`.
+
 ## Goal
 
 Replace in-memory state (Mock.State, PureManager, Skeleton
@@ -15,7 +37,7 @@ When a block arrives via ChainSync:
 
 1. Extract UTxO changes (cardano-utxo-csmt)
 2. Detect cage transactions (mpfs-offchain)
-3. Apply trie mutations (merkle-patricia-forestry)
+3. Apply trie mutations (MPF via `haskell-mts`)
 4. Commit all of the above in a single RocksDB WriteBatch
 
 If the process crashes at any point before the WriteBatch
@@ -39,8 +61,10 @@ Block (via N2C ChainSync)
 │  │ UTxO CFs    │  │ Cage CFs │  │ Trie CFs   │  │
 │  │ kv          │  │ tokens   │  │ trie-nodes │  │
 │  │ csmt        │  │ requests │  │ trie-kv    │  │
-│  │ rollbacks   │  │ cage-cfg │  │            │  │
-│  │ config      │  │          │  │            │  │
+│  │ config      │  │ cage-cfg │  │ trie-meta  │  │
+│  │ journal     │  │          │  │ raw-values │  │
+│  │ metrics     │  │          │  │            │  │
+│  │ rollbacks   │  │          │  │            │  │
 │  └─────────────┘  └──────────┘  └────────────┘  │
 │                                                  │
 │  applyOps → single WriteBatch → atomic commit    │
@@ -53,13 +77,18 @@ Block (via N2C ChainSync)
 |---------------|-------|-----|-------|
 | `kv` | cardano-utxo-csmt | CBOR TxIn | CBOR TxOut |
 | `csmt` | cardano-utxo-csmt | CSMT Key | CSMT Indirect hash |
-| `rollbacks` | cardano-utxo-csmt | WithOrigin SlotNo | RollbackPoint |
 | `config` | cardano-utxo-csmt | ConfigKey | ByteString |
+| `journal` | cardano-utxo-csmt | internal | CSMT journal data |
+| `metrics` | cardano-utxo-csmt | internal | metrics fold state |
+| `rollbacks` | cardano-utxo-csmt | WithOrigin SlotNo | RollbackPoint |
 | `tokens` | mpfs-offchain | TokenId | TokenState |
 | `requests` | mpfs-offchain | TxIn | Request |
 | `cage-cfg` | mpfs-offchain | () | CageCheckpoint |
-| `trie-nodes` | merkle-patricia-forestry | HexKey | HexIndirect hash |
-| `trie-kv` | merkle-patricia-forestry | ByteString | ByteString |
+| `trie-nodes` | haskell-mts MPF | HexKey | HexIndirect hash |
+| `trie-kv` | haskell-mts MPF | ByteString | ByteString |
+| `trie-meta` | mpfs-offchain | TokenId | trie visibility/registry |
+| `trie-raw-values` | mpfs-offchain | hashed trie key | raw value bytes |
+| `composed-rollbacks` | chain-follower/mpfs-offchain | Point | composed UTxO+cage inverse data |
 
 ### Combined Columns GADT
 
@@ -72,8 +101,10 @@ data AllColumns x where
     -- cardano-utxo-csmt columns
     UTxOKV        :: AllColumns (KV LBS LBS)
     UTxOCSMT      :: AllColumns (KV CSMTKey CSMTIndirect)
-    UTxORollbacks :: AllColumns (KV RollbackKey RollbackVal)
     UTxOConfig    :: AllColumns (KV ConfigKey LBS)
+    UTxOJournal   :: AllColumns ...
+    UTxOMetrics   :: AllColumns ...
+    UTxORollbacks :: AllColumns (KV RollbackKey RollbackVal)
     -- cage state columns
     CageTokens    :: AllColumns (KV TokenId TokenState)
     CageRequests  :: AllColumns (KV TxIn Request)
@@ -81,6 +112,9 @@ data AllColumns x where
     -- trie columns (per-token, prefixed)
     TrieNodes     :: AllColumns (KV LBS LBS)
     TrieKV        :: AllColumns (KV LBS LBS)
+    TrieMeta      :: AllColumns ...
+    TrieRawValues :: AllColumns ...
+    InRollbacks   :: AllColumns ...
 ```
 
 All column families are created when the RocksDB instance is
@@ -322,7 +356,7 @@ From `cardano-utxo-csmt` (library):
 | Before (Phase 3) | After (Phase 4) |
 |-------------------|-----------------|
 | `NodeClient.Connection` (custom N2C) | `ConnectionN2C.runLocalNodeApplication` |
-| `NodeClient.LocalStateQuery` (LSQ for UTxOs) | `Query.getValue` on UTxO column |
+| `NodeClient.LocalStateQuery` (LSQ for UTxOs) | indexed CSMT reads through `IndexerTx` / UTxO columns |
 | `Mock.State` (IORef maps) | RocksDB columns via `RunTransaction` |
 | `Trie.PureManager` (IORef) | RocksDB columns with token-prefixed keys |
 | `Mock.Skeleton` (no-op) | Real `Follower` processing blocks |
@@ -332,8 +366,11 @@ From `cardano-utxo-csmt` (library):
 - `NodeClient.LocalTxSubmission` — still needed for tx
   submission (cardano-utxo-csmt doesn't submit)
 - `NodeClient.LocalStateQuery` — still needed for
-  `queryProtocolParams` (epoch-cached)
-- `TxBuilder.Real.*` — transaction construction unchanged
+  protocol parameters, script evaluation, slot conversion, and
+  `GET /eval-context`
+- `TxBuilder.Real.*` — retained for internal proof envelopes and
+  native/server paths, but the public browser script-bearing write path
+  was superseded by facts endpoints plus `cardano-mpfs-cage-tx`
 - `Balance` — fee estimation unchanged
 
 ### Connection strategy
@@ -343,7 +380,9 @@ Two N2C connections to the same node socket:
 1. **cardano-utxo-csmt connection** — ChainSync only
    (blocks arrive here, processed by our Follower)
 2. **mpfs-offchain connection** — LocalTxSubmission +
-   LocalStateQuery (tx submission + protocol params)
+   LocalStateQuery (signed tx submission, protocol params, script
+   evaluation, slot conversion, and trusted interim eval-context
+   metadata)
 
 Both connect to the same Unix socket. The node handles
 multiple client connections.
@@ -378,9 +417,10 @@ withApplication cfg action = do
         -- 8. Start LSQ + TxSubmission N2C connection
         (lsqChan, ltxsChan) <- startN2CConnection magic socket
 
-        -- 9. Wire Provider (UTxO from RocksDB, params from LSQ)
+        -- 9. Wire Provider (metadata/eval from LSQ) and
+        --    proof reads through Context.runIndexerTx
         let provider = Provider
-                { queryUTxOs = queryByAddress utxoQuery
+                { queryUTxOs = forbiddenOnHotPath
                 , queryProtocolParams = queryLSQ lsqChan ...
                 , evaluateTx = ...
                 }
@@ -395,6 +435,11 @@ withApplication cfg action = do
 
         action context
 ```
+
+Current `Context` also carries `resolveUtxo`, `utxoRoot`, `utxoProof`,
+`indexerProofsReady`, `evalContext`, `runIndexerTx`, and metrics fields.
+Facts/read handlers compose `IndexerTx` reads and discharge them in one
+transaction; this is the current trust-minimized fact-provider boundary.
 
 ## Invariants (to be formalized in Lean 4)
 
@@ -444,16 +489,17 @@ apply(inv(op), apply(op, state)) = state
 
 ## Design decisions (resolved)
 
-1. **Protocol params source** — Keep LSQ. Params change at
-   most once per epoch and are only queried when building
-   transactions, not per-block.
+1. **Protocol params source** — Keep LSQ for now. Params change at
+   most once per epoch and are only queried when building/evaluating
+   transactions, not per-block. `GET /eval-context` exposes these bytes
+   with `trusted: true` until follow-up #311 trust-anchors them.
 
-2. **Provider.queryUTxOs source** — Use cardano-utxo-csmt's
-   local UTxO index (`Query.getByAddress`). LSQ-based
-   `queryUTxOs` is unusable. The `Provider` gains a
-   dependency on cardano-utxo-csmt's query interface. The
-   N2C LSQ connection is only needed for protocol params
-   and tx evaluation.
+2. **UTxO facts source** — Use the local indexed CSMT through
+   `IndexerTx` reads and UTxO columns. LSQ-based `queryUTxOs` is
+   unusable on production hot paths because it bypasses the proof
+   system and scans the node ledger UTxO set. The N2C LSQ connection is
+   only needed for protocol params, tx evaluation, slot conversion, and
+   eval-context era metadata.
 
 3. **Trie prefix efficiency** — Deferred. Prefixed keys in
    shared column families work correctly. RocksDB prefix

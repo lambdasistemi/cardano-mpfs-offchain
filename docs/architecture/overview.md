@@ -5,18 +5,24 @@
 ```mermaid
 flowchart TD
     app["Application<br/>(wiring + lifecycle)"]
-    http["HTTP Server<br/>(Servant REST API + Swagger UI)"]
+    http["HTTP Server<br/>(Servant REST API + Swagger UI)<br/>proof-bearing fact provider"]
     idx["CageFollower<br/>(ChainSync block processing)<br/>unified transaction per block"]
     mpf["MPF Trie<br/>(merkle-patricia-forestry)<br/>Proofs, insertion, deletion"]
-    txb["TxBuilder<br/>(MPFS protocol operations)<br/>boot, update, retract, end"]
-    bal["Balance<br/>(fee estimation fixpoint)"]
-    n2c["Node Client<br/>(node-to-client)<br/>ChainSync + LSQ + LTxS"]
+    verify["cardano-mpfs-verify<br/>CSMT/MPF/read/facts verifiers"]
+    cageTx["cardano-mpfs-cage-tx<br/>pure cage builders<br/>*WithEval API"]
+    spa["Browser SPA<br/>https://umpfs.plutimus.com/spa/<br/>HTTP + CIP-30"]
+    submit["Submitter<br/>(LocalTxSubmission)"]
+    n2c["Node Client<br/>(node-to-client)<br/>ChainSync + eval context + LTxS"]
 
     app --> http
-    http --> txb
+    http --> verify
     http --> idx
     app --> idx --> mpf
-    app --> txb --> bal --> n2c
+    spa --> http
+    spa --> cageTx
+    cageTx --> verify
+    http --> submit
+    submit --> n2c
     idx --> n2c
 ```
 
@@ -26,13 +32,24 @@ The service connects to a Cardano node via two N2C connections:
    applies UTxO, cage state, and trie mutations in a single atomic
    RocksDB transaction per block (see
    [Block Processing](block-processing.md)).
-2. **LocalStateQuery + LocalTxSubmission** — the `Provider` queries
-   UTxOs and protocol parameters; the `Submitter` sends signed
-   transactions.
+2. **LocalStateQuery + LocalTxSubmission** — LocalTxSubmission sends
+   signed transactions. LocalStateQuery is used for protocol parameters,
+   script evaluation, slot conversion, and the trusted interim
+   `GET /eval-context` metadata. It is not used as a public UTxO
+   fact source.
 
-The `TxBuilder` constructs MPFS protocol transactions (boot, update,
-retract, end) and `balanceTx` handles fee estimation through a
-fixpoint loop.
+The public write path is facts-first. The server returns proof-bearing
+facts anchored to one indexed UTxO-CSMT snapshot; clients verify them
+with `cardano-mpfs-verify`, run `cardano-mpfs-cage-tx` locally, sign
+with wallet keys, and submit signed CBOR through `POST /submit`. The
+server must not return unsigned transactions for script-bearing cage
+operations. The remaining server-built transaction route is the
+owner-only `/tx/sweep` cleanup path.
+
+The 502 era-history failure was fixed by carrying live era history in
+`GET /eval-context` and deriving `EpochInfo` from it in the reactor.
+`ScriptContext` `POSIXTimeRange` costs now use the same era clock as the
+node instead of a hardcoded clock.
 
 ## Singleton Dependency Graph
 
@@ -44,18 +61,20 @@ patterns.
 graph TD
     APP["Application<br/>(withApplication)"]
     CTX["Context<br/>(facade record)"]
-    PRV["Provider<br/>(N2C LocalStateQuery)"]
+    PRV["Provider<br/>(N2C params/eval context)"]
     TM["TrieManager<br/>(per-token MPF tries)"]
     ST["State<br/>(tokens, requests, checkpoints)"]
-    IDX["Indexer<br/>(skeleton / chain sync)"]
+    READS["Indexer Reads<br/>(atomic proof queries)"]
+    IDX["Indexer<br/>(ChainSync)"]
     SUB["Submitter<br/>(N2C LocalTxSubmission)"]
-    TXB["TxBuilder<br/>(MPFS protocol ops)"]
+    TXB["TxBuilder<br/>(internal proof envelopes<br/>/tx/sweep + legacy native paths)"]
     NODE["Cardano Node<br/>(Unix socket)"]
 
     APP --> CTX
     CTX --> PRV
     CTX --> TM
     CTX --> ST
+    CTX --> READS
     CTX --> IDX
     CTX --> SUB
     CTX --> TXB
@@ -69,37 +88,54 @@ graph TD
 
 ```mermaid
 graph LR
-    DB["RocksDB<br/>(11 CFs)"]
+    DB["RocksDB<br/>(14 CFs)"]
     DB --> ST["State<br/>(persistent)"]
     DB --> TM["TrieManager<br/>(persistent)"]
     DB --> CF["CageFollower<br/>(unified txn)"]
+    DB --> READS["IndexerTx reads<br/>(proof snapshots)"]
     N2C1["N2C #1<br/>(ChainSync)"] --> CF
-    N2C2["N2C #2<br/>(LSQ + LTxS)"] --> PRV["Provider"]
+    N2C2["N2C #2<br/>(LSQ eval context + LTxS)"] --> PRV["Provider"]
     N2C2 --> SUB["Submitter"]
-    PRV & SUB & ST & TM --> TXB["TxBuilder"]
-    PRV & SUB & ST & TM & TXB --> CTX["Context"]
+    PRV & SUB & ST & TM & READS --> TXB["TxBuilder"]
+    PRV & SUB & ST & TM & READS & TXB --> CTX["Context"]
 ```
 
 All components use real implementations backed by RocksDB and N2C
 connections. The `CageFollower` runs on connection 1 (ChainSync),
-processing each block in a single atomic transaction. The `Provider`,
-`Submitter`, and `TxBuilder` use connection 2 (LSQ + LTxS).
+processing each block in a single atomic transaction. The proof-bearing
+HTTP handlers read through `Context.runIndexerTx`, composing snapshot,
+UTxO, request-set, and MPF reads into a single underlying transaction.
+The `Provider` uses connection 2 only for ledger metadata/evaluation;
+`Submitter` uses it for LocalTxSubmission.
 
 ## External Dependencies
 
 ```mermaid
 graph TD
-    OFFCHAIN["cardano-mpfs-offchain<br/>Service: indexer + HTTP API"]
-    CAGE["cardano-mpfs-cage<br/>On-chain types, proofs,<br/>tx builders"]
+    OFFCHAIN["cardano-mpfs-offchain<br/>Service: indexer + fact API"]
+    API["cardano-mpfs-api<br/>Wire DTOs + Servant API"]
+    VERIFY["cardano-mpfs-verify<br/>Pure verifiers"]
+    CAGETX["cardano-mpfs-cage-tx<br/>Pure cage tx builders"]
+    SPA["mpfs-spa<br/>Browser HTTP + CIP-30"]
+    CAGE["cardano-mpfs-cage<br/>On-chain types + scripts"]
     CLIENTS["cardano-node-clients<br/>TxBuild DSL, N2C provider,<br/>fee balancing"]
-    MTS["haskell-mts<br/>MPF trie library"]
+    MTS["haskell-mts<br/>CSMT + MPF libraries"]
     ONCHAIN["cardano-mpfs-onchain<br/>Aiken validators + cage lib"]
     LEDGER["cardano-ledger<br/>Conway era types"]
 
+    OFFCHAIN --> API
+    VERIFY --> API
+    CAGETX --> VERIFY
+    SPA --> OFFCHAIN
+    SPA --> CAGETX
     OFFCHAIN --> CAGE
+    CAGETX --> CAGE
     OFFCHAIN --> CLIENTS
+    CAGETX --> CLIENTS
     OFFCHAIN --> MTS
+    VERIFY --> MTS
     OFFCHAIN --> LEDGER
+    CAGETX --> LEDGER
     CAGE -.->|"lives in"| ONCHAIN
 
     style OFFCHAIN fill:#e1f5fe
@@ -113,14 +149,26 @@ graph TD
 | Color | Meaning |
 |-------|---------|
 | Blue | This project |
+| Blue-linked packages | Split local packages in this repository |
 | Orange | On-chain repo (validators + cage library) |
 | Green | lambdasistemi libraries |
 | Purple | Cardano ecosystem dependencies |
 
+The current #62 bounded-refund validator cutover uses cage script hash
+`ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. The old
+`c0f05a30...` exact-refund hash is legacy and should not be used for
+new preprod/browser flows.
+
 ## Module Hierarchy
 
-The `cardano-mpfs-offchain` library is organized in layers.
-All modules live under `Cardano.MPFS`.
+The repository is split into several packages. The server lives in
+`cardano-mpfs-offchain`; shared wire types live in `cardano-mpfs-api`;
+pure verifiers live in `cardano-mpfs-verify`; pure cage builders live in
+`cardano-mpfs-cage-tx`; native clients can consume the re-exporting
+`cardano-mpfs-client`; and the browser UI lives in `mpfs-spa`.
+
+The `cardano-mpfs-offchain` library is organized in layers. Server
+modules live under `Cardano.MPFS`.
 
 [search all modules]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=path%3Acardano-mpfs-offchain%2Flib+extension%3Ahs&type=code
 
@@ -144,10 +192,10 @@ All modules live under `Cardano.MPFS`.
 | Module | Purpose |
 |--------|---------|
 | [`Context`][s-context] | Facade bundling all singletons |
-| [`Provider`][s-provider] | `queryUTxOs`, `queryProtocolParams` |
+| [`Provider`][s-provider] | protocol params, evaluation, slot conversion, and trusted interim eval context support; LSQ UTxO queries are forbidden on proof/write hot paths |
 | [`State`][s-state] | `Tokens`, `Requests`, `Checkpoints` sub-records |
 | [`Trie`][s-trie] | `TrieManager` — per-token MPF trie access |
-| [`TxBuilder`][s-txbuilder] | Cage protocol operations (boot, request, update, retract, end) |
+| [`TxBuilder`][s-txbuilder] | internal proof-envelope builders and `/tx/sweep`; browser-facing script-bearing transactions are built client-side from facts |
 | [`Indexer`][s-indexer] | Chain follower lifecycle (`start`, `stop`, `getTip`) |
 | [`Submitter`][s-submitter] | `submitTx :: Tx ConwayEra -> m SubmitResult` |
 | [`Application`][s-application] | `withApplication` — wiring and lifecycle |
@@ -165,11 +213,20 @@ All modules live under `Cardano.MPFS`.
 
 | Module | Purpose |
 |--------|---------|
-| [`HTTP.API`][s-http-api] | Servant type-level API definition |
-| [`HTTP.Types`][s-http-types] | JSON wire types (`StatusResponse`, `TokenIdJSON`, etc.) |
+| [`HTTP.API`][s-http-api] | Server-local API wrapper around shared Servant API plus metrics |
+| [`HTTP.Types`][s-http-types] | Server compatibility re-exports and ledger conversion helpers |
 | [`HTTP.Encoding`][s-http-enc] | `Hex` newtype for binary-as-hex transport |
 | [`HTTP.Server`][s-http-server] | WAI application wiring, `mkApp` |
 | [`HTTP.Swagger`][s-http-swagger] | OpenAPI spec generation, Swagger UI |
+
+The shared API and DTO definitions live in `cardano-mpfs-api`:
+
+| Package module | Purpose |
+|----------------|---------|
+| `Cardano.MPFS.API` | Canonical Servant API: `GET /eval-context`, proof-bearing reads, facts endpoints, `/tx/sweep`, `/submit` |
+| `Cardano.MPFS.API.Types` | Status, token, request, read-response, submit, and sweep JSON types |
+| `Cardano.MPFS.API.Types.Facts` | Facts-only response types for boot/request/update/retract/reject/end |
+| `Cardano.MPFS.API.Types.Common` | Shared snapshot, UTxO witness, token id, and eval-context primitives |
 
 [s-http-api]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.API%22&type=code
 [s-http-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types%22&type=code
@@ -205,13 +262,13 @@ All modules live under `Cardano.MPFS`.
 
 | Module | Purpose |
 |--------|---------|
-| [`Provider.NodeClient`][s-prov-nc] | N2C-backed `Provider` (UTxOs, PParams, script eval, slot conversion) |
+| [`Provider.NodeClient`][s-prov-nc] | N2C-backed `Provider` (PParams, script eval, slot conversion, `queryEvalContext`) |
 | [`Submitter.N2C`][s-sub-n2c] | N2C-backed `Submitter` (LocalTxSubmission) |
 
 [s-prov-nc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&type=code
 [s-sub-n2c]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter.N2C%22&type=code
 
-### TxBuilder — cage protocol transactions
+### TxBuilder — internal server builders
 
 | Module | Purpose |
 |--------|---------|
@@ -223,6 +280,24 @@ All modules live under `Cardano.MPFS`.
 | [`TxBuilder.Real.Retract`][s-txb-ret] | Cancel pending request |
 | [`TxBuilder.Real.End`][s-txb-end] | Burn cage token |
 | [`TxBuilder.Real.Internal`][s-txb-int] | Shared helpers, POSIX-to-slot conversion |
+
+These server builders now return proof envelopes and consume
+`BundleSnapshot`/indexed UTxO facts rather than querying the node for
+UTxO state. The public browser path uses facts endpoints plus the
+`cardano-mpfs-cage-tx` package, whose `*WithEval` builders run after
+`cardano-mpfs-verify` verifies the supplied facts.
+
+### Client verification and cage reactors
+
+| Package module | Purpose |
+|----------------|---------|
+| `Cardano.MPFS.Client.Verify` | Re-exported verifier facade |
+| `Cardano.MPFS.Client.Verify.Read` | `verifyTokenState`, `verifyTokenFacts`, `verifyTokenRequests` |
+| `Cardano.MPFS.Client.Facts` | `verifyBootFacts`, `verifyRequest*Facts`, `verifyUpdateFacts`, `verifyRetractFacts`, `verifyRejectFacts`, `verifyEndFacts` |
+| `Cardano.MPFS.Client.Verify.Completeness` | CSMT completeness witness checks |
+| `Cardano.MPFS.Client.Verify.MPF` | MPF proof replay |
+| `Cardano.MPFS.Client.Cage.Reactor` | JSON envelope dispatcher for native/wasm cage transactions |
+| `Cardano.MPFS.Client.Cage.Eval` | Decodes `GET /eval-context` and derives `EpochInfo` from live era history |
 
 [s-txb-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&type=code
 [s-txb-real]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code
@@ -254,8 +329,6 @@ All modules live under `Cardano.MPFS`.
 | [`Mock.State`][s-mock-st] | [`mkMockState`][s-mkmockst] — `IORef`-backed state |
 | [`Mock.Submitter`][s-mock-sub] | Always-succeeds submitter |
 | [`Mock.TxBuilder`][s-mock-txb] | [`mkMockTxBuilder`][s-mkmocktxb] — placeholder builder |
-| [`Mock.Indexer`][s-mock-idx] | No-op indexer |
-| [`Mock.Skeleton`][s-mock-skel] | [`mkSkeletonIndexer`][s-mkskel] — lifecycle-only skeleton |
 
 [s-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code
 [s-withmock]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=withMockContext&type=code
@@ -265,9 +338,6 @@ All modules live under `Cardano.MPFS`.
 [s-mock-sub]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&type=code
 [s-mock-txb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code
 [s-mkmocktxb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&type=code
-[s-mock-idx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Indexer%22&type=code
-[s-mock-skel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code
-[s-mkskel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code
 
 ### Utilities
 
@@ -283,6 +353,13 @@ All modules live under `Cardano.MPFS`.
 - **All types from cardano-ledger** — `Tx ConwayEra`, `PParams ConwayEra`, `Addr`, `TxIn`, etc.
 - **Visible dependency graph** — no implicit resolution surprises.
 - **Trivial testing** — swap the record for a mock backend.
+- **Fact-provider boundary** — public script-bearing writes return
+  proof-bearing material, not unsigned transactions.
+- **No LSQ UTxO hot path** — UTxO and request facts come from the
+  indexed CSMT snapshot. LSQ UTxO scans bypass the proof system and are
+  forbidden on production write/read proof paths.
+- **One verifier, many targets** — the same pure verifier and cage
+  builder code runs native, wasm32-wasi, and GHC-JS.
 - **No orphan instances**.
 
 ## Implementation Phases
@@ -295,8 +372,9 @@ graph LR
     P3["Phase 3<br/>Transaction<br/>Builders"]
     P4["Phase 4<br/>ChainSync Indexer +<br/>Persistent State"]
     P5["Phase 5<br/>HTTP API +<br/>Deployment"]
+    P6["Phase 6<br/>Fact Provider +<br/>Browser Reactor"]
 
-    P0 --> P1 --> P2 --> P3 --> P4 --> P5
+    P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6
 
     style P0 fill:#2d6,color:#fff
     style P1 fill:#2d6,color:#fff
@@ -304,13 +382,15 @@ graph LR
     style P3 fill:#2d6,color:#fff
     style P4 fill:#2d6,color:#fff
     style P5 fill:#2d6,color:#fff
+    style P6 fill:#2d6,color:#fff
 ```
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | MPF library — 16-ary Merkle Patricia Forestry, Blake2b-256 hashing, insertion/deletion/proofs, pure and RocksDB backends | Done |
-| 1 | Service interfaces — `Provider`, `Submitter`, `TxBuilder`, `State`, `Indexer`, `TrieManager`, `Context` records; mock implementations; `balanceTx` with fixpoint fee estimation; on-chain type encodings; CIP-57 blueprint validation; Aiken-compatible proof serialization | Done |
-| 2 | N2C client + Provider — `ouroboros-network` LocalStateQuery and LocalTxSubmission clients; `mkNodeClientProvider` for UTxO and PParams queries; `mkN2CSubmitter` for transaction submission; E2E tests with cardano-node subprocess | Done |
-| 3 | Transaction builders — real `TxBuilder` implementations for boot, update, retract, end operations with Plutus script witnesses, proof embedding, and on-chain datum construction | Done |
-| 4 | ChainSync indexer + persistent state — replace skeleton indexer with real ChainSync follower; RocksDB-backed State and TrieManager; block processing with rollback support | Done |
-| 5 | HTTP API + deployment — Servant HTTP layer with Swagger UI, token lifecycle and trie query endpoints, transaction building and submission REST API, WAI application wiring | Done |
+| 1 | Service interfaces — `Provider`, `Submitter`, `TxBuilder`, `State`, `TrieManager`, `Context` records; mock implementations; on-chain type encodings; CIP-57 blueprint validation; Aiken-compatible proof serialization | Done |
+| 2 | N2C client + Provider — `ouroboros-network` LocalStateQuery and LocalTxSubmission clients; `mkNodeClientProvider` for PParams/evaluation/slot conversion; `mkN2CSubmitter` for transaction submission; E2E tests with cardano-node subprocess | Done |
+| 3 | Transaction builders — real `TxBuilder` implementations for boot, update, reject, retract, end operations with Plutus script witnesses, proof envelopes, and on-chain datum construction | Done |
+| 4 | ChainSync indexer + persistent state — real ChainSync follower; RocksDB-backed UTxO CSMT, State, and TrieManager; block processing with rollback support | Done |
+| 5 | HTTP API + deployment — Servant HTTP layer with Swagger UI, proof-bearing token/trie/request reads, facts endpoints, signed submission, WAI application wiring | Done |
+| 6 | Trust-minimized client flow — facts-only script-bearing writes, `cardano-mpfs-verify`, `cardano-mpfs-cage-tx`, wasm cage reactor, browser SPA at `https://umpfs.plutimus.com/spa/`, and trusted interim `GET /eval-context` for ex-unit evaluation | Done |
