@@ -312,13 +312,24 @@ evalContextHandler ctx =
 tokensHandler
     :: Context IO -> Handler TokensResponse
 tokensHandler ctx = do
-    snapshot <- requireSnapshot ctx
     let cfg = cfgCage ctx
         cageAddr = cageAddrFromCfg cfg (network cfg)
-    tokenSet <-
-        liftIO
-            $ runIndexerTx ctx
-            $ readUtxoSetAt cageAddr
+    (mSnap, tokenSet) <-
+        runProofIndexerTx ctx
+            $ do
+                snap <- readSnapshot
+                ts <- readUtxoSetAt cageAddr
+                pure (snap, ts)
+    snapshot <- case mSnap of
+        Nothing ->
+            throwError
+                err503
+                    { errBody =
+                        "Indexer not ready: \
+                        \snapshot unavailable"
+                    }
+        Just snap ->
+            pure (bundleSnapshotToJSON snap)
     tokenRefs <- liftIO $ indexedTokenRefs ctx
     tokenWitness <- tokenSetToJSON tokenRefs tokenSet
     pure
@@ -622,10 +633,22 @@ tokenRequestsHandler ctx tokenId = do
         cfg = cfgCage ctx
         requestAddr = requestAddrFromCfg cfg tid (network cfg)
     _ <- requireToken ctx tid
-    snapshot <- requireSnapshot ctx
-    requestSet <-
+    (mSnap, requestSet) <-
         runProofIndexerTx ctx
-            $ readUtxoSetAt requestAddr
+            $ do
+                snap <- readSnapshot
+                rs <- readUtxoSetAt requestAddr
+                pure (snap, rs)
+    snapshot <- case mSnap of
+        Nothing ->
+            throwError
+                err503
+                    { errBody =
+                        "Indexer not ready: \
+                        \snapshot unavailable"
+                    }
+        Just snap ->
+            pure (bundleSnapshotToJSON snap)
     reqs <-
         liftIO
             $ St.requestsByToken
