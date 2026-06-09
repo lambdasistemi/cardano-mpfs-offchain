@@ -48,6 +48,7 @@ import Servant
     , ServerError (..)
     , err400
     , err404
+    , err409
     , err502
     , err503
     , errBody
@@ -1251,29 +1252,34 @@ factsRetractHandler
             requireRequestSubmittedAt reqOutBytes
         (procTime, retrTime) <-
             requireStateRetractTimesBytes stateOutBytes
+        when (procTime < 0)
+            $ throwError
+            $ retractClientError
+                err400
+                "invalid_retract_window"
+                "State process_time must be non-negative"
+        when (retrTime <= 0)
+            $ throwError
+            $ retractClientError
+                err400
+                "invalid_retract_window"
+                "State retract_time must be positive"
         let phase2Start = submittedAt + procTime
             phase2End =
                 submittedAt + procTime + retrTime
         now <- liftIO currentPosixMs
         when (now < phase2Start)
             $ throwError
-                err400
-                    { errBody =
-                        "Request is not yet in the \
-                        \retract window"
-                    }
+            $ retractNotRetractable
+                "Request is still within \
+                \process_time; retract is \
+                \permitted only after \
+                \process_time expires"
         when (now >= phase2End)
             $ throwError
-                err400
-                    { errBody =
-                        "Request is no longer \
-                        \retractable"
-                    }
-        lowerSlot <-
-            liftIO
-                $ Prov.posixMsCeilSlot
-                    (provider ctx)
-                    now
+            $ retractNotRetractable
+                "Request is no longer \
+                \retractable"
         ttl <- liftIO rejectTtlSlotsIO
         evalCtx <- liftIO $ evalContext ctx
         when
@@ -1284,12 +1290,15 @@ factsRetractHandler
                       )
             )
             $ throwError
-                err400
-                    { errBody =
-                        "Retract window is too close \
-                        \to its end for a safe \
-                        \validity interval"
-                    }
+            $ retractNotRetractable
+                "Retract window is too close \
+                \to its end for a safe \
+                \validity interval"
+        lowerSlot <-
+            liftIO
+                $ Prov.posixMsCeilSlot
+                    (provider ctx)
+                    now
         pp <-
             liftIO
                 $ queryProtocolParams
@@ -1346,6 +1355,31 @@ throwInternal msg =
                     $ TE.encodeUtf8 msg
             , errHeaders = []
             }
+
+retractNotRetractable :: Text -> ServerError
+retractNotRetractable =
+    retractClientError
+        err409
+        "request_not_retractable"
+
+retractClientError :: ServerError -> Text -> Text -> ServerError
+retractClientError base errTxt detailTxt =
+    base
+        { errBody =
+            Aeson.encode
+                $ Aeson.object
+                    [
+                        ( "error"
+                        , Aeson.String errTxt
+                        )
+                    ,
+                        ( "detail"
+                        , Aeson.String detailTxt
+                        )
+                    ]
+        , errHeaders =
+            [("Content-Type", "application/json")]
+        }
 
 parseRequestSubset :: [Text] -> Handler [TxIn]
 parseRequestSubset refs = do
