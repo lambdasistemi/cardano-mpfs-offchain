@@ -10,13 +10,10 @@
 -- @\/tokens\/:id\/proofs\/:key@.
 module Cardano.MPFS.HTTP.TrieSpec (spec) where
 
-import Codec.CBOR.Encoding qualified as CBOR
-import Codec.CBOR.Write qualified as CBOR
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Short qualified as SBS
 import Data.Either (isRight)
@@ -45,24 +42,6 @@ import Test.Hspec
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Test.QuickCheck (generate)
 
-import CSMT.Core.CBOR (renderProof)
-import CSMT.Core.Hash
-    ( byteStringToKey
-    , renderHash
-    )
-import CSMT.Hashes
-    ( hashHashing
-    , mkHash
-    )
-import CSMT.Test.Lib
-    ( evalPureFromEmptyDB
-    , getRootHashM
-    , hashCodecs
-    , identityFromKV
-    , insertMHash
-    , proofM
-    )
-import Cardano.MPFS.Application (dbConfig)
 import Cardano.MPFS.Client.Facts
     ( FactAbsentFacts (..)
     , FactPresentFacts (..)
@@ -72,15 +51,19 @@ import Cardano.MPFS.Client.Facts
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
-    ( BlockId (..)
-    , LocatedTokenState (..)
+    ( LocatedTokenState (..)
     , Root (..)
-    , SlotNo (..)
     , TokenId (..)
     , TokenState (..)
     , TxIn
     )
 import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.AtomicReadFixture
+    ( insertFacts
+    , sampleStateOutBytes
+    , staleRoot
+    , withProofIndexer
+    )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
@@ -89,23 +72,13 @@ import Cardano.MPFS.HTTP.Types
     ( FactResponse (..)
     , FactWitness (..)
     , ProofResponse (..)
-    , TxInJSON (..)
     , VerificationSnapshot (..)
-    , txInToJSON
     )
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.Trie qualified as Trie
-import Cardano.MPFS.Trie.Persistent
-    ( mkPersistentTrieManager
-    )
-import Database.RocksDB
-    ( DB (..)
-    , withDBCF
-    )
 import MPF.Verify
     ( verifyAikenExclusionProof
     )
-import System.IO.Temp (withSystemTempDirectory)
 
 -- | "cafe" token — hex "63616665".
 cafeTid :: TokenId
@@ -114,31 +87,6 @@ cafeTid = TokenId (AssetName (SBS.toShort "cafe"))
 -- | Hex-encode raw bytes for URL paths.
 hex :: ByteString -> ByteString
 hex = B16.encode
-
--- | Stub the verification snapshot and the UTxO
--- witness machinery (root, resolveUtxo, utxoProof)
--- and seed a checkpoint so the proof-bearing
--- endpoints can assemble their envelopes.
-withSnapshot
-    :: BS.ByteString
-    -- ^ CSMT root bytes
-    -> BS.ByteString
-    -- ^ Resolved TxOut CBOR bytes
-    -> BS.ByteString
-    -- ^ CSMT inclusion proof bytes
-    -> Context IO
-    -> IO (Context IO)
-withSnapshot rootBs outBs proofBs ctx = do
-    St.putCheckpoint
-        (St.checkpoints (state ctx))
-        (SlotNo 42)
-        (BlockId "block-id-bytes")
-    pure
-        ctx
-            { utxoRoot = pure (Just rootBs)
-            , resolveUtxo = \_ -> pure (Just outBs)
-            , utxoProof = \_ -> pure (Just proofBs)
-            }
 
 -- | Seed an indexed token state for 'cafeTid' so
 -- the proof-bearing handlers can find a state UTxO
@@ -188,47 +136,45 @@ spec = do
             \existing key"
             $ do
                 ctx0 <- mkTestContext
-                ctx <-
-                    withSnapshot
-                        "root"
-                        "tx-out"
-                        "proof"
-                        ctx0
-                seedTokenState ctx
-                Trie.createTrie (trieManager ctx) cafeTid
-                _ <-
-                    Trie.withTrie
-                        (trieManager ctx)
-                        cafeTid
-                        $ \trie ->
-                            Trie.insert trie "mykey" "myval"
-                resp <-
-                    getFact
-                        ctx
-                        "63616665"
-                        (hex "mykey")
-                simpleStatus resp `shouldBe` status200
-                case decode (simpleBody resp) of
-                    Just (Object obj) -> do
-                        KM.member "snapshot" obj
-                            `shouldBe` True
-                        KM.member "value" obj
-                            `shouldBe` True
-                        KM.member "fact" obj
-                            `shouldBe` True
-                        case KM.lookup "fact" obj of
-                            Just (Object fObj) -> do
-                                KM.member "state" fObj
+                txIn <- generate genTxIn
+                withProofIndexer
+                    Nothing
+                    [(txIn, sampleStateOutBytes 0)]
+                    ctx0
+                    $ \_txRoot ctx -> do
+                        trieRoot <-
+                            insertFacts
+                                ctx
+                                cafeTid
+                                [("mykey", "myval")]
+                        seedTokenStateWithRoot ctx txIn trieRoot
+                        resp <-
+                            getFact
+                                ctx
+                                "63616665"
+                                (hex "mykey")
+                        simpleStatus resp `shouldBe` status200
+                        case decode (simpleBody resp) of
+                            Just (Object obj) -> do
+                                KM.member "snapshot" obj
                                     `shouldBe` True
-                                KM.member "mpf_proof" fObj
+                                KM.member "value" obj
                                     `shouldBe` True
+                                KM.member "fact" obj
+                                    `shouldBe` True
+                                case KM.lookup "fact" obj of
+                                    Just (Object fObj) -> do
+                                        KM.member "state" fObj
+                                            `shouldBe` True
+                                        KM.member "mpf_proof" fObj
+                                            `shouldBe` True
+                                    _ ->
+                                        expectationFailure
+                                            "fact is not an \
+                                            \object"
                             _ ->
                                 expectationFailure
-                                    "fact is not an \
-                                    \object"
-                    _ ->
-                        expectationFailure
-                            "Expected JSON object"
+                                    "Expected JSON object"
 
         it
             "returns a persistent fact value that replays \
@@ -256,21 +202,23 @@ spec = do
 
         it "returns 404 for missing key" $ do
             ctx0 <- mkTestContext
-            ctx <-
-                withSnapshot "root" "tx-out" "proof" ctx0
-            seedTokenState ctx
-            Trie.createTrie (trieManager ctx) cafeTid
-            resp <-
-                getFact
-                    ctx
-                    "63616665"
-                    (hex "nokey")
-            simpleStatus resp `shouldBe` status404
+            txIn <- generate genTxIn
+            withProofIndexer
+                Nothing
+                [(txIn, sampleStateOutBytes 0)]
+                ctx0
+                $ \_txRoot ctx -> do
+                    trieRoot <- insertFacts ctx cafeTid []
+                    seedTokenStateWithRoot ctx txIn trieRoot
+                    resp <-
+                        getFact
+                            ctx
+                            "63616665"
+                            (hex "nokey")
+                    simpleStatus resp `shouldBe` status404
 
         it "returns 404 for unknown token" $ do
-            ctx0 <- mkTestContext
-            ctx <-
-                withSnapshot "root" "tx-out" "proof" ctx0
+            ctx <- mkTestContext
             resp <-
                 getFact ctx "63616665" (hex "k")
             simpleStatus resp `shouldBe` status404
@@ -279,7 +227,8 @@ spec = do
             "returns 503 when snapshot not yet \
             \available"
             $ do
-                ctx <- mkTestContext
+                ctx0 <- mkTestContext
+                let ctx = ctx0{indexerProofsReady = pure False}
                 seedTokenState ctx
                 Trie.createTrie (trieManager ctx) cafeTid
                 _ <-
@@ -298,79 +247,76 @@ spec = do
             \existing key"
             $ do
                 ctx0 <- mkTestContext
-                ctx <-
-                    withSnapshot
-                        "root"
-                        "tx-out"
-                        "proof"
-                        ctx0
-                seedTokenState ctx
-                Trie.createTrie (trieManager ctx) cafeTid
-                _ <-
-                    Trie.withTrie
-                        (trieManager ctx)
-                        cafeTid
-                        $ \trie ->
-                            Trie.insert trie "pk" "pv"
-                resp <-
-                    getProof
-                        ctx
-                        "63616665"
-                        (hex "pk")
-                simpleStatus resp `shouldBe` status200
-                case decode (simpleBody resp) of
-                    Just (Object obj) -> do
-                        KM.member "snapshot" obj
-                            `shouldBe` True
-                        KM.member "fact" obj
-                            `shouldBe` True
-                        case KM.lookup "fact" obj of
-                            Just (Object fObj) -> do
-                                KM.member "state" fObj
+                txIn <- generate genTxIn
+                withProofIndexer
+                    Nothing
+                    [(txIn, sampleStateOutBytes 0)]
+                    ctx0
+                    $ \_txRoot ctx -> do
+                        trieRoot <-
+                            insertFacts
+                                ctx
+                                cafeTid
+                                [("pk", "pv")]
+                        seedTokenStateWithRoot ctx txIn trieRoot
+                        resp <-
+                            getProof
+                                ctx
+                                "63616665"
+                                (hex "pk")
+                        simpleStatus resp `shouldBe` status200
+                        case decode (simpleBody resp) of
+                            Just (Object obj) -> do
+                                KM.member "snapshot" obj
                                     `shouldBe` True
-                                KM.member "mpf_proof" fObj
+                                KM.member "fact" obj
                                     `shouldBe` True
+                                case KM.lookup "fact" obj of
+                                    Just (Object fObj) -> do
+                                        KM.member "state" fObj
+                                            `shouldBe` True
+                                        KM.member "mpf_proof" fObj
+                                            `shouldBe` True
+                                    _ ->
+                                        expectationFailure
+                                            "fact is not an \
+                                            \object"
                             _ ->
                                 expectationFailure
-                                    "fact is not an \
-                                    \object"
-                    _ ->
-                        expectationFailure
-                            "Expected JSON object"
+                                    "Expected JSON object"
 
         it "returns verifiable exclusion proof for missing key" $ do
             ctx0 <- mkTestContext
-            ctx <-
-                withSnapshot "root" "tx-out" "proof" ctx0
-            Trie.createTrie (trieManager ctx) cafeTid
-            trieRoot <-
-                Trie.withTrie
-                    (trieManager ctx)
-                    cafeTid
-                    Trie.getRoot
             txIn <- generate genTxIn
-            seedTokenStateWithRoot ctx txIn trieRoot
-            resp <-
-                getProof
-                    ctx
-                    "63616665"
-                    (hex "absent")
-            simpleStatus resp `shouldBe` status200
-            case decode (simpleBody resp) of
-                Just ProofResponse{prFact} ->
-                    verifyAikenExclusionProof
-                        (unRoot trieRoot)
-                        "absent"
-                        (unHex (fwMpfProof prFact))
-                        `shouldBe` True
-                _ ->
-                    expectationFailure
-                        "Expected proof response JSON"
+            withProofIndexer
+                Nothing
+                [(txIn, sampleStateOutBytes 0)]
+                ctx0
+                $ \_txRoot ctx -> do
+                    trieRoot <- insertFacts ctx cafeTid []
+                    seedTokenStateWithRoot ctx txIn trieRoot
+                    resp <-
+                        getProof
+                            ctx
+                            "63616665"
+                            (hex "absent")
+                    simpleStatus resp `shouldBe` status200
+                    case decode (simpleBody resp) of
+                        Just ProofResponse{prFact} ->
+                            verifyAikenExclusionProof
+                                (unRoot trieRoot)
+                                "absent"
+                                (unHex (fwMpfProof prFact))
+                                `shouldBe` True
+                        _ ->
+                            expectationFailure
+                                "Expected proof response JSON"
 
         it
             "returns a persistent absence proof that \
             \verifies after delete"
             $ withPersistentFactContextWithTrie
+                (Just staleRoot)
                 ( \trie -> do
                     _ <- Trie.insert trie "deleted" "gone"
                     Trie.delete trie "deleted"
@@ -396,9 +342,7 @@ spec = do
                             "Expected proof response JSON"
 
         it "returns 404 for unknown token" $ do
-            ctx0 <- mkTestContext
-            ctx <-
-                withSnapshot "root" "tx-out" "proof" ctx0
+            ctx <- mkTestContext
             resp <-
                 getProof ctx "63616665" (hex "k")
             simpleStatus resp `shouldBe` status404
@@ -407,7 +351,8 @@ spec = do
             "returns 503 when snapshot not yet \
             \available"
             $ do
-                ctx <- mkTestContext
+                ctx0 <- mkTestContext
+                let ctx = ctx0{indexerProofsReady = pure False}
                 seedTokenState ctx
                 Trie.createTrie (trieManager ctx) cafeTid
                 _ <-
@@ -480,99 +425,33 @@ getProof ctx tokenHex keyHex =
 withPersistentFactContext :: (Context IO -> IO a) -> IO a
 withPersistentFactContext =
     withPersistentFactContextWithTrie
+        (Just staleRoot)
         ( \trie -> do
             _ <- Trie.insert trie "hello" "world"
             Trie.getRoot trie
         )
 
 withPersistentFactContextWithTrie
-    :: (Trie.Trie IO -> IO Root)
+    :: Maybe ByteString
+    -> (Trie.Trie IO -> IO Root)
     -> (Context IO -> IO a)
     -> IO a
-withPersistentFactContextWithTrie setupTrie action =
-    withSystemTempDirectory "persistent-fact-http" $ \dir ->
-        withDBCF
-            dir
-            dbConfig
-            [ ("nodes", dbConfig)
-            , ("kv", dbConfig)
-            , ("meta", dbConfig)
-            , ("raw", dbConfig)
-            ]
-            $ \db@DB{columnFamilies} ->
-                case columnFamilies of
-                    [nodesCF, kvCF, metaCF, _rawCF] -> do
-                        tm <-
-                            mkPersistentTrieManager
-                                db
-                                nodesCF
-                                kvCF
-                                metaCF
-                        ctx0 <- mkTestContext
-                        stateTxIn <- generate genTxIn
-                        let stateTxOut = "state-tx-out"
-                            CsmtWitness
-                                { cwRoot
-                                , cwTxOut
-                                , cwProof
-                                } =
-                                    singleUtxoWitness
-                                        stateTxIn
-                                        stateTxOut
-                        ctx <-
-                            withSnapshot
-                                cwRoot
-                                cwTxOut
-                                cwProof
-                                ctx0{trieManager = tm}
-                        Trie.createTrie (trieManager ctx) cafeTid
-                        trieRoot <-
-                            Trie.withTrie
-                                (trieManager ctx)
-                                cafeTid
-                                setupTrie
-                        seedTokenStateWithRoot
-                            ctx
-                            stateTxIn
-                            trieRoot
-                        action ctx
-                    _ ->
-                        expectationFailure
-                            "expected four test column families"
-                            >> error "unreachable"
-
-data CsmtWitness = CsmtWitness
-    { cwRoot :: ByteString
-    , cwTxOut :: ByteString
-    , cwProof :: ByteString
-    }
-
-singleUtxoWitness :: TxIn -> ByteString -> CsmtWitness
-singleUtxoWitness txIn txOutBs =
-    evalPureFromEmptyDB $ do
-        let key = byteStringToKey (encodeTxInForCsmt txIn)
-        insertMHash key (mkHash txOutBs)
-        mProof <- proofM hashCodecs identityFromKV hashHashing key
-        mRoot <- getRootHashM
-        pure
-            CsmtWitness
-                { cwRoot = maybe BS.empty renderHash mRoot
-                , cwTxOut = txOutBs
-                , cwProof =
-                    case mProof of
-                        Just (_, proof) -> renderProof proof
-                        Nothing -> BS.empty
-                }
-
-encodeTxInForCsmt :: TxIn -> ByteString
-encodeTxInForCsmt txIn =
-    let TxInJSON
-            { tjTxId = Hex txIdBs
-            , tjTxIx
-            } = txInToJSON txIn
-    in  CBOR.toStrictByteString
-            $ mconcat
-                [ CBOR.encodeListLen 2
-                , CBOR.encodeBytes txIdBs
-                , CBOR.encodeWord64 tjTxIx
-                ]
+withPersistentFactContextWithTrie mOutOfTxRoot setupTrie action = do
+    ctx0 <- mkTestContext
+    stateTxIn <- generate genTxIn
+    withProofIndexer
+        mOutOfTxRoot
+        [(stateTxIn, sampleStateOutBytes 0)]
+        ctx0
+        $ \_txRoot ctx -> do
+            Trie.createTrie (trieManager ctx) cafeTid
+            trieRoot <-
+                Trie.withTrie
+                    (trieManager ctx)
+                    cafeTid
+                    setupTrie
+            seedTokenStateWithRoot
+                ctx
+                stateTxIn
+                trieRoot
+            action ctx

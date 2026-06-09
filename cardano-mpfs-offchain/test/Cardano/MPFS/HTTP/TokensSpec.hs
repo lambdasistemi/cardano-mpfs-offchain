@@ -19,6 +19,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+import Data.Either (isRight)
 import Data.List (sort)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
@@ -43,18 +44,9 @@ import Test.Hspec
     , shouldSatisfy
     )
 
-import Cardano.Ledger.Api.Tx.Out
-    ( TxOut
-    , mkBasicTxOut
-    )
-import Cardano.Ledger.BaseTypes
-    ( Inject (..)
-    , Network (..)
-    )
 import Cardano.Ledger.Binary
     ( natVersion
     , serialize
-    , serialize'
     )
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
@@ -82,11 +74,13 @@ import Cardano.MPFS.Application
     , dbConfig
     , unifiedCodecs
     )
+import Cardano.MPFS.Client.Verify.Completeness
+    ( verifyUtxoSetCompleteness
+    )
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
-    , ConwayEra
     , LocatedTokenState (..)
     , Root (..)
     , SlotNo (..)
@@ -95,6 +89,12 @@ import Cardano.MPFS.Core.Types
     , TxIn
     )
 import Cardano.MPFS.Generators (genKeyHash, genTxIn)
+import Cardano.MPFS.HTTP.AtomicReadFixture
+    ( sampleStateOutBytes
+    , staleRoot
+    , stateSetPrefix
+    , testCageConfig
+    )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
@@ -103,6 +103,8 @@ import Cardano.MPFS.HTTP.Types
     , TokenSetWitness (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoSetWitness (..)
     , VerificationSnapshot (..)
     )
 import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
@@ -110,13 +112,8 @@ import Cardano.MPFS.Indexer.Reads
     ( IndexerTx (..)
     , readMerkleRoot
     )
-import Cardano.MPFS.Indexer.TxFixtures (testScriptHash)
 import Cardano.MPFS.State qualified as St
 import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
-import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
-import Cardano.MPFS.TxBuilder.Real.Internal
-    ( cageAddrFromCfg
-    )
 import Test.QuickCheck (generate)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -238,29 +235,6 @@ withTokenSetRoot mOutOfTxRoot entries ctx action =
                                                 mOutOfTxRoot
                                     }
 
-sampleStateOutBytes :: Integer -> ByteString
-sampleStateOutBytes _ =
-    serialize'
-        (natVersion @11)
-        (txOut :: TxOut ConwayEra)
-  where
-    txOut =
-        mkBasicTxOut
-            (cageAddrFromCfg testCageConfig Testnet)
-            (inject (Coin 2_000_000))
-
-testCageConfig :: CageConfig
-testCageConfig =
-    CageConfig
-        { cageScriptBytes = SBS.toShort "dummy"
-        , requestScriptBytes = SBS.toShort "dummy"
-        , cfgScriptHash = testScriptHash
-        , defaultProcessTime = 60_000
-        , defaultRetractTime = 30_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        }
-
 -- | A dummy token state for testing.
 mkDummyTokenState :: IO TokenState
 mkDummyTokenState = do
@@ -280,7 +254,7 @@ spec = describe "GET /tokens" $ do
         "uses the in-transaction root for the response snapshot"
         $ do
             ctx0 <- mkTestContext
-            ctx <- withSnapshot "stale-root-r1" "tx-out" "proof" ctx0
+            ctx <- withSnapshot staleRoot "tx-out" "proof" ctx0
             ts <- mkDummyTokenState
             txIn <- generate genTxIn
             let tid =
@@ -291,7 +265,7 @@ spec = describe "GET /tokens" $ do
                 tid
                 (LocatedTokenState txIn ts)
             withTokenSetRoot
-                (Just "stale-root-r1")
+                (Just staleRoot)
                 [(txIn, txOut)]
                 ctx
                 $ \txRoot ctxWithSet -> do
@@ -299,6 +273,7 @@ spec = describe "GET /tokens" $ do
                     simpleStatus resp `shouldBe` status200
                     root <- responseSnapshotRoot resp
                     root `shouldBe` txRoot
+                    assertTokenSetVerifies resp
 
     it "returns empty proof-bearing token set on fresh state" $ do
         ctx0 <- mkTestContext
@@ -410,6 +385,34 @@ assertTokenEntries resp expected =
         _ ->
             expectationFailure
                 "Expected TokensResponse"
+
+assertTokenSetVerifies :: SResponse -> IO ()
+assertTokenSetVerifies resp =
+    case decode (simpleBody resp) of
+        Just TokensResponse{trsSnapshot, trsTokens} ->
+            let Hex root = vsUtxoRoot trsSnapshot
+            in  verifyUtxoSetCompleteness
+                    "tokens.tokens"
+                    root
+                    (stateSetPrefix testCageConfig)
+                    (tokenSetAsUtxoSet trsTokens)
+                    `shouldSatisfy` isRight
+        _ ->
+            expectationFailure
+                "Expected TokensResponse"
+
+tokenSetAsUtxoSet :: TokenSetWitness -> UtxoSetWitness
+tokenSetAsUtxoSet TokenSetWitness{..} =
+    UtxoSetWitness
+        { uswEntries =
+            [ UtxoEntryRefOnly
+                { uerRef = tueRef
+                , uerTxOutCbor = tueTxOutCbor
+                }
+            | TokenUtxoEntry{..} <- tswEntries
+            ]
+        , uswCompletenessProof = tswCompletenessProof
+        }
 
 failExpectation :: String -> IO a
 failExpectation msg = do

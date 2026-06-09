@@ -6,11 +6,10 @@
 -- License     : Apache-2.0
 module Cardano.MPFS.HTTP.TokenFactsSpec (spec) where
 
-import Control.Monad (forM_)
 import Data.Aeson (decode)
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
 import Data.ByteString.Short qualified as SBS
+import Data.Either (isRight)
 import Data.List (sort)
 import Network.HTTP.Types (status200)
 import Network.Wai.Test
@@ -26,20 +25,27 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldSatisfy
     )
 
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Test.QuickCheck (generate)
 
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.MPFS.Client.Verify.Read (verifyTokenFacts)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
-    ( BlockId (..)
-    , LocatedTokenState (..)
-    , SlotNo (..)
+    ( LocatedTokenState (..)
     , TokenId (..)
     , TokenState (..)
     )
 import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.AtomicReadFixture
+    ( insertFacts
+    , sampleStateOutBytes
+    , staleRoot
+    , withProofIndexer
+    )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
@@ -52,35 +58,10 @@ import Cardano.MPFS.HTTP.Types
     , tokenStateToJSON
     )
 import Cardano.MPFS.State qualified as St
-import Cardano.MPFS.Trie qualified as Trie
 
 -- | "cafe" token — hex "63616665".
 cafeTid :: TokenId
 cafeTid = TokenId (AssetName (SBS.toShort "cafe"))
-
--- | Stub the verification snapshot and the UTxO
--- witness machinery so proof-bearing handlers can
--- assemble their envelopes.
-withSnapshot
-    :: BS.ByteString
-    -- ^ CSMT root bytes
-    -> BS.ByteString
-    -- ^ Resolved TxOut CBOR bytes
-    -> BS.ByteString
-    -- ^ CSMT inclusion proof bytes
-    -> Context IO
-    -> IO (Context IO)
-withSnapshot rootBs outBs proofBs ctx = do
-    St.putCheckpoint
-        (St.checkpoints (state ctx))
-        (SlotNo 42)
-        (BlockId "block-id-bytes")
-    pure
-        ctx
-            { utxoRoot = pure (Just rootBs)
-            , resolveUtxo = \_ -> pure (Just outBs)
-            , utxoProof = \_ -> pure (Just proofBs)
-            }
 
 spec :: Spec
 spec =
@@ -90,38 +71,36 @@ spec =
             \enumerated facts"
         $ do
             ctx0 <- mkTestContext
-            ctx <- withSnapshot "root" "tx-out" "proof" ctx0
-            Trie.createTrie (trieManager ctx) cafeTid
-            trieRoot <-
-                Trie.withTrie
-                    (trieManager ctx)
-                    cafeTid
-                    $ \trie -> do
-                        forM_ facts
-                            $ uncurry (Trie.insert trie)
-                        Trie.getRoot trie
-            ts0 <- mkDummyTokenState
             txIn <- generate genTxIn
-            let ts = ts0{root = trieRoot}
-            St.putToken
-                (St.tokens (state ctx))
-                cafeTid
-                (LocatedTokenState txIn ts)
+            withProofIndexer
+                (Just staleRoot)
+                [(txIn, sampleStateOutBytes 0)]
+                ctx0
+                $ \_txRoot ctx -> do
+                    trieRoot <- insertFacts ctx cafeTid facts
+                    ts0 <- mkDummyTokenState
+                    let ts = ts0{root = trieRoot}
+                    St.putToken
+                        (St.tokens (state ctx))
+                        cafeTid
+                        (LocatedTokenState txIn ts)
 
-            resp <- getFacts ctx "63616665"
+                    resp <- getFacts ctx "63616665"
 
-            simpleStatus resp `shouldBe` status200
-            case decode (simpleBody resp) of
-                Just FactsResponse{..} -> do
-                    vsUtxoRoot frsSnapshot
-                        `shouldBe` Hex "root"
-                    wtsState frsState
-                        `shouldBe` tokenStateToJSON ts
-                    factPairs frsFacts
-                        `shouldBe` sort facts
-                _ ->
-                    expectationFailure
-                        "Expected facts response JSON"
+                    simpleStatus resp `shouldBe` status200
+                    case decode (simpleBody resp) of
+                        Just body@FactsResponse{..} -> do
+                            wtsState frsState
+                                `shouldBe` tokenStateToJSON ts
+                            factPairs frsFacts
+                                `shouldBe` sort facts
+                            verifyTokenFacts
+                                (TrustedRoot (vsUtxoRoot frsSnapshot))
+                                body
+                                `shouldSatisfy` isRight
+                        _ ->
+                            expectationFailure
+                                "Expected facts response JSON"
 
 facts :: [(ByteString, ByteString)]
 facts =

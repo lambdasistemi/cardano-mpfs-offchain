@@ -304,6 +304,7 @@ test-suite unit-tests
   other-modules:
     Cardano.MPFS.BalanceSpec
     Cardano.MPFS.Generators
+    Cardano.MPFS.HTTP.AtomicReadFixture
     Cardano.MPFS.HTTP.BootFactsSpec
     Cardano.MPFS.HTTP.EndFactsSpec
     Cardano.MPFS.HTTP.RejectFactsSpec
