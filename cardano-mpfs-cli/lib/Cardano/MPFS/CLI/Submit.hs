@@ -13,23 +13,35 @@ module Cardano.MPFS.CLI.Submit
     ( mkServerEnv
     , mkServerParts
     , listTokens
+    , getToken
+    , listFacts
     , getFact
+    , getFactProof
+    , listRequests
     , submitSignedTx
     , awaitTx
     ) where
 
 import Cardano.MPFS.API
-    ( TokenFactAPI
+    ( TokenAPI
+    , TokenFactAPI
+    , TokenProofAPI
+    , TokenRequestsAPI
     , TokensAPI
+    , TokensFactsAPI
     , TxAwaitAPI
     , TxSubmitAPI
     )
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( FactResponse
+    , FactsResponse
+    , ProofResponse
+    , RequestsResponse
     , SubmitRequest (..)
     , SubmitResponse (..)
     , TokenIdJSON (..)
+    , TokenResponse
     , TokensResponse
     )
 import Data.ByteString (ByteString)
@@ -69,6 +81,20 @@ mkServerParts url =
 listTokens :: ClientEnv -> IO (Either ClientError TokensResponse)
 listTokens = runClientM tokensClient
 
+-- | @GET \/tokens\/:id@ — token state with proof.
+getToken
+    :: ClientEnv
+    -> TokenIdJSON
+    -> IO (Either ClientError TokenResponse)
+getToken env tid = runClientM (tokenClient tid) env
+
+-- | @GET \/tokens\/:id\/facts@ — enumerate all facts with proof.
+listFacts
+    :: ClientEnv
+    -> TokenIdJSON
+    -> IO (Either ClientError FactsResponse)
+listFacts env tid = runClientM (factsClient tid) env
+
 -- | @GET \/tokens\/:id\/facts\/:key@ — look up a fact with proof.
 getFact
     :: ClientEnv
@@ -76,6 +102,21 @@ getFact
     -> Hex
     -> IO (Either ClientError FactResponse)
 getFact env tid key = runClientM (factClient tid key) env
+
+-- | @GET \/tokens\/:id\/proofs\/:key@ — fact proof, including absence.
+getFactProof
+    :: ClientEnv
+    -> TokenIdJSON
+    -> Hex
+    -> IO (Either ClientError ProofResponse)
+getFactProof env tid key = runClientM (proofClient tid key) env
+
+-- | @GET \/tokens\/:id\/requests@ — pending requests with proof.
+listRequests
+    :: ClientEnv
+    -> TokenIdJSON
+    -> IO (Either ClientError RequestsResponse)
+listRequests env tid = runClientM (requestsClient tid) env
 
 -- | @POST \/submit@ — submit signed tx CBOR, returning the txId bytes.
 submitSignedTx
@@ -101,8 +142,20 @@ awaitTx env txId timeout =
 tokensClient :: ClientM TokensResponse
 tokensClient = client (Proxy @TokensAPI)
 
+tokenClient :: TokenIdJSON -> ClientM TokenResponse
+tokenClient = client (Proxy @TokenAPI)
+
+factsClient :: TokenIdJSON -> ClientM FactsResponse
+factsClient = client (Proxy @TokensFactsAPI)
+
 factClient :: TokenIdJSON -> Hex -> ClientM FactResponse
 factClient = client (Proxy @TokenFactAPI)
+
+proofClient :: TokenIdJSON -> Hex -> ClientM ProofResponse
+proofClient = client (Proxy @TokenProofAPI)
+
+requestsClient :: TokenIdJSON -> ClientM RequestsResponse
+requestsClient = client (Proxy @TokenRequestsAPI)
 
 submitClient :: SubmitRequest -> ClientM SubmitResponse
 submitClient = client (Proxy @TxSubmitAPI)

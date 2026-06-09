@@ -59,6 +59,7 @@ library
     , optparse-applicative    >=0.18 && <0.20
     , servant                 >=0.20 && <0.21
     , servant-client          >=0.20 && <0.21
+    , servant-client-core     >=0.20 && <0.21
     , text                    >=2.0  && <2.2
 
   exposed-modules:
@@ -102,7 +103,11 @@ test-suite unit-tests
     , containers             >=0.6  && <0.8
     , hspec                  >=2.11 && <2.12
     , microlens
+    , optparse-applicative
     , text
 
-  other-modules:    Cardano.MPFS.CLI.SignSpec
+  other-modules:
+    Cardano.MPFS.CLI.OptionsSpec
+    Cardano.MPFS.CLI.SignSpec
+
   ghc-options:      -threaded -with-rtsopts=-N

@@ -26,7 +26,7 @@ import Test.Hspec
     )
 
 import CSMT
-    ( Direction
+    ( Direction (..)
     , Standalone (StandaloneCSMTCol)
     )
 import CSMT.Backend.Pure (runPureTransaction)
@@ -63,7 +63,10 @@ import Cardano.MPFS.API.Types
     , RequestsResponse (..)
     , TokenIdJSON (..)
     , TokenResponse (..)
+    , TokenSetWitness (..)
     , TokenStateJSON (..)
+    , TokenUtxoEntry (..)
+    , TokensResponse (..)
     , TxInJSON (..)
     , UtxoEntryRefOnly (..)
     , UtxoRef (..)
@@ -84,7 +87,8 @@ import Cardano.MPFS.Client.Cage.Config
     , computeScriptHash
     )
 import Cardano.MPFS.Client.Cage.Identity
-    ( requestSetPrefixFromCfg
+    ( cageSetPrefixFromCfg
+    , requestSetPrefixFromCfg
     )
 import Cardano.MPFS.Client.Fixtures
     ( bundleFunding
@@ -97,11 +101,37 @@ import Cardano.MPFS.Client.Verify.Read
     ( verifyTokenFacts
     , verifyTokenRequests
     , verifyTokenState
+    , verifyTokens
     )
 import Cardano.MPFS.Client.Verify.Replay (VerifyError (..))
 
 spec :: Spec
 spec = describe "Read-side verifiers" $ do
+    describe "verifyTokens" $ do
+        it "accepts an honest token listing with a complete state set" $ do
+            cfg <- testCageConfig
+            let TokenListFixture{tokenListTrustedRoot, tokenListResponse} =
+                    honestTokenListFixture cfg
+            verifyTokensUnit cfg tokenListTrustedRoot tokenListResponse
+                `shouldBe` Right ()
+        it "rejects a tampered token-set completeness proof" $ do
+            cfg <- testCageConfig
+            let TokenListFixture{tokenListTrustedRoot, tokenListResponse} =
+                    honestTokenListFixture cfg
+            verifyTokensUnit
+                cfg
+                tokenListTrustedRoot
+                (tamperTokenSetProof tokenListResponse)
+                `shouldSatisfy` isCompletenessProofInvalid
+        it "rejects a dropped token-set entry" $ do
+            cfg <- testCageConfig
+            let TokenListFixture{tokenListTrustedRoot, tokenListResponse} =
+                    honestTokenListFixture cfg
+            verifyTokensUnit
+                cfg
+                tokenListTrustedRoot
+                (dropFirstTokenSetEntry tokenListResponse)
+                `shouldSatisfy` isCompletenessProofInvalid
     describe "verifyTokenState" $ do
         it "accepts an honest token response"
             $ verifyTokenStateUnit honestTrustedRoot honestTokenResponse
@@ -175,6 +205,14 @@ spec = describe "Read-side verifiers" $ do
                 `shouldSatisfy` isCompletenessProofInvalid
 
 -- | Discard the opaque witness so we can assert on @Right ()@.
+verifyTokensUnit
+    :: CageConfig
+    -> TrustedRoot
+    -> TokensResponse
+    -> Either VerifyError ()
+verifyTokensUnit cfg trusted =
+    void . verifyTokens cfg trusted
+
 verifyTokenStateUnit
     :: TrustedRoot -> TokenResponse -> Either VerifyError ()
 verifyTokenStateUnit trusted =
@@ -304,7 +342,12 @@ csmtRequestRows requestPrefix = evalPureFromEmptyDB $ do
             requestPrefix
                 <> byteStringToKey
                     (encodeTxIn requestTxId 0)
+        siblingRows =
+            [ (divergingKey 0 "root-sibling", "root-sibling-txout")
+            , (divergingKey 127 "mid-sibling", "mid-sibling-txout")
+            ]
     insertMHash requestKey (mkHash requestTxOut)
+    mapM_ (\(key, txOut) -> insertMHash key (mkHash txOut)) siblingRows
     completenessProof <-
         runPureTransaction hashCodecs
             $ generateProof StandaloneCSMTCol [] requestPrefix
@@ -333,6 +376,15 @@ csmtRequestRows requestPrefix = evalPureFromEmptyDB $ do
                                 "expected request-set completeness proof"
             }
         )
+  where
+    divergingKey n suffix =
+        case splitAt n requestPrefix of
+            (before, direction : _) ->
+                before <> [otherDirection direction] <> byteStringToKey suffix
+            _ -> byteStringToKey suffix
+
+    otherDirection L = R
+    otherDirection R = L
 
 tamperRequestSetProof :: RequestsResponse -> RequestsResponse
 tamperRequestSetProof resp =
@@ -352,6 +404,60 @@ dropFirstRequestSetEntry resp =
             (rrRequestSet resp)
                 { uswEntries =
                     drop 1 (uswEntries (rrRequestSet resp))
+                }
+        }
+
+data TokenListFixture = TokenListFixture
+    { tokenListTrustedRoot :: TrustedRoot
+    , tokenListResponse :: TokensResponse
+    }
+
+honestTokenListFixture :: CageConfig -> TokenListFixture
+honestTokenListFixture cfg =
+    let (rootBytes, tokenSet) = csmtRequestRows (cageSetPrefixFromCfg cfg)
+        response =
+            TokensResponse
+                { trsSnapshot = snapshotWithRoot rootBytes
+                , trsTokens =
+                    TokenSetWitness
+                        { tswEntries =
+                            [ TokenUtxoEntry
+                                { tueTokenId = sampleToken
+                                , tueRef =
+                                    UtxoRef
+                                        { urTxId = Hex requestTxId
+                                        , urTxIx = 0
+                                        }
+                                , tueTxOutCbor = Hex requestTxOut
+                                }
+                            ]
+                        , tswCompletenessProof =
+                            uswCompletenessProof tokenSet
+                        }
+                }
+    in  TokenListFixture
+            { tokenListTrustedRoot = TrustedRoot (Hex rootBytes)
+            , tokenListResponse = response
+            }
+
+tamperTokenSetProof :: TokensResponse -> TokensResponse
+tamperTokenSetProof resp =
+    resp
+        { trsTokens =
+            (trsTokens resp)
+                { tswCompletenessProof =
+                    flipLastHexByte
+                        (tswCompletenessProof (trsTokens resp))
+                }
+        }
+
+dropFirstTokenSetEntry :: TokensResponse -> TokensResponse
+dropFirstTokenSetEntry resp =
+    resp
+        { trsTokens =
+            (trsTokens resp)
+                { tswEntries =
+                    drop 1 (tswEntries (trsTokens resp))
                 }
         }
 

@@ -2,11 +2,13 @@
 -- Module      : Cardano.MPFS.CLI.Options
 -- Description : optparse-applicative command surface for mpfs-cli.
 --
--- Defines the nine subcommands and their argument parsers. Every
--- subcommand and option carries @--help@ text. Hex arguments are
--- validated at parse time via "Cardano.MPFS.CLI.Hex".
+-- Defines the command surface and validates hex arguments at parse time.
+-- Network, blueprint, and signing-key inputs may be passed explicitly or
+-- resolved from the documented environment variables by the runner.
 module Cardano.MPFS.CLI.Options
-    ( Command (..)
+    ( App (..)
+    , Command (..)
+    , OutputFormat (..)
     , commandInfo
     ) where
 
@@ -14,187 +16,327 @@ import Cardano.MPFS.CLI.Hex (HexArg, hexReader)
 import Data.Text (Text)
 import Options.Applicative
 
+-- | Complete parsed invocation.
+data App = App
+    { appOutput :: OutputFormat
+    , appCommand :: Command
+    }
+    deriving stock (Show)
+
+-- | Output mode selected by @--json@.
+data OutputFormat
+    = OutputHuman
+    | OutputJson
+    deriving stock (Eq, Show)
+
 -- | Every mpfs-cli subcommand, fully parsed.
 data Command
-    = -- | @register-token@ — boot a new token/cage for the owner key.
+    = -- | @register-token@ -- boot a new token/cage for the owner key.
       RegisterToken
-        { server :: String
-        , ownerKey :: FilePath
+        { server :: Maybe String
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
+        , processTimeMs :: Maybe Integer
+        , retractTimeMs :: Maybe Integer
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact insert@ — request insertion of a new key/value fact.
+    | -- | @fact insert@ -- requester asks to insert a key/value fact.
       FactInsert
-        { server :: String
+        { server :: Maybe String
         , token :: Text
         , key :: HexArg
         , value :: HexArg
-        , ownerKey :: FilePath
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact update@ — request a change of an existing fact value.
+    | -- | @fact update@ -- requester asks to change a fact value.
       FactUpdate
-        { server :: String
+        { server :: Maybe String
         , token :: Text
         , key :: HexArg
         , oldValue :: HexArg
         , newValue :: HexArg
-        , ownerKey :: FilePath
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact delete@ — request deletion of an existing fact. The
-      -- current value is required: deletion proves the existing
-      -- key→value leaf.
+    | -- | @fact delete@ -- requester asks to delete a fact.
       FactDelete
-        { server :: String
+        { server :: Maybe String
         , token :: Text
         , key :: HexArg
         , value :: HexArg
-        , ownerKey :: FilePath
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact retract@ — retract a pending request by its UTxO ref.
+    | -- | @fact retract@ -- requester retracts a pending request.
       FactRetract
-        { server :: String
+        { server :: Maybe String
         , token :: Text
         , requestId :: Text
-        , ownerKey :: FilePath
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact reject@ — reject pending requests past their deadline.
+    | -- | @fact reject@ -- owner rejects expired pending requests.
       FactReject
-        { server :: String
+        { server :: Maybe String
         , token :: Text
-        , ownerKey :: FilePath
+        , requestIds :: [Text]
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @fact get@ — read-only fact lookup with proof.
+    | -- | @fact list TOKEN@ -- read-only complete fact enumeration.
+      FactList
+        { server :: Maybe String
+        , token :: Text
+        , trustedRoot :: Maybe HexArg
+        }
+    | -- | @fact get TOKEN KEY@ -- read-only present/absent fact lookup.
       FactGet
-        { server :: String
+        { server :: Maybe String
         , token :: Text
         , key :: HexArg
+        , trustedRoot :: Maybe HexArg
         }
-    | -- | @token end@ — close out a token/cage.
-      TokenEnd
-        { server :: String
+    | -- | @token process TOKEN@ -- owner folds pending requests.
+      TokenProcess
+        { server :: Maybe String
         , token :: Text
-        , ownerKey :: FilePath
+        , requestIds :: [Text]
+        , ownerKey :: Maybe FilePath
         , cageConfig :: Maybe FilePath
         , trustedRoot :: Maybe HexArg
         }
-    | -- | @token list@ — read-only listing of known token ids.
+    | -- | @token end@ -- owner closes out a token/cage.
+      TokenEnd
+        { server :: Maybe String
+        , token :: Text
+        , ownerKey :: Maybe FilePath
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
+        }
+    | -- | @token list@ -- read-only verified token-id listing.
       TokenList
-        {server :: String}
+        { server :: Maybe String
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
+        }
+    | -- | @token get TOKEN@ -- read-only verified token state.
+      TokenGet
+        { server :: Maybe String
+        , token :: Text
+        , trustedRoot :: Maybe HexArg
+        }
+    | -- | @requests list TOKEN@ -- read-only verified pending requests.
+      RequestsList
+        { server :: Maybe String
+        , token :: Text
+        , cageConfig :: Maybe FilePath
+        , trustedRoot :: Maybe HexArg
+        }
     deriving stock (Show)
 
 -- | Top-level parser with @--help@ wiring.
-commandInfo :: ParserInfo Command
+commandInfo :: ParserInfo App
 commandInfo =
     info
-        (commandsP <**> helper)
+        ((combineOutput <$> outputFlag <*> commandsP) <**> helper)
         ( fullDesc
             <> header "mpfs-cli - command-line front-end for the MPFS server"
             <> progDesc
-                "Register tokens and manage facts end-to-end against an \
-                \MPFS server using a local Bech32 .skey. JSON is written \
-                \to stdout; logs go to stderr."
+                "Register tokens, request and process facts, and run \
+                \verified read-only queries against an MPFS server. Human \
+                \output is the default; pass --json for machine output."
+            <> footer
+                "Environment: MPFS_SERVER defaults --server; \
+                \MPFS_BLUEPRINT defaults --cage-config; \
+                \MPFS_SIGNER_WALLET defaults --owner-key and is a PATH to a \
+                \Bech32 ed25519 signing key."
         )
+  where
+    combineOutput topJson (localJson, cmd) =
+        App
+            { appOutput =
+                if topJson || localJson
+                    then OutputJson
+                    else OutputHuman
+            , appCommand = cmd
+            }
 
-commandsP :: Parser Command
+commandsP :: Parser (Bool, Command)
 commandsP =
     hsubparser
         ( command
             "register-token"
             ( info
-                registerTokenP
-                (progDesc "Register (boot) a new token/cage for the owner key")
+                (withOutput registerTokenP)
+                (progDesc "Owner: register (boot) a new token/cage")
             )
             <> command
                 "fact"
                 ( info
                     (hsubparser factCommands)
-                    (progDesc "Manage facts (insert/update/delete/retract/reject/get)")
+                    ( progDesc
+                        "Requester commands and verified fact queries"
+                    )
                 )
             <> command
                 "token"
                 ( info
                     (hsubparser tokenCommands)
-                    (progDesc "Manage tokens (end/list)")
+                    (progDesc "Owner commands and verified token queries")
+                )
+            <> command
+                "requests"
+                ( info
+                    (hsubparser requestCommands)
+                    (progDesc "Verified pending-request queries")
                 )
         )
 
-factCommands :: Mod CommandFields Command
+factCommands :: Mod CommandFields (Bool, Command)
 factCommands =
     command
         "insert"
         ( info
-            factInsertP
-            (progDesc "Request insertion of a new key/value fact")
+            (withOutput factInsertP)
+            (progDesc "Requester: ask to insert a new key/value fact")
         )
         <> command
             "update"
             ( info
-                factUpdateP
-                (progDesc "Request a change of an existing fact value")
+                (withOutput factUpdateP)
+                (progDesc "Requester: ask to change an existing fact value")
             )
         <> command
             "delete"
-            (info factDeleteP (progDesc "Request deletion of an existing fact"))
+            ( info
+                (withOutput factDeleteP)
+                (progDesc "Requester: ask to delete an existing fact")
+            )
         <> command
             "retract"
-            (info factRetractP (progDesc "Retract a pending request by id"))
+            ( info
+                (withOutput factRetractP)
+                (progDesc "Requester: retract a pending request by id")
+            )
         <> command
             "reject"
             ( info
-                factRejectP
-                (progDesc "Reject pending requests past their deadline")
+                (withOutput factRejectP)
+                (progDesc "Owner: reject pending requests past their deadline")
+            )
+        <> command
+            "list"
+            ( info
+                (withOutput factListP)
+                (progDesc "Read-only: enumerate all facts for a token")
             )
         <> command
             "get"
-            (info factGetP (progDesc "Read-only: look up a fact with proof"))
+            ( info
+                (withOutput factGetP)
+                (progDesc "Read-only: look up a fact with proof")
+            )
 
-tokenCommands :: Mod CommandFields Command
+tokenCommands :: Mod CommandFields (Bool, Command)
 tokenCommands =
     command
-        "end"
-        (info tokenEndP (progDesc "Close out a token/cage"))
+        "process"
+        ( info
+            (withOutput tokenProcessP)
+            (progDesc "Owner: fold pending requests into the token trie")
+        )
+        <> command
+            "end"
+            (info (withOutput tokenEndP) (progDesc "Owner: close out a token"))
         <> command
             "list"
-            (info tokenListP (progDesc "Read-only: list known token ids"))
+            ( info
+                (withOutput tokenListP)
+                (progDesc "Read-only: list known token ids with proof")
+            )
+        <> command
+            "get"
+            ( info
+                (withOutput tokenGetP)
+                (progDesc "Read-only: get token state with proof")
+            )
+
+requestCommands :: Mod CommandFields (Bool, Command)
+requestCommands =
+    command
+        "list"
+        ( info
+            (withOutput requestsListP)
+            ( progDesc
+                "Read-only: list pending request ids and deadlines with proof"
+            )
+        )
+
+withOutput :: Parser Command -> Parser (Bool, Command)
+withOutput p = (,) <$> outputFlag <*> p
 
 -- Shared options ------------------------------------------------------
 
-serverP :: Parser String
+outputFlag :: Parser Bool
+outputFlag =
+    switch
+        ( long "json"
+            <> help "Write a verified JSON object instead of human output"
+        )
+
+serverP :: Parser (Maybe String)
 serverP =
-    strOption
-        ( long "server"
-            <> metavar "URL"
-            <> help "MPFS server base URL (e.g. http://localhost:3000)"
+    optional
+        ( strOption
+            ( long "server"
+                <> metavar "URL"
+                <> help
+                    "MPFS server base URL. Optional; defaults to MPFS_SERVER."
+            )
         )
 
-ownerKeyP :: Parser FilePath
+ownerKeyP :: Parser (Maybe FilePath)
 ownerKeyP =
-    strOption
-        ( long "owner-key"
-            <> metavar "KEYFILE"
-            <> help "Path to a Bech32-encoded .skey file"
+    optional
+        ( strOption
+            ( long "owner-key"
+                <> metavar "KEYFILE"
+                <> help
+                    "Path to a Bech32 ed25519 .skey file. Optional; defaults \
+                    \to MPFS_SIGNER_WALLET."
+            )
         )
 
-tokenP :: Parser Text
-tokenP =
+tokenOptionP :: Parser Text
+tokenOptionP =
     strOption
         (long "token" <> metavar "TOKEN" <> help "Target token id (hex)")
 
-keyP :: Parser HexArg
-keyP =
+tokenArgP :: Parser Text
+tokenArgP =
+    argument str (metavar "TOKEN" <> help "Target token id (hex)")
+
+tokenArgOrOptionP :: Parser Text
+tokenArgOrOptionP = tokenArgP <|> tokenOptionP
+
+keyOptionP :: Parser HexArg
+keyOptionP =
     option
         hexReader
         (long "key" <> metavar "HEX" <> help "Fact key (hex)")
+
+keyArgP :: Parser HexArg
+keyArgP =
+    argument hexReader (metavar "KEY" <> help "Fact key (hex)")
+
+keyArgOrOptionP :: Parser HexArg
+keyArgOrOptionP = keyArgP <|> keyOptionP
 
 valueP :: Parser HexArg
 valueP =
@@ -202,18 +344,10 @@ valueP =
         hexReader
         (long "value" <> metavar "HEX" <> help "Fact value (hex)")
 
--- Per-command parsers --------------------------------------------------
-
-registerTokenP :: Parser Command
-registerTokenP =
-    RegisterToken
-        <$> serverP
-        <*> ownerKeyP
-        <*> cageConfigP
-        <*> trustedRootP
-
 -- | @--cage-config FILE@: the cage blueprint JSON. Optional; defaults to
--- @$MPFS_BLUEPRINT@. One of the two must be set for write commands.
+-- @$MPFS_BLUEPRINT@. It is required for write commands, @token list@,
+-- and @requests list@ because those commands derive verifier addresses
+-- locally.
 cageConfigP :: Parser (Maybe FilePath)
 cageConfigP =
     optional
@@ -221,8 +355,7 @@ cageConfigP =
             ( long "cage-config"
                 <> metavar "FILE"
                 <> help
-                    "Cage blueprint JSON. Optional; defaults to \
-                    \$MPFS_BLUEPRINT."
+                    "Cage blueprint JSON. Optional; defaults to MPFS_BLUEPRINT."
             )
         )
 
@@ -241,12 +374,82 @@ trustedRootP =
             )
         )
 
+requestIdP :: Parser Text
+requestIdP =
+    strOption
+        ( long "request-id"
+            <> metavar "TXHASH#IX"
+            <> help "Pending request UTxO reference"
+        )
+
+processRequestIdsP :: Parser [Text]
+processRequestIdsP =
+    many
+        ( strOption
+            ( long "request-id"
+                <> metavar "TXHASH#IX"
+                <> help
+                    "Only process this pending request. Repeat to select a \
+                    \batch; omit to process all pending requests."
+            )
+        )
+
+rejectRequestIdsP :: Parser [Text]
+rejectRequestIdsP =
+    many
+        ( strOption
+            ( long "request-id"
+                <> metavar "TXHASH#IX"
+                <> help
+                    "Only reject this pending request. Repeat to select a \
+                    \batch; omit to reject all expired pending requests."
+            )
+        )
+
+-- Per-command parsers --------------------------------------------------
+
+registerTokenP :: Parser Command
+registerTokenP =
+    RegisterToken
+        <$> serverP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> processTimeP
+        <*> retractTimeP
+        <*> trustedRootP
+
+processTimeP :: Parser (Maybe Integer)
+processTimeP =
+    optional
+        ( option
+            auto
+            ( long "process-time-ms"
+                <> metavar "MS"
+                <> help
+                    "Token request processing window in milliseconds. \
+                    \Optional; defaults to the CLI devnet/testnet profile."
+            )
+        )
+
+retractTimeP :: Parser (Maybe Integer)
+retractTimeP =
+    optional
+        ( option
+            auto
+            ( long "retract-time-ms"
+                <> metavar "MS"
+                <> help
+                    "Token request retract window in milliseconds. Optional; \
+                    \defaults to the CLI devnet/testnet profile."
+            )
+        )
+
 factInsertP :: Parser Command
 factInsertP =
     FactInsert
         <$> serverP
-        <*> tokenP
-        <*> keyP
+        <*> tokenOptionP
+        <*> keyOptionP
         <*> valueP
         <*> ownerKeyP
         <*> cageConfigP
@@ -256,17 +459,14 @@ factUpdateP :: Parser Command
 factUpdateP =
     FactUpdate
         <$> serverP
-        <*> tokenP
-        <*> keyP
+        <*> tokenOptionP
+        <*> keyOptionP
         <*> option
             hexReader
-            (long "old-value" <> metavar "HEX" <> help "Current fact value (hex)")
+            (long "old-value" <> metavar "HEX" <> help "Current fact value")
         <*> option
             hexReader
-            ( long "new-value"
-                <> metavar "HEX"
-                <> help "Replacement fact value (hex)"
-            )
+            (long "new-value" <> metavar "HEX" <> help "Replacement value")
         <*> ownerKeyP
         <*> cageConfigP
         <*> trustedRootP
@@ -275,8 +475,8 @@ factDeleteP :: Parser Command
 factDeleteP =
     FactDelete
         <$> serverP
-        <*> tokenP
-        <*> keyP
+        <*> tokenOptionP
+        <*> keyOptionP
         <*> valueP
         <*> ownerKeyP
         <*> cageConfigP
@@ -286,12 +486,8 @@ factRetractP :: Parser Command
 factRetractP =
     FactRetract
         <$> serverP
-        <*> tokenP
-        <*> strOption
-            ( long "request-id"
-                <> metavar "REQ_ID"
-                <> help "UTxO reference (txhash#ix) of the pending request"
-            )
+        <*> tokenOptionP
+        <*> requestIdP
         <*> ownerKeyP
         <*> cageConfigP
         <*> trustedRootP
@@ -300,24 +496,64 @@ factRejectP :: Parser Command
 factRejectP =
     FactReject
         <$> serverP
-        <*> tokenP
+        <*> tokenOptionP
+        <*> rejectRequestIdsP
         <*> ownerKeyP
         <*> cageConfigP
         <*> trustedRootP
 
+factListP :: Parser Command
+factListP =
+    FactList
+        <$> serverP
+        <*> tokenArgOrOptionP
+        <*> trustedRootP
+
 factGetP :: Parser Command
 factGetP =
-    FactGet <$> serverP <*> tokenP <*> keyP
+    FactGet
+        <$> serverP
+        <*> tokenArgOrOptionP
+        <*> keyArgOrOptionP
+        <*> trustedRootP
+
+tokenProcessP :: Parser Command
+tokenProcessP =
+    TokenProcess
+        <$> serverP
+        <*> tokenArgOrOptionP
+        <*> processRequestIdsP
+        <*> ownerKeyP
+        <*> cageConfigP
+        <*> trustedRootP
 
 tokenEndP :: Parser Command
 tokenEndP =
     TokenEnd
         <$> serverP
-        <*> tokenP
+        <*> tokenOptionP
         <*> ownerKeyP
         <*> cageConfigP
         <*> trustedRootP
 
 tokenListP :: Parser Command
 tokenListP =
-    TokenList <$> serverP
+    TokenList
+        <$> serverP
+        <*> cageConfigP
+        <*> trustedRootP
+
+tokenGetP :: Parser Command
+tokenGetP =
+    TokenGet
+        <$> serverP
+        <*> tokenArgOrOptionP
+        <*> trustedRootP
+
+requestsListP :: Parser Command
+requestsListP =
+    RequestsList
+        <$> serverP
+        <*> tokenArgOrOptionP
+        <*> cageConfigP
+        <*> trustedRootP
