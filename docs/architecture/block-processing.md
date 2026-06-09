@@ -4,8 +4,8 @@
 
 Every block from ChainSync is processed in a **single atomic RocksDB
 write batch**. All mutations — UTxO CSMT changes, cage state updates,
-trie insertions/deletions, rollback inverse storage, and checkpoint
-updates — either all commit or none do.
+MPF trie insertions/deletions, rollback inverse storage, metrics, and
+checkpoint updates — either all commit or none do.
 
 This guarantees that a crash at any point during block processing
 leaves the database in a consistent state: either the block is fully
@@ -14,28 +14,32 @@ both UTxO and cage state are reverted in one atomic transaction.
 
 ## Column Layout
 
-The database has 11 RocksDB column families. A `UnifiedColumns` GADT
-addresses all of them through two sub-selectors:
+The database has 14 RocksDB column families. A `UnifiedColumns` GADT
+addresses them through two sub-selectors plus the composed
+chain-follower rollback store:
 
 ```mermaid
 graph TB
-    subgraph unified["UnifiedColumns — single Transaction spans all 11 CFs"]
+    subgraph unified["UnifiedColumns — single Transaction spans all 14 CFs"]
         direction LR
-        subgraph utxo["InUtxo — Columns (cardano-utxo-csmt)"]
+        subgraph utxo["InUtxo — Columns (haskell-mts/cardano-utxo-csmt)"]
             KV["kv<br/><i>UTxO key→value</i>"]
             CSMT["csmt<br/><i>Merkle tree nodes</i>"]
-            RB["rollbacks<br/><i>UTxO rollback points</i>"]
             CFG["config<br/><i>tip, finality</i>"]
+            JOURNAL["journal<br/><i>CSMT journal</i>"]
+            MET["metrics<br/><i>metrics state</i>"]
+            RB["rollbacks<br/><i>UTxO rollback points</i>"]
         end
         subgraph cage["InCage — AllColumns (cage + trie)"]
             TOK["tokens<br/><i>TokenId→TokenState</i>"]
             REQ["requests<br/><i>TxIn→Request</i>"]
             CC["cage-cfg<br/><i>checkpoint</i>"]
-            CR["cage-rollbacks<br/><i>slot→inverse ops</i>"]
             TN["trie-nodes<br/><i>MPF tree nodes</i>"]
             TKV["trie-kv<br/><i>MPF key→hash</i>"]
             TM["trie-meta<br/><i>token registry</i>"]
+            TRV["trie-raw-values<br/><i>raw MPF values</i>"]
         end
+        CR["composed-rollbacks<br/><i>UTxO + cage inverse ops</i>"]
     end
 
     style unified fill:#1a1a2e,color:#fff
@@ -45,8 +49,16 @@ graph TB
 
 Sub-transactions are lifted into the unified space with
 `mapColumns InUtxo` and `mapColumns InCage`. The RocksDB write batch
-accumulates all writes from both sub-selectors and commits them
-atomically.
+accumulates all writes from both sub-selectors and the composed rollback
+store, then commits atomically.
+
+This same index serves the trust-minimized read API. `GET /tokens`,
+`GET /tokens/:id`, `GET /tokens/:id/facts`, `GET
+/tokens/:id/facts/:key`, `GET /tokens/:id/requests`, and `/utxo/*`
+responses carry witnesses against one indexed `utxo_root` and chain
+point. Handlers return a syncing/not-ready response while the CSMT is
+being restored or transiently inconsistent, instead of reading from a
+half-ready proof tree.
 
 ## Forward: Processing a Block
 
@@ -262,7 +274,7 @@ transactional layer).
 |--------|------|
 | [`Indexer.CageFollower`][s-cage-follower] | Unified `rollForward` / `rollBackward` |
 | [`Indexer.Follower`][s-follower] | `detectCageBlockEvents`, `applyCageBlockEvents` |
-| [`Indexer.Columns`][s-columns] | `UnifiedColumns` GADT (11 CFs) |
+| [`Indexer.Columns`][s-columns] | `UnifiedColumns` GADT (14 CFs) |
 | [`Indexer.Rollback`][s-rollback] | `storeRollbackT`, `rollbackToSlotT` |
 | [`Indexer.Persistent`][s-persistent] | `mkTransactionalState`, `mkPersistentState` |
 | [`Trie.Persistent`][s-trie-pers] | `mkUnifiedTrieManager`, `mkPersistentTrieManager` |

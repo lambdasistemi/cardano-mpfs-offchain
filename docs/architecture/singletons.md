@@ -7,8 +7,12 @@ a mock.
 
 ## Provider
 
-Blockchain queries (read-only). Queries a Cardano node via N2C
-LocalStateQuery.
+Ledger metadata queries. The real implementation uses N2C
+LocalStateQuery for protocol parameters, script evaluation, and
+POSIX/slot conversion. `queryUTxOs` still exists in the low-level
+record, but it is forbidden on server-side proof/write hot paths:
+production UTxO facts come from the local indexer's CSMT through
+`Context.runIndexerTx`.
 
 **Implementation:** [`mkNodeClientProvider`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkNodeClientProvider&type=code) (real N2C, in [`Provider.NodeClient`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&type=code))
 
@@ -17,14 +21,18 @@ data Provider m = Provider
     { queryUTxOs
         :: Addr
         -> m [(TxIn, TxOut ConwayEra)]
-    -- ^ Look up UTxOs at an address
+    -- ^ Low-level LSQ address query. Forbidden on
+    -- proof/write hot paths.
     , queryProtocolParams
         :: m (PParams ConwayEra)
     -- ^ Fetch current protocol parameters
     , evaluateTx
-        :: ByteString -> m ExUnits
-    -- ^ Evaluate execution units for a serialised
-    -- CBOR transaction (not yet implemented)
+        :: ConwayTx -> m (EvaluateTxResult ConwayEra)
+    -- ^ Evaluate script execution units
+    , posixMsToSlot :: Integer -> m SlotNo
+    -- ^ Convert POSIX time (ms) to slot (floor)
+    , posixMsCeilSlot :: Integer -> m SlotNo
+    -- ^ Convert POSIX time (ms) to slot (ceiling)
     }
 ```
 
@@ -33,9 +41,15 @@ graph LR
     PRV["Provider"]
     NODE["Cardano Node<br/>(LocalStateQuery)"]
 
-    PRV -->|queryUTxOs| NODE
-    PRV -->|queryProtocolParams| NODE
+    PRV -->|PParams| NODE
+    PRV -->|evaluateTx| NODE
+    PRV -->|slot conversion| NODE
 ```
+
+`GET /eval-context` is exposed through the top-level `Context`, not the
+`Provider` record itself. It returns trusted interim PlutusV3 evaluation
+metadata: protocol parameters/cost models, `SystemStart`, epoch size,
+slot length, and live era history.
 
 ---
 
@@ -57,10 +71,21 @@ data TrieManager m = TrieManager
         -> (Trie m -> m a)
         -> m a
     -- ^ Run an action with access to a token's trie
+    , withSpeculativeTrie
+        :: forall a
+         . TokenId
+        -> (forall n. Monad n => Trie n -> n a)
+        -> m a
+    -- ^ Run read-your-writes trie mutations and
+    -- discard them at the end
     , createTrie :: TokenId -> m ()
     -- ^ Create a new empty trie for a token
     , deleteTrie :: TokenId -> m ()
     -- ^ Delete a token's trie
+    , hideTrie :: TokenId -> m ()
+    -- ^ Hide a burned trie while preserving data
+    , unhideTrie :: TokenId -> m ()
+    -- ^ Restore a hidden trie during rollback
     }
 
 data Trie m = Trie
@@ -68,8 +93,10 @@ data Trie m = Trie
         :: ByteString -> ByteString -> m Root
     , delete :: ByteString -> m Root
     , lookup :: ByteString -> m (Maybe ByteString)
+    , enumerate :: m [(ByteString, ByteString)]
     , getRoot :: m Root
     , getProof :: ByteString -> m (Maybe Proof)
+    , getProofSteps :: ByteString -> m (Maybe [ProofStep])
     }
 ```
 
@@ -92,17 +119,17 @@ data State m = State
     }
 
 data Tokens m = Tokens
-    { getToken :: TokenId -> m (Maybe TokenState)
-    , putToken :: TokenId -> TokenState -> m ()
+    { getToken :: TokenId -> m (Maybe LocatedTokenState)
+    , putToken :: TokenId -> LocatedTokenState -> m ()
     , removeToken :: TokenId -> m ()
     , listTokens :: m [TokenId]
     }
 
 data Requests m = Requests
-    { getRequest :: TxIn -> m (Maybe Request)
-    , putRequest :: TxIn -> Request -> m ()
+    { getRequest :: TxIn -> m (Maybe LocatedRequest)
+    , putRequest :: LocatedRequest -> m ()
     , removeRequest :: TxIn -> m ()
-    , requestsByToken :: TokenId -> m [Request]
+    , requestsByToken :: TokenId -> m [LocatedRequest]
     }
 
 data Checkpoints m = Checkpoints
@@ -113,27 +140,25 @@ data Checkpoints m = Checkpoints
 
 ---
 
-## Indexer
+## Indexer Reads And Follower
 
-Chain sync follower with lifecycle control.
+The ChainSync follower is now wired by `Application` rather than exposed
+as an `Indexer` field on `Context`. Its operational role is still the
+same: `CageFollower` processes every block in a [single atomic
+transaction](block-processing.md) covering UTxO CSMT, cage state, MPF
+tries, and rollback data.
 
-**Real:** [`CageFollower`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code) — processes each block in a [single atomic transaction](block-processing.md) covering UTxO, cage state, tries, and rollback
-**Mock:** [`mkSkeletonIndexer`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code) (lifecycle-only skeleton, in [`Mock.Skeleton`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code))
+Proof-bearing HTTP handlers use composable read primitives from
+`Indexer.Reads` and discharge them through one `Context` field:
 
 ```haskell
-data ChainTip = ChainTip
-    { tipSlot :: SlotNo
-    , tipBlockId :: BlockId
-    }
-
-data Indexer m = Indexer
-    { start :: m ()
-    , stop :: m ()
-    , pause :: m ()
-    , resume :: m ()
-    , getTip :: m ChainTip
-    }
+runIndexerTx :: forall a. IndexerTx a -> m a
 ```
+
+That field is the fact-provider boundary. A handler composes snapshot,
+wallet input, state UTxO, request-set, and MPF reads, then runs the
+composition in one underlying transaction so the emitted witnesses all
+target the same indexed `utxo_root`.
 
 ---
 
@@ -158,8 +183,12 @@ newtype Submitter m = Submitter
 
 ## TxBuilder
 
-Constructs transactions for all MPFS protocol operations. Returns
-full ledger `Tx` values ready for signing.
+Internal server transaction builders. They return proof envelopes around
+unsigned ledger transactions and consume a caller-supplied
+`BundleSnapshot`; they must not query the node for UTxO state. Public
+script-bearing browser flows use facts endpoints plus
+`cardano-mpfs-cage-tx` instead of asking the server to return unsigned
+transactions.
 
 **Mock:** [`mkMockTxBuilder`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&type=code) (in [`Mock.TxBuilder`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code))
 **Real:** [`mkRealTxBuilder`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&type=code) (in [`TxBuilder.Real`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code))
@@ -167,48 +196,70 @@ full ledger `Tx` values ready for signing.
 ```haskell
 data TxBuilder m = TxBuilder
     { bootToken
-        :: Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> [ResolvedWalletInput]
+        -> Addr
+        -> m (ProofEnvelope BootProof)
     -- ^ Create a new MPFS token
     , requestInsert
-        :: TokenId -> ByteString -> ByteString
-        -> Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> TokenId -> ByteString -> ByteString
+        -> Addr -> m (ProofEnvelope RequestProof)
     -- ^ Request inserting a key-value pair
     , requestDelete
-        :: TokenId -> ByteString
-        -> Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> TokenId -> ByteString -> ByteString
+        -> Addr -> m (ProofEnvelope RequestProof)
     -- ^ Request deleting a key
+    , requestUpdate
+        :: BundleSnapshot
+        -> TokenId -> ByteString -> ByteString -> ByteString
+        -> Addr -> m (ProofEnvelope RequestProof)
+    -- ^ Request updating a key
     , updateToken
-        :: TokenId -> Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> TokenId -> Addr -> m (ProofEnvelope UpdateProof)
     -- ^ Process pending requests for a token
     , retractRequest
-        :: TxIn -> Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> TxIn -> Addr -> m (ProofEnvelope RetractProof)
     -- ^ Cancel a pending request
+    , rejectRequests
+        :: BundleSnapshot
+        -> TokenId -> Addr -> m (ProofEnvelope RejectProof)
+    -- ^ Reject Phase 3 requests
     , endToken
-        :: TokenId -> Addr -> m (Tx ConwayEra)
+        :: BundleSnapshot
+        -> TokenId -> Addr -> m (ProofEnvelope EndProof)
     -- ^ Retire an MPFS token
     }
 ```
 
 ---
 
-## Balance
+## Evaluation And Balance
 
-Pure transaction balancing function (not a singleton record), in
-[`Core.Balance`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Balance%22&type=code).
-Adds a fee-paying UTxO and change output, finding the fee via
-a fixpoint loop over [`estimateMinFeeTx`](https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=estimateMinFeeTx&type=code).
+Transaction construction uses ledger-native balancing helpers in
+`TxBuilder.Real.Internal` on the server side and
+`Cardano.MPFS.Client.Cage.Eval` in `cardano-mpfs-cage-tx` on the
+client/reactor side. The `*WithEval` cage APIs first decode
+`GET /eval-context`, derive `EpochInfo` from the live era history, and
+then evaluate/balance transactions with real ex-units before wallet
+signing.
 
 ```haskell
-balanceTx
-    :: PParams ConwayEra
-    -> (TxIn, TxOut ConwayEra)   -- fee-paying UTxO
-    -> Addr                       -- change address
-    -> Tx ConwayEra               -- unbalanced tx
-    -> Either BalanceError (Tx ConwayEra)
+bootCageTxWithEval
+    :: DecodedEvalContext
+    -> CageConfig
+    -> WalletPolicy
+    -> VerifiedBootFacts
+    -> Either BuildError ConwayTx
 ```
 
-The fee estimation iterates until stable (max 10 rounds, crashes
-if not converged). One key witness is assumed for the fee input.
+Update, retract, reject, end, and boot are eval-only because they carry
+scripts and must use current PlutusV3 cost models and era history.
+Request insert/delete/update builders do not run scripts, but they still
+consume verified facts and the same cage configuration.
 
 ---
 
@@ -221,10 +272,18 @@ data Context m = Context
     { provider :: Provider m
     , trieManager :: TrieManager m
     , state :: State m
-    , indexer :: Indexer m
     , submitter :: Submitter m
     , txBuilder :: TxBuilder m
+    , cfgCage :: CageConfig
     , utxoExists :: TxIn -> m Bool
+    , resolveUtxo :: TxIn -> m (Maybe ByteString)
+    , awaitUtxo :: TxIn -> Maybe Int -> m (Maybe ByteString)
+    , utxoRoot :: m (Maybe ByteString)
+    , utxoProof :: TxIn -> m (Maybe ByteString)
+    , indexerProofsReady :: m Bool
+    , evalContext :: m EvalContext
+    , runIndexerTx :: forall a. IndexerTx a -> m a
+    , readMetrics :: m (Maybe Metrics)
     }
 ```
 
@@ -234,16 +293,18 @@ graph TD
     PRV["Provider"]
     TM["TrieManager"]
     ST["State"]
-    IDX["Indexer"]
+    READS["IndexerTx Reads"]
     SUB["Submitter"]
     TXB["TxBuilder"]
+    EVAL["EvalContext"]
 
     CTX --> PRV
     CTX --> TM
     CTX --> ST
-    CTX --> IDX
+    CTX --> READS
     CTX --> SUB
     CTX --> TXB
+    CTX --> EVAL
 ```
 
 ### HTTP Server
