@@ -21,4 +21,7 @@ data BuildError
     | EvaluationFailed !Text
     | PolicyViolation !PolicyViolationDetail
     | DSLBuildFailed !Text
+    | MissingBalancedInput !Text
+    | InvalidPlutusV3Script !Text
+    | InvalidStaticConfig !Text
     deriving stock (Eq, Show)

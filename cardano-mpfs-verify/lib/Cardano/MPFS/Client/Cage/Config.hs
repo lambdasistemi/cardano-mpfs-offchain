@@ -20,9 +20,11 @@ import Data.ByteString.Short (ShortByteString)
 import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Alonzo.Scripts
     ( fromPlutusScript
-    , mkPlutusScript
     )
 import Cardano.Ledger.BaseTypes (Network)
+import Cardano.Ledger.Conway.Scripts
+    ( PlutusScript (ConwayPlutusV3)
+    )
 import Cardano.Ledger.Core
     ( Script
     , hashScript
@@ -66,24 +68,20 @@ data CageConfig = CageConfig
 -- | Build the cage script from config bytes.
 mkCageScript :: CageConfig -> Script ConwayEra
 mkCageScript cfg =
-    let plutus =
-            Plutus @PlutusV3
-                $ PlutusBinary
-                $ cageScriptBytes cfg
-    in  case mkPlutusScript plutus of
-            Just ps -> fromPlutusScript ps
-            Nothing -> error "mkCageScript: invalid PlutusV3 script"
+    fromPlutusScript
+        $ ConwayPlutusV3
+        $ Plutus @PlutusV3
+        $ PlutusBinary
+        $ cageScriptBytes cfg
 
 -- | Compute the script hash from raw PlutusV3 bytes.
 computeScriptHash :: ShortByteString -> ScriptHash
 computeScriptHash sbs =
-    let plutus =
-            Plutus @PlutusV3
-                $ PlutusBinary sbs
-    in  case mkPlutusScript @ConwayEra plutus of
-            Just ps -> hashScript @ConwayEra (fromPlutusScript ps)
-            Nothing ->
-                error "computeScriptHash: invalid PlutusV3 script"
+    hashScript @ConwayEra
+        $ fromPlutusScript
+        $ ConwayPlutusV3
+        $ Plutus @PlutusV3
+        $ PlutusBinary sbs
 
 -- | Compute the cage minting policy id from config.
 cagePolicyIdFromCfg :: CageConfig -> PolicyID
