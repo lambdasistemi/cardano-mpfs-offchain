@@ -29,7 +29,13 @@ import System.Environment
     , lookupEnv
     )
 import System.FilePath ((</>))
-import System.IO (hFlush, stdout)
+import System.IO
+    ( BufferMode (LineBuffering)
+    , hFlush
+    , hSetBuffering
+    , stderr
+    , stdout
+    )
 import System.IO.Temp
     ( withSystemTempDirectory
     )
@@ -68,6 +74,7 @@ import Cardano.Node.Client.E2E.Setup
 
 main :: IO ()
 main = do
+    hSetBuffering stderr LineBuffering
     port <- parsePort
     cageScripts <- loadScripts
     gDir <- genesisDir

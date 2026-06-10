@@ -60,7 +60,7 @@ import Servant
     , (:<|>) (..)
     )
 import System.Environment (lookupEnv)
-import System.IO (hPutStrLn, stderr)
+import System.IO (hFlush, hPutStrLn, stderr)
 import Text.Read (readMaybe)
 
 import Data.ByteString (ByteString)
@@ -263,12 +263,13 @@ warpSettings port =
             Warp.defaultSettings
 
 logWarpException :: Maybe Wai.Request -> SomeException -> IO ()
-logWarpException mReq ex =
+logWarpException mReq ex = do
     hPutStrLn stderr
         $ "Uncaught exception in HTTP request "
             <> requestLabel mReq
             <> ": "
             <> displayException ex
+    hFlush stderr
 
 requestLabel :: Maybe Wai.Request -> String
 requestLabel Nothing = "<unknown>"
