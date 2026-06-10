@@ -11,7 +11,8 @@ proof-bearing query response before printing it.
 All MPFS protocol logic comes from `cardano-mpfs-workflows`; the CLI
 owns argument parsing, key loading, local signing, submission, and
 output formatting. See the [walkthrough](walkthrough.md) for a recorded
-session and [troubleshooting](troubleshooting.md) for known issues.
+local-devnet lifecycle and [troubleshooting](troubleshooting.md) for
+common timing and configuration failures.
 
 ## Install
 
@@ -34,17 +35,22 @@ brew install mpfs-cli
 ## Quick start
 
 ```bash
-nix develop                                    # tools + $MPFS_BLUEPRINT
-cabal build mpfs-cli                            # or: nix build .#mpfs-cli
+nix run .#mpfs-devnet-server -- --port 3000    # one shell
+
+nix develop                                    # another shell: tools + $MPFS_BLUEPRINT
 export MPFS_SERVER=http://localhost:3000
-export MPFS_SIGNER_WALLET=owner.skey
-mpfs-cli register-token
-mpfs-cli token list --json | jq
+export MPFS_SIGNER_WALLET=/path/to/funded-devnet.ed25519_sk
+mpfs-cli --json token list | jq '{verified,result}'
+mpfs-cli --json register-token | jq
 ```
 
 `MPFS_SIGNER_WALLET` points at a Bech32 ed25519 signing key
 (`ed25519_sk1...`) whose enterprise address is funded on the target
 network.
+
+For short devnet demonstrations, `register-token` accepts
+`--process-time-ms` and `--retract-time-ms`. Use a retract time greater
+than the process time if you plan to demonstrate `fact retract`.
 
 ## Common commands
 
@@ -88,6 +94,10 @@ has a sensible default for running against your own server, plus a flag
 for paranoid or third-party deployments.
 
 - **Server** — `--server URL`, or, by default, `$MPFS_SERVER`.
+- **Signer** — `--owner-key KEYFILE`, or, by default,
+  `$MPFS_SIGNER_WALLET`. Despite the flag name, this is the local
+  signing key for the current write action: owner actions sign as the
+  owner, requester actions sign as the requester.
 - **Trusted UTxO root** — `--trusted-root HEX`, or, by default, fetched
   from the server's `GET /status`. The default trusts the server to
   report a faithful snapshot. With the flag, the CLI verifies the
@@ -105,17 +115,22 @@ is a future addition.
 
 ## Both-role lifecycle
 
-`fact insert`, `fact update`, and `fact delete` create pending requests.
-The fact will not materialize until the owner runs `token process TOK`,
-which calls the existing update reactor path and advances the trie root.
+`fact insert`, `fact update`, and `fact delete` create pending request
+UTxOs. The fact will not materialize until the owner runs
+`token process TOK`, which folds pending requests into the token trie.
 After processing, `fact get TOK KEY` verifies the read proof and prints
-the materialized value. `requests list TOK` shows pending request ids and
-process/retract deadlines so operators can pick ids for `fact retract`,
-`fact reject --request-id`, or `token process --request-id`.
+the materialized value or a verified absence.
+
+`requests list TOK` shows pending request ids plus process and retract
+deadlines. Use those ids with `token process --request-id`,
+`fact reject --request-id`, or `fact retract --request-id`.
+`fact retract` is only valid after the process window has elapsed and
+before the retract deadline. `fact reject` is for expired pending
+requests after the configured deadline.
 
 `fact delete --value` and `fact retract --request-id` (`txhash#ix`) are
-on-chain protocol requirements — the request datum binds the value, and
-a retract spends one specific request UTxO — not added ergonomics.
+on-chain protocol requirements: the request datum binds the value, and a
+retract spends one specific request UTxO.
 
 ## Key format
 
