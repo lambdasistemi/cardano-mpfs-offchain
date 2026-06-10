@@ -27,7 +27,13 @@ import System.Directory
     ( createDirectoryIfMissing
     )
 import System.Environment (getArgs)
-import System.IO (hFlush, stdout)
+import System.IO
+    ( BufferMode (LineBuffering)
+    , hFlush
+    , hSetBuffering
+    , stderr
+    , stdout
+    )
 
 import Cardano.Chain.Slotting (EpochSlots (..))
 import Cardano.Ledger.BaseTypes (Network (..))
@@ -118,6 +124,7 @@ parseArgs = go defaultArgs
 
 main :: IO ()
 main = do
+    hSetBuffering stderr LineBuffering
     args <- parseArgs <$> getArgs
     validate args
     cageScripts <- loadScripts (argBlueprint args)
