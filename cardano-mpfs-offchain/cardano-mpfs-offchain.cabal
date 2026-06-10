@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          cardano-mpfs-offchain
-version:       0.1.0.0
+version:       0.1.1.0
 synopsis:      Offchain service interfaces for Cardano MPFS
 description:
   Record-of-functions interfaces for the Cardano Merkle
