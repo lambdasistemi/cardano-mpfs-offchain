@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -80,3 +81,37 @@ jobs:
 
       - name: Run E2E tests
         run: nix run --quiet .#e2e-tests
+
+  version-sync:
+    name: Cabal version matches manifest
+    runs-on: nixos
+    steps:
+      - uses: actions/checkout@v6
+      - name: Assert Cabal versions equal release manifest
+        run: |
+          set -euo pipefail
+
+          manifest_version=$(sed -n 's/.*"\.":[[:space:]]*"\([^"]*\)".*/\1/p' .release-please-manifest.json)
+          if [ -z "$manifest_version" ]; then
+            echo "::error::.release-please-manifest.json does not contain a root package version"
+            exit 1
+          fi
+
+          pvp_version="$manifest_version"
+          if [[ "$pvp_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            pvp_version="${pvp_version}.0"
+          fi
+
+          check_cabal_version() {
+            cabal_file="$1"
+            cabal_version=$(sed -n 's/^version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' "$cabal_file" | head -1)
+            echo "manifest=$manifest_version pvp=$pvp_version $cabal_file=$cabal_version"
+
+            if [ "$cabal_version" != "$pvp_version" ]; then
+              echo "::error::$cabal_file version ($cabal_version) does not match release manifest PVP version ($pvp_version)"
+              exit 1
+            fi
+          }
+
+          check_cabal_version cardano-mpfs-offchain/cardano-mpfs-offchain.cabal
+          check_cabal_version cardano-mpfs-cli/cardano-mpfs-cli.cabal
