@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -13,19 +14,28 @@ import Data.Aeson
     , Value (..)
     , eitherDecode
     , encode
+    , object
+    , (.=)
     )
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy.Char8 qualified as BL
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (traverse_)
 import Data.List qualified as List
+import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Swagger qualified as Swagger
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Network.HTTP.Types
     ( hContentType
     , methodPost
+    , status200
     , status400
     )
 import Network.Wai (Request (..))
@@ -47,8 +57,40 @@ import Test.Hspec
     )
 import Test.QuickCheck (generate)
 
+import Cardano.Crypto.Hash.Class qualified as Crypto
+import Cardano.Ledger.Address
+    ( Addr (..)
+    , serialiseAddr
+    )
 import Cardano.Ledger.Api.PParams (emptyPParams)
-import Cardano.Ledger.Mary.Value (AssetName (..))
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , datumTxOutL
+    , mkBasicTxOut
+    )
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
+    , Network (..)
+    , TxIx (..)
+    )
+import Cardano.Ledger.Binary
+    ( natVersion
+    , serialize'
+    )
+import Cardano.Ledger.Credential
+    ( Credential (..)
+    , StakeReference (..)
+    )
+import Cardano.Ledger.Hashes (extractHash)
+import Cardano.Ledger.Mary.Value
+    ( AssetName (..)
+    , MaryValue (..)
+    , MultiAsset (..)
+    )
+import Cardano.Ledger.TxIn
+    ( TxId (..)
+    , TxIn (..)
+    )
 import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types.Facts
     ( ChainPointJSON (..)
@@ -60,17 +102,32 @@ import Cardano.MPFS.API.Types.Facts
     , UtxoRef (..)
     , VerificationSnapshot (..)
     )
-import Cardano.MPFS.Context (Context)
+import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Core.OnChain
+    ( CageDatum (..)
+    , OnChainRoot (..)
+    , OnChainTokenState (..)
+    )
+import Cardano.MPFS.Core.OnChain qualified as OnChain
 import Cardano.MPFS.Core.Types
-    ( Addr
-    , BlockId (..)
+    ( BlockId (..)
+    , Coin (..)
     , ConwayEra
     , PParams
     , SlotNo (..)
     , TokenId (..)
-    , TxIn
     )
-import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.Generators
+    ( genKeyHash
+    , genTxIn
+    )
+import Cardano.MPFS.HTTP.AtomicReadFixture
+    ( cafeTid
+    , cafeTokenJSON
+    , insertFacts
+    , testCageConfig
+    , withProofIndexer
+    )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.Swagger (renderSwaggerJSON)
@@ -80,11 +137,26 @@ import Cardano.MPFS.Indexer.Reads
     , readRequestUtxosAt
     , readTrieFact
     )
+import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder
     ( BundleSnapshot (..)
     , ResolvedWalletInput
     )
 import Cardano.MPFS.TxBuilder qualified as Tx
+import Cardano.MPFS.TxBuilder.Real.Internal
+    ( addrKeyHashBytes
+    , cageAddrFromCfg
+    , cagePolicyIdFromCfg
+    , currentPosixMs
+    , mkInlineDatum
+    , mkRequestDatum
+    , requestAddrFromCfg
+    , toPlcData
+    )
+import Control.Lens ((&), (.~))
+import PlutusTx.Builtins.Internal
+    ( BuiltinByteString (..)
+    )
 
 spec :: Spec
 spec = do
@@ -95,6 +167,56 @@ spec = do
                     ctx <- mkTestContext
                     resp <- postJson ctx "/facts/update" badUpdateRequest
                     simpleStatus resp `shouldBe` status400
+
+                it "returns update facts for an exact request subset" $ do
+                    nowMs <- currentPosixMs
+                    ctx0 <- mkTestContext
+                    reqIn <- generate genTxIn
+                    stateIn <- generate genTxIn
+                    walletIn <- generate genTxIn
+                    ownerKh <- generate genKeyHash
+                    let ownerAddr =
+                            Addr
+                                Testnet
+                                (KeyHashObj ownerKh)
+                                StakeRefNull
+                        submittedAt = nowMs - 1_000
+                        entries =
+                            [ (stateIn, stateTxOutBytes ownerAddr)
+                            ,
+                                ( reqIn
+                                , requestTxOutBytes
+                                    ownerAddr
+                                    submittedAt
+                                )
+                            , (walletIn, walletTxOutBytes ownerAddr)
+                            ]
+                    withProofIndexer Nothing entries ctx0
+                        $ \_txRoot ctxWithIndexer -> do
+                            _ <- insertFacts ctxWithIndexer cafeTid []
+                            let ctx =
+                                    ctxWithIndexer
+                                        { provider =
+                                            happyUpdateProvider
+                                                (provider ctxWithIndexer)
+                                        }
+                                body =
+                                    object
+                                        [ "token" .= cafeTokenJSON
+                                        , "address"
+                                            .= Hex
+                                                ( serialiseAddr
+                                                    ownerAddr
+                                                )
+                                        , "requests"
+                                            .= [txInRefText reqIn]
+                                        ]
+                            resp <-
+                                postJsonValue
+                                    ctx
+                                    "/facts/update"
+                                    body
+                            simpleStatus resp `shouldBe` status200
 
                 it "documents facts route and drops legacy tx route"
                     $ case eitherDecode renderSwaggerJSON of
@@ -260,6 +382,101 @@ postJson ctx path body =
                 }
         )
         (mkApp ctx)
+
+postJsonValue
+    :: Context IO
+    -> ByteString
+    -> Value
+    -> IO SResponse
+postJsonValue ctx path body =
+    postJson ctx path (BL.unpack (encode body))
+
+stateTxOutBytes :: Addr -> ByteString
+stateTxOutBytes ownerAddr =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
+  where
+    tokenMA =
+        MultiAsset
+            $ Map.singleton
+                (cagePolicyIdFromCfg testCageConfig)
+            $ Map.singleton
+                (unTokenId cafeTid)
+                1
+    val = MaryValue (Coin 2_000_000) tokenMA
+    datum =
+        StateDatum
+            OnChainTokenState
+                { stateOwner =
+                    BuiltinByteString
+                        (addrKeyHashBytes ownerAddr)
+                , stateRoot =
+                    OnChainRoot
+                        (BS.replicate 32 0)
+                , stateMaxFee = 1_000_000
+                , stateProcessTime = 300_000
+                , stateRetractTime = 60_000
+                }
+    txOut =
+        mkBasicTxOut
+            (cageAddrFromCfg testCageConfig Testnet)
+            val
+            & datumTxOutL .~ mkInlineDatum (toPlcData datum)
+
+requestTxOutBytes :: Addr -> Integer -> ByteString
+requestTxOutBytes ownerAddr submittedAt =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
+  where
+    txOut =
+        mkBasicTxOut
+            (requestAddrFromCfg testCageConfig cafeTid Testnet)
+            (inject (Coin 2_000_000))
+            & datumTxOutL
+                .~ mkInlineDatum
+                    ( mkRequestDatum
+                        cafeTid
+                        ownerAddr
+                        "subset-key"
+                        (OnChain.OpInsert "subset-value")
+                        100_000
+                        submittedAt
+                    )
+
+walletTxOutBytes :: Addr -> ByteString
+walletTxOutBytes ownerAddr =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
+  where
+    txOut =
+        mkBasicTxOut
+            ownerAddr
+            (inject (Coin 5_000_000))
+
+happyUpdateProvider :: Provider IO -> Provider IO
+happyUpdateProvider prov =
+    prov
+        { queryProtocolParams = pure emptyPParams
+        , posixMsToSlot =
+            \ms ->
+                pure
+                    $ SlotNo
+                    $ fromInteger
+                    $ ms `div` 1000
+        }
+
+txInRefText :: TxIn -> Text
+txInRefText (TxIn (TxId sh) (TxIx ix)) =
+    TE.decodeUtf8
+        ( B16.encode
+            $ Crypto.hashToBytes
+            $ extractHash sh
+        )
+        <> "#"
+        <> T.pack (show ix)
 
 sampleUpdateFacts :: UpdateFacts
 sampleUpdateFacts =

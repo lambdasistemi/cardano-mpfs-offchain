@@ -13,6 +13,7 @@
 module Cardano.MPFS.HTTP.Server
     ( -- * Application
       mkApp
+    , warpSettings
     , mkBootFacts
     , mkRequestInsertFacts
     , mkRequestDeleteFacts
@@ -27,10 +28,12 @@ module Cardano.MPFS.HTTP.Server
     ) where
 
 import Control.Applicative ((<|>))
+import Control.Exception (SomeException, displayException)
 import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base16 qualified as B16
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BSL
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
@@ -57,10 +60,13 @@ import Servant
     , (:<|>) (..)
     )
 import System.Environment (lookupEnv)
+import System.IO (hPutStrLn, stderr)
 import Text.Read (readMaybe)
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp qualified as Warp
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.BaseTypes (TxIx (..))
@@ -247,6 +253,29 @@ mkApp ctx =
             :<|> factsEndHandler ctx
             :<|> txSweepHandler ctx
             :<|> txSubmitHandler ctx
+
+-- | Warp settings with useful logging for uncaught handler exceptions.
+warpSettings :: Int -> Warp.Settings
+warpSettings port =
+    Warp.setPort port
+        $ Warp.setOnException
+            logWarpException
+            Warp.defaultSettings
+
+logWarpException :: Maybe Wai.Request -> SomeException -> IO ()
+logWarpException mReq ex =
+    hPutStrLn stderr
+        $ "Uncaught exception in HTTP request "
+            <> requestLabel mReq
+            <> ": "
+            <> displayException ex
+
+requestLabel :: Maybe Wai.Request -> String
+requestLabel Nothing = "<unknown>"
+requestLabel (Just req) =
+    BS8.unpack (Wai.requestMethod req)
+        <> " "
+        <> BS8.unpack (Wai.rawPathInfo req)
 
 -- ---------------------------------------------------------
 -- Metrics handlers

@@ -86,6 +86,8 @@ library
     , swagger2
     , text                                     >=2.0  && <2.2
     , time
+    , wai
+    , warp
 
   exposed-modules:
     Cardano.MPFS.Application
