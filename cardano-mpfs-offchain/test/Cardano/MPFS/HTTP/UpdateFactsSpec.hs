@@ -37,6 +37,7 @@ import Network.HTTP.Types
     , methodPost
     , status200
     , status400
+    , status500
     )
 import Network.Wai (Request (..))
 import Network.Wai.Test
@@ -53,6 +54,7 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldContain
     , shouldSatisfy
     )
 import Test.QuickCheck (generate)
@@ -133,7 +135,8 @@ import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.Swagger (renderSwaggerJSON)
 import Cardano.MPFS.HTTP.Types.Facts (mkUpdateFacts)
 import Cardano.MPFS.Indexer.Reads
-    ( IndexerTx
+    ( IndexerReadError
+    , IndexerTx
     , readRequestUtxosAt
     , readTrieFact
     )
@@ -217,6 +220,63 @@ spec = do
                                     "/facts/update"
                                     body
                             simpleStatus resp `shouldBe` status200
+
+                it
+                    "returns a typed failure when trie proof data is missing"
+                    $ do
+                        nowMs <- currentPosixMs
+                        ctx0 <- mkTestContext
+                        reqIn <- generate genTxIn
+                        stateIn <- generate genTxIn
+                        walletIn <- generate genTxIn
+                        ownerKh <- generate genKeyHash
+                        let ownerAddr =
+                                Addr
+                                    Testnet
+                                    (KeyHashObj ownerKh)
+                                    StakeRefNull
+                            submittedAt = nowMs - 1_000
+                            entries =
+                                [ (stateIn, stateTxOutBytes ownerAddr)
+                                ,
+                                    ( reqIn
+                                    , requestTxOutBytesWithOp
+                                        ownerAddr
+                                        submittedAt
+                                        (OnChain.OpDelete "missing-value")
+                                    )
+                                , (walletIn, walletTxOutBytes ownerAddr)
+                                ]
+                        withProofIndexer Nothing entries ctx0
+                            $ \_txRoot ctxWithIndexer -> do
+                                _ <- insertFacts ctxWithIndexer cafeTid []
+                                let ctx =
+                                        ctxWithIndexer
+                                            { provider =
+                                                happyUpdateProvider
+                                                    (provider ctxWithIndexer)
+                                            }
+                                    body =
+                                        object
+                                            [ "token" .= cafeTokenJSON
+                                            , "address"
+                                                .= Hex
+                                                    ( serialiseAddr
+                                                        ownerAddr
+                                                    )
+                                            , "requests"
+                                                .= [txInRefText reqIn]
+                                            ]
+                                resp <-
+                                    postJsonValue
+                                        ctx
+                                        "/facts/update"
+                                        body
+                                simpleStatus resp `shouldBe` status500
+                                BL.unpack (simpleBody resp)
+                                    `shouldContain` "no MPF inclusion proof for key"
+                                BL.unpack (simpleBody resp)
+                                    `shouldContain` "7375627365742d6b6579"
 
                 it "documents facts route and drops legacy tx route"
                     $ case eitherDecode renderSwaggerJSON of
@@ -329,12 +389,17 @@ spec = do
     it "exports update-focused atomic read helpers" $ do
         let _readRequestUtxosAt
                 :: Addr
-                -> IndexerTx [ResolvedWalletInput]
+                -> IndexerTx
+                    ( Either
+                        IndexerReadError
+                        [ResolvedWalletInput]
+                    )
             _readRequestUtxosAt = readRequestUtxosAt
             _readTrieFact
                 :: TokenId
                 -> ByteString
-                -> IndexerTx Tx.TrieFact
+                -> IndexerTx
+                    (Either IndexerReadError Tx.TrieFact)
             _readTrieFact = readTrieFact
         _readRequestUtxosAt `seq`
             _readTrieFact `seq`
@@ -426,6 +491,17 @@ stateTxOutBytes ownerAddr =
 
 requestTxOutBytes :: Addr -> Integer -> ByteString
 requestTxOutBytes ownerAddr submittedAt =
+    requestTxOutBytesWithOp
+        ownerAddr
+        submittedAt
+        (OnChain.OpInsert "subset-value")
+
+requestTxOutBytesWithOp
+    :: Addr
+    -> Integer
+    -> OnChain.OnChainOperation
+    -> ByteString
+requestTxOutBytesWithOp ownerAddr submittedAt op =
     serialize'
         (natVersion @11)
         (txOut :: TxOut ConwayEra)
@@ -440,7 +516,7 @@ requestTxOutBytes ownerAddr submittedAt =
                         cafeTid
                         ownerAddr
                         "subset-key"
-                        (OnChain.OpInsert "subset-value")
+                        op
                         100_000
                         submittedAt
                     )

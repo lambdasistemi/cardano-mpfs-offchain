@@ -11,7 +11,7 @@ module Cardano.MPFS.HTTP.TokensSpec
     , mkDummyTokenState
     ) where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Aeson (decode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
@@ -90,7 +90,9 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.Generators (genKeyHash, genTxIn)
 import Cardano.MPFS.HTTP.AtomicReadFixture
-    ( sampleStateOutBytes
+    ( cafeTid
+    , sampleRequestOutBytes
+    , sampleStateOutBytes
     , staleRoot
     , stateSetPrefix
     , testCageConfig
@@ -113,9 +115,7 @@ import Cardano.MPFS.Indexer.Reads
     , readMerkleRoot
     )
 import Cardano.MPFS.State qualified as St
-import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 import Test.QuickCheck (generate)
-import Unsafe.Coerce (unsafeCoerce)
 
 getTokens :: Context IO -> IO SResponse
 getTokens ctx =
@@ -150,23 +150,6 @@ withTokenSet
     -> Context IO
     -> (Context IO -> IO a)
     -> IO a
-withTokenSet [] proofBs ctx action =
-    action
-        ctx
-            { runIndexerTx =
-                \_ ->
-                    pure
-                        $ unsafeCoerce
-                            ( Just
-                                BundleSnapshot
-                                    { snapshotUtxoRoot = "root"
-                                    , snapshotSlot = SlotNo 42
-                                    , snapshotBlockId =
-                                        BlockId "block-id-bytes"
-                                    }
-                            , ([] :: [(TxIn, ByteString)], proofBs)
-                            )
-            }
 withTokenSet entries _proofBs ctx action =
     withTokenSetRoot Nothing entries ctx
         $ \_ ctxWithSet -> action ctxWithSet
@@ -209,6 +192,22 @@ withTokenSetRoot mOutOfTxRoot entries ctx action =
                         $ forM_ seededEntries
                         $ uncurry
                             (csmtInsert csmtOps)
+                    when (null seededEntries) $ do
+                        sentinel <- generate genTxIn
+                        let sentinelKey =
+                                serialize
+                                    (natVersion @11)
+                                    sentinel
+                        runTransaction
+                            $ mapColumns InUtxo
+                            $ csmtInsert
+                                csmtOps
+                                sentinelKey
+                                ( BSL.fromStrict
+                                    $ sampleRequestOutBytes
+                                        cafeTid
+                                        0
+                                )
                     runTransaction
                         $ Store.armageddonSetup
                             InRollbacks

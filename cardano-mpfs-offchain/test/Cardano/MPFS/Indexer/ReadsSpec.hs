@@ -20,6 +20,7 @@ import Data.IORef
     , writeIORef
     )
 import Data.List (nub, sort)
+import Data.Text qualified as T
 
 import Test.Hspec
     ( Spec
@@ -81,26 +82,57 @@ import Cardano.Ledger.Credential
     , StakeReference (..)
     )
 import Cardano.Ledger.Val (inject)
+import Cardano.UTxOCSMT.Application.Database.Implementation.Columns
+    ( Columns (..)
+    )
 import Cardano.UTxOCSMT.Application.Database.Implementation.Transaction
     ( CSMTContext (..)
+    , CSMTOps (..)
+    , mkCSMTOps
     )
 import Cardano.UTxOCSMT.Application.Run.Config
     ( context
     , hashAddressKey
     )
+import Cardano.UTxOCSMT.Ouroboros.Types (Point)
 
+import Database.KV.Database (mkColumns)
+import Database.KV.RocksDB (mkRocksDBDatabase)
 import Database.KV.Transaction
-    ( Transaction
+    ( RunTransaction (..)
+    , Transaction
+    , mapColumns
+    , newRunTransaction
     , query
     , runTransactionUnguarded
     )
+import Database.KV.Transaction qualified as KV
+import Database.RocksDB
+    ( BatchOp
+    , ColumnFamily
+    , DB (..)
+    , withDBCF
+    )
+import System.IO.Temp (withSystemTempDirectory)
 
+import Cardano.MPFS.Application
+    ( allColumnFamilies
+    , dbConfig
+    , unifiedCodecs
+    )
 import Cardano.MPFS.Core.Types
     ( ConwayEra
     , TxIn
     )
 import Cardano.MPFS.Generators (genTxIn)
-import Cardano.MPFS.Indexer.Reads (addressScopedLeafKey)
+import Cardano.MPFS.Indexer.Columns (UnifiedColumns (..))
+import Cardano.MPFS.Indexer.Reads
+    ( IndexerReadError (..)
+    , IndexerTx (..)
+    , addressScopedLeafKey
+    , readUtxoSetAt
+    , readWalletInputsAt
+    )
 import Cardano.MPFS.Indexer.TxFixtures
     ( testCageAddr
     , wrongScriptHash
@@ -530,6 +562,63 @@ spec = describe "address-prefixed UTxO leaves" $ do
             walletAfterReplay `shouldBe` Right []
             otherAfterReplay `shouldBe` Right [key]
 
+    it
+        "wallet input reads skip stale address leaves without KV bytes"
+        $ do
+            generated <- generate $ vectorOf 4 genTxIn
+            case take 2 (nub generated) of
+                [staleIn, liveIn] ->
+                    withUnifiedUtxoDB $ \runTransaction -> do
+                        let CSMTContext{fromKV, hashing} = context
+                            csmtOps = mkCSMTOps fromKV hashing
+                            staleKey = encodeTxIn staleIn
+                            liveKey = encodeTxIn liveIn
+                            out = encodeTxOutAt testCageAddr
+                        runTransaction
+                            $ mapColumns InUtxo
+                            $ do
+                                csmtInsert csmtOps staleKey out
+                                csmtInsert csmtOps liveKey out
+                                KV.delete KVCol staleKey
+                        eRows <-
+                            runTransaction
+                                $ unIndexerTx
+                                $ readWalletInputsAt testCageAddr
+                        fmap
+                            ( \rows ->
+                                [txIn | (txIn, _, _) <- rows]
+                            )
+                            eRows
+                            `shouldBe` Right [liveIn]
+                _ ->
+                    expectationFailure
+                        "genTxIn did not produce two unique TxIns"
+
+    it
+        "UTxO set reads report stale address leaves as typed failures"
+        $ do
+            txIn <- generate genTxIn
+            withUnifiedUtxoDB $ \runTransaction -> do
+                let CSMTContext{fromKV, hashing} = context
+                    csmtOps = mkCSMTOps fromKV hashing
+                    key = encodeTxIn txIn
+                    out = encodeTxOutAt testCageAddr
+                runTransaction
+                    $ mapColumns InUtxo
+                    $ do
+                        csmtInsert csmtOps key out
+                        KV.delete KVCol key
+                result <-
+                    runTransaction
+                        $ unIndexerTx
+                        $ readUtxoSetAt testCageAddr
+                case result of
+                    Left (IndexerReadError msg) ->
+                        T.unpack msg `shouldContain` show txIn
+                    Right _ ->
+                        expectationFailure
+                            "Expected typed stale-leaf failure"
+
 encodeTxIn :: TxIn -> BSL.ByteString
 encodeTxIn =
     serialize (natVersion @11)
@@ -634,6 +723,32 @@ withStrictPureDb action = do
             writeIORef ref db'
             pure result
     action rtx
+
+withUnifiedUtxoDB
+    :: ( ( forall a
+            . Transaction
+                IO
+                ColumnFamily
+                (UnifiedColumns Point Hash BSL.ByteString BSL.ByteString)
+                BatchOp
+                a
+           -> IO a
+         )
+         -> IO r
+       )
+    -> IO r
+withUnifiedUtxoDB action =
+    withSystemTempDirectory "indexer-reads-test"
+        $ \dir ->
+            withDBCF dir dbConfig allColumnFamilies
+                $ \db@DB{columnFamilies} -> do
+                    let database =
+                            mkRocksDBDatabase
+                                db
+                                (mkColumns columnFamilies unifiedCodecs)
+                    RunTransaction{runTransaction} <-
+                        newRunTransaction database
+                    action runTransaction
 
 strictAddressFromKV
     :: FromKV BS.ByteString BS.ByteString Hash
