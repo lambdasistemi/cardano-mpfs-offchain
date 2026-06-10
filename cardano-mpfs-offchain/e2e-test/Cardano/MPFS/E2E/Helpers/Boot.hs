@@ -36,6 +36,7 @@ module Cardano.MPFS.E2E.Helpers.Boot
 
 import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
+import Data.Text qualified as T
 
 import Control.Applicative ((<|>))
 import Control.Monad (when)
@@ -65,7 +66,8 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.HTTP.Server (mkBootFacts)
 import Cardano.MPFS.Indexer.Reads
-    ( readMerkleRoot
+    ( IndexerReadError (..)
+    , readMerkleRoot
     , readSnapshot
     , readWalletInputsAt
     )
@@ -140,7 +142,7 @@ buildBootEnvelopeFromFacts
     -> IO (ProofEnvelope BootProof)
 buildBootEnvelopeFromFacts cfg ctx addr = do
     awaitProofReadsReady ctx
-    (mSnap, mRoot, inputs) <-
+    (mSnap, mRoot, eInputs) <-
         runIndexerTx ctx $ do
             snap <- readSnapshot
             root <- readMerkleRoot
@@ -151,6 +153,10 @@ buildBootEnvelopeFromFacts cfg ctx addr = do
             Nothing ->
                 fail "E2E boot facts: UTxO root unavailable"
             Just value -> pure value
+    inputs <-
+        requireIndexerRead
+            "E2E boot facts: readWalletInputsAt failed"
+            eInputs
     when (null inputs)
         $ fail "E2E boot facts: no wallet UTxOs at address"
     pp <- queryProtocolParams (provider ctx)
@@ -190,6 +196,17 @@ buildBootEnvelopeFromFacts cfg ctx addr = do
                 BootProof
                     (map witnessedInputFromResolved inputs)
             }
+
+requireIndexerRead
+    :: String
+    -> Either IndexerReadError a
+    -> IO a
+requireIndexerRead label result =
+    case result of
+        Left (IndexerReadError msg) ->
+            fail $ label <> ": " <> T.unpack msg
+        Right value ->
+            pure value
 
 factsTrustedRoot :: BootFacts -> TrustedRoot
 factsTrustedRoot BootFacts{bfSnapshot = VerificationSnapshot{..}} =
