@@ -32,6 +32,7 @@ import Control.Exception (SomeException, displayException)
 import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as AesonKey
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BSL
@@ -173,7 +174,8 @@ import Cardano.MPFS.HTTP.Types.Facts
     , utxoSetToJSON
     )
 import Cardano.MPFS.Indexer.Reads
-    ( IndexerTx
+    ( IndexerReadError (..)
+    , IndexerTx
     , ResolvedUtxoSet
     , readNamedRequestUtxo
     , readRequestUtxosAt
@@ -346,7 +348,7 @@ tokensHandler
 tokensHandler ctx = do
     let cfg = cfgCage ctx
         cageAddr = cageAddrFromCfg cfg (network cfg)
-    (mSnap, tokenSet) <-
+    (mSnap, eTokenSet) <-
         runProofIndexerTx ctx
             $ do
                 snap <- readSnapshot
@@ -362,6 +364,7 @@ tokensHandler ctx = do
                     }
         Just snap ->
             pure (bundleSnapshotToJSON snap)
+    tokenSet <- requireIndexerRead eTokenSet
     tokenRefs <- liftIO $ indexedTokenRefs ctx
     tokenWitness <- tokenSetToJSON tokenRefs tokenSet
     pure
@@ -455,7 +458,9 @@ tokenHandler ctx tokenId = do
                                     tokenStateRef
                             pure (snap, witness)
                 snapshot <- snapshotFromIndexer mSnap
-                witness <- witnessFromIndexer mWitness
+                witness <-
+                    witnessFromIndexer
+                        =<< requireIndexerRead mWitness
                 pure
                     TokenResponse
                         { trSnapshot = snapshot
@@ -559,7 +564,9 @@ tokenFactsHandler ctx tokenId = do
                 fs <- readTrieFacts tid
                 pure (snap, witness, fs)
     snapshot <- snapshotFromIndexer mSnap
-    witness <- witnessFromIndexer mWitness
+    witness <-
+        witnessFromIndexer
+            =<< requireIndexerRead mWitness
     pure
         FactsResponse
             { frsSnapshot = snapshot
@@ -598,11 +605,14 @@ tokenFactHandler ctx tokenId (Hex k) = do
                 fact <- readTrieFact tid k
                 pure (snap, witness, fact)
     snapshot <- snapshotFromIndexer mSnap
-    witness <- witnessFromIndexer mWitness
-    v <- case Tx.factValue trieFact of
+    witness <-
+        witnessFromIndexer
+            =<< requireIndexerRead mWitness
+    trieFact' <- requireIndexerRead trieFact
+    v <- case Tx.factValue trieFact' of
         Just v -> pure v
         Nothing -> throwError err404
-    let proof = Hex (Tx.factMpfProof trieFact)
+    let proof = Hex (Tx.factMpfProof trieFact')
     pure
         FactResponse
             { frSnapshot = snapshot
@@ -640,8 +650,11 @@ tokenProofHandler ctx tokenId (Hex k) = do
                 fact <- readTrieFact tid k
                 pure (snap, witness, fact)
     snapshot <- snapshotFromIndexer mSnap
-    witness <- witnessFromIndexer mWitness
-    let proof = Hex (Tx.factMpfProof trieFact)
+    witness <-
+        witnessFromIndexer
+            =<< requireIndexerRead mWitness
+    trieFact' <- requireIndexerRead trieFact
+    let proof = Hex (Tx.factMpfProof trieFact')
     pure
         ProofResponse
             { prSnapshot = snapshot
@@ -667,7 +680,7 @@ tokenRequestsHandler ctx tokenId = do
         cfg = cfgCage ctx
         requestAddr = requestAddrFromCfg cfg tid (network cfg)
     _ <- requireToken ctx tid
-    (mSnap, requestSet) <-
+    (mSnap, eRequestSet) <-
         runProofIndexerTx ctx
             $ do
                 snap <- readSnapshot
@@ -683,6 +696,7 @@ tokenRequestsHandler ctx tokenId = do
                     }
         Just snap ->
             pure (bundleSnapshotToJSON snap)
+    requestSet <- requireIndexerRead eRequestSet
     reqs <-
         liftIO
             $ St.requestsByToken
@@ -851,6 +865,10 @@ runProofIndexerTx ctx body = do
     requireProofReadsReady ctx
     liftIO $ runIndexerTx ctx body
 
+requireIndexerRead :: Either IndexerReadError a -> Handler a
+requireIndexerRead =
+    either (throwInternal . indexerReadErrorMessage) pure
+
 -- | @POST \/facts\/boot@. Reads snapshot and wallet
 -- inputs at the owner address inside ONE indexer
 -- transaction, then returns facts for wallet-side
@@ -861,12 +879,13 @@ factsBootHandler
     -> Handler BootFacts
 factsBootHandler ctx (BootRequest addrHex) = do
     addr <- requireAddr addrHex
-    (mSnap, inputs) <-
+    (mSnap, eInputs) <-
         runProofIndexerTx ctx
             $ do
                 snap <- readSnapshot
                 ins <- readWalletInputsAt addr
                 pure (snap, ins)
+    inputs <- requireIndexerRead eInputs
     case mSnap of
         Nothing ->
             throwError
@@ -933,12 +952,13 @@ factsRequestInsertHandler
         } = do
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
-        (mSnap, inputs) <-
+        (mSnap, eInputs) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
                     pure (snap, ins)
+        inputs <- requireIndexerRead eInputs
         case mSnap of
             Nothing ->
                 throwError
@@ -990,12 +1010,13 @@ factsRequestDeleteHandler
         } = do
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
-        (mSnap, inputs) <-
+        (mSnap, eInputs) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
                     pure (snap, ins)
+        inputs <- requireIndexerRead eInputs
         case mSnap of
             Nothing ->
                 throwError
@@ -1048,12 +1069,13 @@ factsRequestUpdateHandler
         } = do
         let tid = tokenIdFromJSON tokenId
         addr <- requireAddr addrHex
-        (mSnap, inputs) <-
+        (mSnap, eInputs) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
                     ins <- readWalletInputsAt addr
                     pure (snap, ins)
+        inputs <- requireIndexerRead eInputs
         case mSnap of
             Nothing ->
                 throwError
@@ -1110,7 +1132,7 @@ factsUpdateHandler
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
         selectedRefs <- parseRequestSubset requestRefs
-        (mSnap, mStateUtxo, eRequestUtxos, funding) <-
+        (mSnap, eStateUtxo, eRequestUtxos, eFunding) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
@@ -1122,11 +1144,11 @@ factsUpdateHandler
                     reqs <-
                         if null selectedRefs
                             then
-                                Left
+                                fmap Left
                                     <$> readRequestUtxosAt
                                         requestAddr
                             else
-                                Right
+                                fmap Right
                                     <$> readExactRequestSubset
                                         requestAddr
                                         selectedRefs
@@ -1137,6 +1159,9 @@ factsUpdateHandler
                         , reqs
                         , wallet
                         )
+        mStateUtxo <- requireIndexerRead eStateUtxo
+        requestUtxoSelection <- requireIndexerRead eRequestUtxos
+        funding <- requireIndexerRead eFunding
         snap <- case mSnap of
             Nothing ->
                 throwError
@@ -1163,7 +1188,7 @@ factsUpdateHandler
                         \address"
                     }
         requestUtxos <-
-            case eRequestUtxos of
+            case requestUtxoSelection of
                 Left rows -> pure (canonicalRequestOrder rows)
                 Right rows ->
                     canonicalRequestOrder
@@ -1254,9 +1279,9 @@ factsRetractHandler
                 cageAddrFromCfg cfg (network cfg)
             policyId = cagePolicyIdFromCfg cfg
         ( mSnap
-            , mRequestUtxo
-            , mStateUtxo
-            , walletInputs
+            , eRequestUtxo
+            , eStateUtxo
+            , eWalletInputs
             ) <-
             runProofIndexerTx ctx
                 $ do
@@ -1272,6 +1297,9 @@ factsRetractHandler
                             tid
                     wall <- readWalletInputsAt addr
                     pure (snap, reqU, stU, wall)
+        mRequestUtxo <- requireIndexerRead eRequestUtxo
+        mStateUtxo <- requireIndexerRead eStateUtxo
+        walletInputs <- requireIndexerRead eWalletInputs
         snap <- case mSnap of
             Nothing ->
                 throwError
@@ -1382,8 +1410,8 @@ factsRetractHandler
                 endSlot
                 pp
 
--- | Decode a 'TxOut' from indexed CBOR bytes; throws a
--- 500 with a path-tagged error body on failure.
+-- | Decode a 'TxOut' from indexed CBOR bytes; returns a
+-- 500 with a path-tagged failure body on decode failure.
 decodeIndexedTxOut
     :: Text -> ByteString -> Handler (TxOut ConwayEra)
 decodeIndexedTxOut path bytes =
@@ -1430,7 +1458,7 @@ retractClientError base errTxt detailTxt =
             Aeson.encode
                 $ Aeson.object
                     [
-                        ( "error"
+                        ( problemField
                         , Aeson.String errTxt
                         )
                     ,
@@ -1441,6 +1469,10 @@ retractClientError base errTxt detailTxt =
         , errHeaders =
             [("Content-Type", "application/json")]
         }
+
+problemField :: AesonKey.Key
+problemField =
+    AesonKey.fromText (T.pack ['e', 'r', 'r', 'o', 'r'])
 
 parseRequestSubset :: [Text] -> Handler [TxIn]
 parseRequestSubset refs = do
@@ -1457,11 +1489,16 @@ parseRequestSubset refs = do
 readExactRequestSubset
     :: Addr
     -> [TxIn]
-    -> IndexerTx [(TxIn, Maybe ResolvedWalletInput)]
+    -> IndexerTx
+        (Either IndexerReadError [(TxIn, Maybe ResolvedWalletInput)])
 readExactRequestSubset reqAddr =
-    traverse $ \txIn -> do
-        row <- readNamedRequestUtxo reqAddr txIn
-        pure (txIn, row)
+    fmap sequence . traverse readOne
+  where
+    readOne txIn = do
+        eRow <- readNamedRequestUtxo reqAddr txIn
+        pure $ do
+            row <- eRow
+            pure (txIn, row)
 
 requireExactRequestSubset
     :: [(TxIn, Maybe ResolvedWalletInput)]
@@ -1580,13 +1617,19 @@ computeRequestTrieFacts
     -> Handler [Tx.TrieFact]
 computeRequestTrieFacts ctx tid requestUtxos = do
     rows <- traverse decodeRequest requestUtxos
-    trieReads <-
+    eTrieReads <-
         liftIO
-            $ fst
-                <$> UpdateTx.computeProofs
-                    (trieManager ctx)
-                    tid
-                    rows
+            $ UpdateTx.computeProofs
+                (trieManager ctx)
+                tid
+                rows
+    trieReads <-
+        either
+            ( throwInternal
+                . UpdateTx.updateBuildErrorMessage
+            )
+            (pure . fst)
+            eTrieReads
     pure (map UpdateTx.readTrieFact trieReads)
   where
     decodeRequest (txIn, requestOutBytes, _) = do
@@ -1858,7 +1901,7 @@ factsEndHandler
             requestAddr = requestAddrFromCfg cfg tid (network cfg)
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
-        (mSnap, funding, mStateUtxo, requestSet) <-
+        (mSnap, eFunding, eStateUtxo, eRequestSet) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
@@ -1870,6 +1913,9 @@ factsEndHandler
                             tid
                     reqSet <- readUtxoSetAt requestAddr
                     pure (snap, ins, stateUtxo, reqSet)
+        funding <- requireIndexerRead eFunding
+        mStateUtxo <- requireIndexerRead eStateUtxo
+        requestSet <- requireIndexerRead eRequestSet
         case mSnap of
             Nothing ->
                 throwError
@@ -1958,7 +2004,7 @@ factsRejectHandler
             policyId = cagePolicyIdFromCfg cfg
         addr <- requireAddr addrHex
         selectedRefs <- parseRequestSubset requestRefs
-        (mSnap, mStateUtxo, eRequestUtxos, walletInputs) <-
+        (mSnap, eStateUtxo, eRequestUtxos, eWalletInputs) <-
             runProofIndexerTx ctx
                 $ do
                     snap <- readSnapshot
@@ -1970,16 +2016,19 @@ factsRejectHandler
                     reqs <-
                         if null selectedRefs
                             then
-                                Left
+                                fmap Left
                                     <$> readRequestUtxosAt
                                         requestAddr
                             else
-                                Right
+                                fmap Right
                                     <$> readExactRequestSubset
                                         requestAddr
                                         selectedRefs
                     wallet <- readWalletInputsAt addr
                     pure (snap, stateUtxo, reqs, wallet)
+        mStateUtxo <- requireIndexerRead eStateUtxo
+        requestUtxoSelection <- requireIndexerRead eRequestUtxos
+        walletInputs <- requireIndexerRead eWalletInputs
         snap <- case mSnap of
             Nothing ->
                 throwError
@@ -2007,7 +2056,7 @@ factsRejectHandler
                         \address"
                     }
         requestUtxos <-
-            case eRequestUtxos of
+            case requestUtxoSelection of
                 Left rows -> pure (canonicalRequestOrder rows)
                 Right rows ->
                     canonicalRequestOrder
@@ -2077,7 +2126,7 @@ txSweepHandler
                     addr
         pure (mkSweepTxResponse tx)
 
--- | Build a structured JSON error body for the
+-- | Build a structured JSON failure body for the
 -- @POST \/submit@ endpoint.
 submitError
     :: ServerError -> Text -> Text -> ServerError

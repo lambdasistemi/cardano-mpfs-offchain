@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Update
@@ -15,18 +17,21 @@
 -- and per-request refund outputs.
 module Cardano.MPFS.TxBuilder.Real.Update
     ( RequestTrieRead (..)
+    , UpdateBuildError (..)
+    , UpdateBuildException (..)
     , computeProofs
     , computeUpperSlot
     , updateTokenImpl
     ) where
 
-import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Exception (Exception, SomeException, throwIO, try)
 import Data.Foldable (fold)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Void (Void)
 import Data.Word (Word64)
 import Lens.Micro ((&), (.~), (^.))
@@ -64,6 +69,7 @@ import Cardano.Tx.Ledger (ConwayTx)
 import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString qualified as BS
+import Data.ByteString.Base16 qualified as B16
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -112,6 +118,17 @@ import Cardano.Tx.Build qualified as Tx
 -- | Empty query GADT (no context needed).
 data NoCtx a
 
+-- | Typed update-construction failure.
+newtype UpdateBuildError = UpdateBuildError
+    { updateBuildErrorMessage :: Text
+    }
+    deriving (Eq, Show)
+
+newtype UpdateBuildException = UpdateBuildException UpdateBuildError
+    deriving (Show)
+
+instance Exception UpdateBuildException
+
 -- | Build an update-token transaction (fair fee).
 --
 -- Uses the TxBuild DSL for convergent fee/refund
@@ -129,32 +146,33 @@ updateTokenImpl
     -> IO (ProofEnvelope UpdateProof)
 updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
     -- 1. Query on-chain context
+    eCtx <- queryContext cfg prov tid addr
     (stateUtxo, reqUtxos, feeUtxo, pp) <-
-        queryContext cfg prov tid addr
+        either throwUpdateBuildError pure eCtx
     let (stateIn, stateOut) = stateUtxo
-        oldRootBytes =
-            case extractCageDatum stateOut of
-                Just (StateDatum s) ->
-                    unOnChainRoot (stateRoot s)
-                _ ->
-                    error
-                        "updateToken: invalid \
-                        \state datum (root)"
+    oldRootBytes <-
+        either throwUpdateBuildError pure
+            $ stateRootBytes
+                "updateToken.state_utxo(root)"
+                stateOut
     -- 2. Compute proofs via speculative trie
-    (trieReads, newRoot) <-
+    eProofs <-
         computeProofs tm tid reqUtxos
+    (trieReads, newRoot) <-
+        either throwUpdateBuildError pure eProofs
     -- 3. Extract state and build new datum
-    let ( oldState
-            , newStateOut
-            , stateScript
-            , requestScript
-            , ownerKh
-            ) =
-                prepareState
-                    cfg
-                    tid
-                    stateOut
-                    newRoot
+    ( oldState
+        , newStateOut
+        , stateScript
+        , requestScript
+        , ownerKh
+        ) <-
+        either throwUpdateBuildError pure
+            $ prepareState
+                cfg
+                tid
+                stateOut
+                newRoot
     -- 4. Compute validity upper slot
     upperSlot <-
         computeUpperSlot prov (snapshotSlot snap) oldState reqUtxos
@@ -178,7 +196,7 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO $ \case {})
             evalTx
             (feeUtxo : stateUtxo : reqUtxos)
             []
@@ -206,9 +224,10 @@ updateTokenImpl cfg prov _st tm proofFn snap tid addr = do
                             }
                     }
         Left err ->
-            error
+            throwUpdateBuildError
+                $ updateBuildError
                 $ "updateToken: build failed: "
-                    <> show err
+                    <> T.pack (show err)
 
 -- | Query cage UTxOs, find the state and request
 -- UTxOs, pick a fee-paying wallet UTxO.
@@ -218,10 +237,13 @@ queryContext
     -> TokenId
     -> Addr
     -> IO
-        ( (TxIn, TxOut ConwayEra)
-        , [(TxIn, TxOut ConwayEra)]
-        , (TxIn, TxOut ConwayEra)
-        , PParams ConwayEra
+        ( Either
+            UpdateBuildError
+            ( (TxIn, TxOut ConwayEra)
+            , [(TxIn, TxOut ConwayEra)]
+            , (TxIn, TxOut ConwayEra)
+            , PParams ConwayEra
+            )
         )
 queryContext cfg prov tid addr = do
     let stateAddr =
@@ -234,28 +256,42 @@ queryContext cfg prov tid addr = do
     stateUtxos <- queryUTxOs prov stateAddr
     requestUtxos <- queryUTxOs prov reqAddr
     let policyId = cagePolicyIdFromCfg cfg
-    stateUtxo <- case findStateUtxo
-        policyId
-        tid
-        stateUtxos of
-        Nothing ->
-            error
-                "updateToken: state UTxO \
-                \not found"
-        Just x -> pure x
+    let mStateUtxo =
+            findStateUtxo
+                policyId
+                tid
+                stateUtxos
     let reqUtxos =
             sortOn fst
                 $ findRequestUtxos tid requestUtxos
-    when (null reqUtxos)
-        $ error "updateToken: no pending requests"
     pp <- queryProtocolParams prov
     walletUtxos <- queryUTxOs prov addr
-    feeUtxo <- case sortOn
-        (Down . (^. coinTxOutL) . snd)
-        walletUtxos of
-        [] -> error "updateToken: no UTxOs"
-        (u : _) -> pure u
-    pure (stateUtxo, reqUtxos, feeUtxo, pp)
+    let mFeeUtxo =
+            case sortOn
+                (Down . (^. coinTxOutL) . snd)
+                walletUtxos of
+                [] -> Nothing
+                u : _ -> Just u
+    pure $ do
+        stateUtxo <- case mStateUtxo of
+            Nothing ->
+                Left
+                    $ updateBuildError
+                        "updateToken: state UTxO not found"
+            Just x -> Right x
+        if null reqUtxos
+            then
+                Left
+                    $ updateBuildError
+                        "updateToken: no pending requests"
+            else Right ()
+        feeUtxo <- case mFeeUtxo of
+            Nothing ->
+                Left
+                    $ updateBuildError
+                        "updateToken: no wallet UTxOs"
+            Just u -> Right u
+        pure (stateUtxo, reqUtxos, feeUtxo, pp)
 
 -- | Run speculative trie operations to compute
 -- proofs and the new root hash.
@@ -263,12 +299,16 @@ computeProofs
     :: TrieManager IO
     -> TokenId
     -> [(TxIn, TxOut ConwayEra)]
-    -> IO ([RequestTrieRead], Root)
+    -> IO (Either UpdateBuildError ([RequestTrieRead], Root))
 computeProofs tm tid reqUtxos =
     withSpeculativeTrie tm tid $ \trie -> do
-        ps <- mapM (processRequest trie) reqUtxos
-        r <- getRoot trie
-        pure (ps, r)
+        eReads <- sequence <$> mapM (processRequest trie) reqUtxos
+        case eReads of
+            Left err ->
+                pure (Left err)
+            Right ps -> do
+                r <- getRoot trie
+                pure (Right (ps, r))
 
 data RequestTrieRead = RequestTrieRead
     { readProofSteps :: [ProofStep]
@@ -282,22 +322,18 @@ prepareState
     -> TokenId
     -> TxOut ConwayEra
     -> Root
-    -> ( OnChainTokenState
-       , TxOut ConwayEra
-       , Script ConwayEra
-       , Script ConwayEra
-       , KeyHash Witness
-       )
-prepareState cfg tid stateOut newRoot =
+    -> Either
+        UpdateBuildError
+        ( OnChainTokenState
+        , TxOut ConwayEra
+        , Script ConwayEra
+        , Script ConwayEra
+        , KeyHash Witness
+        )
+prepareState cfg tid stateOut newRoot = do
+    oldState <- stateDatum "updateToken.state_utxo" stateOut
     let scriptAddr =
             cageAddrFromCfg cfg (network cfg)
-        oldState =
-            case extractCageDatum stateOut of
-                Just (StateDatum s) -> s
-                _ ->
-                    error
-                        "updateToken: invalid \
-                        \state datum"
         OnChainTokenState
             { stateOwner =
                 BuiltinByteString ownerBs
@@ -318,7 +354,8 @@ prepareState cfg tid stateOut newRoot =
         stateScript = mkCageScript cfg
         requestScript = mkRequestScript cfg tid
         ownerKh = addrWitnessKeyHash ownerBs
-    in  ( oldState
+    pure
+        ( oldState
         , newStateOut
         , stateScript
         , requestScript
@@ -535,46 +572,90 @@ processRequest
     :: Monad m
     => Trie m
     -> (TxIn, TxOut ConwayEra)
-    -> m RequestTrieRead
-processRequest trie (_txIn, txOut) = do
-    let OnChainRequest
-            { requestKey = key
-            , requestValue = op
-            } = case extractCageDatum txOut of
-                Just (RequestDatum r) -> r
-                _ ->
-                    error
-                        "processRequest: \
-                        \invalid request datum"
-    case op of
-        OpInsert v -> do
-            _ <- insert trie key v
-            mSteps <- getProofSteps trie key
+    -> m (Either UpdateBuildError RequestTrieRead)
+processRequest trie (txIn, txOut) =
+    case extractCageDatum txOut of
+        Nothing ->
             pure
-                ( mkRequestTrieRead
-                    key
-                    Nothing
-                    (fromMaybe [] mSteps)
-                )
-        OpDelete _ -> do
-            mSteps <- getProofSteps trie key
-            _ <- Cardano.MPFS.Trie.delete trie key
+                $ Left
+                $ updateBuildError
+                $ "processRequest: invalid request datum \
+                  \(input: "
+                    <> txInText txIn
+                    <> ")"
+        Just (StateDatum _) ->
             pure
-                ( mkRequestTrieRead
-                    key
-                    (Just (operationOldValue op))
-                    (fromMaybe [] mSteps)
-                )
-        OpUpdate _ v -> do
-            mSteps <- getProofSteps trie key
-            _ <- Cardano.MPFS.Trie.delete trie key
-            _ <- insert trie key v
-            pure
-                ( mkRequestTrieRead
-                    key
-                    (Just (operationOldValue op))
-                    (fromMaybe [] mSteps)
-                )
+                $ Left
+                $ updateBuildError
+                $ "processRequest: invalid request datum; \
+                  \found state datum (input: "
+                    <> txInText txIn
+                    <> ")"
+        Just
+            ( RequestDatum
+                    OnChainRequest
+                        { requestKey = key
+                        , requestValue = op
+                        }
+                ) -> do
+                case op of
+                    OpInsert v -> do
+                        _ <- insert trie key v
+                        mSteps <- getProofSteps trie key
+                        pure $ do
+                            steps <-
+                                requireProofSteps
+                                    "processRequest.insert"
+                                    txIn
+                                    key
+                                    mSteps
+                            pure
+                                ( mkRequestTrieRead
+                                    key
+                                    Nothing
+                                    steps
+                                )
+                    OpDelete old -> do
+                        eRead <-
+                            requireExistingTrieRead
+                                trie
+                                txIn
+                                key
+                                old
+                        case eRead of
+                            Left err -> pure (Left err)
+                            Right (current, steps) -> do
+                                _ <-
+                                    Cardano.MPFS.Trie.delete
+                                        trie
+                                        key
+                                pure
+                                    $ Right
+                                    $ mkRequestTrieRead
+                                        key
+                                        (Just current)
+                                        steps
+                    OpUpdate old v -> do
+                        eRead <-
+                            requireExistingTrieRead
+                                trie
+                                txIn
+                                key
+                                old
+                        case eRead of
+                            Left err -> pure (Left err)
+                            Right (current, steps) -> do
+                                _ <-
+                                    Cardano.MPFS.Trie.delete
+                                        trie
+                                        key
+                                _ <- insert trie key v
+                                pure
+                                    $ Right
+                                    $ mkRequestTrieRead
+                                        key
+                                        (Just current)
+                                        steps
 
 mkRequestTrieRead
     :: BS.ByteString -> Maybe BS.ByteString -> [ProofStep] -> RequestTrieRead
@@ -589,11 +670,104 @@ mkRequestTrieRead key value steps =
                 }
         }
 
-operationOldValue :: OnChainOperation -> BS.ByteString
-operationOldValue = \case
-    OpInsert v -> v
-    OpDelete v -> v
-    OpUpdate old _new -> old
+requireExistingTrieRead
+    :: Monad m
+    => Trie m
+    -> TxIn
+    -> BS.ByteString
+    -> BS.ByteString
+    -> m (Either UpdateBuildError (BS.ByteString, [ProofStep]))
+requireExistingTrieRead trie txIn key expected = do
+    mSteps <- getProofSteps trie key
+    mCurrent <- Cardano.MPFS.Trie.lookup trie key
+    pure $ do
+        steps <-
+            requireProofSteps
+                "processRequest.existing"
+                txIn
+                key
+                mSteps
+        current <- case mCurrent of
+            Nothing ->
+                Left
+                    $ updateBuildError
+                    $ "processRequest: no value in \
+                      \TrieRawValues for key "
+                        <> strictHex key
+                        <> " (input: "
+                        <> txInText txIn
+                        <> ")"
+            Just value -> Right value
+        if current == expected
+            then Right (current, steps)
+            else
+                Left
+                    $ updateBuildError
+                    $ "processRequest: request old value \
+                      \mismatch for key "
+                        <> strictHex key
+                        <> " (input: "
+                        <> txInText txIn
+                        <> ", request-old: "
+                        <> strictHex expected
+                        <> ", trie-current: "
+                        <> strictHex current
+                        <> ")"
+
+requireProofSteps
+    :: Text
+    -> TxIn
+    -> BS.ByteString
+    -> Maybe [ProofStep]
+    -> Either UpdateBuildError [ProofStep]
+requireProofSteps path txIn key =
+    maybe
+        ( Left
+            $ updateBuildError
+            $ path
+                <> ": no MPF inclusion proof for key "
+                <> strictHex key
+                <> " (input: "
+                <> txInText txIn
+                <> ")"
+        )
+        Right
+
+stateRootBytes
+    :: Text -> TxOut ConwayEra -> Either UpdateBuildError BS.ByteString
+stateRootBytes path out =
+    unOnChainRoot . stateRoot <$> stateDatum path out
+
+stateDatum
+    :: Text -> TxOut ConwayEra -> Either UpdateBuildError OnChainTokenState
+stateDatum path out =
+    case extractCageDatum out of
+        Just (StateDatum s) -> Right s
+        Just (RequestDatum _) ->
+            Left
+                $ updateBuildError
+                $ path
+                    <> ": expected state datum, found \
+                       \request datum"
+        Nothing ->
+            Left
+                $ updateBuildError
+                $ path
+                    <> ": missing or invalid state datum"
+
+throwUpdateBuildError :: UpdateBuildError -> IO a
+throwUpdateBuildError =
+    throwIO . UpdateBuildException
+
+updateBuildError :: Text -> UpdateBuildError
+updateBuildError = UpdateBuildError
+
+txInText :: TxIn -> Text
+txInText = T.pack . show
+
+strictHex :: BS.ByteString -> Text
+strictHex =
+    TE.decodeUtf8 . B16.encode
 
 renderProofSteps :: [ProofStep] -> BS.ByteString
 renderProofSteps steps =

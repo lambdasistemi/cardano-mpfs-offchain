@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -28,6 +29,7 @@
 module Cardano.MPFS.Indexer.Reads
     ( -- * Indexer transaction
       IndexerTx (..)
+    , IndexerReadError (..)
 
       -- * Read primitives
     , readCheckpoint
@@ -48,10 +50,14 @@ module Cardano.MPFS.Indexer.Reads
     ) where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.List (stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 
 import Control.Lens
     ( review
@@ -183,6 +189,15 @@ instance Monad IndexerTx where
                     case k a of
                         IndexerTx m' -> m'
 
+-- | Typed failure from proof-bearing indexer reads.
+-- Handlers translate this to a structured HTTP response
+-- instead of letting partial exceptions escape through
+-- Warp.
+newtype IndexerReadError = IndexerReadError
+    { indexerReadErrorMessage :: Text
+    }
+    deriving (Eq, Show)
+
 -- | Read the indexer's chain checkpoint (the slot and
 -- block id of the last block applied by the chain
 -- follower). 'Nothing' when no block has been applied
@@ -239,19 +254,13 @@ readSnapshot = do
 -- given address, NOT the total UTxO set on chain
 -- (see issue #252).
 --
--- Indexer corruption (a leaf in the CSMT whose KV
--- entry is missing, or a leaf whose proof generation
--- fails) is treated as an invariant violation rather
--- than a soft skip: 'readWalletInputsAt' throws a
--- descriptive 'error' identifying the offending TxIn.
--- This mirrors the original review-fix on the
--- pre-redesign code path: silently emitting an empty
--- proof would produce a response that fails offline
--- verification with no diagnostic; failing loud at
--- the read site lets ops surface the corruption
--- immediately.
+-- Address-scoped leaves can outlive their KV row while the live
+-- UTxO view is catching up across KV/full CSMT transitions. Such
+-- leaves are not spendable wallet inputs, so this read skips them.
+-- A present KV row without an inclusion proof still indicates a
+-- broken proof index and remains a hard failure.
 readWalletInputsAt
-    :: Addr -> IndexerTx [ResolvedWalletInput]
+    :: Addr -> IndexerTx (Either IndexerReadError [ResolvedWalletInput])
 readWalletInputsAt addr =
     IndexerTx
         $ mapColumns InUtxo
@@ -261,71 +270,55 @@ readWalletInputsAt addr =
                     hashAddressKey (serialiseAddr addr)
             indirects <-
                 collectValues CSMTCol [] addrKey
-            catMaybes <$> traverse (loadOne fkv addrKey) indirects
+            rows <- traverse (loadOne fkv addrKey) indirects
+            pure $ catMaybes <$> sequence rows
   where
     loadOne fkv addrKey leaf = do
-        let lazyKey =
-                case addressScopedLeafKey fkv addrKey leaf of
-                    Right key -> key
-                    Left e ->
-                        error
-                            $ "readWalletInputsAt: "
-                                <> e
-            txInDecoded =
-                case decodeFull
-                    (natVersion @11)
-                    lazyKey of
-                    Right t -> t
-                    Left e ->
-                        error
-                            $ "readWalletInputsAt: \
-                              \indexer KV column \
-                              \produced a leaf whose \
-                              \key did not decode as \
-                              \a TxIn: "
-                                <> show e
-        mTxOut <- query KVCol lazyKey
-        case mTxOut of
-            Nothing ->
-                error
-                    $ "readWalletInputsAt: indexer \
-                      \corruption — CSMT contains a \
-                      \leaf at this address whose KV \
-                      \column has no TxOut bytes \
-                      \(input: "
-                        <> show txInDecoded
-                        <> ")"
-            Just txOutBytes -> do
-                mProof <-
-                    generateInclusionProof
-                        fkv
-                        KVCol
-                        CSMTCol
-                        lazyKey
-                let proofBytes = case mProof of
-                        Just (_, p) -> p
-                        Nothing ->
-                            error
-                                $ "readWalletInputsAt: \
-                                  \indexer corruption — \
-                                  \collectValues found \
-                                  \a leaf at this \
-                                  \address but \
-                                  \generateInclusionProof \
-                                  \returned Nothing \
-                                  \(input: "
-                                    <> show txInDecoded
-                                    <> ")"
-                pure
-                    $ Just
-                        ( txInDecoded
-                        , BSL.toStrict txOutBytes
-                        , proofBytes
-                        )
+        case readLeafTxIn "readWalletInputsAt" fkv addrKey leaf of
+            Left err ->
+                pure (Left err)
+            Right (lazyKey, txInDecoded) -> do
+                mTxOut <- query KVCol lazyKey
+                case mTxOut of
+                    Nothing ->
+                        pure (Right Nothing)
+                    Just txOutBytes -> do
+                        mProof <-
+                            generateInclusionProof
+                                fkv
+                                KVCol
+                                CSMTCol
+                                lazyKey
+                        case mProof of
+                            Nothing ->
+                                pure
+                                    $ Left
+                                    $ indexerReadError
+                                    $ "readWalletInputsAt: \
+                                      \KV column contains \
+                                      \TxOut bytes but \
+                                      \generateInclusionProof \
+                                      \returned Nothing \
+                                      \(input: "
+                                        <> txInText txInDecoded
+                                        <> ", key: "
+                                        <> lazyHex lazyKey
+                                        <> ")"
+                            Just (_, proofBytes) ->
+                                pure
+                                    $ Right
+                                    $ Just
+                                        ( txInDecoded
+                                        , BSL.toStrict txOutBytes
+                                        , proofBytes
+                                        )
 
 -- | Resolve a 'TxIn' and its CSMT inclusion proof inside the
 -- indexer transaction. Returns 'Nothing' when the UTxO is absent.
-readUtxoWitness :: TxIn -> IndexerTx (Maybe ResolvedWalletInput)
+readUtxoWitness
+    :: TxIn
+    -> IndexerTx
+        (Either IndexerReadError (Maybe ResolvedWalletInput))
 readUtxoWitness txIn =
     IndexerTx
         $ mapColumns InUtxo
@@ -334,7 +327,7 @@ readUtxoWitness txIn =
                 key = serialize (natVersion @11) txIn
             mTxOut <- query KVCol key
             case mTxOut of
-                Nothing -> pure Nothing
+                Nothing -> pure (Right Nothing)
                 Just txOutBytes -> do
                     mProof <-
                         generateInclusionProof
@@ -342,25 +335,29 @@ readUtxoWitness txIn =
                             KVCol
                             CSMTCol
                             key
-                    proofBytes <- case mProof of
-                        Just (_, proof) -> pure proof
+                    case mProof of
+                        Just (_, proof) ->
+                            pure
+                                $ Right
+                                $ Just
+                                    ( txIn
+                                    , BSL.toStrict txOutBytes
+                                    , proof
+                                    )
                         Nothing ->
-                            error
-                                $ "readUtxoWitness: \
-                                  \indexer corruption — \
-                                  \KV column contains a \
-                                  \TxOut but \
+                            pure
+                                $ Left
+                                $ indexerReadError
+                                $ "readUtxoWitness: KV \
+                                  \column contains TxOut \
+                                  \bytes but \
                                   \generateInclusionProof \
                                   \returned Nothing \
                                   \(input: "
-                                    <> show txIn
+                                    <> txInText txIn
+                                    <> ", key: "
+                                    <> lazyHex key
                                     <> ")"
-                    pure
-                        $ Just
-                            ( txIn
-                            , BSL.toStrict txOutBytes
-                            , proofBytes
-                            )
 
 -- | Read the current state UTxO for a token at the state
 -- validator address and return it with a CSMT inclusion proof.
@@ -368,32 +365,41 @@ readStateUtxoAt
     :: Addr
     -> PolicyID
     -> TokenId
-    -> IndexerTx (Maybe ResolvedWalletInput)
-readStateUtxoAt stateAddr policyId tid =
-    findState <$> readWalletInputsAt stateAddr
+    -> IndexerTx
+        (Either IndexerReadError (Maybe ResolvedWalletInput))
+readStateUtxoAt stateAddr policyId tid = do
+    eRows <- readWalletInputsAt stateAddr
+    pure (eRows >>= findState)
   where
-    findState [] = Nothing
-    findState (row@(_, txOutBytes, _) : rest)
-        | carriesToken txOutBytes = Just row
-        | otherwise = findState rest
-    carriesToken txOutBytes =
+    findState [] = Right Nothing
+    findState (row@(txIn, txOutBytes, _) : rest) =
         case decodeTxOut txOutBytes of
-            Right txOut -> txOutCarriesToken policyId tid txOut
+            Right txOut
+                | txOutCarriesToken policyId tid txOut ->
+                    Right (Just row)
+                | otherwise -> findState rest
             Left err ->
-                error
-                    $ "readStateUtxoAt: indexer KV column \
-                      \produced a state-address leaf whose \
-                      \value did not decode as a TxOut: "
-                        <> show err
+                Left
+                    $ indexerReadError
+                    $ "readStateUtxoAt: state-address \
+                      \leaf value did not decode as TxOut \
+                      \(input: "
+                        <> txInText txIn
+                        <> "): "
+                        <> T.pack (show err)
 
 -- | Read the named request UTxO at a given request address
 -- by walking the CSMT subtree and selecting the entry whose
 -- 'TxIn' matches the target. Returns 'Nothing' when the
 -- address subtree does not carry the requested 'TxIn'.
 readNamedRequestUtxo
-    :: Addr -> TxIn -> IndexerTx (Maybe ResolvedWalletInput)
-readNamedRequestUtxo reqAddr targetTxIn =
-    findUtxo <$> readWalletInputsAt reqAddr
+    :: Addr
+    -> TxIn
+    -> IndexerTx
+        (Either IndexerReadError (Maybe ResolvedWalletInput))
+readNamedRequestUtxo reqAddr targetTxIn = do
+    eRows <- readWalletInputsAt reqAddr
+    pure (findUtxo <$> eRows)
   where
     findUtxo [] = Nothing
     findUtxo (row@(txIn, _, _) : rest)
@@ -406,13 +412,14 @@ readNamedRequestUtxo reqAddr targetTxIn =
 -- a completeness witness, so it needs the same resolved input
 -- shape as wallet funding reads.
 readRequestUtxosAt
-    :: Addr -> IndexerTx [ResolvedWalletInput]
+    :: Addr -> IndexerTx (Either IndexerReadError [ResolvedWalletInput])
 readRequestUtxosAt = readWalletInputsAt
 
 -- | Walk the UTxO-CSMT subtree at an address and produce
 -- the enumerated UTxOs plus a production
 -- prefix-completeness proof for that exact subtree.
-readUtxoSetAt :: Addr -> IndexerTx ResolvedUtxoSet
+readUtxoSetAt
+    :: Addr -> IndexerTx (Either IndexerReadError ResolvedUtxoSet)
 readUtxoSetAt addr =
     IndexerTx
         $ mapColumns InUtxo
@@ -424,53 +431,46 @@ readUtxoSetAt addr =
                 collectValues CSMTCol [] addrKey
             entries <- traverse (loadOne fkv addrKey) indirects
             mProof <- generateProof CSMTCol [] addrKey
-            let proofBytes = case mProof of
+            let eProofBytes = case mProof of
                     Just proof ->
-                        renderCompletenessProof
-                            (proof :: CompletenessProof Hash)
+                        Right
+                            $ renderCompletenessProof
+                                (proof :: CompletenessProof Hash)
                     Nothing ->
-                        error
-                            "readUtxoSetAt: indexer \
-                            \corruption — \
-                            \generateProof returned \
-                            \Nothing for address \
-                            \subtree"
-            pure (entries, proofBytes)
+                        Left
+                            $ indexerReadError
+                                "readUtxoSetAt: \
+                                \generateProof returned \
+                                \Nothing for address subtree"
+            pure $ do
+                entries' <- sequence entries
+                proofBytes <- eProofBytes
+                pure (entries', proofBytes)
   where
     loadOne fkv addrKey leaf = do
-        let lazyKey =
-                case addressScopedLeafKey fkv addrKey leaf of
-                    Right key -> key
-                    Left e ->
-                        error
-                            $ "readUtxoSetAt: "
-                                <> e
-            txInDecoded =
-                case decodeFull
-                    (natVersion @11)
-                    lazyKey of
-                    Right t -> t
-                    Left e ->
-                        error
-                            $ "readUtxoSetAt: \
-                              \indexer KV column \
-                              \produced a leaf whose \
-                              \key did not decode as \
-                              \a TxIn: "
-                                <> show e
-        mTxOut <- query KVCol lazyKey
-        case mTxOut of
-            Nothing ->
-                error
-                    $ "readUtxoSetAt: indexer \
-                      \corruption — CSMT contains a \
-                      \leaf at this address whose KV \
-                      \column has no TxOut bytes \
-                      \(input: "
-                        <> show txInDecoded
-                        <> ")"
-            Just txOutBytes ->
-                pure (txInDecoded, BSL.toStrict txOutBytes)
+        case readLeafTxIn "readUtxoSetAt" fkv addrKey leaf of
+            Left err ->
+                pure (Left err)
+            Right (lazyKey, txInDecoded) -> do
+                mTxOut <- query KVCol lazyKey
+                pure $ case mTxOut of
+                    Nothing ->
+                        Left
+                            $ indexerReadError
+                            $ "readUtxoSetAt: CSMT \
+                              \contains a leaf at this \
+                              \address whose KV column \
+                              \has no TxOut bytes \
+                              \(input: "
+                                <> txInText txInDecoded
+                                <> ", key: "
+                                <> lazyHex lazyKey
+                                <> ")"
+                    Just txOutBytes ->
+                        Right
+                            ( txInDecoded
+                            , BSL.toStrict txOutBytes
+                            )
 
 -- | Read one MPF trie fact for a token/key inside the
 -- indexer transaction.
@@ -479,7 +479,9 @@ readUtxoSetAt addr =
 -- trie lookup path, so clients receive the original raw value
 -- bytes rather than the internal MPF content hash.
 readTrieFact
-    :: TokenId -> ByteString -> IndexerTx Tx.TrieFact
+    :: TokenId
+    -> ByteString
+    -> IndexerTx (Either IndexerReadError Tx.TrieFact)
 readTrieFact tid key =
     IndexerTx
         $ mapColumns InCage
@@ -490,15 +492,20 @@ readTrieFact tid key =
             case mProof of
                 Just (Trie.Proof proofBytes) ->
                     pure
-                        Tx.TrieFact
+                        $ Right
+                        $ Tx.TrieFact
                             { Tx.factKey = key
                             , Tx.factValue = mValue
                             , Tx.factMpfProof = proofBytes
                             }
                 Nothing ->
-                    error
-                        "readTrieFact: persistent trie \
-                        \could not produce an MPF proof"
+                    pure
+                        $ Left
+                        $ indexerReadError
+                        $ "readTrieFact: persistent trie \
+                          \could not produce an MPF proof \
+                          \for key "
+                            <> strictHex key
 
 -- | Enumerate all raw facts for a token's trie inside the
 -- indexer transaction.
@@ -524,6 +531,53 @@ addressScopedLeafKey fkv addressKey Indirect{jump} =
             Left
                 "indexer CSMT column produced a leaf whose key \
                 \did not start with queried address prefix"
+
+readLeafTxIn
+    :: Text
+    -> FromKV BSL.ByteString value Hash
+    -> Key
+    -> Indirect leaf
+    -> Either IndexerReadError (BSL.ByteString, TxIn)
+readLeafTxIn path fkv addressKey leaf =
+    case addressScopedLeafKey fkv addressKey leaf of
+        Left e ->
+            Left
+                $ indexerReadError
+                $ path
+                    <> ": "
+                    <> T.pack e
+                    <> " (address-prefix: "
+                    <> T.pack (show addressKey)
+                    <> ", leaf-jump: "
+                    <> T.pack (show (jump leaf))
+                    <> ")"
+        Right key ->
+            case decodeFull (natVersion @11) key of
+                Right txIn ->
+                    Right (key, txIn)
+                Left e ->
+                    Left
+                        $ indexerReadError
+                        $ path
+                            <> ": leaf key did not decode as \
+                               \TxIn (key: "
+                            <> lazyHex key
+                            <> "): "
+                            <> T.pack (show e)
+
+indexerReadError :: Text -> IndexerReadError
+indexerReadError = IndexerReadError
+
+txInText :: TxIn -> Text
+txInText = T.pack . show
+
+lazyHex :: BSL.ByteString -> Text
+lazyHex =
+    strictHex . BSL.toStrict
+
+strictHex :: ByteString -> Text
+strictHex =
+    TE.decodeUtf8 . B16.encode
 
 decodeTxOut
     :: ByteString -> Either DecoderError (TxOut ConwayEra)
