@@ -1,15 +1,13 @@
 # Walkthrough
 
-A recorded session of the requester write path against a local MPFS
-devnet: boot a token, list it, submit a fact request, and watch
-`token end` cleanly refuse while a request is still pending. Recorded
-from the live binary against `mpfs-devnet-server` — `register-token` and
-`fact insert` each go through the full workflow → sign → `POST /submit` →
-await chain.
+This recording shows the complete `mpfs-cli` lifecycle against a local
+MPFS devnet. It uses a throwaway funded devnet signer, points the CLI at
+`http://localhost:3000`, and keeps the output focused on verified
+results instead of proof payloads.
 
 ```asciinema-player
 {
-    "file": "cli/assets/walkthrough.cast"
+    "file": "cli/assets/devnet-lifecycle.cast"
     , "cols": 100
     , "rows": 28
     , "mkap_theme": "none"
@@ -18,32 +16,63 @@ await chain.
 
 What the session shows:
 
-- **`register-token`** — boots a new cage; prints the submitted txId.
-- **`token list`** — returns the new token id.
-- **`fact insert`** — submits a pending insert request for a key/value.
-- **`token end`** — cleanly returns HTTP 409 because a request is still
-  pending (you must clear pending requests before ending a cage).
+- **Environment and connection** — prints safe values for
+  `MPFS_SERVER`, `MPFS_BLUEPRINT`, and the signer key path, then runs
+  `token list` against the fresh devnet.
+- **Token boot** — runs `register-token` with short devnet timing,
+  waits for submission/indexing, then confirms the token with
+  `token list` and `token get`.
+- **Insert and materialize** — submits `fact insert`, shows the pending
+  request with `requests list`, runs owner-side `token process`, then
+  proves the value with `fact get` and `fact list`.
+- **Update** — submits `fact update`, processes it, and shows
+  `fact get` returning the new value.
+- **Delete** — submits `fact delete`, processes it, and shows
+  `fact get` returning a verified absence proof.
+- **Reject** — submits a pending request, waits past the short devnet
+  deadlines, runs `fact reject`, and confirms `requests list` is empty.
+- **Retract** — submits another request, reads its request id from
+  `requests list`, waits until the process window has elapsed, runs
+  `fact retract`, and confirms no requests remain.
+- **End** — runs `token end` after clearing pending requests and shows
+  the final `token list` is empty.
 
-Two steps are intentionally not shown:
-
-- `fact get` after an insert returns 404 — the fact only materializes
-  once an oracle applies the pending request (see
-  [Scope](index.md#scope)).
-- `fact retract` currently hits a server-side 500 in `/facts/retract`,
-  tracked as
-  [#299](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/299);
-  the CLI command is correct and will work once #299 lands.
+The same devnet signer is used for requester and owner actions in the
+recording. On a shared deployment those roles can be operated by
+different funded keys when the token policy and request ownership allow
+it.
 
 ## Reproduce it
 
-```bash
-# 1. boot the devnet + server (one shell)
-nix run .#mpfs-devnet-server -- --port 3000
+Start a local devnet server:
 
-# 2. run the asserted write-path smoke (another shell)
-OWNER_KEY=<funded ed25519_sk1… file> MPFS_SERVER=http://localhost:3000 \
-  nix develop -c cardano-mpfs-cli/e2e/walkthrough.sh
+```bash
+nix run .#mpfs-devnet-server -- --port 3000
 ```
 
-`e2e/walkthrough.sh` asserts each step exits 0 and emits JSON, and is the
-loud-failing live-boundary smoke for the write path.
+In another shell, use the dev shell so `MPFS_BLUEPRINT` and the CLI
+tooling are available:
+
+```bash
+nix develop
+export MPFS_SERVER=http://localhost:3000
+export MPFS_SIGNER_WALLET=/path/to/funded-devnet.ed25519_sk
+mpfs-cli --json token list | jq '{verified,result}'
+```
+
+The signer file must contain a Bech32 `ed25519_sk...` key whose
+enterprise address is funded on the devnet. The E2E helpers use a
+throwaway devnet genesis key; avoid printing key contents in terminal
+recordings.
+
+For a non-recorded smoke test of the main write path:
+
+```bash
+MPFS_SERVER=http://localhost:3000 \
+MPFS_SIGNER_WALLET=/path/to/funded-devnet.ed25519_sk \
+cardano-mpfs-cli/e2e/walkthrough.sh
+```
+
+The smoke script asserts register, insert/process/get,
+update/process/get, delete/process/absence, reject, and end. The cast
+adds the commented terminal narrative and the retract path.
