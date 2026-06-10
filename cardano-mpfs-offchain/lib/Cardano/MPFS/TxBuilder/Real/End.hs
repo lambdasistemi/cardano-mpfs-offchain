@@ -1,3 +1,5 @@
+{-# LANGUAGE EmptyCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.End
 -- Description : End token (burn) transaction
@@ -53,6 +55,9 @@ import Cardano.Ledger.Api.Tx.Out (coinTxOutL)
 
 data NoCtx a
 
+interpretNoCtx :: NoCtx a -> IO a
+interpretNoCtx q = case q of {}
+
 -- | Build an end-token (burn) transaction.
 --
 -- Consumes the state UTxO with an @End@ spending
@@ -84,19 +89,21 @@ endTokenImpl cfg prov proofFn snap tid addr = do
     stateUtxo <-
         case findStateUtxo policyId tid cageUtxos of
             Nothing ->
-                error
+                throwTxBuilderFailure
                     "endToken: state UTxO not found"
             Just x -> pure x
     let (stateIn, stateOut) = stateUtxo
     -- 3. Extract owner from state datum
+    stateDatum <-
+        case extractCageDatum stateOut of
+            Just (StateDatum s) -> pure s
+            _ ->
+                throwTxBuilderFailure
+                    "endToken: invalid state datum"
     let OnChainTokenState
             { stateOwner =
                 BuiltinByteString ownerBs
-            } = case extractCageDatum stateOut of
-                Just (StateDatum s) -> s
-                _ ->
-                    error
-                        "endToken: invalid state datum"
+            } = stateDatum
         ownerKh = addrWitnessKeyHash ownerBs
     -- 4. Get wallet UTxO for fees
     pp <- queryProtocolParams prov
@@ -104,7 +111,9 @@ endTokenImpl cfg prov proofFn snap tid addr = do
     feeUtxo <- case sortOn
         (Down . (^. coinTxOutL) . snd)
         walletUtxos of
-        [] -> error "endToken: no UTxOs"
+        [] ->
+            throwTxBuilderFailure
+                "endToken: no UTxOs"
         (u : _) -> pure u
     let assetName = unTokenId tid
         script = mkCageScript cfg
@@ -133,7 +142,7 @@ endTokenImpl cfg prov proofFn snap tid addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO interpretNoCtx)
             evalTx
             [feeUtxo, stateUtxo]
             []
@@ -143,7 +152,7 @@ endTokenImpl cfg prov proofFn snap tid addr = do
         case result of
             Right tx -> pure tx
             Left err ->
-                error
+                throwTxBuilderFailure
                     $ "endToken: TxBuild failed: "
                         <> show err
     stateWitness <- witness proofFn stateUtxo

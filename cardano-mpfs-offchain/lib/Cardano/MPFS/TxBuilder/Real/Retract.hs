@@ -1,3 +1,5 @@
+{-# LANGUAGE EmptyCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Retract
 -- Description : Retract request transaction
@@ -60,6 +62,9 @@ import PlutusTx.Builtins.Internal
 
 data NoCtx a
 
+interpretNoCtx :: NoCtx a -> IO a
+interpretNoCtx q = case q of {}
+
 -- | Build a retract-request transaction.
 --
 -- The requester spends their request UTxO
@@ -86,7 +91,8 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
     mReq <- getRequest (requests st) reqTxIn
     req <- case mReq of
         Nothing ->
-            error "retractRequest: unknown request"
+            throwTxBuilderFailure
+                "retractRequest: unknown request"
         Just LocatedRequest{request = r} -> pure r
     -- 2. Query the per-cage request address for the
     --    request UTxO and the global state address
@@ -105,7 +111,7 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
             findUtxoByTxIn reqTxIn requestUtxos
     reqUtxoPair <- case reqUtxo of
         Nothing ->
-            error
+            throwTxBuilderFailure
                 "retractRequest: request UTxO \
                 \not found on chain"
         Just x -> pure x
@@ -118,7 +124,7 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
             tid
             stateUtxos of
             Nothing ->
-                error
+                throwTxBuilderFailure
                     "retractRequest: state UTxO \
                     \not found"
             Just x -> pure x
@@ -129,16 +135,20 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
     feeUtxo <- case sortOn
         (Down . (^. coinTxOutL) . snd)
         walletUtxos of
-        [] -> error "retractRequest: no UTxOs"
+        [] ->
+            throwTxBuilderFailure
+                "retractRequest: no UTxOs"
         (u : _) -> pure u
     -- 5. Extract request owner for required signer
     -- 5. Extract request datum fields
-    let reqDatum = case extractCageDatum reqOut of
-            Just (RequestDatum r) -> r
+    reqDatum <-
+        case extractCageDatum reqOut of
+            Just (RequestDatum r) -> pure r
             _ ->
-                error
+                throwTxBuilderFailure
                     "retractRequest: invalid \
                     \request datum"
+    let
         OnChainRequest
             { requestOwner =
                 BuiltinByteString ownerBs
@@ -147,12 +157,14 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
         ownerKh = addrWitnessKeyHash ownerBs
     -- 5b. Read process_time and retract_time
     -- from the state datum
-    let stateDatum = case extractCageDatum stateOut of
-            Just (StateDatum s) -> s
+    stateDatum <-
+        case extractCageDatum stateOut of
+            Just (StateDatum s) -> pure s
             _ ->
-                error
+                throwTxBuilderFailure
                     "retractRequest: invalid \
                     \state datum"
+    let
         OnChainTokenState
             { stateProcessTime = procTime
             , stateRetractTime = retrTime
@@ -193,7 +205,7 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO interpretNoCtx)
             evalTx
             [feeUtxo, reqUtxoPair]
             [stateUtxo]
@@ -203,7 +215,7 @@ retractRequestImpl cfg prov st proofFn snap reqTxIn addr = do
         case result of
             Right tx -> pure tx
             Left err ->
-                error
+                throwTxBuilderFailure
                     $ "retractRequest: TxBuild failed: "
                         <> show err
     reqWitness <- witness proofFn reqUtxoPair

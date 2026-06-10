@@ -1,3 +1,5 @@
+{-# LANGUAGE EmptyCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Sweep
 -- Description : Owner-sweep transaction
@@ -51,6 +53,9 @@ import Cardano.Tx.Build qualified as Tx
 
 data NoCtx a
 
+interpretNoCtx :: NoCtx a -> IO a
+interpretNoCtx q = case q of {}
+
 -- | Build a standalone sweep transaction.
 --
 -- Spends one non-legitimate UTxO at the cage's
@@ -85,7 +90,7 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
             garbTxIn
             requestUtxos of
             Nothing ->
-                error
+                throwTxBuilderFailure
                     "sweepUtxo: garbage UTxO not \
                     \found at the request address"
             Just x -> pure x
@@ -97,7 +102,7 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
             tid
             stateUtxos of
             Nothing ->
-                error
+                throwTxBuilderFailure
                     "sweepUtxo: state UTxO not \
                     \found at the state address"
             Just x -> pure x
@@ -107,15 +112,18 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
     feeUtxo <- case sortOn
         (Down . (^. coinTxOutL) . snd)
         walletUtxos of
-        [] -> error "sweepUtxo: no UTxOs in wallet"
+        [] ->
+            throwTxBuilderFailure
+                "sweepUtxo: no UTxOs in wallet"
         (u : _) -> pure u
-    let stateDatum =
-            case extractCageDatum stateOut of
-                Just (StateDatum s) -> s
-                _ ->
-                    error
-                        "sweepUtxo: invalid state \
-                        \datum at state UTxO"
+    stateDatum <-
+        case extractCageDatum stateOut of
+            Just (StateDatum s) -> pure s
+            _ ->
+                throwTxBuilderFailure
+                    "sweepUtxo: invalid state \
+                    \datum at state UTxO"
+    let
         OnChainTokenState
             { stateOwner =
                 BuiltinByteString ownerBs
@@ -138,7 +146,7 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO interpretNoCtx)
             evalTx
             [feeUtxo, garbUtxoPair]
             [stateUtxo]
@@ -147,6 +155,6 @@ sweepUtxoImpl cfg prov tid garbTxIn addr = do
     case result of
         Right tx -> pure tx
         Left err ->
-            error
+            throwTxBuilderFailure
                 $ "sweepUtxo: TxBuild failed: "
                     <> show err
