@@ -13,7 +13,36 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  DEP_GRAPH_OWNER_REGEX: "paolino|lambdasistemi|cardano-foundation|pragma-org"
+
 jobs:
+  # PR drift gate: the committed deterministic graph must match the current
+  # pins (flake.lock + cabal.project source-repository-package revs). Runs in
+  # --no-staleness mode so it is a pure function of the pins, not of moving
+  # upstream HEADs.
+  dep-graph-drift:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: paolino/dev-assets/setup-nix@v0.0.1
+        with:
+          cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: paolino/dev-assets/dep-graph@main
+        with:
+          language: haskell
+          owner-regex: ${{ env.DEP_GRAPH_OWNER_REGEX }}
+          output: /tmp/dependencies.fresh.md
+          title: "Dependency Graph"
+          staleness: "false"
+      - name: Check committed dependency graph is up to date
+        run: |
+          if ! diff -u docs/architecture/dependencies.md /tmp/dependencies.fresh.md; then
+            echo "::error::docs/architecture/dependencies.md is stale. Regenerate it with the dep-graph action in --no-staleness mode and commit the result."
+            exit 1
+          fi
+
   deploy:
     runs-on: ubuntu-latest
     steps:
@@ -21,4 +50,14 @@ jobs:
       - uses: paolino/dev-assets/setup-nix@v0.0.1
         with:
           cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      # Regenerate the human-facing graph with live staleness annotations
+      # ("N behind HEAD") for the published site. The committed copy stays the
+      # deterministic one the drift gate checks; only the rendered site differs.
+      - uses: paolino/dev-assets/dep-graph@main
+        with:
+          language: haskell
+          owner-regex: ${{ env.DEP_GRAPH_OWNER_REGEX }}
+          output: docs/architecture/dependencies.md
+          title: "Dependency Graph"
+          staleness: "true"
       - run: nix develop github:paolino/dev-assets?dir=mkdocs -c mkdocs gh-deploy --force
