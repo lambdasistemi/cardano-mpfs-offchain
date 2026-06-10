@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module      : Cardano.MPFS.Indexer.Event
@@ -18,15 +19,19 @@
 module Cardano.MPFS.Indexer.Event
     ( -- * Event type
       CageEvent (..)
+    , CageEventFailure (..)
+    , CageEventDetectionFailure (..)
 
       -- * Inverse operations (for rollback)
     , CageInverseOp (..)
 
       -- * Detection
     , detectCageEvents
+    , detectCageEventsDetailed
     , inversesOf
     ) where
 
+import Control.Exception (Exception (..), throw)
 import Data.ByteString (ByteString)
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (toList)
@@ -160,6 +165,25 @@ data CageInverseOp
       InvTrieDelete !TokenId !ByteString
     deriving stock (Eq, Show)
 
+-- | Typed detection failure for malformed cage data
+-- in a transaction being inspected.
+data CageEventFailure
+    = MissingSpendingInput !TxIn
+    | InvalidPaymentKeyHash !ByteString
+    deriving stock (Eq, Show)
+
+-- | Exception used by the legacy pure detection API
+-- to fail loudly without a bare panic.
+newtype CageEventDetectionFailure
+    = CageEventDetectionFailure [CageEventFailure]
+    deriving stock (Eq, Show)
+
+instance Exception CageEventDetectionFailure where
+    displayException
+        (CageEventDetectionFailure failures) =
+            "Cage event detection failed: "
+                <> show failures
+
 -- | Detect cage events from a transaction.
 --
 -- Inspects mints (boot\/burn), outputs (request),
@@ -172,21 +196,55 @@ detectCageEvents
     -> ConwayTx
     -> [CageEvent]
 detectCageEvents scriptHash resolvedInputs tx =
-    mintEvents ++ requestEvents ++ spendEvents
+    case failures of
+        [] -> events
+        _ ->
+            throw
+                $ CageEventDetectionFailure
+                    failures
+  where
+    (failures, events) =
+        detectCageEventsDetailed
+            scriptHash
+            resolvedInputs
+            tx
+
+-- | Detect cage events and return typed failures
+-- instead of throwing them.
+detectCageEventsDetailed
+    :: ScriptHash
+    -- ^ Cage script hash
+    -> [(TxIn, TxOut ConwayEra)]
+    -- ^ Resolved inputs (UTxOs being spent)
+    -> ConwayTx
+    -> ([CageEventFailure], [CageEvent])
+detectCageEventsDetailed scriptHash resolvedInputs tx =
+    collectDetections
+        $ mintDetections
+            ++ requestDetections
+            ++ spendDetections
   where
     body = tx ^. bodyTxL
     policyId = PolicyID scriptHash
+
+    collectDetections =
+        foldr collect ([], [])
+      where
+        collect (Left failure) (failures, events) =
+            (failure : failures, events)
+        collect (Right events') (failures, events) =
+            (failures, events' ++ events)
 
     -- --------------------------------------------------
     -- Mint / Burn detection
     -- --------------------------------------------------
 
-    mintEvents =
+    mintDetections =
         let MultiAsset ma = body ^. mintTxBodyL
         in  case Map.lookup policyId ma of
                 Nothing -> []
                 Just assets ->
-                    concatMap
+                    map
                         (uncurry detectMint)
                         (Map.toList assets)
 
@@ -206,12 +264,14 @@ detectCageEvents scriptHash resolvedInputs tx =
                         thisTxId
                         outputs
             in  case mState of
-                    Just (txIn, ts) ->
-                        [CageBoot tid txIn ts]
-                    Nothing -> []
+                    Just (Right (txIn, ts)) ->
+                        Right [CageBoot tid txIn ts]
+                    Just (Left failure) ->
+                        Left failure
+                    Nothing -> Right []
         | qty == -1 =
-            [CageBurn (TokenId assetName)]
-        | otherwise = []
+            Right [CageBurn (TokenId assetName)]
+        | otherwise = Right []
 
     findStateDatum thisTxId =
         foldr
@@ -221,11 +281,11 @@ detectCageEvents scriptHash resolvedInputs tx =
                     case extractDatum txOut of
                         Just (StateDatum ocs) ->
                             Just
-                                ( TxIn
-                                    thisTxId
-                                    (TxIx ix)
-                                , fromOnChainState ocs
-                                )
+                                $ fmap
+                                    (TxIn
+                                        thisTxId
+                                        (TxIx ix),)
+                                    (fromOnChainState ocs)
                         _ -> Nothing
             )
             Nothing
@@ -234,14 +294,15 @@ detectCageEvents scriptHash resolvedInputs tx =
     -- Request detection (new outputs at cage addr)
     -- --------------------------------------------------
 
-    requestEvents =
+    requestDetections =
         let outputs =
                 toList
                     (body ^. outputsTxBodyL)
             thisTxId = txIdTx tx
-        in  concatMap
-                (uncurry (detectRequest thisTxId))
-                (zip [0 ..] outputs)
+        in  zipWith
+                (detectRequest thisTxId)
+                [0 ..]
+                outputs
 
     detectRequest txId (ix :: Word16) txOut =
         -- PR #50: request UTxOs land at the per-cage
@@ -263,23 +324,26 @@ detectCageEvents scriptHash resolvedInputs tx =
                                 TxIn
                                     txId
                                     (TxIx ix)
-                            req =
-                                fromOnChainReq
-                                    addr
-                                    ocReq
-                        in  [CageRequest txIn req]
-                    _ -> []
-            _ -> []
+                        in  case fromOnChainReq
+                                addr
+                                ocReq of
+                                Right req ->
+                                    Right
+                                        [CageRequest txIn req]
+                                Left failure ->
+                                    Left failure
+                    _ -> Right []
+            _ -> Right []
 
     -- --------------------------------------------------
     -- Spend detection (Update / Retract)
     -- --------------------------------------------------
 
-    spendEvents =
+    spendDetections =
         let allInputs = body ^. inputsTxBodyL
             Redeemers rdmrs =
                 tx ^. witsTxL . rdmrsTxWitsL
-        in  concatMap
+        in  map
                 (detectSpend allInputs rdmrs)
                 resolvedInputs
 
@@ -294,20 +358,20 @@ detectCageEvents scriptHash resolvedInputs tx =
         -- already discriminates by redeemer.
         case txOut ^. addrTxOutL of
             Addr _ (ScriptHashObj _) _ ->
-                let ix =
-                        spendingIndex
-                            txIn
-                            allInputs
-                    purpose =
-                        ConwaySpending (AsIx ix)
-                in  case Map.lookup purpose rdmrs of
-                        Just (redeemerData, _) ->
-                            decodeSpend
-                                txIn
-                                txOut
-                                redeemerData
-                        Nothing -> []
-            _ -> []
+                case spendingIndex txIn allInputs of
+                    Left failure ->
+                        Left failure
+                    Right ix ->
+                        let purpose =
+                                ConwaySpending (AsIx ix)
+                        in  case Map.lookup purpose rdmrs of
+                                Just (redeemerData, _) ->
+                                    decodeSpend
+                                        txIn
+                                        txOut
+                                        redeemerData
+                                Nothing -> Right []
+            _ -> Right []
 
     decodeSpend txIn txOut redeemerData =
         let Data plcData = redeemerData
@@ -326,7 +390,7 @@ detectCageEvents scriptHash resolvedInputs tx =
                         detectUpdate txIn txOut
                 Just (Retract _ref) ->
                     detectRetract txIn
-                _ -> []
+                _ -> Right []
 
     detectUpdate _stateTxIn _stateTxOut =
         -- Find the continuing output (new state)
@@ -344,13 +408,14 @@ detectCageEvents scriptHash resolvedInputs tx =
                     let consumed =
                             findConsumedRequests
                                 tid
-                    in  [ CageUpdate
-                            tid
-                            newTxIn
-                            newRoot
-                            consumed
-                        ]
-                Nothing -> []
+                    in  Right
+                            [ CageUpdate
+                                tid
+                                newTxIn
+                                newRoot
+                                consumed
+                            ]
+                Nothing -> Right []
 
     findStateDatumWithToken thisTxId =
         foldr
@@ -427,14 +492,15 @@ detectCageEvents scriptHash resolvedInputs tx =
                     let consumed =
                             findConsumedRequests
                                 tid
-                    in  [ CageReject
-                            tid
-                            newTxIn
-                            consumed
-                        ]
-                Nothing -> []
+                    in  Right
+                            [ CageReject
+                                tid
+                                newTxIn
+                                consumed
+                            ]
+                Nothing -> Right []
 
-    detectRetract txIn = [CageRetract txIn]
+    detectRetract txIn = Right [CageRetract txIn]
 
 -- | Compute inverse operations for a cage event,
 -- given the cage state before the event.
@@ -506,32 +572,40 @@ inversesOf lookupToken lookupReq = \case
 
 -- | Convert on-chain 'OnChainTokenState' to off-chain
 -- 'TokenState'.
-fromOnChainState :: OnChainTokenState -> TokenState
-fromOnChainState OnChainTokenState{..} =
-    TokenState
-        { owner = keyHashFromBBS stateOwner
-        , root = Root (unOnChainRoot stateRoot)
-        , tip = Coin stateMaxFee
-        , processTime = stateProcessTime
-        , retractTime = stateRetractTime
-        }
+fromOnChainState
+    :: OnChainTokenState
+    -> Either CageEventFailure TokenState
+fromOnChainState OnChainTokenState{..} = do
+    owner <- keyHashFromBBS stateOwner
+    pure
+        TokenState
+            { owner = owner
+            , root = Root (unOnChainRoot stateRoot)
+            , tip = Coin stateMaxFee
+            , processTime = stateProcessTime
+            , retractTime = stateRetractTime
+            }
 
 -- | Convert on-chain 'OnChainRequest' to off-chain
 -- 'Request'. The address is accepted for future use
 -- but currently unused.
-fromOnChainReq :: Addr -> OnChainRequest -> Request
-fromOnChainReq _addr OnChainRequest{..} =
-    Request
-        { requestToken =
-            tokenIdFromOnChain requestToken
-        , requestOwner =
-            keyHashFromBBS requestOwner
-        , requestKey = requestKey
-        , requestValue =
-            fromOnChainOp requestValue
-        , requestFee = Coin requestFee
-        , requestSubmittedAt = requestSubmittedAt
-        }
+fromOnChainReq
+    :: Addr
+    -> OnChainRequest
+    -> Either CageEventFailure Request
+fromOnChainReq _addr OnChainRequest{..} = do
+    owner <- keyHashFromBBS requestOwner
+    pure
+        Request
+            { requestToken =
+                tokenIdFromOnChain requestToken
+            , requestOwner = owner
+            , requestKey = requestKey
+            , requestValue =
+                fromOnChainOp requestValue
+            , requestFee = Coin requestFee
+            , requestSubmittedAt = requestSubmittedAt
+            }
 
 -- | Convert on-chain 'OnChainOperation' to off-chain
 -- 'Operation'.
@@ -566,22 +640,23 @@ extractDatum txOut =
 spendingIndex
     :: TxIn
     -> Set.Set TxIn
-    -> Word32
+    -> Either CageEventFailure Word32
 spendingIndex needle inputs =
     go 0 (Set.toAscList inputs)
   where
     go _ [] =
-        error "spendingIndex: TxIn not in input set"
+        Left $ MissingSpendingInput needle
     go n (x : xs)
-        | x == needle = n
+        | x == needle = Right n
         | otherwise = go (n + 1) xs
 
 -- | Convert a 'BuiltinByteString' containing a
 -- payment key hash to a 'KeyHash'.
 keyHashFromBBS
-    :: BuiltinByteString -> KeyHash Payment
+    :: BuiltinByteString
+    -> Either CageEventFailure (KeyHash Payment)
 keyHashFromBBS (BuiltinByteString bs) =
     case hashFromBytes bs of
-        Just h -> KeyHash h
+        Just h -> Right (KeyHash h)
         Nothing ->
-            error "keyHashFromBBS: invalid hash"
+            Left $ InvalidPaymentKeyHash bs

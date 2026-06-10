@@ -74,7 +74,7 @@ import Control.Concurrent.STM
     , modifyTVar'
     , newTVarIO
     )
-import Control.Exception (finally, throwIO)
+import Control.Exception (Exception (..), finally, throwIO)
 import Control.Monad (when)
 import Control.Tracer (Tracer (..), contramap, traceWith)
 import Data.ByteString.Lazy qualified as BSL
@@ -259,6 +259,20 @@ data AppConfig = AppConfig
     , appTracer :: Tracer IO AppTrace
     -- ^ Application event tracer
     }
+
+-- | Typed startup/runtime failure for application
+-- invariants that must stop service startup.
+data ApplicationFailure
+    = UnexpectedFullCSMTOps
+    | MissingColumnFamilies !Int
+    deriving stock (Eq, Show)
+
+instance Exception ApplicationFailure where
+    displayException UnexpectedFullCSMTOps =
+        "openCSMTOps returned ChooseFull, expected ChooseKVOnly"
+    displayException (MissingColumnFamilies actual) =
+        "Expected at least 14 column families, found "
+            <> show actual
 
 -- | Default RocksDB configuration.
 dbConfig :: Config
@@ -453,7 +467,7 @@ withApplication cfg action = do
                         resolveDb (Ready (ChooseKVOnly ops)) =
                             pure ops
                         resolveDb (Ready (ChooseFull _)) =
-                            error "openCSMTOps: unexpected ChooseFull"
+                            throwIO UnexpectedFullCSMTOps
                     kvOnlyOps <- resolveDb dbState
 
                     -- Initialize chain-follower Backend
@@ -701,9 +715,9 @@ withApplication cfg action = do
                             mapM_ cancel mChainThread
                             cancel nodeThread
                 _ ->
-                    error
-                        "Expected at least 14 \
-                        \column families"
+                    throwIO
+                        $ MissingColumnFamilies
+                        $ length (columnFamilies db)
 
 -- | Seed a fresh database with genesis UTxOs from
 -- Shelley (and optionally Byron) genesis files.

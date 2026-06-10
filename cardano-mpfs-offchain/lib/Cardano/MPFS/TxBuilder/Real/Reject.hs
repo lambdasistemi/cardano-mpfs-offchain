@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -98,6 +99,9 @@ import Cardano.Tx.Build qualified as Tx
 -- | Empty query GADT (no context needed).
 data NoCtx a
 
+interpretNoCtx :: NoCtx a -> IO a
+interpretNoCtx q = case q of {}
+
 -- | Build a reject transaction for Phase 3
 -- requests.
 --
@@ -121,13 +125,13 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
         queryRejectContext cfg prov tid addr
     let (stateIn, stateOut) = stateUtxo
     -- 2. Extract state, build unchanged datum
-    let ( oldState
-            , newStateOut
-            , stateScript
-            , requestScript
-            , ownerKh
-            ) =
-                prepareRejectState cfg tid stateOut
+    ( oldState
+        , newStateOut
+        , stateScript
+        , requestScript
+        , ownerKh
+        ) <-
+        prepareRejectState cfg tid stateOut
     -- 3. Compute validity lower slot
     lowerSlot <-
         computeLowerSlot prov oldState reqUtxos
@@ -149,7 +153,7 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO interpretNoCtx)
             evalTx
             (feeUtxo : stateUtxo : reqUtxos)
             []
@@ -175,7 +179,7 @@ rejectRequestsImpl cfg prov _st proofFn snap tid addr = do
                             }
                     }
         Left err ->
-            error
+            throwTxBuilderFailure
                 $ "rejectRequests: build failed: "
                     <> show err
 
@@ -208,22 +212,22 @@ queryRejectContext cfg prov tid addr = do
         tid
         stateUtxos of
         Nothing ->
-            error
+            throwTxBuilderFailure
                 "rejectRequests: state UTxO \
                 \not found"
         Just x -> pure x
     let (_, stateOut) = stateUtxo
     now <- currentPosixMs
+    oldState <-
+        case extractCageDatum stateOut of
+            Just (StateDatum s) -> pure s
+            _ ->
+                throwTxBuilderFailure
+                    "rejectRequests: invalid \
+                    \state datum"
     let allReqs =
             sortOn fst
                 $ findRequestUtxos tid requestUtxos
-        oldState =
-            case extractCageDatum stateOut of
-                Just (StateDatum s) -> s
-                _ ->
-                    error
-                        "rejectRequests: invalid \
-                        \state datum"
         pt = stateProcessTime oldState
         rt = stateRetractTime oldState
         isRejectable (_, rOut) =
@@ -235,7 +239,7 @@ queryRejectContext cfg prov tid addr = do
                 _ -> False
         reqUtxos = filter isRejectable allReqs
     when (null reqUtxos)
-        $ error
+        $ throwTxBuilderFailure
             "rejectRequests: no rejectable \
             \requests"
     pp <- queryProtocolParams prov
@@ -243,7 +247,9 @@ queryRejectContext cfg prov tid addr = do
     feeUtxo <- case sortOn
         (Down . (^. coinTxOutL) . snd)
         walletUtxos of
-        [] -> error "rejectRequests: no UTxOs"
+        [] ->
+            throwTxBuilderFailure
+                "rejectRequests: no UTxOs"
         (u : _) -> pure u
     pure (stateUtxo, reqUtxos, feeUtxo, pp)
 
@@ -253,45 +259,46 @@ prepareRejectState
     :: CageConfig
     -> TokenId
     -> TxOut ConwayEra
-    -> ( OnChainTokenState
-       , TxOut ConwayEra
-       , Script ConwayEra
-       , Script ConwayEra
-       , KeyHash Witness
-       )
-prepareRejectState cfg tid stateOut =
-    let scriptAddr =
-            cageAddrFromCfg cfg (network cfg)
-        oldState =
-            case extractCageDatum stateOut of
-                Just (StateDatum s) -> s
-                _ ->
-                    error
-                        "rejectRequests: invalid \
-                        \state datum"
-        OnChainTokenState
-            { stateOwner =
-                BuiltinByteString ownerBs
-            } = oldState
-        -- Root unchanged for reject
-        newStateOut =
-            mkBasicTxOut
-                scriptAddr
-                (stateOut ^. valueTxOutL)
-                & datumTxOutL
-                    .~ mkInlineDatum
-                        ( toPlcData
-                            (StateDatum oldState)
-                        )
-        stateScript = mkCageScript cfg
-        requestScript = mkRequestScript cfg tid
-        ownerKh = addrWitnessKeyHash ownerBs
-    in  ( oldState
-        , newStateOut
-        , stateScript
-        , requestScript
-        , ownerKh
+    -> IO
+        ( OnChainTokenState
+        , TxOut ConwayEra
+        , Script ConwayEra
+        , Script ConwayEra
+        , KeyHash Witness
         )
+prepareRejectState cfg tid stateOut =
+    case extractCageDatum stateOut of
+        Just (StateDatum oldState) ->
+            pure result
+          where
+            scriptAddr =
+                cageAddrFromCfg cfg (network cfg)
+            result =
+                ( oldState
+                , newStateOut
+                , stateScript
+                , requestScript
+                , ownerKh
+                )
+            newStateOut =
+                mkBasicTxOut
+                    scriptAddr
+                    (stateOut ^. valueTxOutL)
+                    & datumTxOutL
+                        .~ mkInlineDatum
+                            ( toPlcData
+                                (StateDatum oldState)
+                            )
+            stateScript = mkCageScript cfg
+            requestScript = mkRequestScript cfg tid
+            ownerKh = addrWitnessKeyHash ownerBs
+            OnChainTokenState
+                { stateOwner =
+                    BuiltinByteString ownerBs
+                } = oldState
+        _ ->
+            throwTxBuilderFailure
+                "rejectRequests: invalid state datum"
 
 -- | Compute the validity lower slot: must be
 -- AFTER the latest Phase 3 deadline among the
@@ -305,18 +312,27 @@ computeLowerSlot
 computeLowerSlot prov oldState reqUtxos = do
     let pt = stateProcessTime oldState
         rt = stateRetractTime oldState
-        latestDeadline =
-            maximum
-                $ map
-                    ( \(_, rOut) ->
-                        case extractCageDatum rOut of
-                            Just (RequestDatum r) ->
-                                requestSubmittedAt r
-                                    + pt
-                                    + rt
-                            _ -> 0
-                    )
-                    reqUtxos
+    deadlines <-
+        traverse
+            ( \(_, rOut) ->
+                case extractCageDatum rOut of
+                    Just (RequestDatum r) ->
+                        pure
+                            $ requestSubmittedAt r
+                                + pt
+                                + rt
+                    _ ->
+                        throwTxBuilderFailure
+                            "rejectRequests: invalid request datum"
+            )
+            reqUtxos
+    latestDeadline <-
+        case deadlines of
+            [] ->
+                throwTxBuilderFailure
+                    "rejectRequests: no requests to bound"
+            firstDeadline : rest ->
+                pure $ maximum (firstDeadline : rest)
     mLowerSlot <-
         try @SomeException
             (posixMsCeilSlot prov latestDeadline)

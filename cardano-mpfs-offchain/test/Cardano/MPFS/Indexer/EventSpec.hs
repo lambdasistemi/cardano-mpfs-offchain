@@ -17,10 +17,14 @@ import Test.QuickCheck
     ( Gen
     , forAll
     , listOf1
+    , suchThat
     )
 
+import Cardano.Ledger.Api.Tx.Out (mkBasicTxOut)
+import Cardano.Ledger.BaseTypes (Inject (..))
 import Cardano.MPFS.Core.Types
-    ( Request (..)
+    ( Coin (..)
+    , Request (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
@@ -35,12 +39,45 @@ import Cardano.MPFS.Generators
     )
 import Cardano.MPFS.Indexer.Event
     ( CageEvent (..)
+    , CageEventFailure (..)
     , CageInverseOp (..)
+    , detectCageEventsDetailed
     , inversesOf
+    )
+import Cardano.MPFS.Indexer.TxFixtures
+    ( mkPlainTx
+    , testCageAddr
+    , testScriptHash
     )
 
 spec :: Spec
 spec = describe "CageEvent" $ do
+    describe "detectCageEventsDetailed" $ do
+        it
+            "reports a typed failure for a resolved input outside the tx input set"
+            $ forAll genTxIn
+            $ \txInput ->
+                forAll
+                    (genTxIn `suchThat` (/= txInput))
+                    $ \resolvedInput ->
+                        let tx = mkPlainTx txInput
+                            txOut =
+                                mkBasicTxOut
+                                    testCageAddr
+                                    (inject (Coin 2_000_000))
+                            result =
+                                detectCageEventsDetailed
+                                    testScriptHash
+                                    [(resolvedInput, txOut)]
+                                    tx
+                        in  result
+                                `shouldBe` (
+                                               [ MissingSpendingInput
+                                                    resolvedInput
+                                               ]
+                                           , []
+                                           )
+
     describe "inversesOf" $ do
         it "boot produces InvRemoveToken"
             $ forAll genBoot

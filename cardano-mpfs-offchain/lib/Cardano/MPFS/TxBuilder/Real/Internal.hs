@@ -13,8 +13,13 @@
 -- UTxO lookup, spending-index computation,
 -- execution-unit defaults, and POSIX-to-slot conversion.
 module Cardano.MPFS.TxBuilder.Real.Internal
-    ( -- * Script construction
-      mkCageScript
+    ( -- * Failures
+      TxBuilderFailure (..)
+    , raiseTxBuilderFailure
+    , throwTxBuilderFailure
+
+      -- * Script construction
+    , mkCageScript
     , computeScriptHash
 
       -- * Derived identity
@@ -192,7 +197,13 @@ import Cardano.MPFS.Core.Types
     , PParams
     , TokenId (..)
     )
-import Control.Exception (SomeException, try)
+import Control.Exception
+    ( Exception (..)
+    , SomeException
+    , throw
+    , throwIO
+    , try
+    )
 import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Cardano.MPFS.Provider (Provider (..))
@@ -208,6 +219,24 @@ import Cardano.Tx.Balance
     ( BalanceResult (..)
     , balanceTx
     )
+
+-- | Typed failure for real transaction construction.
+newtype TxBuilderFailure = TxBuilderFailure String
+    deriving stock (Eq, Show)
+
+instance Exception TxBuilderFailure where
+    displayException (TxBuilderFailure msg) = msg
+
+-- | Raise a typed failure from pure helpers whose
+-- public signatures must remain stable.
+raiseTxBuilderFailure :: String -> a
+raiseTxBuilderFailure =
+    throw . TxBuilderFailure
+
+-- | Raise a typed failure in 'IO'.
+throwTxBuilderFailure :: String -> IO a
+throwTxBuilderFailure =
+    throwIO . TxBuilderFailure
 
 -- | Empty MPF root (32 zero bytes).
 emptyRoot :: ByteString
@@ -267,7 +296,7 @@ evaluateAndBalance prov pp inputUtxos changeAddr tx =
         if null failures
             then pure ()
             else
-                error
+                throwTxBuilderFailure
                     $ "evaluateAndBalance: \
                       \script eval failed: "
                         <> show failures
@@ -306,7 +335,7 @@ evaluateAndBalance prov pp inputUtxos changeAddr tx =
             changeAddr
             patched' of
             Left err ->
-                error
+                throwTxBuilderFailure
                     $ "evaluateAndBalance: "
                         <> show err
             Right br -> pure (balancedTx br)
@@ -324,7 +353,7 @@ mkCageScript cfg =
     in  case mkPlutusScript plutus of
             Just ps -> fromPlutusScript ps
             Nothing ->
-                error
+                raiseTxBuilderFailure
                     "mkCageScript: invalid \
                     \PlutusV3 script"
 
@@ -344,7 +373,7 @@ computeScriptHash sbs =
                 hashScript @ConwayEra
                     $ fromPlutusScript ps
             Nothing ->
-                error
+                raiseTxBuilderFailure
                     "computeScriptHash: invalid \
                     \PlutusV3 script"
 
@@ -378,7 +407,7 @@ mkRequestScript cfg tid =
     in  case mkPlutusScript plutus of
             Just ps -> fromPlutusScript ps
             Nothing ->
-                error
+                raiseTxBuilderFailure
                     "mkRequestScript: invalid \
                     \PlutusV3 script"
 
@@ -509,7 +538,7 @@ addrFromKeyHashBytes net bs =
                 (KeyHashObj (KeyHash h))
                 StakeRefNull
         Nothing ->
-            error
+            raiseTxBuilderFailure
                 "addrFromKeyHashBytes: \
                 \invalid hash"
 
@@ -522,7 +551,7 @@ addrWitnessKeyHash bs =
         Just h ->
             coerce (KeyHash h :: KeyHash Payment)
         Nothing ->
-            error
+            raiseTxBuilderFailure
                 "addrWitnessKeyHash: \
                 \invalid hash"
 
@@ -611,7 +640,8 @@ spendingIndex needle inputs =
     in  go 0 sorted
   where
     go _ [] =
-        error "spendingIndex: TxIn not in set"
+        raiseTxBuilderFailure
+            "spendingIndex: TxIn not in set"
     go n (x : xs)
         | x == needle = n
         | otherwise = go (n + 1) xs
@@ -651,7 +681,7 @@ currentPosixMs = do
 trySlots
     :: Provider IO -> [Integer] -> IO SlotNo
 trySlots _ [] =
-    error
+    throwTxBuilderFailure
         "posixMsToSlot: all fallbacks \
         \past horizon"
 trySlots p (ms : rest) = do
@@ -676,7 +706,7 @@ extractOwnerBytes out =
                     } = req
             in  bs
         _ ->
-            error
+            raiseTxBuilderFailure
                 "extractOwnerBytes: \
                 \not a request"
 

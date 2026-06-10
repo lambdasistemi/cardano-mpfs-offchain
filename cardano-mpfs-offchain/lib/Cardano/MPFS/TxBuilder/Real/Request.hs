@@ -1,3 +1,5 @@
+{-# LANGUAGE EmptyCase #-}
+
 -- |
 -- Module      : Cardano.MPFS.TxBuilder.Real.Request
 -- Description : Request insert/delete/update transactions
@@ -71,6 +73,9 @@ import Cardano.MPFS.TxBuilder.Real.Internal
 import Cardano.Tx.Build qualified as Tx
 
 data NoCtx a
+
+interpretNoCtx :: NoCtx a -> IO a
+interpretNoCtx q = case q of {}
 
 -- | Build a request-insert transaction.
 requestInsertImpl
@@ -188,14 +193,17 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
         } <-
         case mTs of
             Nothing ->
-                error "requestImpl: unknown token"
+                throwTxBuilderFailure
+                    "requestImpl: unknown token"
             Just x -> pure x
     pp <- queryProtocolParams prov
     utxos <- queryUTxOs prov addr
     feeUtxo <- case sortOn
         (Down . (^. coinTxOutL) . snd)
         utxos of
-        [] -> error "requestImpl: no UTxOs"
+        [] ->
+            throwTxBuilderFailure
+                "requestImpl: no UTxOs"
         (u : _) -> pure u
     now <- currentPosixMs
     let datum =
@@ -232,7 +240,7 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
     result <-
         Tx.build
             (Tx.mkPParamsBound pp)
-            (Tx.InterpretIO (const (pure undefined)))
+            (Tx.InterpretIO interpretNoCtx)
             (const $ pure Map.empty)
             [feeUtxo]
             []
@@ -240,7 +248,7 @@ requestImpl cfg prov st proofFn snap tid key op addr = do
             (prog :: Tx.TxBuild NoCtx Void ())
     case result of
         Left err ->
-            error
+            throwTxBuilderFailure
                 $ "requestImpl: TxBuild failed: "
                     <> show err
         Right tx -> do
