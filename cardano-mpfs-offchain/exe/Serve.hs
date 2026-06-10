@@ -42,7 +42,10 @@ import Cardano.MPFS.Core.Blueprint
     , loadCageScripts
     )
 import Cardano.MPFS.Core.Types (Coin (..))
-import Cardano.MPFS.HTTP.Server (mkApp)
+import Cardano.MPFS.HTTP.Server
+    ( mkApp
+    , warpSettings
+    )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.Trace (jsonLinesTracer)
 import Cardano.MPFS.TxBuilder.Config
@@ -142,7 +145,9 @@ main = do
                 <> url
                 <> "/swagger-ui"
         hFlush stdout
-        Warp.run (argPort args) (mkApp ctx)
+        Warp.runSettings
+            (warpSettings (argPort args))
+            (mkApp ctx)
 
 -- -------------------------------------------------
 -- Validation
