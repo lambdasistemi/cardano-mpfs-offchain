@@ -354,20 +354,35 @@ buildRetractTx
     changeAddr
     ownerSigner
     validity =
-        stripBalancingCollateralFields
-            <$> evaluateAndBalancePure
-                evalCtx
-                ledgerPairs
-                [(stateRef, rowOut stateRow)]
-                changeAddr
-                draft
+        do
+            script <- mkRequestScript cfg token
+            draft <-
+                patchRetractRedeemers
+                    pp
+                    evalBudgetExUnits
+                    requestRef
+                    redeemer
+                    $ TxBuild.draft
+                        pp
+                        ( program script
+                            :: TxBuild.TxBuild NoCtx BuildError ()
+                        )
+                    & bodyTxL . inputsTxBodyL
+                        %~ Set.union
+                            (Set.fromList (map fst ledgerPairs))
+            stripBalancingCollateralFields
+                <$> evaluateAndBalancePure
+                    evalCtx
+                    ledgerPairs
+                    [(stateRef, rowOut stateRow)]
+                    changeAddr
+                    draft
       where
         requestRef = rowRef requestRow
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
-        script = mkRequestScript cfg token
         redeemer = Retract (txInToOnChainRef stateRef)
-        program = do
+        program script = do
             _ <- TxBuild.spendScript requestRef redeemer
             TxBuild.reference stateRef
             TxBuild.attachScript script
@@ -375,20 +390,6 @@ buildRetractTx
             TxBuild.requireSignature
                 (witnessKeyHashToGuard ownerSigner)
             applyValidity validity
-        draft =
-            patchRetractRedeemers
-                pp
-                evalBudgetExUnits
-                requestRef
-                redeemer
-                $ TxBuild.draft
-                    pp
-                    ( program
-                        :: TxBuild.TxBuild NoCtx BuildError ()
-                    )
-                & bodyTxL . inputsTxBodyL
-                    %~ Set.union
-                        (Set.fromList (map fst ledgerPairs))
         ledgerPairs =
             [ (rowRef requestRow, rowOut requestRow)
             , (rowRef feeRow, rowOut feeRow)
@@ -409,35 +410,40 @@ patchRetractRedeemers
     -> TxIn
     -> UpdateRedeemer
     -> ConwayTx
-    -> ConwayTx
+    -> Either BuildError ConwayTx
 patchRetractRedeemers pp budget requestRef redeemer tx =
-    tx
-        & witsTxL . rdmrsTxWitsL .~ redeemers
-        & bodyTxL . scriptIntegrityHashTxBodyL
-            .~ computeScriptIntegrity
-                (Set.singleton PlutusV3)
-                pp
-                redeemers
-                (TxDats mempty)
+    do
+        requestIx <-
+            spendingIndex "retract.request_utxo" requestRef allInputs
+        let redeemers =
+                Redeemers
+                    $ Map.singleton
+                        (ConwaySpending (AsIx requestIx))
+                        (toLedgerData redeemer, budget)
+        Right
+            $ tx
+            & witsTxL . rdmrsTxWitsL .~ redeemers
+            & bodyTxL . scriptIntegrityHashTxBodyL
+                .~ computeScriptIntegrity
+                    (Set.singleton PlutusV3)
+                    pp
+                    redeemers
+                    (TxDats mempty)
   where
     allInputs =
         tx ^. bodyTxL . inputsTxBodyL
-    redeemers =
-        Redeemers
-            $ Map.singleton
-                ( ConwaySpending
-                    (AsIx $ spendingIndex requestRef allInputs)
-                )
-                (toLedgerData redeemer, budget)
 
-spendingIndex :: TxIn -> Set.Set TxIn -> Word32
-spendingIndex needle inputs =
+spendingIndex
+    :: Text -> TxIn -> Set.Set TxIn -> Either BuildError Word32
+spendingIndex path needle inputs =
     go 0 (Set.toAscList inputs)
   where
     go _ [] =
-        error "retractCageTx: script input missing from balanced tx"
+        Left
+            $ MissingBalancedInput
+            $ path <> " missing from balanced tx inputs"
     go n (x : xs)
-        | x == needle = n
+        | x == needle = Right n
         | otherwise = go (n + 1) xs
 
 stripBalancingCollateralFields :: ConwayTx -> ConwayTx
@@ -447,16 +453,18 @@ stripBalancingCollateralFields tx =
         & bodyTxL . collateralReturnTxBodyL .~ SNothing
 
 mkRequestScript
-    :: CageConfig -> TokenId -> Script ConwayEra
+    :: CageConfig -> TokenId -> Either BuildError (Script ConwayEra)
 mkRequestScript cfg token =
     let plutus =
             Plutus @PlutusV3
                 $ PlutusBinary
                 $ requestScriptBytesFromCfg cfg token
     in  case mkPlutusScript plutus of
-            Just ps -> fromPlutusScript ps
+            Just ps -> Right (fromPlutusScript ps)
             Nothing ->
-                error "retractCageTx: invalid PlutusV3 script"
+                Left
+                    $ InvalidPlutusV3Script
+                        "retract.request_script"
 
 txInToOnChainRef :: TxIn -> OnChainTxOutRef
 txInToOnChainRef (TxIn (TxId h) (TxIx ix)) =

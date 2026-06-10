@@ -380,13 +380,18 @@ witnessKeyHashToGuard (KeyHash h) = KeyHash h
 
 ownerPaymentKeyHash
     :: ByteString -> Either BuildError (KeyHash Payment)
-ownerPaymentKeyHash ownerBytes =
+ownerPaymentKeyHash =
+    paymentKeyHashFromBytes "reject.state_utxo.datum.owner"
+
+paymentKeyHashFromBytes
+    :: Text -> ByteString -> Either BuildError (KeyHash Payment)
+paymentKeyHashFromBytes path ownerBytes =
     case hashFromBytes @Blake2b_224 ownerBytes of
         Just hash -> Right (KeyHash hash)
         Nothing ->
             Left
                 $ MalformedTxOut
-                    "reject.state_utxo.datum.owner must be 28 bytes"
+                $ path <> " must be 28 bytes"
 
 -- ---------------------------------------------------------------
 -- Builder (mirrors Real/Reject.buildRejectProgram +
@@ -434,12 +439,64 @@ buildRejectTx
                         else converge (Set.insert finalFee seenFees) finalFee
 
         finalize fee tx = do
+            plans <- refundPlans fee
+            legacyExactRefund <- usesLegacyExactRefundValidator cfg
             preflightLegacyExactRefund
-                (usesLegacyExactRefundValidator cfg)
-                (map snd (refundPlans fee))
+                legacyExactRefund
+                (map snd plans)
             Right tx
 
-        buildWithFee feeForRefunds =
+        buildWithFee feeForRefunds = do
+            plans <- refundPlans feeForRefunds
+            requestScript <- mkRequestScript cfg token
+            let rawDraft =
+                    TxBuild.draft
+                        pp
+                        ( program
+                            :: TxBuild.TxBuild NoCtx BuildError ()
+                        )
+                withAllInputs =
+                    rawDraft
+                        & bodyTxL . inputsTxBodyL
+                            %~ Set.union
+                                (Set.fromList (map fst ledgerPairs))
+                program = do
+                    _ <-
+                        TxBuild.spendScript
+                            stateRef
+                            ( Modify
+                                $ replicate
+                                    (length requestRows)
+                                    Rejected
+                            )
+                    mapM_
+                        ( \(ref, _) ->
+                            TxBuild.spendScript
+                                ref
+                                ( Contribute
+                                    $ txInToOnChainRef stateRef
+                                )
+                        )
+                        requestRefs
+                    mapM_ TxBuild.output outputs
+                    TxBuild.attachScript stateScript
+                    TxBuild.attachScript requestScript
+                    TxBuild.collateral feeRef
+                    TxBuild.requireSignature
+                        (witnessKeyHashToGuard ownerSigner)
+                    applyValidity validity
+                outputs =
+                    newStateOut
+                        : [ refundOutput addr plan
+                          | (addr, plan) <- plans
+                          ]
+            draft <-
+                patchRejectRedeemers
+                    (evalProtocolParameters evalCtx)
+                    evalBudgetExUnits
+                    stateRef
+                    (map fst requestRefs)
+                    withAllInputs
             evaluateAndBalancePureAtFee
                 evalCtx
                 feeForRefunds
@@ -447,55 +504,6 @@ buildRejectTx
                 []
                 changeAddr
                 draft
-          where
-            draft =
-                patchRejectRedeemers
-                    (evalProtocolParameters evalCtx)
-                    evalBudgetExUnits
-                    stateRef
-                    (map fst requestRefs)
-                    withAllInputs
-            rawDraft =
-                TxBuild.draft
-                    pp
-                    ( program
-                        :: TxBuild.TxBuild NoCtx BuildError ()
-                    )
-            withAllInputs =
-                rawDraft
-                    & bodyTxL . inputsTxBodyL
-                        %~ Set.union
-                            (Set.fromList (map fst ledgerPairs))
-            program = do
-                _ <-
-                    TxBuild.spendScript
-                        stateRef
-                        ( Modify
-                            $ replicate
-                                (length requestRows)
-                                Rejected
-                        )
-                mapM_
-                    ( \(ref, _) ->
-                        TxBuild.spendScript
-                            ref
-                            ( Contribute
-                                $ txInToOnChainRef stateRef
-                            )
-                    )
-                    requestRefs
-                mapM_ TxBuild.output outputs
-                TxBuild.attachScript stateScript
-                TxBuild.attachScript requestScript
-                TxBuild.collateral feeRef
-                TxBuild.requireSignature
-                    (witnessKeyHashToGuard ownerSigner)
-                applyValidity validity
-            outputs =
-                newStateOut
-                    : [ refundOutput addr plan
-                      | (addr, plan) <- refundPlans feeForRefunds
-                      ]
 
         stateRef = rowRef stateRow
         feeRef = rowRef feeRow
@@ -505,7 +513,6 @@ buildRejectTx
         ledgerPairs =
             [(rowRef row, rowOut row) | row <- allRows]
         stateScript = mkCageScript cfg
-        requestScript = mkRequestScript cfg token
         newStateOut =
             mkBasicTxOut
                 (cageAddrFromCfg cfg (network cfg))
@@ -513,21 +520,30 @@ buildRejectTx
                 & datumTxOutL
                     .~ mkInlineDatum (StateDatum oldState)
         refundPlans (Coin fee) =
-            let nReqs =
-                    fromIntegral (length requestRows) :: Integer
-                perReqFee = fee `div` nReqs
-                remainder = fee - perReqFee * nReqs
-                OnChainTokenState
-                    { stateMaxFee = tipAmount
-                    } = oldState
-            in  [ (addr, refundPlan pp addr raw)
-                | (ix, row) <- zip [0 :: Int ..] requestRows
-                , let request = unsafeRequestDatum row
-                      addr = refundAddress (network cfg) request
-                      Coin reqValue = rowOut row ^. coinTxOutL
-                      extra = if ix == 0 then remainder else 0
-                      raw = Coin (reqValue - tipAmount - perReqFee - extra)
-                ]
+            case requestRows of
+                [] ->
+                    Left
+                        $ MalformedTxOut
+                            "reject.request_utxos must not be empty"
+                _ -> do
+                    let nReqs =
+                            fromIntegral (length requestRows) :: Integer
+                        perReqFee = fee `div` nReqs
+                        remainder = fee - perReqFee * nReqs
+                        OnChainTokenState
+                            { stateMaxFee = tipAmount
+                            } = oldState
+                    traverse
+                        (refundPlanFor perReqFee remainder tipAmount)
+                        (zip [0 :: Int ..] requestRows)
+
+        refundPlanFor perReqFee remainder tipAmount (ix, row) = do
+            request <- requestDatum row
+            addr <- refundAddress (network cfg) request
+            let Coin reqValue = rowOut row ^. coinTxOutL
+                extra = if ix == 0 then remainder else 0
+                raw = Coin (reqValue - tipAmount - perReqFee - extra)
+            Right (addr, refundPlan pp addr raw)
 
 applyValidity :: ValidityInterval -> TxBuild.TxBuild q e ()
 applyValidity ValidityInterval{invalidBefore, invalidHereafter} = do
@@ -544,52 +560,62 @@ patchRejectRedeemers
     -> TxIn
     -> [TxIn]
     -> ConwayTx
-    -> ConwayTx
+    -> Either BuildError ConwayTx
 patchRejectRedeemers pp budget stateRef requestRefs tx =
-    tx
-        & witsTxL . rdmrsTxWitsL .~ redeemers
-        & bodyTxL . scriptIntegrityHashTxBodyL
-            .~ computeScriptIntegrity
-                (Set.singleton PlutusV3)
-                pp
-                redeemers
-                (TxDats mempty)
+    do
+        stateIx <-
+            spendingIndex "reject.state_utxo" stateRef allInputs
+        requestIxs <-
+            traverse
+                ( \ref ->
+                    spendingIndex "reject.request_utxos[]" ref allInputs
+                )
+                requestRefs
+        let redeemers =
+                Redeemers
+                    $ Map.fromList
+                    $ stateRedeemer stateIx
+                        : map requestRedeemer requestIxs
+        Right
+            $ tx
+            & witsTxL . rdmrsTxWitsL .~ redeemers
+            & bodyTxL . scriptIntegrityHashTxBodyL
+                .~ computeScriptIntegrity
+                    (Set.singleton PlutusV3)
+                    pp
+                    redeemers
+                    (TxDats mempty)
   where
     allInputs =
         tx ^. bodyTxL . inputsTxBodyL
-    redeemers =
-        Redeemers
-            $ Map.fromList
-            $ stateRedeemer
-                : map requestRedeemer requestRefs
-    stateRedeemer =
-        ( spendingPurpose stateRef
+    stateRedeemer stateIx =
+        ( ConwaySpending (AsIx stateIx)
         ,
             ( toLedgerData
                 (Modify $ replicate (length requestRefs) Rejected)
             , budget
             )
         )
-    requestRedeemer ref =
-        ( spendingPurpose ref
+    requestRedeemer requestIx =
+        ( ConwaySpending (AsIx requestIx)
         ,
             ( toLedgerData
                 (Contribute $ txInToOnChainRef stateRef)
             , budget
             )
         )
-    spendingPurpose ref =
-        ConwaySpending
-            (AsIx $ spendingIndex ref allInputs)
 
-spendingIndex :: TxIn -> Set.Set TxIn -> Word32
-spendingIndex needle inputs =
+spendingIndex
+    :: Text -> TxIn -> Set.Set TxIn -> Either BuildError Word32
+spendingIndex path needle inputs =
     go 0 (Set.toAscList inputs)
   where
     go _ [] =
-        error "rejectCageTx: script input missing from balanced tx"
+        Left
+            $ MissingBalancedInput
+            $ path <> " missing from balanced tx inputs"
     go n (x : xs)
-        | x == needle = n
+        | x == needle = Right n
         | otherwise = go (n + 1) xs
 
 refundPlan :: PParams ConwayEra -> Addr -> Coin -> RefundPlan
@@ -626,18 +652,19 @@ preflightLegacyExactRefund True plans =
     requiresTopUp RefundPlan{refundRawCoin, refundFinalCoin} =
         refundFinalCoin > refundRawCoin
 
-usesLegacyExactRefundValidator :: CageConfig -> Bool
+usesLegacyExactRefundValidator :: CageConfig -> Either BuildError Bool
 usesLegacyExactRefundValidator CageConfig{cfgScriptHash = ScriptHash h} =
-    hashToBytes h == legacyExactRefundStateHashBytes
+    (hashToBytes h ==) <$> legacyExactRefundStateHashBytes
 
-legacyExactRefundStateHashBytes :: ByteString
+legacyExactRefundStateHashBytes :: Either BuildError ByteString
 legacyExactRefundStateHashBytes =
     case B16.decode (BSC.pack legacyExactRefundStateHashHex) of
-        Right bytes -> bytes
+        Right bytes -> Right bytes
         Left err ->
-            error
-                $ "invalid legacy exact-refund validator hash: "
-                    <> err
+            Left
+                $ InvalidStaticConfig
+                $ "legacy exact-refund validator hash: "
+                    <> T.pack err
 
 legacyExactRefundStateHashHex :: String
 legacyExactRefundStateHashHex =
@@ -647,36 +674,28 @@ legacyExactRefundStateHashHex =
 coinText :: Coin -> Text
 coinText (Coin coin) = T.pack (show coin)
 
-refundAddress :: Network -> OnChainRequest -> Addr
+refundAddress :: Network -> OnChainRequest -> Either BuildError Addr
 refundAddress net OnChainRequest{requestOwner = BuiltinByteString ownerBytes} =
-    Addr
-        net
-        (KeyHashObj $ unsafeOwnerPaymentKeyHash ownerBytes)
-        StakeRefNull
-
-unsafeOwnerPaymentKeyHash :: ByteString -> KeyHash Payment
-unsafeOwnerPaymentKeyHash ownerBytes =
-    case hashFromBytes @Blake2b_224 ownerBytes of
-        Just hash -> KeyHash hash
-        Nothing -> error "rejectCageTx: invalid request owner hash"
-
-unsafeRequestDatum :: InputRow -> OnChainRequest
-unsafeRequestDatum row =
-    case requestDatum row of
-        Right request -> request
-        Left _ -> error "rejectCageTx: request datum disappeared"
+    do
+        ownerHash <-
+            paymentKeyHashFromBytes
+                "reject.request_utxos[].datum.owner"
+                ownerBytes
+        Right $ Addr net (KeyHashObj ownerHash) StakeRefNull
 
 mkRequestScript
-    :: CageConfig -> TokenId -> Script ConwayEra
+    :: CageConfig -> TokenId -> Either BuildError (Script ConwayEra)
 mkRequestScript cfg token =
     let plutus =
             Plutus @PlutusV3
                 $ PlutusBinary
                 $ requestScriptBytesFromCfg cfg token
     in  case mkPlutusScript plutus of
-            Just ps -> fromPlutusScript ps
+            Just ps -> Right (fromPlutusScript ps)
             Nothing ->
-                error "rejectCageTx: invalid PlutusV3 request script"
+                Left
+                    $ InvalidPlutusV3Script
+                        "reject.request_script"
 
 txInToOnChainRef :: TxIn -> OnChainTxOutRef
 txInToOnChainRef (TxIn (TxId h) (TxIx ix)) =
