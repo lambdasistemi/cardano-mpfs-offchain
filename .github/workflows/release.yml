@@ -47,7 +47,7 @@ jobs:
           chmod +x /tmp/bundle/libexec/mpfs-cli
 
           LD_TRACE_LOADED_OBJECTS=1 /tmp/bundle/libexec/mpfs-cli \
-            | awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' \
+            | nix shell --inputs-from . nixpkgs#gawk -c awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' \
             | sort -u \
             | while read -r lib; do
               case "$lib" in
