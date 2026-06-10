@@ -1,0 +1,66 @@
+name: Sync cabal version
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: nixos
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync version to release Cabal packages
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          new_version=$(jq -r '."."' .release-please-manifest.json 2>/dev/null || echo "")
+          if [ -z "$new_version" ] || [ "$new_version" = "null" ]; then
+            echo "No version found in manifest, skipping"
+            exit 0
+          fi
+
+          if [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            new_version="${new_version}.0"
+          fi
+
+          changed=0
+          sync_cabal_version() {
+            cabal_file="$1"
+            old_version=$(sed -n 's/^version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' "$cabal_file" | head -1)
+
+            echo "$cabal_file old version: $old_version"
+            echo "$cabal_file new version: $new_version"
+
+            if [ "$new_version" = "$old_version" ]; then
+              echo "$cabal_file already matches"
+              return
+            fi
+
+            sed -i "s/^version:.*$/version:       $new_version/" "$cabal_file"
+            changed=1
+          }
+
+          sync_cabal_version cardano-mpfs-offchain/cardano-mpfs-offchain.cabal
+          sync_cabal_version cardano-mpfs-cli/cardano-mpfs-cli.cabal
+
+          if [ "$changed" -eq 0 ]; then
+            echo "Versions match, nothing to do"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cardano-mpfs-offchain/cardano-mpfs-offchain.cabal cardano-mpfs-cli/cardano-mpfs-cli.cabal
+          git commit -m "chore: sync cabal version to $new_version"
+          git push origin "HEAD:$HEAD_REF"
