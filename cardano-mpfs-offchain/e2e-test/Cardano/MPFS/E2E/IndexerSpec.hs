@@ -16,6 +16,7 @@ import Control.Concurrent (threadDelay)
 import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Lens.Micro ((^.))
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -85,7 +86,8 @@ import Cardano.MPFS.Indexer.Follower
     , detectFromTx
     )
 import Cardano.MPFS.Indexer.Reads
-    ( readWalletInputsAt
+    ( IndexerReadError (..)
+    , readWalletInputsAt
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -159,9 +161,13 @@ indexerSpecs scripts = do
     it "spent wallet UTxOs are removed from CSMT address scan"
         $ withE2EFollower scripts
         $ \_ ctx -> do
-            before <-
+            eBefore <-
                 runIndexerTx ctx
                     $ readWalletInputsAt genesisAddr
+            before <-
+                requireIndexerRead
+                    "readWalletInputsAt before boot"
+                    eBefore
             before `shouldSatisfy` (not . null)
 
             signedBoot <-
@@ -194,9 +200,13 @@ indexerSpecs scripts = do
                 Just _ ->
                     pure ()
 
-            after <-
+            eAfter <-
                 runIndexerTx ctx
                     $ readWalletInputsAt genesisAddr
+            after <-
+                requireIndexerRead
+                    "readWalletInputsAt after boot"
+                    eAfter
             let liveInputs =
                     [ txIn
                     | (txIn, _, _) <- after
@@ -1014,6 +1024,17 @@ indexerSpecs scripts = do
             mTs `shouldSatisfy` \case
                 Just _ -> True
                 Nothing -> False
+
+requireIndexerRead
+    :: String
+    -> Either IndexerReadError a
+    -> IO a
+requireIndexerRead label result =
+    case result of
+        Left (IndexerReadError msg) ->
+            fail $ label <> ": " <> T.unpack msg
+        Right value ->
+            pure value
 
 -- ---------------------------------------------------------
 -- Bracket
