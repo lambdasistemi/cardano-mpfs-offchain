@@ -59,15 +59,32 @@ id, token state, request payload) by decoding the inline datum of the
 witnessed `TxOut`; the server's job is to provide that provable
 material, not to interpret it.
 
-`POST /submit` accepts **only MPFS operations**. Before relaying, it
-runs a cheap structural scope gate on the decoded tx body: the tx must
-mint or burn the cage state-token policy, lock an output at the cage
-state address, or produce a request output — a `RequestDatum`-bearing
-output sitting at this cage's per-token request validator address
-(`requestAddrFromCfg` for the token named in the datum), so a crafted
-`RequestDatum` at any other script address is rejected. Anything that
-touches none of the cage contract surface — a plain ADA transfer, say —
-is rejected with a typed `400 "this service only submits MPFS
+`POST /submit` accepts **only MPFS operations**. Before relaying, the
+server runs a cheap scope gate on the decoded tx. A transaction is
+admitted when it touches the cage contract surface in any of these ways:
+
+- it mints or burns the cage state-token policy (boot, end);
+- it locks an output at the cage state address (boot, update, reject);
+- it produces a request output — a `RequestDatum`-bearing output sitting
+  at this cage's per-token request validator address
+  (`requestAddrFromCfg` for the token named in the datum), so a crafted
+  `RequestDatum` at any other script address is rejected (request
+  create);
+- it **spends** a cage-owned UTxO — the cage state UTxO or a request
+  UTxO at a request validator address. This input-aware clause is what
+  admits the spend-only operations **retract** and **sweep**, which
+  refund or reclaim a request UTxO and so leave no cage mint and no cage
+  output.
+
+The mint and output checks are purely structural, but the spend check
+needs the chain: the handler resolves the tx's spent inputs against the
+indexer's UTxO set (one atomic read) and feeds the resolved `TxOut`s
+into the pure predicate. The gate is conservative — an input the indexer
+cannot resolve (its view may lag the chain) is treated as touching the
+cage, so a valid operation is never false-rejected; only a transaction
+that is definitely non-MPFS (no cage mint, no cage output, every spent
+input resolved to a non-cage UTxO) — a plain ADA transfer, say — is
+rejected, with a typed `400 "this service only submits MPFS
 operations"`. This is abuse prevention at the gateway, not a new trust
 boundary; the on-chain validators remain authoritative.
 

@@ -4,12 +4,17 @@
 -- License     : Apache-2.0
 --
 -- Exercises 'txTouchesMpfs' directly on the cage-event
--- transaction fixtures: every MPFS op shape (boot, end,
--- update, request) is admitted, a plain value transfer
--- is rejected, recognition is keyed to the configured
--- cage, and a request output is bound to this cage's
--- per-token request validator address — a crafted
--- 'RequestDatum' at any other script address is rejected.
+-- transaction fixtures. It proves the gate admits EVERY
+-- real MPFS operation the system can submit — including
+-- the spend-only ones (retract, sweep) that leave no cage
+-- mint or output and are recognised only by their spent
+-- request UTxO — while still rejecting a plain value
+-- transfer whose inputs all resolve to non-cage UTxOs.
+-- It also pins the conservative stale-input policy: an
+-- unresolved spent input is never grounds for a
+-- false-reject, and pins that recognition stays keyed to
+-- the configured cage (wrong cage / wrong request address
+-- are rejected).
 module Cardano.MPFS.HTTP.SubmitScopeSpec
     ( spec
     ) where
@@ -37,13 +42,20 @@ import Cardano.MPFS.Generators
     , genTxIn
     )
 import Cardano.MPFS.HTTP.AtomicReadFixture (testCageConfig)
-import Cardano.MPFS.HTTP.SubmitScope (txTouchesMpfs)
+import Cardano.MPFS.HTTP.SubmitScope
+    ( SpentInput (..)
+    , txTouchesMpfs
+    )
 import Cardano.MPFS.Indexer.TxFixtures
     ( mkBootTx
     , mkBurnTx
     , mkPlainTx
     , mkRequestTxAt
+    , mkRequestTxOutAt
+    , mkRetractTx
+    , mkStateTxOut
     , mkUpdateTx
+    , mkWalletTxOut
     , wrongScriptHash
     )
 import Cardano.MPFS.TxBuilder.Config
@@ -70,6 +82,14 @@ wrongScriptAddr =
         (ScriptHashObj wrongScriptHash)
         StakeRefNull
 
+-- | A single resolved non-cage wallet input — the kind
+-- every transaction carries to pay fees. Present in the
+-- positive structural cases to prove mint\/output
+-- recognition admits a tx even when its inputs are
+-- non-cage.
+walletSpent :: [SpentInput]
+walletSpent = [ResolvedSpent mkWalletTxOut]
+
 spec :: Spec
 spec =
     describe
@@ -85,6 +105,7 @@ spec =
                 $ \(tid, ts, seed) ->
                     txTouchesMpfs
                         testCageConfig
+                        walletSpent
                         (mkBootTx tid ts seed)
                         `shouldBe` True
 
@@ -94,6 +115,7 @@ spec =
                 $ \(tid, dummy) ->
                     txTouchesMpfs
                         testCageConfig
+                        walletSpent
                         (mkBurnTx tid dummy)
                         `shouldBe` True
 
@@ -108,6 +130,7 @@ spec =
                 $ \(tid, ts, r, stateIn) ->
                     txTouchesMpfs
                         testCageConfig
+                        walletSpent
                         (mkUpdateTx tid ts r [] stateIn)
                         `shouldBe` True
 
@@ -123,14 +146,96 @@ spec =
                                 Testnet
                     in  txTouchesMpfs
                             testCageConfig
+                            walletSpent
                             (mkRequestTxAt reqAddr req dummy)
                             `shouldBe` True
 
-            it "rejects a plain value-transfer tx (no MPFS surface)"
+            it
+                "accepts a retract tx (spends a request UTxO; \
+                \no cage mint or output)"
+                $ forAll genReqAndTwoInputs
+                $ \(tid, req, reqIn, extraIn) ->
+                    let reqAddr =
+                            requestAddrFromCfg
+                                testCageConfig
+                                tid
+                                Testnet
+                        spent =
+                            [ ResolvedSpent
+                                (mkRequestTxOutAt reqAddr req)
+                            , ResolvedSpent mkWalletTxOut
+                            ]
+                    in  txTouchesMpfs
+                            testCageConfig
+                            spent
+                            (mkRetractTx reqIn extraIn)
+                            `shouldBe` True
+
+            it
+                "accepts a sweep tx (spends a request UTxO; \
+                \no cage mint or output)"
+                $ forAll genReqAndTwoInputs
+                $ \(tid, req, reqIn, extraIn) ->
+                    let reqAddr =
+                            requestAddrFromCfg
+                                testCageConfig
+                                tid
+                                Testnet
+                        spent =
+                            [ ResolvedSpent mkWalletTxOut
+                            , ResolvedSpent
+                                (mkRequestTxOutAt reqAddr req)
+                            ]
+                    in  -- Sweep is structurally a request-UTxO
+                        -- spend like retract; the gate ignores
+                        -- the redeemer, so 'mkRetractTx' models
+                        -- both spend-only shapes.
+                        txTouchesMpfs
+                            testCageConfig
+                            spent
+                            (mkRetractTx reqIn extraIn)
+                            `shouldBe` True
+
+            it
+                "accepts a spend-only op that spends the cage \
+                \state UTxO (no cage output)"
+                $ forAll
+                    ( (,,)
+                        <$> genTokenId
+                        <*> genTokenState
+                        <*> genTxIn
+                    )
+                $ \(tid, ts, dummy) ->
+                    let spent =
+                            [ ResolvedSpent (mkStateTxOut tid ts)
+                            , ResolvedSpent mkWalletTxOut
+                            ]
+                    in  txTouchesMpfs
+                            testCageConfig
+                            spent
+                            (mkPlainTx dummy)
+                            `shouldBe` True
+
+            it
+                "admits a tx with an unresolved spent input \
+                \(conservative: never false-reject on a \
+                \lagging view)"
                 $ forAll genTxIn
                 $ \dummy ->
                     txTouchesMpfs
                         testCageConfig
+                        [UnresolvedSpent]
+                        (mkPlainTx dummy)
+                        `shouldBe` True
+
+            it
+                "rejects a plain value-transfer tx (inputs \
+                \resolve to non-cage UTxOs)"
+                $ forAll genTxIn
+                $ \dummy ->
+                    txTouchesMpfs
+                        testCageConfig
+                        walletSpent
                         (mkPlainTx dummy)
                         `shouldBe` False
 
@@ -144,6 +249,7 @@ spec =
                 $ \(tid, ts, seed) ->
                     txTouchesMpfs
                         otherCfg
+                        walletSpent
                         (mkBootTx tid ts seed)
                         `shouldBe` False
 
@@ -154,12 +260,32 @@ spec =
                 $ \(_tid, req, dummy) ->
                     txTouchesMpfs
                         testCageConfig
+                        walletSpent
                         ( mkRequestTxAt
                             wrongScriptAddr
                             req
                             dummy
                         )
                         `shouldBe` False
+
+            it
+                "rejects a spent RequestDatum at a wrong \
+                \script address"
+                $ forAll genReqAndInput
+                $ \(_tid, req, dummy) ->
+                    let spent =
+                            [ ResolvedSpent
+                                ( mkRequestTxOutAt
+                                    wrongScriptAddr
+                                    req
+                                )
+                            , ResolvedSpent mkWalletTxOut
+                            ]
+                    in  txTouchesMpfs
+                            testCageConfig
+                            spent
+                            (mkPlainTx dummy)
+                            `shouldBe` False
 
             it
                 "rejects a RequestDatum at another token's \
@@ -173,6 +299,7 @@ spec =
                                 Testnet
                     in  txTouchesMpfs
                             testCageConfig
+                            walletSpent
                             ( mkRequestTxAt
                                 wrongReqAddr
                                 req
@@ -185,6 +312,12 @@ spec =
         req <- genRequest tid
         dummy <- genTxIn
         pure (tid, req, dummy)
+    genReqAndTwoInputs = do
+        tid <- genTokenId
+        req <- genRequest tid
+        reqIn <- genTxIn
+        extraIn <- genTxIn `suchThat` (/= reqIn)
+        pure (tid, req, reqIn, extraIn)
     genReqAndOtherToken = do
         tid <- genTokenId
         other <- genTokenId `suchThat` (/= tid)
