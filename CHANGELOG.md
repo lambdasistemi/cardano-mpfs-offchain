@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.1.1...v0.2.0) (2026-06-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** remove verified read projections
+
+### Features
+
+* **submit:** reject non-MPFS transactions ([2eb5989](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/2eb598912d08e5304179f7034c80486730084147)), closes [#343](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/343)
+
+
+### Bug Fixes
+
+* **submit:** admit spend-only MPFS operations ([6b0a722](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/6b0a7223d59d584b40a1359f4d6abbe73d1944ec)), closes [#343](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/343)
+
+
+### Code Refactoring
+
+* **api:** remove verified read projections ([44aeed6](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/44aeed6471c00a12df5a266660047903f5854979)), closes [#342](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/342)
+
 ## [0.1.1](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.1.0...v0.1.1) (2026-06-10)
 
 
