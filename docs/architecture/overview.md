@@ -59,6 +59,18 @@ id, token state, request payload) by decoding the inline datum of the
 witnessed `TxOut`; the server's job is to provide that provable
 material, not to interpret it.
 
+`POST /submit` accepts **only MPFS operations**. Before relaying, it
+runs a cheap structural scope gate on the decoded tx body: the tx must
+mint or burn the cage state-token policy, lock an output at the cage
+state address, or produce a request output — a `RequestDatum`-bearing
+output sitting at this cage's per-token request validator address
+(`requestAddrFromCfg` for the token named in the datum), so a crafted
+`RequestDatum` at any other script address is rejected. Anything that
+touches none of the cage contract surface — a plain ADA transfer, say —
+is rejected with a typed `400 "this service only submits MPFS
+operations"`. This is abuse prevention at the gateway, not a new trust
+boundary; the on-chain validators remain authoritative.
+
 The 502 era-history failure was fixed by carrying live era history in
 `GET /eval-context` and deriving `EpochInfo` from it in the reactor.
 `ScriptContext` `POSIXTimeRange` costs now use the same era clock as the

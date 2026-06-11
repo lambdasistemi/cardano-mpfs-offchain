@@ -114,6 +114,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.HTTP.API (API)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
+import Cardano.MPFS.HTTP.SubmitScope (txTouchesMpfs)
 import Cardano.MPFS.HTTP.Swagger
     ( SwaggerAPI
     , swaggerServer
@@ -2102,6 +2103,18 @@ txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
                     err400
                     "decode failed"
                     (T.pack (show msg))
+    -- Scope gate (#343): the server is a fact-provider
+    -- for the MPFS cage, not a general-purpose relay.
+    -- Reject any tx that touches none of the cage
+    -- contract surface (state-token policy / cage
+    -- address / request output) before it reaches the
+    -- node.
+    unless (txTouchesMpfs (cfgCage ctx) tx)
+        $ throwError
+        $ submitError
+            err400
+            "not an MPFS operation"
+            "this service only submits MPFS operations"
     result <-
         liftIO
             $ Sub.submitTx (submitter ctx) tx

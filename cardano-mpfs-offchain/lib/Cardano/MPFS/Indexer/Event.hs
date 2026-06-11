@@ -29,6 +29,11 @@ module Cardano.MPFS.Indexer.Event
     , detectCageEvents
     , detectCageEventsDetailed
     , inversesOf
+
+      -- * Scope recognition (for the /tx/submit gate)
+    , mintsCagePolicy
+    , isCageStateOutput
+    , requestOutputToken
     ) where
 
 import Control.Exception (Exception (..), throw)
@@ -565,6 +570,65 @@ inversesOf lookupToken lookupReq = \case
             Just (txIn, ts) ->
                 [InvRestoreToken tid txIn ts]
             Nothing -> []
+
+-- --------------------------------------------------------
+-- Scope recognition for the /tx/submit gate
+-- --------------------------------------------------------
+--
+-- These tx-body recognition primitives are reused by the
+-- @POST \/tx\/submit@ scope gate
+-- ("Cardano.MPFS.HTTP.SubmitScope") so it cannot drift
+-- from how the indexer classifies the same transaction.
+-- They are purely structural and resolve no inputs;
+-- spend-only events such as retract leave no mint or
+-- output fingerprint and are therefore not recognised
+-- here. The gate keys 'mintsCagePolicy' and
+-- 'isCageStateOutput' to the configured cage script
+-- hash, and binds 'requestOutputToken' outputs to the
+-- per-token request validator address.
+
+-- | 'True' iff the transaction mints or burns any asset
+-- under the cage policy (the cage script hash viewed as
+-- a 'PolicyID'). Mirrors the @mintDetections@ key in
+-- 'detectCageEventsDetailed' (boot, end).
+mintsCagePolicy :: ScriptHash -> ConwayTx -> Bool
+mintsCagePolicy scriptHash tx =
+    let MultiAsset ma = tx ^. bodyTxL . mintTxBodyL
+    in  Map.member (PolicyID scriptHash) ma
+
+-- | 'True' iff the output is locked by the cage state
+-- script — its payment credential is the cage script
+-- hash. Matched by payment credential (not the full
+-- address) to mirror 'findStateDatumWithToken' (boot,
+-- update, reject).
+isCageStateOutput
+    :: ScriptHash -> TxOut ConwayEra -> Bool
+isCageStateOutput scriptHash txOut =
+    case txOut ^. addrTxOutL of
+        Addr _ (ScriptHashObj sh) _ ->
+            sh == scriptHash
+        _ -> False
+
+-- | If the output is a request output — a
+-- script-address output carrying a 'RequestDatum' —
+-- return the target 'TokenId' the request names;
+-- otherwise 'Nothing'. Mirrors 'detectRequest'. The
+-- caller is expected to check the output sits at that
+-- token's request validator address, since the per-cage
+-- request script hash is parametrised by the token and
+-- cannot be enumerated up front.
+requestOutputToken :: TxOut ConwayEra -> Maybe TokenId
+requestOutputToken txOut =
+    case txOut ^. addrTxOutL of
+        Addr _ (ScriptHashObj _) _ ->
+            case extractDatum txOut of
+                Just
+                    ( RequestDatum
+                            OnChainRequest{requestToken = ocTid}
+                        ) ->
+                        Just (tokenIdFromOnChain ocTid)
+                _ -> Nothing
+        _ -> Nothing
 
 -- --------------------------------------------------------
 -- On-chain → off-chain conversion
