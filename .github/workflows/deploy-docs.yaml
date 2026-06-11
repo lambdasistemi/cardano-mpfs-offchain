@@ -43,7 +43,12 @@ jobs:
             exit 1
           fi
 
+  # Publish only on push to main. Deploying from PR branches made every PR
+  # run `mkdocs gh-deploy --force`, so concurrent PRs raced to force-push
+  # gh-pages and intermittently failed. PRs are covered by dep-graph-drift
+  # above; only main publishes the rendered site.
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
