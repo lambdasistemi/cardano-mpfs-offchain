@@ -15,7 +15,6 @@ module Cardano.MPFS.Client.VerifySpec (spec) where
 
 import Control.Monad (void)
 import Data.Bits (xor)
-import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as Base16
 import Data.Text.Encoding qualified as T
@@ -69,9 +68,11 @@ import Cardano.MPFS.Client
     , withReason
     )
 import Cardano.MPFS.Client.Fixtures
-    ( TxRedeemerFixture (..)
-    , bundleFunding
+    ( CsmtBundle
+    , TxRedeemerFixture (..)
+    , buildBundleWithStateRoot
     , bundleRoot
+    , bundleState
     , honestBootResponse
     , honestEndResponse
     , honestRejectResponse
@@ -82,7 +83,6 @@ import Cardano.MPFS.Client.Fixtures
     , honestUpdateResponse
     , honestUpdateResponseEmptyTrie
     , honestUpdateResponseMixedTrie
-    , honestWitness
     , sampleStateAsset
     , spendContributeRedeemerTerm
     , spendEndRedeemerTerm
@@ -313,7 +313,7 @@ foreignTxIn =
 
 honestFactTrustedRoot :: TrustedRoot
 honestFactTrustedRoot =
-    TrustedRoot (Api.Hex (bundleRoot honestWitness))
+    TrustedRoot (Api.Hex (bundleRoot factsBundle))
 
 verifyPresentUnit
     :: TrustedRoot -> FactPresentFacts -> Either VerifyError ()
@@ -355,35 +355,32 @@ honestFactAbsentFacts =
                     }
             }
 
+-- | The single-fact verifiers decode the on-chain trie root from the
+-- witnessed state @TxOut@ inline datum, so the witness must encode the
+-- same root the MPF proof targets. The inclusion and exclusion
+-- fixtures are built over the same entries, so they share one root.
+factsTrieRoot :: BS.ByteString
+factsTrieRoot = fst honestTrieInclusion
+
+-- | A CSMT bundle whose state UTxO datum carries 'factsTrieRoot'.
+factsBundle :: CsmtBundle
+factsBundle = buildBundleWithStateRoot factsTrieRoot
+
 factWitness :: TrieFact -> Api.FactWitness
 factWitness trieFact =
     Api.FactWitness
         { Api.fwState =
             Api.WitnessedTokenState
                 { Api.wtsUtxo =
-                    toApiWitnessedUtxo (bundleFunding honestWitness)
-                , Api.wtsState =
-                    Api.TokenStateJSON
-                        { Api.owner = "owner"
-                        , Api.root = toApiHex (trieRootFor trieFact)
-                        , Api.tip = 1000000
-                        , Api.processTime = 60000
-                        , Api.retractTime = 30000
-                        }
+                    toApiWitnessedUtxo (bundleState factsBundle)
                 }
         , Api.fwMpfProof = toApiHex (mpfProof trieFact)
         }
 
-trieRootFor :: TrieFact -> Hex
-trieRootFor TrieFact{value = Just _} =
-    toClientHex (fst honestTrieInclusion)
-trieRootFor TrieFact{value = Nothing} =
-    toClientHex (fst honestTrieExclusion)
-
 factSnapshot :: Api.VerificationSnapshot
 factSnapshot =
     Api.VerificationSnapshot
-        { Api.vsUtxoRoot = Api.Hex (bundleRoot honestWitness)
+        { Api.vsUtxoRoot = Api.Hex (bundleRoot factsBundle)
         , Api.vsChainPoint =
             Api.ChainPointJSON
                 { Api.cpSlot = 42
@@ -445,9 +442,6 @@ toApiHex (Hex txt) =
     case Base16.decode (T.encodeUtf8 txt) of
         Right bs -> Api.Hex bs
         Left err -> error ("VerifySpec.toApiHex: " <> err)
-
-toClientHex :: ByteString -> Hex
-toClientHex = Hex . T.decodeUtf8 . Base16.encode
 
 replaceBootTx :: Hex -> BootTxResponse -> BootTxResponse
 replaceBootTx tx' (BootTxResponse _ s p) =

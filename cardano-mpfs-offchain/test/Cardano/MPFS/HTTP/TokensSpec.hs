@@ -101,8 +101,7 @@ import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.Types
-    ( TokenIdJSON (..)
-    , TokenSetWitness (..)
+    ( TokenSetWitness (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
     , UtxoEntryRefOnly (..)
@@ -310,11 +309,7 @@ spec = describe "GET /tokens" $ do
                 resp <- getTokens ctxWithSet
                 simpleStatus resp `shouldBe` status200
                 assertEnvelope resp 2
-                assertTokenEntries
-                    resp
-                    [ ("deadbeef", txOut1)
-                    , ("cafebabe", txOut2)
-                    ]
+                assertTokenEntries resp [txOut1, txOut2]
 
     it "returns 503 when snapshot not yet available" $ do
         ctx0 <- mkTestContext
@@ -364,7 +359,9 @@ responseSnapshotRoot resp =
         Nothing ->
             failExpectation "Expected TokensResponse JSON"
 
-assertTokenEntries :: SResponse -> [(ByteString, ByteString)] -> IO ()
+-- | Token entries no longer carry a server-side @token_id@ projection;
+-- assert on the provable @txout_cbor@ bytes the witness ships.
+assertTokenEntries :: SResponse -> [ByteString] -> IO ()
 assertTokenEntries resp expected =
     case decode (simpleBody resp) of
         Just
@@ -373,10 +370,8 @@ assertTokenEntries resp expected =
                 } ->
                 sort
                     ( map
-                        ( \TokenUtxoEntry
-                            { tueTokenId = TokenIdJSON tokenId
-                            , tueTxOutCbor = Hex txOut
-                            } -> (tokenId, txOut)
+                        ( \TokenUtxoEntry{tueTxOutCbor = Hex txOut} ->
+                            txOut
                         )
                         tswEntries
                     )

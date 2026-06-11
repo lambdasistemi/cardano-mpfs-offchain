@@ -30,7 +30,7 @@ import Prelude
 import Control.Promise (Promise, toAffE)
 import Data.Argonaut.Core (Json, stringify)
 import Data.Argonaut.Decode (decodeJson)
-import Data.Argonaut.Decode.Combinators ((.:), (.:?))
+import Data.Argonaut.Decode.Combinators ((.:))
 import Data.Argonaut.Decode.Error (JsonDecodeError(..), printJsonDecodeError)
 import Data.Argonaut.Encode (encodeJson)
 import Data.Bifunctor (lmap)
@@ -43,7 +43,7 @@ import Effect.Aff (Aff)
 
 import MpfsSpa.Types
   ( Key(..)
-  , RequestId(..)
+  , RequestId
   , TokenId(..)
   , TrustedRoot(..)
   , Value(..)
@@ -184,17 +184,22 @@ submitTx cfg signedHex = do
 
 -- --- decoders ---------------------------------------------------------------
 
+-- | #342 removed the server-side projections (`state.state`, `token_id`,
+-- | `request`) these decoders used to read. Reconstructing them now means
+-- | decoding the witnessed `tx_out` inline datum, which the SPA does not
+-- | yet do - surface a typed decode failure instead of trusting removed
+-- | projections.
+witnessTxOutDecoderMissing :: forall a. String -> Either JsonDecodeError a
+witnessTxOutDecoderMissing what =
+  Left
+    ( TypeMismatch
+        ( what
+            <> " requires decoding witnessed tx_out; SPA decoder not implemented"
+        )
+    )
+
 decodeTokenState :: Json -> Either JsonDecodeError TokenState
-decodeTokenState j = do
-  top <- decodeJson j
-  wts <- top .: "state"
-  st <- wts .: "state"
-  owner <- st .: "owner"
-  root <- st .: "root"
-  tip <- st .: "tip"
-  processTime <- st .: "process_time"
-  retractTime <- st .: "retract_time"
-  pure { owner, root, tip, processTime, retractTime }
+decodeTokenState _ = witnessTxOutDecoderMissing "token state"
 
 decodeTokensResponse :: Json -> Either JsonDecodeError (Array TokenId)
 decodeTokensResponse j = do
@@ -204,10 +209,7 @@ decodeTokensResponse j = do
   traverse decodeTokenEntry entries
 
 decodeTokenEntry :: Json -> Either JsonDecodeError TokenId
-decodeTokenEntry j = do
-  entry <- decodeJson j
-  tokenId <- entry .: "token_id"
-  pure (TokenId tokenId)
+decodeTokenEntry _ = witnessTxOutDecoderMissing "token id"
 
 decodeFacts :: Json -> Either JsonDecodeError (Array FactEntry)
 decodeFacts j = do
@@ -229,30 +231,7 @@ decodeRequests j = do
   traverse decodeWitnessedRequest reqs
 
 decodeWitnessedRequest :: Json -> Either JsonDecodeError PendingRequest
-decodeWitnessedRequest wj = do
-  o <- decodeJson wj
-  req <- o .: "request"
-  utxo <- o .: "utxo"
-  txin <- utxo .: "tx_in"
-  txId <- txin .: "tx_id"
-  (txIx :: Int) <- txin .: "tx_ix"
-  token <- req .: "token"
-  owner <- req .: "owner"
-  key <- req .: "key"
-  mvalue <- req .:? "value"
-  operation <- req .: "operation"
-  fee <- req .: "fee"
-  submittedAt <- req .: "submitted_at"
-  pure
-    { token: TokenId token
-    , owner
-    , key: Key key
-    , value: Value <$> mvalue
-    , operation
-    , fee
-    , submittedAt
-    , requestId: RequestId (txId <> "#" <> show txIx)
-    }
+decodeWitnessedRequest _ = witnessTxOutDecoderMissing "pending request"
 
 decodeFactValue :: Json -> Either JsonDecodeError Value
 decodeFactValue j = do

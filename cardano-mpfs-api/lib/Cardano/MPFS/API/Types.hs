@@ -21,10 +21,6 @@ module Cardano.MPFS.API.Types
 
       -- * Tokens
     , TokenIdJSON (..)
-    , TokenStateJSON (..)
-
-      -- * Requests
-    , RequestJSON (..)
 
       -- * UTxO witnesses
     , TxInJSON (..)
@@ -181,82 +177,6 @@ instance FromJSON StatusResponse where
             <*> o .: "checkpoint_block_id"
             <*> o .: "utxo_root"
 
--- | JSON representation of on-chain token state.
-data TokenStateJSON = TokenStateJSON
-    { owner :: Text
-    -- ^ Owner payment key hash (hex)
-    , root :: Hex
-    -- ^ Current trie root hash
-    , tip :: Integer
-    -- ^ Maximum fee in lovelace
-    , processTime :: Integer
-    -- ^ Processing window (ms)
-    , retractTime :: Integer
-    -- ^ Retract window (ms)
-    }
-    deriving (Eq, Show)
-
-instance ToJSON TokenStateJSON where
-    toJSON TokenStateJSON{..} =
-        object
-            [ "owner" .= owner
-            , "root" .= root
-            , "tip" .= tip
-            , "process_time" .= processTime
-            , "retract_time" .= retractTime
-            ]
-
-instance FromJSON TokenStateJSON where
-    parseJSON = withObject "TokenStateJSON" $ \o ->
-        TokenStateJSON
-            <$> o .: "owner"
-            <*> o .: "root"
-            <*> o .: "tip"
-            <*> o .: "process_time"
-            <*> o .: "retract_time"
-
--- | JSON representation of a pending request.
-data RequestJSON = RequestJSON
-    { rjToken :: TokenIdJSON
-    -- ^ Token this request targets
-    , rjOwner :: Text
-    -- ^ Requester's payment key hash (hex)
-    , rjKey :: Hex
-    -- ^ Trie key
-    , rjOperation :: Text
-    -- ^ "insert", "delete", or "update"
-    , rjValue :: Maybe Hex
-    -- ^ New value (for insert/update)
-    , rjFee :: Integer
-    -- ^ Fee in lovelace
-    , rjSubmittedAt :: Integer
-    -- ^ POSIXTime (ms)
-    }
-    deriving (Eq, Show)
-
-instance ToJSON RequestJSON where
-    toJSON RequestJSON{..} =
-        object
-            [ "token" .= rjToken
-            , "owner" .= rjOwner
-            , "key" .= rjKey
-            , "operation" .= rjOperation
-            , "value" .= rjValue
-            , "fee" .= rjFee
-            , "submitted_at" .= rjSubmittedAt
-            ]
-
-instance FromJSON RequestJSON where
-    parseJSON = withObject "RequestJSON" $ \o ->
-        RequestJSON
-            <$> o .: "token"
-            <*> o .: "owner"
-            <*> o .: "key"
-            <*> o .: "operation"
-            <*> o .: "value"
-            <*> o .: "fee"
-            <*> o .: "submitted_at"
-
 -- ---------------------------------------------------------
 -- UTxO witnesses
 -- ---------------------------------------------------------
@@ -386,14 +306,16 @@ instance FromJSON UnsignedTxResponse where
 -- Proof-bearing read responses
 -- ---------------------------------------------------------
 
--- | Decoded token state together with the UTxO
--- witness that proves it resides at the indexed
--- snapshot's @utxo_root@.
-data WitnessedTokenState = WitnessedTokenState
+-- | The UTxO witness that proves a token-state output
+-- resides at the indexed snapshot's @utxo_root@.
+--
+-- The on-chain state payload (owner, trie root, timing
+-- parameters) is carried provably as the inline datum
+-- inside @utxo.tx_out@; clients decode it from there
+-- rather than trusting a server-side projection.
+newtype WitnessedTokenState = WitnessedTokenState
     { wtsUtxo :: WitnessedUtxo
     -- ^ UTxO witness for the state output
-    , wtsState :: TokenStateJSON
-    -- ^ Decoded on-chain state payload
     }
     deriving (Eq, Show)
 
@@ -401,7 +323,6 @@ instance ToJSON WitnessedTokenState where
     toJSON WitnessedTokenState{..} =
         object
             [ "utxo" .= wtsUtxo
-            , "state" .= wtsState
             ]
 
 instance FromJSON WitnessedTokenState where
@@ -409,16 +330,18 @@ instance FromJSON WitnessedTokenState where
         withObject "WitnessedTokenState" $ \o ->
             WitnessedTokenState
                 <$> o .: "utxo"
-                <*> o .: "state"
 
--- | A pending request together with the UTxO
--- witness proving it existed in the indexed
--- snapshot.
-data WitnessedRequest = WitnessedRequest
+-- | The UTxO witness proving a pending request existed
+-- in the indexed snapshot.
+--
+-- The request payload (token, owner, key, operation,
+-- value, fee, submitted-at) is carried provably as the
+-- inline datum inside @utxo.tx_out@; clients decode it
+-- from there rather than trusting a server-side
+-- projection.
+newtype WitnessedRequest = WitnessedRequest
     { wrUtxo :: WitnessedUtxo
     -- ^ UTxO witness for the request output
-    , wrRequest :: RequestJSON
-    -- ^ Decoded request payload
     }
     deriving (Eq, Show)
 
@@ -426,7 +349,6 @@ instance ToJSON WitnessedRequest where
     toJSON WitnessedRequest{..} =
         object
             [ "utxo" .= wrUtxo
-            , "request" .= wrRequest
             ]
 
 instance FromJSON WitnessedRequest where
@@ -434,7 +356,6 @@ instance FromJSON WitnessedRequest where
         withObject "WitnessedRequest" $ \o ->
             WitnessedRequest
                 <$> o .: "utxo"
-                <*> o .: "request"
 
 -- | A fact witness: the state witness that carries
 -- the trie root plus an MPF inclusion proof binding a
@@ -460,11 +381,14 @@ instance FromJSON FactWitness where
             <$> o .: "state"
             <*> o .: "mpf_proof"
 
--- | A token-state UTxO entry with the corresponding MPFS token id.
+-- | A token-state UTxO entry: a reference plus its
+-- CBOR-encoded state @TxOut@.
+--
+-- The MPFS token id is not carried explicitly - it is
+-- the asset name of the state token inside the
+-- @txout_cbor@ value, which clients decode locally.
 data TokenUtxoEntry = TokenUtxoEntry
-    { tueTokenId :: TokenIdJSON
-    -- ^ Token id (hex asset name)
-    , tueRef :: UtxoRef
+    { tueRef :: UtxoRef
     -- ^ UTxO reference
     , tueTxOutCbor :: Hex
     -- ^ CBOR-encoded state @TxOut@
@@ -474,8 +398,7 @@ data TokenUtxoEntry = TokenUtxoEntry
 instance ToJSON TokenUtxoEntry where
     toJSON TokenUtxoEntry{..} =
         object
-            [ "token_id" .= tueTokenId
-            , "ref" .= tueRef
+            [ "ref" .= tueRef
             , "txout_cbor" .= tueTxOutCbor
             ]
 
@@ -483,11 +406,12 @@ instance FromJSON TokenUtxoEntry where
     parseJSON =
         withObject "TokenUtxoEntry" $ \o ->
             TokenUtxoEntry
-                <$> o .: "token_id"
-                <*> o .: "ref"
+                <$> o .: "ref"
                 <*> o .: "txout_cbor"
 
--- | Complete token-state UTxO set witness with explicit token ids.
+-- | Complete token-state UTxO set witness. Each entry's
+-- token id is the asset name of the state token inside
+-- its @txout_cbor@; the ids are not carried explicitly.
 data TokenSetWitness = TokenSetWitness
     { tswEntries :: [TokenUtxoEntry]
     -- ^ Enumerated token-state UTxOs
@@ -515,7 +439,8 @@ data TokensResponse = TokensResponse
     { trsSnapshot :: VerificationSnapshot
     -- ^ Snapshot the bundled proof targets
     , trsTokens :: TokenSetWitness
-    -- ^ Complete token-state UTxO set witness with explicit token ids
+    -- ^ Complete token-state UTxO set witness; token ids
+    -- are decoded from each entry's @txout_cbor@
     }
     deriving (Eq, Show)
 
@@ -1332,77 +1257,6 @@ instance ToSchema StatusResponse where
             & description
                 ?~ "Indexer chain tip, checkpoint, and current UTxO-CSMT root"
 
-instance ToSchema TokenStateJSON where
-    declareNamedSchema _ = do
-        textSchema <-
-            declareSchemaRef (Proxy @Text)
-        hexSchema <-
-            declareSchemaRef (Proxy @Hex)
-        intSchema <-
-            declareSchemaRef (Proxy @Integer)
-        pure
-            $ Swagger.NamedSchema
-                (Just "TokenStateJSON")
-            $ mempty
-            & Swagger.type_
-                ?~ Swagger.SwaggerObject
-            & properties
-                .~ fromList
-                    [ ("owner", textSchema)
-                    , ("root", hexSchema)
-                    , ("tip", intSchema)
-                    , ("process_time", intSchema)
-                    , ("retract_time", intSchema)
-                    ]
-            & required
-                .~ [ "owner"
-                   , "root"
-                   , "tip"
-                   , "process_time"
-                   , "retract_time"
-                   ]
-            & description
-                ?~ "On-chain token state"
-
-instance ToSchema RequestJSON where
-    declareNamedSchema _ = do
-        tokenSchema <-
-            declareSchemaRef (Proxy @TokenIdJSON)
-        textSchema <-
-            declareSchemaRef (Proxy @Text)
-        hexSchema <-
-            declareSchemaRef (Proxy @Hex)
-        maybeHex <-
-            declareSchemaRef (Proxy @(Maybe Hex))
-        intSchema <-
-            declareSchemaRef (Proxy @Integer)
-        pure
-            $ Swagger.NamedSchema
-                (Just "RequestJSON")
-            $ mempty
-            & Swagger.type_
-                ?~ Swagger.SwaggerObject
-            & properties
-                .~ fromList
-                    [ ("token", tokenSchema)
-                    , ("owner", textSchema)
-                    , ("key", hexSchema)
-                    , ("operation", textSchema)
-                    , ("value", maybeHex)
-                    , ("fee", intSchema)
-                    , ("submitted_at", intSchema)
-                    ]
-            & required
-                .~ [ "token"
-                   , "owner"
-                   , "key"
-                   , "operation"
-                   , "fee"
-                   , "submitted_at"
-                   ]
-            & description
-                ?~ "Pending request"
-
 instance ToSchema BootRequest where
     declareNamedSchema _ = do
         hexSchema <-
@@ -1703,8 +1557,6 @@ instance ToSchema WitnessedTokenState where
     declareNamedSchema _ = do
         utxoSchema <-
             declareSchemaRef (Proxy @WitnessedUtxo)
-        stateSchema <-
-            declareSchemaRef (Proxy @TokenStateJSON)
         pure
             $ Swagger.NamedSchema
                 (Just "WitnessedTokenState")
@@ -1714,18 +1566,15 @@ instance ToSchema WitnessedTokenState where
             & properties
                 .~ fromList
                     [ ("utxo", utxoSchema)
-                    , ("state", stateSchema)
                     ]
-            & required .~ ["utxo", "state"]
+            & required .~ ["utxo"]
             & description
-                ?~ "Token state plus UTxO witness"
+                ?~ "UTxO witness for a token-state output; the on-chain state is the inline datum in utxo.tx_out"
 
 instance ToSchema WitnessedRequest where
     declareNamedSchema _ = do
         utxoSchema <-
             declareSchemaRef (Proxy @WitnessedUtxo)
-        requestSchema <-
-            declareSchemaRef (Proxy @RequestJSON)
         pure
             $ Swagger.NamedSchema
                 (Just "WitnessedRequest")
@@ -1735,11 +1584,10 @@ instance ToSchema WitnessedRequest where
             & properties
                 .~ fromList
                     [ ("utxo", utxoSchema)
-                    , ("request", requestSchema)
                     ]
-            & required .~ ["utxo", "request"]
+            & required .~ ["utxo"]
             & description
-                ?~ "Pending request plus UTxO witness"
+                ?~ "UTxO witness for a pending-request output; the request is the inline datum in utxo.tx_out"
 
 instance ToSchema UnsignedTxResponse where
     declareNamedSchema _ = do
@@ -1816,8 +1664,6 @@ instance ToSchema TokenResponse where
 
 instance ToSchema TokenUtxoEntry where
     declareNamedSchema _ = do
-        tokenSchema <-
-            declareSchemaRef (Proxy @TokenIdJSON)
         refSchema <-
             declareSchemaRef (Proxy @UtxoRef)
         hexSchema <-
@@ -1830,13 +1676,12 @@ instance ToSchema TokenUtxoEntry where
                 ?~ Swagger.SwaggerObject
             & properties
                 .~ fromList
-                    [ ("token_id", tokenSchema)
-                    , ("ref", refSchema)
+                    [ ("ref", refSchema)
                     , ("txout_cbor", hexSchema)
                     ]
-            & required .~ ["token_id", "ref", "txout_cbor"]
+            & required .~ ["ref", "txout_cbor"]
             & description
-                ?~ "Token-state UTxO entry with the token_id carried explicitly"
+                ?~ "Token-state UTxO entry; the token id is the state token's asset name inside txout_cbor"
 
 instance ToSchema TokenSetWitness where
     declareNamedSchema _ = do
@@ -1858,7 +1703,7 @@ instance ToSchema TokenSetWitness where
                     ]
             & required .~ ["entries", "completeness_proof"]
             & description
-                ?~ "Enumerated token-state UTxOs with explicit token ids and a CSMT prefix-completeness proof"
+                ?~ "Enumerated token-state UTxOs (token id is the state token's asset name inside each txout_cbor) with a CSMT prefix-completeness proof"
 
 instance ToSchema TokensResponse where
     declareNamedSchema _ = do

@@ -536,8 +536,10 @@ responseSnapshotRoot resp =
         Nothing ->
             failExpectation "Expected RequestsResponse JSON"
 
--- | Assert the first witnessed request has both the
--- @utxo@ witness and the decoded @request@ payload.
+-- | Assert the first witnessed request carries the provable @utxo@
+-- witness (with its @tx_in@ / @tx_out@ / @utxo_proof@ fields) and that
+-- it ships NO server-side @request@ projection - a client reconstructs
+-- the request from the inline datum in @utxo.tx_out@.
 assertWitnessedRequestFields :: SResponse -> IO ()
 assertWitnessedRequestFields resp =
     case decode (simpleBody resp) of
@@ -547,31 +549,23 @@ assertWitnessedRequestFields resp =
                     | not (V.null arr) ->
                         case V.head arr of
                             Object wreq -> do
-                                KM.member "utxo" wreq
-                                    `shouldBe` True
+                                KM.member "request" wreq
+                                    `shouldBe` False
                                 case KM.lookup
-                                    "request"
+                                    "utxo"
                                     wreq of
-                                    Just (Object r) -> do
-                                        KM.member "token" r
+                                    Just (Object u) -> do
+                                        KM.member "tx_in" u
                                             `shouldBe` True
-                                        KM.member "owner" r
-                                            `shouldBe` True
-                                        KM.member "key" r
+                                        KM.member "tx_out" u
                                             `shouldBe` True
                                         KM.member
-                                            "operation"
-                                            r
-                                            `shouldBe` True
-                                        KM.member "fee" r
-                                            `shouldBe` True
-                                        KM.member
-                                            "submitted_at"
-                                            r
+                                            "utxo_proof"
+                                            u
                                             `shouldBe` True
                                     _ ->
                                         expectationFailure
-                                            "request \
+                                            "utxo \
                                             \is not an \
                                             \object"
                             _ ->

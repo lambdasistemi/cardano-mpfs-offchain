@@ -17,12 +17,10 @@ import Cardano.MPFS.API.Types
     , FactResponse (..)
     , FactsResponse (..)
     , ProofResponse
-    , RequestJSON (..)
     , RequestsResponse (..)
     , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenSetWitness (..)
-    , TokenStateJSON (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
     , TxInJSON (..)
@@ -464,26 +462,16 @@ runRequestsList out mServer tokenText cageConfig trustedRoot =
     withReadRoot mServer trustedRoot $ \_ _ env troot -> do
         cage <- resolveCage cageConfig
         tid <- decodeToken tokenText
-        tokenResp <- getToken env tid >>= orDieClient "requests token state"
-        tokenVerified <-
-            orDieVerify
-                "requests token state"
-                (verifyTokenState troot tokenResp)
         reqResp <- listRequests env tid >>= orDieClient "requests list"
         reqVerified <-
             orDieVerify
                 "requests list"
                 (verifyTokenRequests cage tid troot reqResp)
-        let state = responseTokenState (verifiedTokenState tokenVerified)
-            verifiedResp = verifiedTokenRequests reqVerified
+        let verifiedResp = verifiedTokenRequests reqVerified
         emit
             out
-            ( requestsEnvelope
-                tid
-                state
-                verifiedResp
-            )
-            (formatRequests tid state verifiedResp)
+            (requestsEnvelope tid verifiedResp)
+            (formatRequests tid verifiedResp)
 
 -- | Decode a @TOKEN@ hex argument to a 'TokenIdJSON' or exit.
 decodeToken :: Text -> IO TokenIdJSON
@@ -559,20 +547,28 @@ tokenListResult TokensResponse{trsTokens = TokenSetWitness{..}} =
         [ "tokens" .= map tokenEntryResult tswEntries
         ]
 
+-- | A token entry is rendered as its provable witness fields. The
+-- token id is the state token's asset name inside @txout_cbor@;
+-- consumers that need it decode the witnessed @TxOut@ locally.
 tokenEntryResult :: TokenUtxoEntry -> Value
 tokenEntryResult TokenUtxoEntry{..} =
     object
-        [ "id" .= tokenIdText tueTokenId
-        , "ref" .= utxoRefText tueRef
+        [ "ref" .= utxoRefText tueRef
+        , "txout_cbor" .= hexText tueTxOutCbor
         ]
 
+-- | The token-state response is rendered as its provable state-UTxO
+-- witness. The decoded on-chain state lives in the inline datum of
+-- @tx_out@; consumers decode it locally rather than trusting a
+-- server-side projection.
 tokenStateResult :: TokenIdJSON -> TokenResponse -> Value
 tokenStateResult tid resp =
-    object
-        [ "token" .= tokenIdText tid
-        , "state" .= tokenStateJson (responseTokenState resp)
-        , "stateRef" .= responseStateRef resp
-        ]
+    let wu = responseStateUtxo resp
+    in  object
+            [ "token" .= tokenIdText tid
+            , "stateRef" .= txInText (wuTxIn wu)
+            , "txout_cbor" .= hexText (wuTxOut wu)
+            ]
 
 factListResult :: TokenIdJSON -> FactsResponse -> Value
 factListResult tid FactsResponse{..} =
@@ -614,42 +610,27 @@ factGetAbsentEnvelope tid keyHex =
 
 requestsEnvelope
     :: TokenIdJSON
-    -> TokenStateJSON
     -> RequestsResponse
     -> Value
-requestsEnvelope tid state resp@RequestsResponse{..} =
+requestsEnvelope tid resp@RequestsResponse{..} =
     queryEnvelope
         "requests list"
         ( object
             [ "token" .= tokenIdText tid
-            , "requests" .= map (requestResult state) rrRequests
+            , "requests" .= map requestResult rrRequests
             ]
         )
         resp
 
-requestResult :: TokenStateJSON -> WitnessedRequest -> Value
-requestResult state WitnessedRequest{..} =
-    let RequestJSON{..} = wrRequest
-    in  object
-            [ "id" .= txInText (wuTxIn wrUtxo)
-            , "operation" .= rjOperation
-            , "key" .= hexText rjKey
-            , "value" .= fmap hexText rjValue
-            , "owner" .= rjOwner
-            , "fee" .= rjFee
-            , "submittedAt" .= rjSubmittedAt
-            , "processDeadline" .= deadline processTime state rjSubmittedAt
-            , "retractDeadline" .= deadline retractTime state rjSubmittedAt
-            ]
-
-tokenStateJson :: TokenStateJSON -> Value
-tokenStateJson TokenStateJSON{..} =
+-- | A pending request is rendered as its provable witness fields. The
+-- request payload (operation, key, value, owner, fee, submitted-at)
+-- lives in the inline datum of @tx_out@; consumers decode it locally
+-- rather than trusting a server-side projection.
+requestResult :: WitnessedRequest -> Value
+requestResult WitnessedRequest{..} =
     object
-        [ "owner" .= owner
-        , "root" .= hexText root
-        , "tip" .= tip
-        , "processTime" .= processTime
-        , "retractTime" .= retractTime
+        [ "id" .= txInText (wuTxIn wrUtxo)
+        , "txout_cbor" .= hexText (wuTxOut wrUtxo)
         ]
 
 formatTokenList :: TokensResponse -> String
@@ -663,23 +644,15 @@ formatTokenList TokensResponse{trsTokens = TokenSetWitness{..}} =
 
 formatTokenEntry :: TokenUtxoEntry -> String
 formatTokenEntry TokenUtxoEntry{..} =
-    "- "
-        <> T.unpack (tokenIdText tueTokenId)
-        <> " at "
-        <> T.unpack (utxoRefText tueRef)
+    "- " <> T.unpack (utxoRefText tueRef)
 
 formatTokenState :: TokenIdJSON -> TokenResponse -> String
 formatTokenState tid resp =
-    let TokenStateJSON{..} = responseTokenState resp
+    let wu = responseStateUtxo resp
     in  intercalate
             "\n"
             [ "Verified token " <> T.unpack (tokenIdText tid)
-            , "state_utxo: " <> T.unpack (responseStateRef resp)
-            , "owner: " <> T.unpack owner
-            , "root: " <> T.unpack (hexText root)
-            , "tip: " <> show tip
-            , "process_time_ms: " <> show processTime
-            , "retract_time_ms: " <> show retractTime
+            , "state_utxo: " <> T.unpack (txInText (wuTxIn wu))
             ]
 
 formatFactList :: TokenIdJSON -> FactsResponse -> String
@@ -721,8 +694,8 @@ formatFactAbsent tid keyHex =
         ]
 
 formatRequests
-    :: TokenIdJSON -> TokenStateJSON -> RequestsResponse -> String
-formatRequests tid state RequestsResponse{..} =
+    :: TokenIdJSON -> RequestsResponse -> String
+formatRequests tid RequestsResponse{..} =
     case rrRequests of
         [] ->
             "No verified pending requests for token "
@@ -735,39 +708,19 @@ formatRequests tid state RequestsResponse{..} =
                         <> T.unpack (tokenIdText tid)
                         <> ":"
                   )
-                    : map (formatRequest state) reqs
+                    : map formatRequest reqs
                 )
 
-formatRequest :: TokenStateJSON -> WitnessedRequest -> String
-formatRequest state WitnessedRequest{..} =
-    let RequestJSON{..} = wrRequest
-    in  "- "
-            <> T.unpack (txInText (wuTxIn wrUtxo))
-            <> " "
-            <> T.unpack rjOperation
-            <> " key="
-            <> T.unpack (hexText rjKey)
-            <> " submitted_at="
-            <> show rjSubmittedAt
-            <> " process_deadline="
-            <> show (deadline processTime state rjSubmittedAt)
-            <> " retract_deadline="
-            <> show (deadline retractTime state rjSubmittedAt)
+formatRequest :: WitnessedRequest -> String
+formatRequest WitnessedRequest{..} =
+    "- " <> T.unpack (txInText (wuTxIn wrUtxo))
 
-responseTokenState :: TokenResponse -> TokenStateJSON
-responseTokenState TokenResponse{trState = WitnessedTokenState{..}} =
-    wtsState
-
-responseStateRef :: TokenResponse -> Text
-responseStateRef TokenResponse{trState = WitnessedTokenState{..}} =
-    txInText (wuTxIn wtsUtxo)
+responseStateUtxo :: TokenResponse -> WitnessedUtxo
+responseStateUtxo TokenResponse{trState = WitnessedTokenState{..}} =
+    wtsUtxo
 
 factResponseValue :: FactResponse -> Text
 factResponseValue FactResponse{..} = hexText frValue
-
-deadline
-    :: (TokenStateJSON -> Integer) -> TokenStateJSON -> Integer -> Integer
-deadline field state submittedAt = submittedAt + field state
 
 hexText :: Hex -> Text
 hexText (Hex bytes) = encodeHexText bytes

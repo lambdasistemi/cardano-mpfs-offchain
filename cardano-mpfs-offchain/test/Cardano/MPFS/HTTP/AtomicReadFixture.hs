@@ -15,6 +15,7 @@ module Cardano.MPFS.HTTP.AtomicReadFixture
     , sampleStateOutBytes
     , staleRoot
     , stateSetPrefix
+    , stateTxOutBytesWithRoot
     , testCageConfig
     , toClientCageConfig
     , withProofIndexer
@@ -34,7 +35,11 @@ import CSMT.Hashes (generateInclusionProof)
 import CSMT.Hashes.Types (Hash)
 import CSMT.Interface (FromKV)
 import Cardano.Ledger.Address (serialiseAddr)
-import Cardano.Ledger.Api.Tx.Out (TxOut, mkBasicTxOut)
+import Cardano.Ledger.Api.Tx.Out
+    ( TxOut
+    , datumTxOutL
+    , mkBasicTxOut
+    )
 import Cardano.Ledger.BaseTypes
     ( Inject (..)
     , Network (..)
@@ -82,6 +87,11 @@ import Cardano.MPFS.Application
     )
 import Cardano.MPFS.Client.Cage.Config qualified as Client
 import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Core.OnChain
+    ( CageDatum (..)
+    , OnChainRoot (..)
+    , OnChainTokenState (..)
+    )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
     , Coin (..)
@@ -107,8 +117,12 @@ import Cardano.MPFS.TxBuilder (ResolvedWalletInput)
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
+    , mkInlineDatum
     , requestAddrFromCfg
+    , toPlcData
     )
+import Control.Lens ((&), (.~))
+import PlutusTx.Builtins.Internal (BuiltinByteString (..))
 
 -- | "cafe" token — hex "63616665".
 cafeTid :: TokenId
@@ -176,6 +190,34 @@ sampleStateOutBytes _ =
         mkBasicTxOut
             (cageAddrFromCfg testCageConfig Testnet)
             (inject (Coin 2_000_000))
+
+-- | A state @TxOut@ whose inline datum carries the given trie root.
+-- Unlike 'sampleStateOutBytes', this produces a decodable state datum,
+-- so a witnessed UTxO built from it lets a client decode the on-chain
+-- trie root from provable bytes - exactly what the read verifiers now
+-- require instead of a server-side projection.
+stateTxOutBytesWithRoot :: ByteString -> ByteString
+stateTxOutBytesWithRoot root =
+    serialize'
+        (natVersion @11)
+        (txOut :: TxOut ConwayEra)
+  where
+    datum =
+        StateDatum
+            OnChainTokenState
+                { stateOwner =
+                    BuiltinByteString (BS.replicate 28 0)
+                , stateRoot = OnChainRoot root
+                , stateMaxFee = 1_000_000
+                , stateProcessTime = 60_000
+                , stateRetractTime = 30_000
+                }
+    txOut =
+        mkBasicTxOut
+            (cageAddrFromCfg testCageConfig Testnet)
+            (inject (Coin 2_000_000))
+            & datumTxOutL
+                .~ mkInlineDatum (toPlcData datum)
 
 sampleRequestOutBytes
     :: TokenId

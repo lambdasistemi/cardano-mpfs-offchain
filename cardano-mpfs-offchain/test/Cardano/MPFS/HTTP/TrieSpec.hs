@@ -62,6 +62,7 @@ import Cardano.MPFS.HTTP.AtomicReadFixture
     ( insertFacts
     , sampleStateOutBytes
     , staleRoot
+    , stateTxOutBytesWithRoot
     , withProofIndexer
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
@@ -439,9 +440,15 @@ withPersistentFactContextWithTrie
 withPersistentFactContextWithTrie mOutOfTxRoot setupTrie action = do
     ctx0 <- mkTestContext
     stateTxIn <- generate genTxIn
+    -- Precompute the trie root so the indexed state UTxO can encode it
+    -- in its inline datum. The fact verifiers decode the on-chain root
+    -- from that provable TxOut, not from a server-side projection.
+    Root preRootBytes <- do
+        Trie.createTrie (trieManager ctx0) cafeTid
+        Trie.withTrie (trieManager ctx0) cafeTid setupTrie
     withProofIndexer
         mOutOfTxRoot
-        [(stateTxIn, sampleStateOutBytes 0)]
+        [(stateTxIn, stateTxOutBytesWithRoot preRootBytes)]
         ctx0
         $ \_txRoot ctx -> do
             Trie.createTrie (trieManager ctx) cafeTid

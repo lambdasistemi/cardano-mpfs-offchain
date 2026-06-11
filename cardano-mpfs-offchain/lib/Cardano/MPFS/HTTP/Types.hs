@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.Types
@@ -21,12 +20,6 @@ module Cardano.MPFS.HTTP.Types
     , TokenIdJSON (..)
     , tokenIdToJSON
     , tokenIdFromJSON
-    , TokenStateJSON (..)
-    , tokenStateToJSON
-
-      -- * Requests
-    , RequestJSON (..)
-    , requestToJSON
 
       -- * UTxO witnesses
     , TxInJSON (..)
@@ -100,14 +93,12 @@ module Cardano.MPFS.HTTP.Types
     ) where
 
 import Data.ByteString.Short qualified as SBS
-import Data.Text (Text)
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.Address (decodeAddrEither)
 import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary (natVersion, serialize')
 import Cardano.Ledger.Hashes (extractHash)
-import Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import Cardano.Ledger.Mary.Value (AssetName (..))
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.Tx.Ledger (ConwayTx)
@@ -132,7 +123,6 @@ import Cardano.MPFS.API.Types
     , RejectProofJSON (..)
     , RejectRequest (..)
     , RejectTxResponse (..)
-    , RequestJSON (..)
     , RequestProofJSON (..)
     , RequestTxResponse (..)
     , RequestsResponse (..)
@@ -148,7 +138,6 @@ import Cardano.MPFS.API.Types
     , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenSetWitness (..)
-    , TokenStateJSON (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
     , TrieFactJSON (..)
@@ -171,13 +160,8 @@ import Cardano.MPFS.API.Types
 import Cardano.MPFS.Core.Types
     ( Addr
     , BlockId (..)
-    , Coin (..)
-    , Operation (..)
-    , Request (..)
-    , Root (..)
     , SlotNo (..)
     , TokenId (..)
-    , TokenState (..)
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.TxBuilder
@@ -202,55 +186,6 @@ tokenIdToJSON (TokenId (AssetName sbs)) =
 tokenIdFromJSON :: TokenIdJSON -> TokenId
 tokenIdFromJSON (TokenIdJSON bs) =
     TokenId (AssetName (SBS.toShort bs))
-
--- | Convert internal 'TokenState' to JSON type.
-tokenStateToJSON :: TokenState -> TokenStateJSON
-tokenStateToJSON
-    TokenState
-        { owner = tsOwner
-        , root = tsRoot
-        , tip = tsMaxFee
-        , processTime = tsProcessTime
-        , retractTime = tsRetractTime
-        } =
-        TokenStateJSON
-            { owner = hashToHex tsOwner
-            , root = Hex (unRoot tsRoot)
-            , tip = unCoin tsMaxFee
-            , processTime = tsProcessTime
-            , retractTime = tsRetractTime
-            }
-
--- | Render a 'KeyHash' as hex text.
-hashToHex :: KeyHash Payment -> Text
-hashToHex (KeyHash h) =
-    Crypto.hashToTextAsHex h
-
--- | Convert internal 'Request' to JSON type.
-requestToJSON :: Request -> RequestJSON
-requestToJSON
-    Request
-        { requestToken = tok
-        , requestOwner = own
-        , requestKey = k
-        , requestValue = op
-        , requestFee = fee
-        , requestSubmittedAt = sat
-        } =
-        let (opName, mVal) = case op of
-                Insert v -> ("insert", Just (Hex v))
-                Delete _v -> ("delete", Nothing)
-                Update _old new' ->
-                    ("update", Just (Hex new'))
-        in  RequestJSON
-                { rjToken = tokenIdToJSON tok
-                , rjOwner = hashToHex own
-                , rjKey = Hex k
-                , rjOperation = opName
-                , rjValue = mVal
-                , rjFee = unCoin fee
-                , rjSubmittedAt = sat
-                }
 
 -- | Convert a ledger 'TxIn' to its JSON form.
 txInToJSON :: TxIn -> TxInJSON

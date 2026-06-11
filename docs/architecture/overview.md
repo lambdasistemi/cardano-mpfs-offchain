@@ -46,6 +46,19 @@ server must not return unsigned transactions for script-bearing cage
 operations. The remaining server-built transaction route is the
 owner-only `/tx/sweep` cleanup path.
 
+Read endpoints ship only **provable on-chain data plus proofs**:
+witnessed UTxOs (`TxIn` + full `TxOut` + CSMT inclusion proof), the
+completeness / MPF-replay proofs binding them to the snapshot's
+`utxo_root`, and genuinely server-only data the client cannot derive
+(the snapshot, chain tip, and `utxo_root`). They must **not** ship
+server-side *projections* - parsed convenience JSON re-rendering data
+already present in a witnessed `TxOut`. Projections are unverified,
+frequently lossy, and tempt verifying clients into trusting
+non-provable data. A client reconstructs everything it needs (token
+id, token state, request payload) by decoding the inline datum of the
+witnessed `TxOut`; the server's job is to provide that provable
+material, not to interpret it.
+
 The 502 era-history failure was fixed by carrying live era history in
 `GET /eval-context` and deriving `EpochInfo` from it in the reactor.
 `ScriptContext` `POSIXTimeRange` costs now use the same era clock as the

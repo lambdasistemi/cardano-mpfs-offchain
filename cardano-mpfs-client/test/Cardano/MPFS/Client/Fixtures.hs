@@ -24,8 +24,11 @@ module Cardano.MPFS.Client.Fixtures
     , honestUpdateResponseEmptyTrie
 
       -- * Underlying primitives
+    , CsmtBundle
     , honestWitness
+    , buildBundleWithStateRoot
     , bundleRoot
+    , bundleState
     , bundleFunding
     , honestTrieInclusion
     , honestTrieExclusion

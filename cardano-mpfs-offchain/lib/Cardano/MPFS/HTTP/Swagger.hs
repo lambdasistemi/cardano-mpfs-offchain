@@ -48,7 +48,23 @@ swaggerDoc =
                \Merkle Patricia Forestry offchain \
                \node. Provides token lifecycle, \
                \trie queries, and transaction \
-               \building endpoints."
+               \building endpoints.\n\n\
+               \Contract: verified read endpoints \
+               \provide only provable on-chain data \
+               \(witnessed UTxOs: TxIn + full TxOut \
+               \+ CSMT proof) plus the proofs that \
+               \bind it to the snapshot's utxo_root, \
+               \and genuinely server-only data the \
+               \client cannot derive (snapshot / \
+               \chain tip / utxo_root). They never \
+               \ship server-side projections - \
+               \parsed convenience JSON of data \
+               \already present in a witnessed \
+               \TxOut. Clients reconstruct \
+               \everything else (token id, token \
+               \state, request payload) by decoding \
+               \the inline datum in the witnessed \
+               \TxOut."
         & info . license ?~ "Apache 2.0"
 
 -- | Type alias for Swagger UI endpoint.
