@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          cardano-mpfs-cli
-version:       0.1.1.0
+version:       0.2.0.0
 synopsis:      Command-line front-end for the Cardano MPFS server
 description:
   mpfs-cli drives MPFS token registration and fact management
