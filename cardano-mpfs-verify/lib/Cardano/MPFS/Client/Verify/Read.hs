@@ -47,7 +47,6 @@ import Cardano.MPFS.API.Types
     , TokenIdJSON
     , TokenResponse (..)
     , TokenSetWitness (..)
-    , TokenStateJSON (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
     , TxInJSON (..)
@@ -78,6 +77,9 @@ import Cardano.MPFS.Client.Verify.Replay
     )
 import Cardano.MPFS.Client.Verify.Snapshot
     ( verifyVerificationSnapshot
+    )
+import Cardano.MPFS.Client.Verify.TxView
+    ( stateRootBytesFromWitness
     )
 
 -- | Opaque witness that a token listing has been checked against the
@@ -168,17 +170,20 @@ verifiedTokenFacts (VerifiedTokenFacts resp) = resp
 -- 'WitnessedTokenState' to the trusted root (as 'verifyTokenState'
 -- does), then reconstructs the MPF trie root from the complete
 -- enumerated @[FactEntry]@ and asserts it equals the on-chain trie
--- root advertised in the (now-anchored) state. The root binds the
--- whole map, so any omitted, added, or tampered fact makes the
--- reconstructed root diverge — this is the completeness proof.
+-- root decoded from the anchored state UTxO's inline datum. The root
+-- binds the whole map, so any omitted, added, or tampered fact makes
+-- the reconstructed root diverge - this is the completeness proof.
 verifyTokenFacts
     :: TrustedRoot
     -> FactsResponse
     -> Either VerifyError VerifiedTokenFacts
 verifyTokenFacts (TrustedRoot (Hex trustedBs)) resp@FactsResponse{..} = do
     verifyAnchoredState "facts" trustedBs frsSnapshot frsState
-    let Hex onChainRoot = root (wtsState frsState)
-        reconstructed = reconstructMpfRoot (map factPair frsFacts)
+    onChainRoot <-
+        stateRootBytesFromWitness
+            "facts.state.tx_out"
+            (toClientWitnessedUtxo (wtsUtxo frsState))
+    let reconstructed = reconstructMpfRoot (map factPair frsFacts)
     if reconstructed == onChainRoot
         then Right (VerifiedTokenFacts resp)
         else Left (MpfReplayFailed "facts.facts" "root mismatch")

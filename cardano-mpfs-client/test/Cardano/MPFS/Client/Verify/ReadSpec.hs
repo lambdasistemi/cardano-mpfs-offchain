@@ -59,12 +59,10 @@ import Cardano.MPFS.API.Types
     ( ChainPointJSON (..)
     , FactEntry (..)
     , FactsResponse (..)
-    , RequestJSON (..)
     , RequestsResponse (..)
     , TokenIdJSON (..)
     , TokenResponse (..)
     , TokenSetWitness (..)
-    , TokenStateJSON (..)
     , TokenUtxoEntry (..)
     , TokensResponse (..)
     , TxInJSON (..)
@@ -91,8 +89,11 @@ import Cardano.MPFS.Client.Cage.Identity
     , requestSetPrefixFromCfg
     )
 import Cardano.MPFS.Client.Fixtures
-    ( bundleFunding
+    ( CsmtBundle
+    , buildBundleWithStateRoot
+    , bundleFunding
     , bundleRoot
+    , bundleState
     , honestWitness
     )
 import Cardano.MPFS.Client.Snapshot qualified as Snap
@@ -151,24 +152,24 @@ spec = describe "Read-side verifiers" $ do
             `shouldSatisfy` isCsmtReplayFailed
     describe "verifyTokenFacts" $ do
         it "accepts an honest facts response with a complete fact set"
-            $ verifyTokenFactsUnit honestTrustedRoot honestFactsResponse
+            $ verifyTokenFactsUnit honestFactsTrustedRoot honestFactsResponse
             `shouldBe` Right ()
         it "rejects a snapshot root that is not the trusted root"
             $ verifyTokenFactsUnit foreignTrustedRoot honestFactsResponse
             `shouldSatisfy` isTrustedRootMismatch
         it "rejects a dropped fact (incomplete set)"
             $ verifyTokenFactsUnit
-                honestTrustedRoot
+                honestFactsTrustedRoot
                 (dropFirstFact honestFactsResponse)
             `shouldSatisfy` isMpfReplayFailed
         it "rejects an added spurious fact"
             $ verifyTokenFactsUnit
-                honestTrustedRoot
+                honestFactsTrustedRoot
                 (addSpuriousFact honestFactsResponse)
             `shouldSatisfy` isMpfReplayFailed
         it "rejects a tampered fact value"
             $ verifyTokenFactsUnit
-                honestTrustedRoot
+                honestFactsTrustedRoot
                 (tamperFirstFactValue honestFactsResponse)
             `shouldSatisfy` isMpfReplayFailed
     describe "verifyTokenRequests" $ do
@@ -249,22 +250,25 @@ honestFactsRoot = fst $ runMPFPure' $ do
     mapM_ (uncurry insertByteStringM) factEntries
     maybe BS.empty renderMPFHash <$> MPFTest.getRootHashM
 
+-- | A CSMT bundle whose state UTxO carries the honest facts root in
+-- its inline datum. The verifier decodes the on-chain trie root from
+-- this witnessed @TxOut@ - there is no server-side projection to
+-- trust - so the witnessed state output must encode 'honestFactsRoot'.
+factsBundle :: CsmtBundle
+factsBundle = buildBundleWithStateRoot honestFactsRoot
+
+-- | Trusted root for the facts fixture: the bundle's UTxO-CSMT root.
+honestFactsTrustedRoot :: TrustedRoot
+honestFactsTrustedRoot = TrustedRoot (Hex (bundleRoot factsBundle))
+
 honestFactsResponse :: FactsResponse
 honestFactsResponse =
     FactsResponse
-        { frsSnapshot = honestSnapshot
+        { frsSnapshot = snapshotWithRoot (bundleRoot factsBundle)
         , frsState =
             WitnessedTokenState
                 { wtsUtxo =
-                    toApiWitnessedUtxo (bundleFunding honestWitness)
-                , wtsState =
-                    TokenStateJSON
-                        { owner = "owner"
-                        , root = Hex honestFactsRoot
-                        , tip = 1000000
-                        , processTime = 60000
-                        , retractTime = 30000
-                        }
+                    toApiWitnessedUtxo (bundleState factsBundle)
                 }
         , frsFacts =
             [FactEntry{feKey = Hex k, feValue = Hex v} | (k, v) <- factEntries]
@@ -317,16 +321,6 @@ honestRequestFixture cfg =
                                         }
                                 , wuTxOut = Hex requestTxOut
                                 , wuProof = Hex "\x82\x01\x02"
-                                }
-                        , wrRequest =
-                            RequestJSON
-                                { rjToken = sampleToken
-                                , rjOwner = "owner"
-                                , rjKey = Hex "apple"
-                                , rjOperation = "insert"
-                                , rjValue = Just (Hex "fruit")
-                                , rjFee = 1000000
-                                , rjSubmittedAt = 42
                                 }
                         }
                     ]
@@ -422,8 +416,7 @@ honestTokenListFixture cfg =
                     TokenSetWitness
                         { tswEntries =
                             [ TokenUtxoEntry
-                                { tueTokenId = sampleToken
-                                , tueRef =
+                                { tueRef =
                                     UtxoRef
                                         { urTxId = Hex requestTxId
                                         , urTxIx = 0
@@ -475,14 +468,6 @@ honestTokenResponse =
             WitnessedTokenState
                 { wtsUtxo =
                     toApiWitnessedUtxo (bundleFunding honestWitness)
-                , wtsState =
-                    TokenStateJSON
-                        { owner = "owner"
-                        , root = Hex (BS.replicate 32 0x00)
-                        , tip = 1000000
-                        , processTime = 60000
-                        , retractTime = 30000
-                        }
                 }
         }
 

@@ -430,14 +430,6 @@ honestFactsResponse =
                         , Wire.wuTxOut = Wire.Hex "tx-out"
                         , Wire.wuProof = Wire.Hex "proof"
                         }
-                , Wire.wtsState =
-                    Wire.TokenStateJSON
-                        { Wire.owner = "owner"
-                        , Wire.root = Wire.Hex "root"
-                        , Wire.tip = 1
-                        , Wire.processTime = 2
-                        , Wire.retractTime = 3
-                        }
                 }
         , Wire.frsFacts =
             [ Wire.FactEntry

@@ -40,6 +40,7 @@ import Data.Aeson
     )
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -505,8 +506,11 @@ assertProofEnvelope v = do
     mpfProof `shouldSatisfy` (not . T.null)
 
 -- | The @/requests@ envelope must contain at least one
--- witnessed request with both its UTxO witness and a
--- decoded request payload.
+-- witnessed request that carries its provable @utxo@
+-- witness (@tx_in@ / @tx_out@ / @utxo_proof@) and ships
+-- NO server-side @request@ projection - a verifying
+-- client reconstructs the request from the inline datum
+-- in @utxo.tx_out@.
 assertRequestsEnvelope :: Value -> IO ()
 assertRequestsEnvelope v = do
     requests <- lookupArr v "requests"
@@ -517,8 +521,7 @@ assertRequestsEnvelope v = do
                 \request"
         (wreq : _) -> do
             assertWitnessedUtxo wreq
-            _ <- lookupObj wreq "request"
-            pure ()
+            assertFieldAbsent wreq "request"
 
 -- | The trusted root for facts-only end verification is
 -- supplied externally by the caller. In this e2e harness,
@@ -710,6 +713,28 @@ lookupHex v k = do
 
 lookupArr :: Value -> Key -> IO [Value]
 lookupArr = parseField
+
+-- | Assert a JSON object does NOT carry the given
+-- field. Used to prove a verified envelope ships no
+-- server-side projection of provable data.
+assertFieldAbsent :: Value -> Key -> IO ()
+assertFieldAbsent v k =
+    case parseEither
+        (withObject "obj" (pure . KM.member k))
+        v of
+        Right False -> pure ()
+        Right True ->
+            expectationFailure
+                $ "field "
+                    <> Key.toString k
+                    <> " must be absent (server-side \
+                       \projection leaked)"
+        Left err ->
+            expectationFailure
+                $ "field "
+                    <> Key.toString k
+                    <> ": "
+                    <> err
 
 parseField :: (FromJSON a) => Value -> Key -> IO a
 parseField v k =

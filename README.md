@@ -103,7 +103,7 @@ path.
 |--------|----------|-------------|
 | GET | `/status` | Chain tip and checkpoint |
 | GET | `/eval-context` | Trusted interim PlutusV3 PParams, cost models, SystemStart, and era-history for wallet-side ex-unit evaluation |
-| GET | `/tokens` | Enumerate token UTxOs with explicit `token_id` values and a completeness witness |
+| GET | `/tokens` | Enumerate token-state UTxOs (token id decoded from each entry's `txout_cbor`) with a completeness witness |
 | GET | `/tokens/:id` | Token state with UTxO witness and verification snapshot |
 | GET | `/tokens/:id/root` | Trie root hash |
 | GET | `/tokens/:id/facts` | Enumerate facts with witnessed state |

@@ -153,8 +153,9 @@ spec = describe "GET /tokens/:id" $ do
                                 Just (Object stateObj) -> do
                                     KM.member "utxo" stateObj
                                         `shouldBe` True
+                                    -- no server-side state projection
                                     KM.member "state" stateObj
-                                        `shouldBe` True
+                                        `shouldBe` False
                                 _ ->
                                     expectationFailure
                                         "state is not an \

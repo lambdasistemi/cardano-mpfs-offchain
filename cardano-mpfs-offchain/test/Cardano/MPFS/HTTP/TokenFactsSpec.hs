@@ -36,14 +36,15 @@ import Cardano.MPFS.Client.Verify.Read (verifyTokenFacts)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( LocatedTokenState (..)
+    , Root (..)
     , TokenId (..)
     , TokenState (..)
     )
 import Cardano.MPFS.Generators (genTxIn)
 import Cardano.MPFS.HTTP.AtomicReadFixture
     ( insertFacts
-    , sampleStateOutBytes
     , staleRoot
+    , stateTxOutBytesWithRoot
     , withProofIndexer
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
@@ -54,8 +55,6 @@ import Cardano.MPFS.HTTP.Types
     ( FactEntry (..)
     , FactsResponse (..)
     , VerificationSnapshot (..)
-    , WitnessedTokenState (..)
-    , tokenStateToJSON
     )
 import Cardano.MPFS.State qualified as St
 
@@ -72,9 +71,14 @@ spec =
         $ do
             ctx0 <- mkTestContext
             txIn <- generate genTxIn
+            -- Precompute the deterministic trie root so the indexed
+            -- state UTxO can encode it in its inline datum. The read
+            -- verifier decodes the on-chain root from that provable
+            -- @TxOut@ - there is no server-side projection to trust.
+            Root trieRootBytes <- insertFacts ctx0 cafeTid facts
             withProofIndexer
                 (Just staleRoot)
-                [(txIn, sampleStateOutBytes 0)]
+                [(txIn, stateTxOutBytesWithRoot trieRootBytes)]
                 ctx0
                 $ \_txRoot ctx -> do
                     trieRoot <- insertFacts ctx cafeTid facts
@@ -90,8 +94,6 @@ spec =
                     simpleStatus resp `shouldBe` status200
                     case decode (simpleBody resp) of
                         Just body@FactsResponse{..} -> do
-                            wtsState frsState
-                                `shouldBe` tokenStateToJSON ts
                             factPairs frsFacts
                                 `shouldBe` sort facts
                             verifyTokenFacts

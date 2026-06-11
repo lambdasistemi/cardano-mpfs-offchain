@@ -20,8 +20,6 @@ import Cardano.MPFS.API.Encoding (Hex (..))
 import Cardano.MPFS.API.Types
     ( FactEntry (..)
     , FactsResponse (..)
-    , TokenStateJSON (..)
-    , WitnessedTokenState (..)
     )
 import Cardano.MPFS.Application (AppConfig (..), withApplication)
 import Cardano.MPFS.Context (Context (..))
@@ -147,12 +145,11 @@ completenessSpec scripts =
             let returnedFacts = responseFacts response
             sort returnedFacts `shouldBe` sort expectedFacts
 
-            rebuiltRoot <- reconstructRoot returnedFacts
-            let tokenRoot = tokenRootFromState response
-            rebuiltRoot `shouldBe` tokenRoot
-
+            -- The on-chain trie root is served provably by GET /root;
+            -- the enumerated fact set must reconstruct to exactly it.
             httpRoot <- getTokenRoot app tid
-            httpRoot `shouldBe` tokenRoot
+            rebuiltRoot <- reconstructRoot returnedFacts
+            rebuiltRoot `shouldBe` httpRoot
 
 reconstructRoot :: [(ByteString, ByteString)] -> IO ByteString
 reconstructRoot facts = do
@@ -166,15 +163,6 @@ responseFacts FactsResponse{frsFacts} =
     [ (key, value)
     | FactEntry{feKey = Hex key, feValue = Hex value} <- frsFacts
     ]
-
-tokenRootFromState :: FactsResponse -> ByteString
-tokenRootFromState
-    FactsResponse
-        { frsState =
-            WitnessedTokenState
-                { wtsState = TokenStateJSON{root = Hex tokenRoot}
-                }
-        } = tokenRoot
 
 getTokenFacts :: Application -> TokenId -> IO FactsResponse
 getTokenFacts app tid = do

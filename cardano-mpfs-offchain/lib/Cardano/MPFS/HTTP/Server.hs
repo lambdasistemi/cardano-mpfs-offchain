@@ -37,7 +37,6 @@ import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BSL
 import Data.List (sortOn)
-import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy (..))
 import Data.Set qualified as Set
@@ -156,11 +155,8 @@ import Cardano.MPFS.HTTP.Types
     , bundleSnapshotToJSON
     , mkSweepTxResponse
     , parseAddr
-    , requestToJSON
     , resolvedWalletInputToUtxoEntry
     , tokenIdFromJSON
-    , tokenIdToJSON
-    , tokenStateToJSON
     , txInToJSON
     )
 import Cardano.MPFS.HTTP.Types.Facts
@@ -365,61 +361,29 @@ tokensHandler ctx = do
         Just snap ->
             pure (bundleSnapshotToJSON snap)
     tokenSet <- requireIndexerRead eTokenSet
-    tokenRefs <- liftIO $ indexedTokenRefs ctx
-    tokenWitness <- tokenSetToJSON tokenRefs tokenSet
     pure
         TokensResponse
             { trsSnapshot = snapshot
-            , trsTokens = tokenWitness
+            , trsTokens = tokenSetToJSON tokenSet
             }
 
-indexedTokenRefs :: Context IO -> IO (Map.Map TxIn TokenId)
-indexedTokenRefs ctx = do
-    tids <- St.listTokens (St.tokens (state ctx))
-    entries <-
-        forM tids $ \tid -> do
-            mts <- St.getToken (St.tokens (state ctx)) tid
-            pure $ case mts of
-                Just LocatedTokenState{tokenStateRef} ->
-                    Just (tokenStateRef, tid)
-                Nothing -> Nothing
-    pure (Map.fromList (catMaybes entries))
+tokenSetToJSON :: ResolvedUtxoSet -> TokenSetWitness
+tokenSetToJSON (entries, proof) =
+    TokenSetWitness
+        { tswEntries = map tokenSetEntryToJSON entries
+        , tswCompletenessProof = Hex proof
+        }
 
-tokenSetToJSON
-    :: Map.Map TxIn TokenId
-    -> ResolvedUtxoSet
-    -> Handler TokenSetWitness
-tokenSetToJSON tokenRefs (entries, proof) = do
-    tokenEntries <-
-        traverse
-            (tokenSetEntryToJSON tokenRefs)
-            entries
-    pure
-        TokenSetWitness
-            { tswEntries = tokenEntries
-            , tswCompletenessProof = Hex proof
-            }
-
-tokenSetEntryToJSON
-    :: Map.Map TxIn TokenId
-    -> (TxIn, ByteString)
-    -> Handler TokenUtxoEntry
-tokenSetEntryToJSON tokenRefs (txIn, txOutBytes) =
-    case Map.lookup txIn tokenRefs of
-        Nothing ->
-            throwError
-                err503
-                    { errBody =
-                        "Token index is missing token_id for \
-                        \a state UTxO"
-                    }
-        Just tid ->
-            pure
-                TokenUtxoEntry
-                    { tueTokenId = tokenIdToJSON tid
-                    , tueRef = txInToUtxoRef txIn
-                    , tueTxOutCbor = Hex txOutBytes
-                    }
+-- | A token-state UTxO entry carries only its reference
+-- and CBOR @TxOut@; the token id is the state token's
+-- asset name inside that @TxOut@, which clients decode
+-- locally rather than trusting a server-side projection.
+tokenSetEntryToJSON :: (TxIn, ByteString) -> TokenUtxoEntry
+tokenSetEntryToJSON (txIn, txOutBytes) =
+    TokenUtxoEntry
+        { tueRef = txInToUtxoRef txIn
+        , tueTxOutCbor = Hex txOutBytes
+        }
 
 txInToUtxoRef :: TxIn -> UtxoRef
 txInToUtxoRef (TxIn (TxId sh) (TxIx ix)) =
@@ -447,7 +411,6 @@ tokenHandler ctx tokenId = do
         Just
             LocatedTokenState
                 { tokenStateRef
-                , tokenState = ts
                 } -> do
                 (mSnap, mWitness) <-
                     runProofIndexerTx ctx
@@ -467,8 +430,6 @@ tokenHandler ctx tokenId = do
                         , trState =
                             WitnessedTokenState
                                 { wtsUtxo = witness
-                                , wtsState =
-                                    tokenStateToJSON ts
                                 }
                         }
 
@@ -553,7 +514,6 @@ tokenFactsHandler ctx tokenId = do
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
-        , tokenState = ts
         } <-
         requireToken ctx tid
     (mSnap, mWitness, facts) <-
@@ -573,7 +533,6 @@ tokenFactsHandler ctx tokenId = do
             , frsState =
                 WitnessedTokenState
                     { wtsUtxo = witness
-                    , wtsState = tokenStateToJSON ts
                     }
             , frsFacts =
                 [ FactEntry
@@ -594,7 +553,6 @@ tokenFactHandler ctx tokenId (Hex k) = do
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
-        , tokenState = ts
         } <-
         requireToken ctx tid
     (mSnap, mWitness, trieFact) <-
@@ -622,8 +580,6 @@ tokenFactHandler ctx tokenId (Hex k) = do
                     { fwState =
                         WitnessedTokenState
                             { wtsUtxo = witness
-                            , wtsState =
-                                tokenStateToJSON ts
                             }
                     , fwMpfProof = proof
                     }
@@ -639,7 +595,6 @@ tokenProofHandler ctx tokenId (Hex k) = do
     let tid = tokenIdFromJSON tokenId
     LocatedTokenState
         { tokenStateRef
-        , tokenState = ts
         } <-
         requireToken ctx tid
     (mSnap, mWitness, trieFact) <-
@@ -663,8 +618,6 @@ tokenProofHandler ctx tokenId (Hex k) = do
                     { fwState =
                         WitnessedTokenState
                             { wtsUtxo = witness
-                            , wtsState =
-                                tokenStateToJSON ts
                             }
                     , fwMpfProof = proof
                     }
@@ -719,12 +672,11 @@ witnessRequest
     -> Handler WitnessedRequest
 witnessRequest
     ctx
-    LocatedRequest{requestRef, request = req} = do
+    LocatedRequest{requestRef} = do
         witness <- requireUtxoWitness ctx requestRef
         pure
             WitnessedRequest
                 { wrUtxo = witness
-                , wrRequest = requestToJSON req
                 }
 
 -- ---------------------------------------------------------

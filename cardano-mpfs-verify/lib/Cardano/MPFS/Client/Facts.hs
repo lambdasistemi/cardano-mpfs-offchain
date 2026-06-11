@@ -63,7 +63,6 @@ import Cardano.MPFS.API.Types
     ( FactResponse (..)
     , FactWitness (..)
     , ProofResponse (..)
-    , TokenStateJSON (..)
     , TxInJSON (..)
     , WitnessedTokenState (..)
     , WitnessedUtxo (..)
@@ -117,6 +116,7 @@ import Cardano.MPFS.Client.Verify.Snapshot
 import Cardano.MPFS.Client.Verify.TxView
     ( TxOutView (..)
     , decodeTxOutView
+    , stateRootBytesFromWitness
     , verifyStateRootBinding
     )
 
@@ -1073,9 +1073,11 @@ verifyFactPresentFacts
         } = do
         verifyFactSnapshot "fact_present" trustedBs frSnapshot
         replayFactState "fact_present" trustedBs frFact
+        trieRoot <-
+            factWitnessTrieRoot "fact_present.fact" frFact
         replayTrieFact
             "fact_present.fact"
-            (factWitnessTrieRoot frFact)
+            trieRoot
             ClientWire.TrieFact
                 { ClientWire.key = toClientHex fpfKey
                 , ClientWire.value = Just (toClientHex frValue)
@@ -1098,9 +1100,11 @@ verifyFactAbsentFacts
         } = do
         verifyFactSnapshot "fact_absent" trustedBs prSnapshot
         replayFactState "fact_absent" trustedBs prFact
+        trieRoot <-
+            factWitnessTrieRoot "fact_absent.fact" prFact
         replayTrieFact
             "fact_absent.fact"
-            (factWitnessTrieRoot prFact)
+            trieRoot
             ClientWire.TrieFact
                 { ClientWire.key = toClientHex fafKey
                 , ClientWire.value = Nothing
@@ -1152,10 +1156,16 @@ replayFactState prefix trustedBs FactWitness{fwState} =
         trustedBs
         (toClientWitnessedUtxo (wtsUtxo fwState))
 
-factWitnessTrieRoot :: FactWitness -> BS.ByteString
-factWitnessTrieRoot FactWitness{fwState} =
-    let Hex rootBs = root (wtsState fwState)
-    in  rootBs
+-- | Decode the on-chain trie root from the inline datum of the
+-- witnessed state UTxO carried by a 'FactWitness'. The root is
+-- provable material in @fwState.utxo.tx_out@, not a server-side
+-- projection, so it is decoded locally rather than trusted.
+factWitnessTrieRoot
+    :: T.Text -> FactWitness -> Either VerifyError BS.ByteString
+factWitnessTrieRoot field FactWitness{fwState} =
+    stateRootBytesFromWitness
+        field
+        (toClientWitnessedUtxo (wtsUtxo fwState))
 
 toClientWitnessedUtxo :: WitnessedUtxo -> ClientWire.WitnessedUtxo
 toClientWitnessedUtxo WitnessedUtxo{..} =

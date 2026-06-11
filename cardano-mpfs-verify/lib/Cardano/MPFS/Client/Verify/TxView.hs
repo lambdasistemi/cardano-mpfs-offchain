@@ -16,6 +16,7 @@ module Cardano.MPFS.Client.Verify.TxView
     , TxView (..)
     , decodeTxView
     , decodeTxOutView
+    , stateRootBytesFromWitness
     , verifyBootAssetBinding
     , verifyBootRedeemerBinding
     , verifyContinuingStateOutput
@@ -1007,6 +1008,23 @@ stateRootFromWitness endpoint WitnessedUtxo{txOut} = do
             parseStateDatumRoot
                 (endpoint <> ".state.tx_out.datum")
                 datum
+
+-- | Extract the raw 32-byte trie root from the inline state datum of
+-- a witnessed state UTxO. Like 'stateRootFromWitness' but returns the
+-- decoded bytes rather than the hex rendering, for callers that
+-- reconstruct or compare the root in its binary form.
+stateRootBytesFromWitness
+    :: Text -> WitnessedUtxo -> Either VerifyError BS.ByteString
+stateRootBytesFromWitness endpoint witness = do
+    Hex rootHex <- stateRootFromWitness endpoint witness
+    case Base16.decode (T.encodeUtf8 rootHex) of
+        Right bs -> Right bs
+        Left _ ->
+            Left
+                ( TxBindingFailed
+                    (endpoint <> ".state.tx_out.datum.root")
+                    "malformed state root hex"
+                )
 
 parseStateDatumRoot :: Text -> CBOR.Term -> Either VerifyError Hex
 parseStateDatumRoot field datum = do

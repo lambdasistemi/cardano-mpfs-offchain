@@ -24,16 +24,15 @@ in pkgs.mkSpagoDerivation {
   inherit src;
   spagoYaml = ../mpfs-spa/spago.yaml;
   spagoLock = ../mpfs-spa/spago.lock;
-  nativeBuildInputs =
-    [
-      pkgs.purs
-      pkgs.spago-unstable
-      pkgs.esbuild
-      pkgs.nodejs_20
-      pkgs.jq
-      pkgs.gzip
-      pkgs.brotli
-    ];
+  nativeBuildInputs = [
+    pkgs.purs
+    pkgs.spago-unstable
+    pkgs.esbuild
+    pkgs.nodejs_20
+    pkgs.jq
+    pkgs.gzip
+    pkgs.brotli
+  ];
   buildPhase = ''
     ln -s ${nodeModules}/node_modules node_modules
 
