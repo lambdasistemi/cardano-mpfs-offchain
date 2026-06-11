@@ -91,9 +91,25 @@ phaseProofReadsReady (InRestoration _) = False
 
 -- | Build an 'Intersector' for the cage follower.
 -- Phase is threaded through continuations (no IORef).
+--
+-- The two depth parameters are deliberately decoupled
+-- (see #355): the stability window governs /when/ the
+-- phase flips from restoration to following (a slot
+-- distance from the tip), while the security parameter
+-- @k@ governs /how many/ rollback points are retained (a
+-- block count). They are derived from the same genesis
+-- @k@ but have different units, so conflating them keeps
+-- a window ~60× too deep.
 mkCageIntersector
     :: Int
-    -- ^ Security parameter (stability window)
+    -- ^ Stability window in slots: phase-transition
+    -- threshold (restoration → following). A block is
+    -- \"within the window\" when @slot + window >= tip@.
+    -> Int
+    -- ^ Security parameter @k@ in blocks: rollback-history
+    -- pruning depth. The store keeps @k + 1@ points
+    -- (@k@ for the max Cardano rollback plus one fence
+    -- post), never fewer than @k@.
     -> ( forall a
           . Transaction
                 IO
@@ -129,7 +145,8 @@ mkCageIntersector
     -- ^ Current phase
     -> Intersector Point SlotNo Fetched
 mkCageIntersector
-    securityParam
+    stabilityWindowSlots
+    securityParamK
     run
     backendInit
     armageddon
@@ -140,7 +157,8 @@ mkCageIntersector
             { intersectFound = \_point ->
                 pure
                     $ mkCageFollower
-                        securityParam
+                        stabilityWindowSlots
+                        securityParamK
                         run
                         backendInit
                         armageddon
@@ -150,7 +168,8 @@ mkCageIntersector
             , intersectNotFound =
                 pure
                     ( mkCageIntersector
-                        securityParam
+                        stabilityWindowSlots
+                        securityParamK
                         run
                         backendInit
                         armageddon
@@ -169,7 +188,11 @@ mkCageIntersector
 -- block processing.
 mkCageFollower
     :: Int
-    -- ^ Security parameter (stability window)
+    -- ^ Stability window in slots: phase-transition
+    -- threshold (restoration → following).
+    -> Int
+    -- ^ Security parameter @k@ in blocks: rollback-history
+    -- pruning depth (keeps @k + 1@ points).
     -> ( forall a
           . Transaction
                 IO
@@ -202,7 +225,8 @@ mkCageFollower
     -- ^ Current phase
     -> Follower Point SlotNo Fetched
 mkCageFollower
-    securityParam
+    stabilityWindowSlots
+    securityParamK
     run
     backendInit
     armageddon
@@ -219,18 +243,22 @@ mkCageFollower
         rollFwd phase fetched tipSlot = do
             let slot =
                     pointToSlot (fetchedPoint fetched)
+                -- Phase transition uses the stability
+                -- window in SLOTS (distance from tip).
                 withinWindow =
                     unSlotNo slot
-                        + fromIntegral securityParam
+                        + fromIntegral stabilityWindowSlots
                         >= unSlotNo tipSlot
             setProofReadsReady False
             phase' <-
+                -- Pruning uses the security parameter k in
+                -- BLOCKS (rollback-history depth).
                 processBlock
                     nullTracer
                     withinWindow
                     run
                     InRollbacks
-                    securityParam
+                    securityParamK
                     slot
                     fetched
                     phase
@@ -276,7 +304,8 @@ mkCageFollower
                                 pure
                                     $ Reset
                                     $ mkCageIntersector
-                                        securityParam
+                                        stabilityWindowSlots
+                                        securityParamK
                                         run
                                         backendInit
                                         armageddon

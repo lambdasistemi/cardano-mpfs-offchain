@@ -50,6 +50,9 @@ module Cardano.MPFS.Application
       -- * Lifecycle
     , withApplication
 
+      -- * Chain-sync resume
+    , resumePoints
+
       -- * RocksDB setup
     , dbConfig
     , allColumnFamilies
@@ -154,7 +157,8 @@ import Cardano.UTxOCSMT.Application.Run.Config
     , prisms
     )
 import Cardano.UTxOCSMT.Bootstrap.Genesis
-    ( genesisStabilityWindow
+    ( genesisSecurityParam
+    , genesisStabilityWindow
     , genesisUtxoPairs
     , readByronGenesisUtxoPairs
     , readShelleyGenesis
@@ -351,6 +355,13 @@ withApplication cfg action = do
             NetworkMagic (sgNetworkMagic genesis)
         stabilityWindow =
             genesisStabilityWindow genesis
+        -- Security parameter k in BLOCKS (max Cardano
+        -- rollback depth, e.g. 2160). Distinct from the
+        -- stability window above, which is 3k/f in SLOTS.
+        -- See #355: the rollback history is pruned by k
+        -- (blocks), not by the slot window.
+        securityParamK =
+            genesisSecurityParam genesis
 
     withDBCF
         (dbPath cfg)
@@ -490,15 +501,7 @@ withApplication cfg action = do
                             $ CFStore.queryHistory
                                 InRollbacks
                     let startPts :: [Point]
-                        startPts
-                            | null history =
-                                [Network.Point Origin]
-                            | otherwise =
-                                [ cageCheckpointToPoint
-                                    s
-                                    (fromMaybe (BlockId mempty) (rpMeta rp))
-                                | (s, rp) <- history
-                                ]
+                        startPts = resumePoints history
 
                     -- Initialize Phase:
                     -- Existing DB: toFollowing replays journal
@@ -568,6 +571,7 @@ withApplication cfg action = do
                                     cageIntersector =
                                         mkCageIntersector
                                             (fromIntegral stabilityWindow)
+                                            (fromIntegral securityParamK)
                                             run
                                             backendInit
                                             csmtArmageddon
@@ -759,6 +763,38 @@ seedGenesis genesis mByronPath st runner ops = do
     insertPair (k, v) =
         CSMT.transact runner
             $ csmtInsert ops k v
+
+-- | Build the chain-sync intersection candidates from
+-- the persisted rollback history.
+--
+-- 'CFStore.queryHistory' returns rollback points
+-- oldest-first (it iterates @firstEntry@ → @nextEntry@,
+-- ascending slot). ChainSync @findIntersect@ requires the
+-- opposite: the node returns the /first/ offered point
+-- that is on its chain, so clients must list candidates
+-- newest-first. Offering them oldest-first makes the node
+-- intersect at the oldest retained point and replay the
+-- entire history (~1.1M slots on restart, see #355).
+--
+-- We therefore reverse the history so the newest point
+-- (closest to the tip) is offered first — the node
+-- intersects at the tip with near-zero replay. The full
+-- history is still offered, in descending order, so that
+-- a node which rolled back past our tip can still find a
+-- deeper common point.
+--
+-- An empty history (fresh database) resumes from
+-- 'Origin'.
+resumePoints
+    :: [(SlotNo, RollbackPoint inv BlockId)]
+    -> [Point]
+resumePoints [] = [Network.Point Origin]
+resumePoints history =
+    [ cageCheckpointToPoint
+        s
+        (fromMaybe (BlockId mempty) (rpMeta rp))
+    | (s, rp) <- reverse history
+    ]
 
 -- | Convert a cage checkpoint to a chain
 -- intersection 'Point'.

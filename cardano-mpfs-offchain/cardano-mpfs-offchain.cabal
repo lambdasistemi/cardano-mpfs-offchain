@@ -331,6 +331,7 @@ test-suite unit-tests
     Cardano.MPFS.Indexer.InverseSpec
     Cardano.MPFS.Indexer.PersistentSpec
     Cardano.MPFS.Indexer.ReadsSpec
+    Cardano.MPFS.Indexer.ResumeSpec
     Cardano.MPFS.Indexer.RollbackSpec
     Cardano.MPFS.Indexer.TxFixtures
     Cardano.MPFS.Indexer.UnifiedSpec
