@@ -114,7 +114,11 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.HTTP.API (API)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
-import Cardano.MPFS.HTTP.SubmitScope (txTouchesMpfs)
+import Cardano.MPFS.HTTP.SubmitScope
+    ( SpentInput (..)
+    , spentTxIns
+    , txTouchesMpfs
+    )
 import Cardano.MPFS.HTTP.Swagger
     ( SwaggerAPI
     , swaggerServer
@@ -177,6 +181,7 @@ import Cardano.MPFS.Indexer.Reads
     , readNamedRequestUtxo
     , readRequestUtxosAt
     , readSnapshot
+    , readSpentTxOuts
     , readStateUtxoAt
     , readTrieFact
     , readTrieFacts
@@ -2092,6 +2097,29 @@ submitError base errTxt detailTxt =
             [("Content-Type", "application/json")]
         }
 
+-- | Resolve a transaction's spent inputs against the
+-- indexed UTxO set for the @POST \/tx\/submit@ scope
+-- gate, reading them all inside ONE indexer transaction.
+-- An input the indexer does not know is 'UnresolvedSpent';
+-- an input whose indexed bytes fail to decode is likewise
+-- treated as 'UnresolvedSpent' so the gate never
+-- hard-rejects a transaction on it.
+resolveSpentInputs
+    :: Context IO -> ConwayTx -> IO [SpentInput]
+resolveSpentInputs ctx tx = do
+    resolved <-
+        runIndexerTx ctx
+            $ readSpentTxOuts (spentTxIns tx)
+    pure (map toSpentInput resolved)
+  where
+    toSpentInput (_, Nothing) = UnresolvedSpent
+    toSpentInput (_, Just bytes) =
+        case decodeIndexedTxOutEither
+            "tx/submit.spent_input"
+            bytes of
+            Right out -> ResolvedSpent out
+            Left _ -> UnresolvedSpent
+
 txSubmitHandler
     :: Context IO -> SubmitRequest -> Handler SubmitResponse
 txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
@@ -2105,11 +2133,17 @@ txSubmitHandler ctx (SubmitRequest (Hex txCbor)) = do
                     (T.pack (show msg))
     -- Scope gate (#343): the server is a fact-provider
     -- for the MPFS cage, not a general-purpose relay.
-    -- Reject any tx that touches none of the cage
-    -- contract surface (state-token policy / cage
-    -- address / request output) before it reaches the
-    -- node.
-    unless (txTouchesMpfs (cfgCage ctx) tx)
+    -- Resolve the tx's spent inputs against the indexed
+    -- UTxO view, then reject only a tx that touches none
+    -- of the cage contract surface — no cage mint, no
+    -- cage output, and no spent cage-owned UTxO. The
+    -- input check is what admits spend-only operations
+    -- (retract, sweep) that leave no mint or output
+    -- fingerprint; an input the indexer cannot resolve is
+    -- treated conservatively so a valid op is never
+    -- false-rejected because the server view lags.
+    spentInputs <- liftIO $ resolveSpentInputs ctx tx
+    unless (txTouchesMpfs (cfgCage ctx) spentInputs tx)
         $ throwError
         $ submitError
             err400

@@ -39,6 +39,7 @@ module Cardano.MPFS.Indexer.Reads
     , readStateUtxoAt
     , readNamedRequestUtxo
     , readRequestUtxosAt
+    , readSpentTxOuts
     , readUtxoSetAt
     , readTrieFact
     , readTrieFacts
@@ -358,6 +359,33 @@ readUtxoWitness txIn =
                                     <> ", key: "
                                     <> lazyHex key
                                     <> ")"
+
+-- | Resolve a transaction's spent inputs against the
+-- indexed UTxO set inside ONE indexer transaction. Each
+-- entry pairs a 'TxIn' with 'Just' the raw indexed
+-- @TxOut@ CBOR bytes when the indexer knows the UTxO, or
+-- 'Nothing' when the UTxO is absent from the (possibly
+-- lagging) view.
+--
+-- This feeds the @POST \/tx\/submit@ scope gate
+-- ("Cardano.MPFS.HTTP.SubmitScope"), which recognises
+-- spend-only cage operations (retract, sweep) by their
+-- spent request UTxO. No CSMT inclusion proof is
+-- generated — the gate only inspects the resolved
+-- 'TxOut', and treats a 'Nothing' as an unresolved input
+-- it must not hard-reject on.
+readSpentTxOuts
+    :: [TxIn]
+    -> IndexerTx [(TxIn, Maybe ByteString)]
+readSpentTxOuts txIns =
+    IndexerTx
+        $ mapColumns InUtxo
+        $ traverse resolveOne txIns
+  where
+    resolveOne txIn = do
+        let key = serialize (natVersion @11) txIn
+        mTxOut <- query KVCol key
+        pure (txIn, BSL.toStrict <$> mTxOut)
 
 -- | Read the current state UTxO for a token at the state
 -- validator address and return it with a CSMT inclusion proof.

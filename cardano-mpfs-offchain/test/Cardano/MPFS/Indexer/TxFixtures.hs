@@ -22,11 +22,17 @@ module Cardano.MPFS.Indexer.TxFixtures
     , mkPlainTx
     , mkBootRequestTx
 
+      -- * TxOut builders (resolved spent inputs)
+    , mkRequestTxOutAt
+    , mkStateTxOut
+    , mkWalletTxOut
+
       -- * Test script hash
     , testScriptHash
     , wrongScriptHash
     , testPolicyId
     , testCageAddr
+    , testWalletAddr
     ) where
 
 import Data.ByteString.Short qualified as SBS
@@ -101,11 +107,13 @@ import Cardano.MPFS.Core.OnChain
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
     , Coin (..)
+    , ConwayEra
     , Operation (..)
     , Request (..)
     , Root (..)
     , TokenId (..)
     , TokenState (..)
+    , TxOut
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( mkInlineDatum
@@ -143,6 +151,23 @@ testCageAddr =
     Addr
         Testnet
         (ScriptHashObj testScriptHash)
+        StakeRefNull
+
+-- | A plain wallet (key-hash) address on Testnet (28
+-- bytes of 0xCC). Used to build resolved non-cage spent
+-- inputs that the scope gate must NOT mistake for the
+-- cage surface.
+testWalletAddr :: Addr
+testWalletAddr =
+    Addr
+        Testnet
+        ( KeyHashObj
+            $ KeyHash
+            $ fromJust
+            $ hashFromStringAsHex @Blake2b_224
+                "cccccccccccccccccccccccccccc\
+                \cccccccccccccccccccccccccccc"
+        )
         StakeRefNull
 
 -- | Build a boot transaction: mints +1 token and
@@ -216,7 +241,23 @@ mkRequestTxAt
     -> TxIn
     -- ^ Dummy input
     -> ConwayTx
-mkRequestTxAt addr Request{..} dummyInput =
+mkRequestTxAt addr req dummyInput =
+    let txOut = mkRequestTxOutAt addr req
+        body =
+            mkBasicTxBody
+                & inputsTxBodyL
+                    .~ Set.singleton dummyInput
+                & outputsTxBodyL
+                    .~ StrictSeq.singleton txOut
+    in  mkBasicTx body
+
+-- | Build a request 'TxOut' ('RequestDatum'-bearing)
+-- locked at the given address. This is exactly the output
+-- 'mkRequestTxAt' produces, exposed on its own so a test
+-- can use it as a resolved spent input — the fingerprint
+-- the scope gate matches for retract\/sweep.
+mkRequestTxOutAt :: Addr -> Request -> TxOut ConwayEra
+mkRequestTxOutAt addr Request{..} =
     let onChainTid = mkOnChainTid requestToken
         KeyHash ownerH = requestOwner
         onChainOp = toOnChainOp requestValue
@@ -234,20 +275,38 @@ mkRequestTxAt addr Request{..} dummyInput =
                     , requestSubmittedAt =
                         requestSubmittedAt
                     }
-        txOut =
-            mkBasicTxOut
-                addr
-                (inject (Coin 2_000_000))
-                & datumTxOutL
-                    .~ mkInlineDatum
-                        (toPlcData reqDatum)
-        body =
-            mkBasicTxBody
-                & inputsTxBodyL
-                    .~ Set.singleton dummyInput
-                & outputsTxBodyL
-                    .~ StrictSeq.singleton txOut
-    in  mkBasicTx body
+    in  mkBasicTxOut
+            addr
+            (inject (Coin 2_000_000))
+            & datumTxOutL
+                .~ mkInlineDatum
+                    (toPlcData reqDatum)
+
+-- | Build a cage state 'TxOut' (state token + inline
+-- 'StateDatum') locked at the cage state address — the
+-- output 'mkBootTx' produces, exposed on its own for use
+-- as a resolved spent input (end\/update\/reject spend the
+-- state UTxO).
+mkStateTxOut :: TokenId -> TokenState -> TxOut ConwayEra
+mkStateTxOut tid ts =
+    let assetName = unTokenId tid
+        mintMA =
+            MultiAsset
+                $ Map.singleton testPolicyId
+                $ Map.singleton assetName 1
+        outValue =
+            MaryValue (Coin 2_000_000) mintMA
+    in  mkBasicTxOut testCageAddr outValue
+            & datumTxOutL
+                .~ mkInlineDatum
+                    (toPlcData (mkStateDatum ts (root ts)))
+
+-- | Build a plain wallet 'TxOut' at a key-hash address
+-- with no datum — a resolved non-cage spent input, the
+-- kind a plain value transfer spends.
+mkWalletTxOut :: TxOut ConwayEra
+mkWalletTxOut =
+    mkBasicTxOut testWalletAddr (inject (Coin 2_000_000))
 
 -- | Build an update transaction: spends the state
 -- input with a Modify redeemer, outputs new state.

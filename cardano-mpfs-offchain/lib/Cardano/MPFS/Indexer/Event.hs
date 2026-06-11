@@ -579,13 +579,17 @@ inversesOf lookupToken lookupReq = \case
 -- @POST \/tx\/submit@ scope gate
 -- ("Cardano.MPFS.HTTP.SubmitScope") so it cannot drift
 -- from how the indexer classifies the same transaction.
--- They are purely structural and resolve no inputs;
--- spend-only events such as retract leave no mint or
--- output fingerprint and are therefore not recognised
--- here. The gate keys 'mintsCagePolicy' and
--- 'isCageStateOutput' to the configured cage script
--- hash, and binds 'requestOutputToken' outputs to the
--- per-token request validator address.
+-- They are purely structural and resolve no inputs:
+-- spend-only events such as retract and sweep leave no
+-- mint or output fingerprint, so the gate recognises
+-- those by applying the SAME 'isCageStateOutput' /
+-- request-address checks to the transaction's spent
+-- inputs after resolving them against the indexed UTxO
+-- set (see 'Cardano.MPFS.HTTP.SubmitScope.txTouchesMpfs').
+-- The gate keys 'mintsCagePolicy' and 'isCageStateOutput'
+-- to the configured cage script hash, and binds
+-- 'requestOutputToken' outputs to the per-token request
+-- validator address.
 
 -- | 'True' iff the transaction mints or burns any asset
 -- under the cage policy (the cage script hash viewed as
