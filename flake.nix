@@ -80,7 +80,7 @@
               ghcWasmMeta = ghc-wasm-meta.packages.${system}.all_9_12;
               wasiSdk = ghc-wasm-meta.packages.${system}.wasi-sdk;
               chap = CHaP;
-              src = ./.;
+              src = import ./nix/clean-src.nix { inherit (pkgs) lib; src = ./.; };
             };
             # Separate nixpkgs instance carrying the PureScript toolchain
             # overlays; kept apart from the haskell.nix `pkgs` above to avoid
