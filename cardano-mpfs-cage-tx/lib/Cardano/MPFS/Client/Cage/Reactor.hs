@@ -18,7 +18,16 @@ import Cardano.Ledger.Alonzo.Scripts
     ( fromPlutusScript
     , mkPlutusScript
     )
+import Cardano.Ledger.Api.Scripts.Data
+    ( Data (..)
+    , Datum (..)
+    , binaryDataToData
+    )
 import Cardano.Ledger.Api.Tx (addrTxWitsL, witsTxL)
+import Cardano.Ledger.Api.Tx.Out
+    ( datumTxOutL
+    , valueTxOutL
+    )
 import Cardano.Ledger.BaseTypes
     ( Network (..)
     )
@@ -26,6 +35,7 @@ import Cardano.Ledger.Binary
     ( Annotator
     , Decoder
     , decCBOR
+    , decodeFull
     , decodeFullAnnotator
     , natVersion
     )
@@ -35,13 +45,26 @@ import Cardano.Ledger.Core
     , hashScript
     )
 import Cardano.Ledger.Hashes (ScriptHash)
+import Cardano.Ledger.Mary.Value
+    ( AssetName (..)
+    , MaryValue (..)
+    , MultiAsset (..)
+    )
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Ledger.Plutus.Language
     ( Language (PlutusV3)
     , Plutus (..)
     , PlutusBinary (..)
     )
-import Cardano.MPFS.Cage.Ledger (ConwayEra)
+import Cardano.MPFS.Cage.Ledger (ConwayEra, TxOut)
+import Cardano.MPFS.Cage.Types
+    ( CageDatum (..)
+    , OnChainOperation (..)
+    , OnChainRequest (..)
+    , OnChainRoot (..)
+    , OnChainTokenId (..)
+    , OnChainTokenState (..)
+    )
 import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.BuildError (BuildError)
 import Cardano.MPFS.Client.Cage.Config (CageConfig (..))
@@ -86,14 +109,18 @@ import Data.Aeson
     ( FromJSON
     , Object
     , Result (..)
+    , Series
     , Value
     , eitherDecodeStrict
     , fromJSON
+    , pairs
     , withObject
     , (.!=)
     , (.:)
     , (.:?)
+    , (.=)
     )
+import Data.Aeson.Encoding (encodingToLazyByteString)
 import Data.Aeson.Types
     ( Parser
     , parseEither
@@ -104,8 +131,10 @@ import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short
     ( ShortByteString
+    , fromShort
     , toShort
     )
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -117,6 +146,11 @@ import Lens.Micro
     , (^.)
     )
 import PlutusTx.Builtins qualified as PlutusTx
+import PlutusTx.Builtins.Internal
+    ( BuiltinByteString (..)
+    , BuiltinData (..)
+    )
+import PlutusTx.IsData.Class (fromBuiltinData)
 
 -- The facts types are decoded through 'fromJSON' in the op branch; we
 -- only need their instances in scope.
@@ -148,6 +182,7 @@ dispatch = withObject "Envelope" $ \o -> do
         "retract" -> dispatchRetract o
         "reject" -> dispatchReject o
         "end" -> dispatchEnd o
+        "decode" -> dispatchDecode o
         "self_test_integer_to_byte_string" ->
             pure selfTestIntegerToByteString
         "self_test_bitwise_conversions" ->
@@ -261,6 +296,117 @@ dispatchReject o = do
             policyValue <- o .:? "wallet_policy"
             policy <- parseWalletPolicyMaybe policyValue
             pure (buildReject evalCtx cfg policy verified)
+
+-- | Decode a witnessed cage 'TxOut' (hex CBOR of the resolved output)
+-- into its inline datum and emit the provable display fields as a
+-- single @decoded:@ JSON line (issue #345). The op auto-detects a
+-- 'RequestDatum' versus a 'StateDatum' so the SPA can reconstruct the
+-- request and token-state views from witness bytes alone, after #342
+-- removed the server-side projections.
+--
+-- The decode is single-sourced through the canonical 'CageDatum'
+-- 'FromData' instance from @cardano-mpfs-cage@; no CBOR is hand-rolled.
+dispatchDecode :: Object -> Parser Text
+dispatchDecode o = decodeWitnessedTxOut <$> o .: "tx_out"
+
+decodeWitnessedTxOut :: Text -> Text
+decodeWitnessedTxOut txOutHex =
+    case decodeHex "tx_out" txOutHex >>= decodeTxOutBytes of
+        Left err -> "decode_error: " <> err
+        Right txOut -> case extractCageDatum txOut of
+            Nothing ->
+                "decode_error: tx_out carries no cage datum"
+            Just (RequestDatum request) ->
+                renderDecoded (requestSeries request)
+            Just (StateDatum tokenState) ->
+                case stateTokenIdHex txOut of
+                    Left err -> "decode_error: " <> err
+                    Right tokenId ->
+                        renderDecoded (stateSeries tokenId tokenState)
+
+-- | Decode the CBOR-encoded @TxOut@ body the server witnesses, using
+-- the same non-annotated ledger decoder the indexer uses to read it
+-- back (@Cardano.MPFS.Indexer.Reads.decodeTxOut@).
+decodeTxOutBytes :: ByteString -> Either Text (TxOut ConwayEra)
+decodeTxOutBytes bytes =
+    case decodeFull (natVersion @11) (BSL.fromStrict bytes) of
+        Left err -> Left ("tx_out cbor: " <> T.pack (show err))
+        Right txOut -> Right txOut
+
+-- | Extract an inline 'CageDatum' from a resolved 'TxOut'. Mirrors
+-- @Cardano.MPFS.Indexer.Event.extractDatum@, kept local because that
+-- module lives in the non-wasm @cardano-mpfs-offchain@ closure.
+extractCageDatum :: TxOut ConwayEra -> Maybe CageDatum
+extractCageDatum txOut =
+    case txOut ^. datumTxOutL of
+        Datum binaryData ->
+            let Data plutusData = binaryDataToData binaryData
+            in  fromBuiltinData (BuiltinData plutusData)
+        _ -> Nothing
+
+renderDecoded :: Series -> Text
+renderDecoded series =
+    "decoded: "
+        <> T.decodeUtf8
+            (BSL.toStrict (encodingToLazyByteString (pairs series)))
+
+requestSeries :: OnChainRequest -> Series
+requestSeries OnChainRequest{..} =
+    "datum" .= ("request" :: Text)
+        <> "token" .= builtinHex (unOnChainTokenId requestToken)
+        <> "owner" .= builtinHex requestOwner
+        <> "key" .= bytesHex requestKey
+        <> operationSeries requestValue
+        <> "fee" .= requestFee
+        <> "submitted_at" .= requestSubmittedAt
+
+-- | Render the request operation, preserving BOTH values of an update
+-- (the lossiness #342 called out): insert carries its new value, delete
+-- the old value being removed, update both old and new.
+operationSeries :: OnChainOperation -> Series
+operationSeries (OpInsert value) =
+    "operation" .= ("insert" :: Text) <> "new" .= bytesHex value
+operationSeries (OpDelete value) =
+    "operation" .= ("delete" :: Text) <> "old" .= bytesHex value
+operationSeries (OpUpdate old new) =
+    "operation" .= ("update" :: Text)
+        <> "old" .= bytesHex old
+        <> "new" .= bytesHex new
+
+stateSeries :: Text -> OnChainTokenState -> Series
+stateSeries tokenId OnChainTokenState{..} =
+    "datum" .= ("state" :: Text)
+        <> "token_id" .= tokenId
+        <> "owner" .= builtinHex stateOwner
+        <> "root" .= bytesHex (unOnChainRoot stateRoot)
+        <> "tip" .= stateMaxFee
+        <> "process_time" .= stateProcessTime
+        <> "retract_time" .= stateRetractTime
+
+-- | The MPFS token id is the asset name of the single native token
+-- carried by the state @TxOut@ value; the cage policy id is global and
+-- is not part of the id (mirrors the server's @txout_cbor@ contract).
+stateTokenIdHex :: TxOut ConwayEra -> Either Text Text
+stateTokenIdHex txOut =
+    case txOut ^. valueTxOutL of
+        MaryValue _ (MultiAsset assets) ->
+            case [ name
+                 | byPolicy <- Map.elems assets
+                 , (name, quantity) <- Map.toList byPolicy
+                 , quantity /= 0
+                 ] of
+                [name] -> Right (assetNameHex name)
+                [] -> Left "state tx_out carries no token"
+                _ -> Left "state tx_out carries ambiguous tokens"
+
+assetNameHex :: AssetName -> Text
+assetNameHex (AssetName name) = renderHex (fromShort name)
+
+builtinHex :: BuiltinByteString -> Text
+builtinHex (BuiltinByteString bytes) = renderHex bytes
+
+bytesHex :: ByteString -> Text
+bytesHex = renderHex
 
 runVerified
     :: (FromJSON facts)

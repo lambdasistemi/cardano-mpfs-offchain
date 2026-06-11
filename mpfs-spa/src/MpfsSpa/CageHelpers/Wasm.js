@@ -1,17 +1,3 @@
-// Thin wrapper over globalThis.runCageReactor, seeded by src/bootstrap.js.
-
-export const runCageReactorImpl = (stdinText) => () => {
-  if (typeof globalThis.runCageReactor !== "function") {
-    return Promise.resolve({
-      stdout: "",
-      stderr: "runCageReactor is not installed",
-      exitOk: false,
-    });
-  }
-
-  return globalThis.runCageReactor(stdinText);
-};
-
 // UTF-8 encode a user-typed string to a lowercase hex string, so the
 // /facts/request/* fields (Hex on the wire) accept plain text like
 // "start"/"amaru" instead of requiring the user to pre-hex-encode.

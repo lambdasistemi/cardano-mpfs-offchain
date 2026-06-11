@@ -32,6 +32,7 @@ pendingAt submittedAt =
   , owner: "owner"
   , key: Key "key"
   , value: Nothing
+  , oldValue: Nothing
   , operation: "insert"
   , fee: 0.0
   , submittedAt
