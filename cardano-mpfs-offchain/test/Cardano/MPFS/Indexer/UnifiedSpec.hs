@@ -20,7 +20,7 @@ import Control.Concurrent.Async
     ( concurrently_
     , replicateConcurrently_
     )
-import Control.Monad (forM_, replicateM_)
+import Control.Monad (foldM_, forM_, replicateM_)
 import Control.Tracer (nullTracer)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -815,6 +815,64 @@ spec = describe "Unified 14-CF" $ do
                                     fail "expected Following"
                         InFollowing _ _ ->
                             fail "expected Restoration"
+
+        it
+            "prunes rollback history to k+1 points by block count, not slot span (#355)"
+            $ do
+                withUnifiedDB $ \transact -> do
+                    let csmtOps =
+                            mkCSMTOps testFromKV testHashing
+                        -- Security parameter k in BLOCKS. The
+                        -- followed slots below span far more
+                        -- than k, so retaining exactly k+1
+                        -- points proves the pruning depth is a
+                        -- block count (k), never the slot
+                        -- stability window.
+                        k = 3 :: Int
+                        phase0 =
+                            InRestoration
+                                (mkComposedRestoring csmtOps)
+                    -- Restore one block, then enter Following.
+                    phase1 <-
+                        processBlock
+                            nullTracer
+                            False
+                            transact
+                            InRollbacks
+                            k
+                            (1 :: SlotNo)
+                            ([CageBoot tokA stRefA tokStateA], [])
+                            phase0
+                    following <- case phase1 of
+                        InRestoration r ->
+                            Backend.toFollowing r
+                        InFollowing _ _ ->
+                            fail "expected Restoration"
+                    transact
+                        $ Store.armageddonSetup
+                            InRollbacks
+                            (1 :: SlotNo)
+                            (Just (BlockId mempty))
+                    -- Follow 8 empty blocks at slots 2..9
+                    -- (a 9-slot span, far wider than k).
+                    foldM_
+                        ( \phase s ->
+                            processBlock
+                                nullTracer
+                                False
+                                transact
+                                InRollbacks
+                                k
+                                s
+                                ([], [])
+                                phase
+                        )
+                        (InFollowing 1 following)
+                        [2 .. 9 :: SlotNo]
+                    count <-
+                        transact
+                            $ Store.countPoints InRollbacks
+                    count `shouldBe` k + 1
 
     describe "full wiring (openCSMTOps + trie manager + Runner)" $ do
         it "restore + follow + rollback with openCSMTOps" $ do

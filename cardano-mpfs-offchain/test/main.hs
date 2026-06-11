@@ -37,6 +37,7 @@ import Cardano.MPFS.Indexer.FollowerSpec qualified as CageFollowerSpec
 import Cardano.MPFS.Indexer.InverseSpec qualified as InverseSpec
 import Cardano.MPFS.Indexer.PersistentSpec qualified as PersistentStateSpec
 import Cardano.MPFS.Indexer.ReadsSpec qualified as ReadsSpec
+import Cardano.MPFS.Indexer.ResumeSpec qualified as ResumeSpec
 import Cardano.MPFS.Indexer.RollbackSpec qualified as RollbackSpec
 import Cardano.MPFS.Indexer.UnifiedSpec qualified as UnifiedSpec
 import Cardano.MPFS.OnChainSpec qualified as OnChainSpec
@@ -76,6 +77,7 @@ main =
                 ArmageddonSpec.spec
                 ReadsSpec.spec
                 UnifiedSpec.spec
+                ResumeSpec.spec
                 RollbackSpec.spec
                 BootFactsSpec.spec
                 RequestInsertFactsSpec.spec
