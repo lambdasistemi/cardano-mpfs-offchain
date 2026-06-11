@@ -99,6 +99,7 @@ library
     Cardano.MPFS.HTTP.API
     Cardano.MPFS.HTTP.Encoding
     Cardano.MPFS.HTTP.Server
+    Cardano.MPFS.HTTP.SubmitScope
     Cardano.MPFS.HTTP.Swagger
     Cardano.MPFS.HTTP.Types
     Cardano.MPFS.HTTP.Types.Facts
@@ -316,6 +317,7 @@ test-suite unit-tests
     Cardano.MPFS.HTTP.RequestUpdateFactsSpec
     Cardano.MPFS.HTTP.RetractFactsSpec
     Cardano.MPFS.HTTP.StatusSpec
+    Cardano.MPFS.HTTP.SubmitScopeSpec
     Cardano.MPFS.HTTP.SubmitSpec
     Cardano.MPFS.HTTP.TokenFactsSpec
     Cardano.MPFS.HTTP.TokenSpec

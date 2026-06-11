@@ -16,6 +16,7 @@ module Cardano.MPFS.Indexer.TxFixtures
       mkBootTx
     , mkBurnTx
     , mkRequestTx
+    , mkRequestTxAt
     , mkUpdateTx
     , mkRetractTx
     , mkPlainTx
@@ -201,7 +202,21 @@ mkRequestTx
     -> TxIn
     -- ^ Dummy input
     -> ConwayTx
-mkRequestTx Request{..} dummyInput =
+mkRequestTx = mkRequestTxAt testCageAddr
+
+-- | Build a request transaction whose 'RequestDatum'
+-- output sits at the given address. Lets a test place
+-- the request output at the per-token request validator
+-- address (or, adversarially, at a wrong script
+-- address).
+mkRequestTxAt
+    :: Addr
+    -- ^ Address to lock the request output at
+    -> Request
+    -> TxIn
+    -- ^ Dummy input
+    -> ConwayTx
+mkRequestTxAt addr Request{..} dummyInput =
     let onChainTid = mkOnChainTid requestToken
         KeyHash ownerH = requestOwner
         onChainOp = toOnChainOp requestValue
@@ -221,7 +236,7 @@ mkRequestTx Request{..} dummyInput =
                     }
         txOut =
             mkBasicTxOut
-                testCageAddr
+                addr
                 (inject (Coin 2_000_000))
                 & datumTxOutL
                     .~ mkInlineDatum

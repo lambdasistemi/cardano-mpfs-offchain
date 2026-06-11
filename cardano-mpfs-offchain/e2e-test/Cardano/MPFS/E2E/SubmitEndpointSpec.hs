@@ -5,29 +5,28 @@
 
 -- |
 -- Module      : Cardano.MPFS.E2E.SubmitEndpointSpec
--- Description : HTTP-level E2E for POST /submit
+-- Description : HTTP-level E2E for POST /submit scope gate
 -- License     : Apache-2.0
 --
--- Boots a devnet + full application, builds and
--- signs a genesis ADA-transfer tx, POSTs its CBOR to
--- @POST \/submit@ over HTTP, and awaits the returned
--- txId against the node. This is the live-boundary
--- proof that the locked wire contract works against a
--- real N2C submitter and a real chain.
+-- Boots a devnet + full application, builds and signs a
+-- genesis ADA-transfer tx, POSTs its CBOR to @POST
+-- \/submit@ over HTTP, and asserts the #343 scope gate
+-- rejects it with @400@ \"this service only submits MPFS
+-- operations\" — the live-boundary proof that a non-MPFS
+-- tx is refused before it ever reaches the N2C
+-- submitter. Undecodable CBOR is likewise a @400@.
 module Cardano.MPFS.E2E.SubmitEndpointSpec
     ( spec
     ) where
 
 import Data.Aeson (decode, encode)
-import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Data.ByteString.Base16 qualified as B16
+import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (Value (..))
 import Data.ByteString.Lazy qualified as BSL
 import Lens.Micro ((&), (.~))
 import Network.HTTP.Types
     ( hContentType
     , methodPost
-    , status200
     , status400
     )
 import Network.Wai
@@ -39,7 +38,6 @@ import Network.Wai.Test
     ( SRequest (..)
     , SResponse (..)
     , defaultRequest
-    , request
     , runSession
     , setPath
     , srequest
@@ -98,7 +96,6 @@ import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.Types
     ( SubmitRequest (..)
-    , SubmitResponse (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder.Config
@@ -139,14 +136,9 @@ spec = describe "POST /submit (e2e)" $ do
                 Right scripts ->
                     submitEndpointSpec scripts
 
--- | Await timeout in seconds. Devnet slots are
--- 100ms so 60s is plenty.
-awaitTimeout :: Int
-awaitTimeout = 60
-
 submitEndpointSpec :: CageScripts -> Spec
 submitEndpointSpec scripts =
-    it "signs, submits, and awaits a real tx"
+    it "rejects a non-MPFS tx with a typed 400 scope error"
         $ withE2E scripts
         $ \_cfg ctx -> do
             let app = mkApp ctx
@@ -191,25 +183,20 @@ submitEndpointSpec scripts =
                                         ( SubmitRequest
                                             (Hex rawCbor)
                                         )
+                            -- #343 scope gate: a plain
+                            -- ADA transfer touches no MPFS
+                            -- contract surface, so the
+                            -- server rejects it before the
+                            -- node ever sees it.
                             resp <- post app reqBody
                             simpleStatus resp
-                                `shouldBe` status200
-                            case decode (simpleBody resp) of
-                                Nothing ->
-                                    expectationFailure
-                                        "expected a \
-                                        \SubmitResponse \
-                                        \JSON body"
-                                Just (SubmitResponse (Hex txIdBytes)) -> do
-                                    BS.length txIdBytes
-                                        `shouldBe` 32
-                                    awaitTx
-                                        awaitTimeout
-                                        app
-                                        (B16.encode txIdBytes)
-                            -- Bonus: undecodable CBOR is a
-                            -- 400 (reuses the same booted
-                            -- app; never reaches the node).
+                                `shouldBe` status400
+                            scopeDetail resp
+                                `shouldBe` Just
+                                    "this service only \
+                                    \submits MPFS operations"
+                            -- Undecodable CBOR is also a
+                            -- 400 (never reaches the node).
                             garbage <-
                                 post
                                     app
@@ -220,6 +207,14 @@ submitEndpointSpec scripts =
                                     )
                             simpleStatus garbage
                                 `shouldBe` status400
+
+-- | Extract the @detail@ field of a @POST \/submit@
+-- JSON error body, if present.
+scopeDetail :: SResponse -> Maybe Value
+scopeDetail resp =
+    case decode (simpleBody resp) of
+        Just (Object o) -> KM.lookup "detail" o
+        _ -> Nothing
 
 -- | @POST \/submit@ with a JSON body.
 post :: Application -> BSL.ByteString -> IO SResponse
@@ -232,27 +227,6 @@ post app body =
             , requestHeaders =
                 [(hContentType, "application/json")]
             }
-
--- | @GET \/tx\/:txId?timeout=N@ — block until the
--- indexer has seen this transaction.
-awaitTx
-    :: Int -> Application -> ByteString -> IO ()
-awaitTx timeout app txIdHex = do
-    resp <-
-        runSession
-            (request (setPath defaultRequest path))
-            app
-    simpleStatus resp `shouldBe` status200
-  where
-    path =
-        "/tx/"
-            <> txIdHex
-            <> "?timeout="
-            <> bshow timeout
-    bshow =
-        BS.pack
-            . map (fromIntegral . fromEnum)
-            . show
 
 -- -------------------------------------------------
 -- Bracket
