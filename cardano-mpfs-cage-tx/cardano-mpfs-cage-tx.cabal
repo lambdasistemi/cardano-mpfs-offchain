@@ -102,12 +102,18 @@ test-suite byte-identity
     , base
     , base16-bytestring      >=1.0 && <1.1
     , bytestring
+    , cardano-crypto-class
     , cardano-ledger-api
     , cardano-ledger-binary
+    , cardano-ledger-core
+    , cardano-ledger-mary
     , cardano-mpfs-cage
     , cardano-mpfs-cage-tx
     , cardano-tx-tools
+    , containers
     , hspec
+    , microlens
+    , plutus-tx
     , process
     , QuickCheck
     , text

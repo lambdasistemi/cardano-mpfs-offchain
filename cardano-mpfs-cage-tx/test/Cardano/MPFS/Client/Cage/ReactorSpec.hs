@@ -8,11 +8,40 @@ module Cardano.MPFS.Client.Cage.ReactorSpec
     ( spec
     ) where
 
+import Cardano.Crypto.Hash (hashFromBytes)
+import Cardano.Ledger.Address (Addr (..))
+import Cardano.Ledger.Api.Scripts.Data
+    ( Data (..)
+    , Datum (..)
+    , dataToBinaryData
+    )
 import Cardano.Ledger.Api.Tx (mkBasicTx)
 import Cardano.Ledger.Api.Tx.Body (mkBasicTxBody)
+import Cardano.Ledger.Api.Tx.Out (datumTxOutL, mkBasicTxOut)
 import Cardano.Ledger.Api.Tx.Wits (mkBasicTxWits)
+import Cardano.Ledger.BaseTypes (Network (Testnet))
 import Cardano.Ledger.Binary (natVersion, serialize')
-import Cardano.MPFS.Cage.Ledger (Coin (..), ConwayEra)
+import Cardano.Ledger.Credential
+    ( Credential (KeyHashObj)
+    , StakeReference (StakeRefNull)
+    )
+import Cardano.Ledger.Hashes (ScriptHash (..))
+import Cardano.Ledger.Keys (KeyHash (..))
+import Cardano.Ledger.Mary.Value
+    ( AssetName (..)
+    , MaryValue (..)
+    , MultiAsset (..)
+    , PolicyID (..)
+    )
+import Cardano.MPFS.Cage.Ledger (Coin (..), ConwayEra, TxOut)
+import Cardano.MPFS.Cage.Types
+    ( CageDatum (..)
+    , OnChainOperation (..)
+    , OnChainRequest (..)
+    , OnChainRoot (..)
+    , OnChainTokenId (..)
+    , OnChainTokenState (..)
+    )
 import Cardano.MPFS.Client.Cage.BuildError
     ( BuildError (LegacyRejectRefundRequiresTopUp)
     )
@@ -25,17 +54,34 @@ import Cardano.Tx.Ledger (ConwayTx)
 import Control.Monad (forM)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BSL
+import Data.ByteString.Short qualified as SBS
 import Data.Functor (($>))
+import Data.List (isInfixOf)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as T
+import Lens.Micro ((&), (.~))
+import PlutusTx.Builtins.Internal
+    ( BuiltinByteString (..)
+    , BuiltinData (..)
+    )
+import PlutusTx.IsData.Class (toBuiltinData)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe)
+import Test.Hspec
+    ( Spec
+    , describe
+    , expectationFailure
+    , it
+    , shouldBe
+    , shouldSatisfy
+    )
 import Test.QuickCheck
     ( Property
     , conjoin
@@ -68,6 +114,25 @@ spec = describe "runCageEnvelope byte identity" $ do
                         \min refund 849070, final refund 849070"
                     )
             preflightLegacyExactRefund False [plan] `shouldBe` Right ()
+    describe "decode op" $ do
+        it "decodes a witnessed request tx_out, preserving old and new" $ do
+            let out = BSC.unpack (runCageEnvelope decodeRequestEnvelope)
+            out `shouldSatisfy` isInfixOf "decoded: "
+            out `shouldSatisfy` isInfixOf "\"datum\":\"request\""
+            out `shouldSatisfy` isInfixOf "\"operation\":\"update\""
+            out `shouldSatisfy` isInfixOf "\"old\":\"6f6c64\""
+            out `shouldSatisfy` isInfixOf "\"new\":\"6e6577\""
+        it "decodes a witnessed state tx_out, recovering the token id" $ do
+            let out = BSC.unpack (runCageEnvelope decodeStateEnvelope)
+            out `shouldSatisfy` isInfixOf "decoded: "
+            out `shouldSatisfy` isInfixOf "\"datum\":\"state\""
+            out `shouldSatisfy` isInfixOf "\"token_id\":\"746f6b\""
+        it "fails closed on a tx_out that carries no cage datum" $ do
+            let out = BSC.unpack (runCageEnvelope decodeNoDatumEnvelope)
+            out `shouldSatisfy` isInfixOf "decode_error: "
+        it "rejects an unknown op" $ do
+            let out = BSC.unpack (runCageEnvelope unknownOpEnvelope)
+            out `shouldSatisfy` isInfixOf "unknown_op: "
 
 byteIdentityProperty :: Property
 byteIdentityProperty =
@@ -124,6 +189,9 @@ fixedEnvelopes =
     , requestDeleteEnvelope
     , retractEnvelope
     , rejectEnvelope
+    , decodeRequestEnvelope
+    , decodeStateEnvelope
+    , decodeNoDatumEnvelope
     ]
 
 bootEnvelope :: ByteString
@@ -225,6 +293,102 @@ rejectEnvelope =
             , "wallet_policy" .= object []
             , "facts" .= object []
             ]
+
+-- | A @decode@ envelope over a witnessed request tx_out whose inline
+-- datum is an @update@ request, exercising the non-lossy old/new fields.
+decodeRequestEnvelope :: ByteString
+decodeRequestEnvelope = decodeEnvelope (serializeTxOut requestTxOut)
+
+-- | A @decode@ envelope over a witnessed state tx_out carrying the cage
+-- token, exercising token-id recovery from the value.
+decodeStateEnvelope :: ByteString
+decodeStateEnvelope = decodeEnvelope (serializeTxOut stateTxOut)
+
+-- | A @decode@ envelope over an output with no inline cage datum, which
+-- must fail closed.
+decodeNoDatumEnvelope :: ByteString
+decodeNoDatumEnvelope = decodeEnvelope (serializeTxOut bareTxOut)
+
+unknownOpEnvelope :: ByteString
+unknownOpEnvelope =
+    encodeStrict $ object ["op" .= ("not_a_real_op" :: Text)]
+
+decodeEnvelope :: ByteString -> ByteString
+decodeEnvelope txOutBytes =
+    encodeStrict
+        $ object
+            [ "op" .= ("decode" :: Text)
+            , "tx_out" .= hexText txOutBytes
+            ]
+
+serializeTxOut :: TxOut ConwayEra -> ByteString
+serializeTxOut = serialize' (natVersion @11)
+
+-- | A request output: ADA only plus an inline @update@ request datum.
+requestTxOut :: TxOut ConwayEra
+requestTxOut =
+    mkBasicTxOut sampleAddr (MaryValue (Coin 2_000_000) mempty)
+        & datumTxOutL .~ inlineDatum requestDatum
+  where
+    requestDatum =
+        RequestDatum
+            OnChainRequest
+                { requestToken =
+                    OnChainTokenId (BuiltinByteString "tok")
+                , requestOwner =
+                    BuiltinByteString (BS.replicate 28 7)
+                , requestKey = "key"
+                , requestValue = OpUpdate "old" "new"
+                , requestFee = 1_500_000
+                , requestSubmittedAt = 1_700_000_000_000
+                }
+
+-- | A state output carrying the cage token plus an inline state datum.
+stateTxOut :: TxOut ConwayEra
+stateTxOut =
+    mkBasicTxOut sampleAddr stateValue
+        & datumTxOutL .~ inlineDatum stateDatum
+  where
+    stateDatum =
+        StateDatum
+            OnChainTokenState
+                { stateOwner = BuiltinByteString (BS.replicate 28 0)
+                , stateRoot = OnChainRoot (BS.replicate 32 0)
+                , stateMaxFee = 1_000_000
+                , stateProcessTime = 60_000
+                , stateRetractTime = 30_000
+                }
+    stateValue =
+        MaryValue
+            (Coin 2_000_000)
+            ( MultiAsset
+                ( Map.singleton
+                    samplePolicy
+                    (Map.singleton (AssetName (SBS.toShort "tok")) 1)
+                )
+            )
+
+-- | An output with no inline datum; the decode op must fail closed.
+bareTxOut :: TxOut ConwayEra
+bareTxOut =
+    mkBasicTxOut sampleAddr (MaryValue (Coin 2_000_000) mempty)
+
+inlineDatum :: CageDatum -> Datum ConwayEra
+inlineDatum datum =
+    let BuiltinData plutusData = toBuiltinData datum
+    in  Datum (dataToBinaryData (Data plutusData))
+
+sampleAddr :: Addr
+sampleAddr =
+    case hashFromBytes (BS.replicate 28 0) of
+        Just h -> Addr Testnet (KeyHashObj (KeyHash h)) StakeRefNull
+        Nothing -> error "sampleAddr: invalid key hash"
+
+samplePolicy :: PolicyID
+samplePolicy =
+    case hashFromBytes (BS.replicate 28 1) of
+        Just h -> PolicyID (ScriptHash h)
+        Nothing -> error "samplePolicy: invalid script hash"
 
 cageConfigValue :: Value
 cageConfigValue =

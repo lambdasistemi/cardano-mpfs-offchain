@@ -336,7 +336,7 @@ requestRow onRetract nowMillis processTime req =
     [ M.listItemText
         { primary: req.operation <> " - " <> unKey req.key
         , secondary:
-            maybe "" (\v -> "Value " <> unValue v <> " - ") req.value
+            valueLabel
               <> requestAge req
               <> " - "
               <> requestWindow req
@@ -345,6 +345,11 @@ requestRow onRetract nowMillis processTime req =
   where
   unKey (Key k) = displayUtf8Hex k
   unValue (Value v) = displayUtf8Hex v
+  valueLabel = case req.oldValue of
+    Just old ->
+      "Value " <> unValue old <> " -> " <> maybe "" unValue req.value <> " - "
+    Nothing ->
+      maybe "" (\v -> "Value " <> unValue v <> " - ") req.value
 
   requestAge r = formatAgeMillis (nowMillis - r.submittedAt)
 

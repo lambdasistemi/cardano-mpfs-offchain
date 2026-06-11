@@ -1460,7 +1460,7 @@ requestRow
         ]
     , M.tableCell {} [ M.chip { label: opLabel req.operation, size: "small", color: "primary", variant: "outlined" } ]
     , keyCell req.key
-    , M.tableCell {} [ M.typography { variant: "body2" } [ R.text (maybe "" valueText req.value) ] ]
+    , M.tableCell {} [ M.typography { variant: "body2" } [ R.text (requestValueText req) ] ]
     , requestOwnerCell walletOwnerHash req.owner
     , M.tableCell {}
         [ M.chip { label: formatAgeMillis (nowMillis - req.submittedAt), size: "small", variant: "outlined" } ]
@@ -1814,6 +1814,14 @@ factText (Key key) = displayUtf8Hex key
 
 valueText :: Value -> String
 valueText (Value value) = displayUtf8Hex value
+
+-- | Render a pending request's value cell, showing both sides of an
+-- | update (old -> new) and the single value for inserts/deletes.
+requestValueText :: PendingRequest -> String
+requestValueText req =
+  case req.oldValue of
+    Just old -> valueText old <> " -> " <> maybe "" valueText req.value
+    Nothing -> maybe "" valueText req.value
 
 unKey :: Key -> String
 unKey (Key key) = key

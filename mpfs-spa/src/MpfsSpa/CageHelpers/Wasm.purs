@@ -4,27 +4,18 @@
 -- | the reactor's stable stdout line. All transaction construction and witness
 -- | assembly remains inside the Haskell WASM reactor.
 module MpfsSpa.CageHelpers.Wasm
-  ( ReactorResult
-  , assembleTx
+  ( assembleTx
   , buildBootEnvelope
-  , parseCageTxOutput
-  , parseSignedTxOutput
-  , runCageReactor
   , wasmCageHelpers
   ) where
 
 import Prelude
 
 import Control.Promise (Promise, toAffE)
-import Data.Array (head)
 import Data.Argonaut.Core (Json, fromNumber, fromObject, fromString, stringify)
 import Data.Argonaut.Encode (encodeJson)
 import Data.Either (Either(..))
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.String.CodeUnits as CU
-import Data.String.Common as String
-import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
@@ -32,6 +23,11 @@ import Effect.Class (liftEffect)
 import Foreign.Object as Object
 
 import MpfsSpa.CageHelpers (CageHelpers, CageResult)
+import MpfsSpa.CageHelpers.Reactor
+  ( parseCageTxOutput
+  , parseSignedTxOutput
+  , runCageReactor
+  )
 import MpfsSpa.Config (serverConfig, walletPolicyJson)
 import MpfsSpa.Http (Config, getEvalContext, getTrustedRoot, postBootFacts)
 import MpfsSpa.Types
@@ -46,12 +42,6 @@ import MpfsSpa.Types
   , WalletAddr(..)
   )
 
-type ReactorResult =
-  { stdout :: String
-  , stderr :: String
-  , exitOk :: Boolean
-  }
-
 type RawResponse =
   { ok :: Boolean
   , status :: Int
@@ -59,17 +49,12 @@ type RawResponse =
   , text :: String
   }
 
-foreign import runCageReactorImpl :: String -> Effect (Promise ReactorResult)
-
 foreign import postJsonImpl :: String -> String -> Effect (Promise RawResponse)
 
 -- | UTF-8 encode a user-typed string to a lowercase hex string. Trie
 -- keys/values travel as `Hex` on the wire, so plain text entered in the
 -- forms (e.g. "start"/"amaru") must be hex-encoded before POST.
 foreign import encodeUtf8Hex :: String -> String
-
-runCageReactor :: String -> Aff ReactorResult
-runCageReactor = toAffE <<< runCageReactorImpl
 
 wasmCageHelpers :: CageHelpers
 wasmCageHelpers =
@@ -168,12 +153,6 @@ buildAssembleEnvelope unsignedTx witnessSet =
         , Tuple "witness_set" (fromString witnessSet)
         ]
     )
-
-parseCageTxOutput :: ReactorResult -> Either CageError String
-parseCageTxOutput = parsePrefixedOutput "cage_tx: "
-
-parseSignedTxOutput :: ReactorResult -> Either CageError String
-parseSignedTxOutput = parsePrefixedOutput "signed_tx: "
 
 requestCageTx
   :: String
@@ -304,30 +283,6 @@ cageConfigJson cfg =
     , Tuple "default_tip" (intJson cfg.defaultTip)
     , Tuple "network" (fromString cfg.network)
     ]
-
-parsePrefixedOutput :: String -> ReactorResult -> Either CageError String
-parsePrefixedOutput prefix result
-  | not result.exitOk =
-      Left (CageError (firstMessage result))
-  | otherwise =
-      case CU.stripPrefix (Pattern prefix) (firstLine result.stdout) of
-        Just hex | String.trim hex /= "" -> Right (String.trim hex)
-        _ -> Left (CageError (firstMessage result))
-
-firstMessage :: ReactorResult -> String
-firstMessage result =
-  let
-    err = String.trim result.stderr
-    out = String.trim result.stdout
-  in
-    if err /= "" then err
-    else if out /= "" then firstLine out
-    else "reactor returned no output"
-
-firstLine :: String -> String
-firstLine text =
-  String.trim
-    (fromMaybe text (head (String.split (Pattern "\n") text)))
 
 intJson :: Int -> Json
 intJson = fromNumber <<< toNumber
