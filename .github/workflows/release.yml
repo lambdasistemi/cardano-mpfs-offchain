@@ -156,9 +156,21 @@ jobs:
             "${{ steps.package.outputs.tarball }}" \
             --clobber
 
+      # Mint a short-lived (1h) token scoped to ONLY homebrew-tap with
+      # contents:write, from the GitHub App's private key. No long-lived PAT
+      # is stored or rotated; the token cannot touch any other repo.
+      - name: Mint a scoped tap token
+        id: tap-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: lambdasistemi
+          repositories: homebrew-tap
+
       - name: Update homebrew tap
         env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAP_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.package.outputs.version }}"
