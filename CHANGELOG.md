@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.2.0...v0.2.1) (2026-06-12)
+
+
+### Features
+
+* **spa:** decode witnessed tx_out via reactor ([fbd8b3f](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/fbd8b3feee87ec3b68a6ca45fd65ef24038d1195)), closes [#345](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/345)
+
+
+### Bug Fixes
+
+* **indexer:** resume chain-sync at the tip, prune by k blocks ([cc6830e](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/cc6830ebfa7bd8e24c9f054cdb7b4bbbb14a555b)), closes [#355](https://github.com/lambdasistemi/cardano-mpfs-offchain/issues/355)
+
 ## [0.2.0](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.1.1...v0.2.0) (2026-06-11)
 
 
