@@ -66,44 +66,45 @@ half-ready proof tree.
 sequenceDiagram
     participant CS as ChainSync
     participant CF as CageFollower
+    participant RUN as chain-follower Runner
     participant TX as Unified Transaction
     participant UTXO as InUtxo columns
     participant CAGE as InCage columns
+    participant RB as InRollbacks column
     participant DB as RocksDB
 
     CS->>CF: rollForward (block, tip)
-    Note over CF: extractConwayTxs (pure)<br/>compute utxoOps
-
-    CF->>TX: run (begin transaction)
+    CF->>RUN: processBlock (slot, fetched, phase)
+    RUN->>TX: run (begin transaction)
 
     rect rgb(30, 50, 80)
         Note over TX,CAGE: Step 1 — Detect cage events
+        Note over TX: extractConwayTxs (pure)
         TX->>UTXO: resolveUtxoT (read KV column)
         UTXO-->>TX: spent TxOuts
-        Note over TX: classify txs as cage events
+        Note over TX: detectCageBlockEvents
     end
 
     rect rgb(30, 70, 50)
         Note over TX,CAGE: Step 2 — Apply cage mutations
         TX->>CAGE: applyCageBlockEvents<br/>(tokens, requests, trie inserts/deletes)
-        CAGE-->>TX: inverse ops for rollback
+        CAGE-->>TX: cage inverse ops
     end
 
     rect rgb(30, 50, 80)
-        Note over TX,UTXO: Step 3 — Forward UTxO CSMT
-        TX->>UTXO: forwardTip<br/>(CSMT inserts/deletes + rollback point)
-        UTXO-->>TX: stored? (bool)
+        Note over TX,UTXO: Step 3 — Apply UTxO CSMT ops
+        TX->>UTXO: csmtInsert / csmtDelete per block change
+        UTXO-->>TX: UTxO inverse ops
     end
 
     rect rgb(30, 70, 50)
-        Note over TX,CAGE: Step 4 — Persist rollback + checkpoint
-        TX->>CAGE: storeRollbackT (slot, inverse ops)
-        TX->>CAGE: putCheckpointT (slot, blockId, active slots)
+        Note over TX,RB: Step 4 — Store rollback point
+        TX->>RB: ComposedInv (UTxO + cage inverses),<br/>prune history to k+1 points
     end
 
     TX->>DB: commit (atomic write batch)
 
-    Note over CF: post-commit: IORef counter += 1
+    Note over CF: post-commit: onCommit callback,<br/>proof-readiness flag update
 ```
 
 **Atomicity boundary**: everything inside `run $ do ...` is a single
@@ -113,9 +114,10 @@ the batch and the block is never partially applied.
 
 **Post-commit side effects** (outside the transaction):
 
-- `IORef Int` rollback counter is bumped if `forwardTip` stored a new
-  rollback point. This counter is advisory — it's reconstructed from
-  the DB at startup via `countRollbackPoints`.
+- the `onCommit` callback fires (notifying waiters such as the
+  `GET /tx/:txId` blocking endpoint), and
+- the proof-readiness flag is updated from the runner phase, so proof
+  endpoints answer "syncing" instead of reading a half-restored tree.
 
 ## Rollback: Reverting Blocks
 
@@ -127,45 +129,39 @@ sequenceDiagram
     participant CS as ChainSync
     participant CF as CageFollower
     participant TX as Unified Transaction
-    participant UTXO as InUtxo columns
+    participant RB as InRollbacks column
     participant CAGE as InCage columns
+    participant UTXO as InUtxo columns
     participant DB as RocksDB
 
     CS->>CF: rollBackward (point)
 
-    CF->>TX: run (begin transaction)
-
-    rect rgb(30, 50, 80)
-        Note over TX,UTXO: Step 1 — Rollback UTxO CSMT
-        TX->>UTXO: rollbackTip (apply inverse UTxO ops,<br/>delete rollback points after slot)
-        UTXO-->>TX: (RollbackResult, deleted count)
-    end
+    CF->>TX: run rollbackTo (target slot)
+    TX->>RB: pop rollback points newer than target
 
     alt RollbackSucceeded
-        rect rgb(30, 70, 50)
-            Note over TX,CAGE: Step 2 — Rollback cage state
-            TX->>CAGE: rollbackToSlotT<br/>(replay cage inverses in reverse,<br/>delete cage rollback entries,<br/>update checkpoint)
+        loop each popped ComposedInv, newest first
+            TX->>CAGE: applyCageInverses<br/>(cage inverses, reversed)
+            TX->>UTXO: csmtInsert / csmtDelete<br/>(UTxO inverses, reversed)
         end
         TX->>DB: commit (atomic write batch)
-        Note over CF: post-commit: IORef counter -= deleted
         CF-->>CS: Progress (continue following)
-    else RollbackImpossible
-        Note over TX: no cage rollback — keep consistent
-        TX->>DB: commit (no-op write batch)
-        CF->>UTXO: sampleRollbackPoints
-        alt has rollback points
-            CF-->>CS: Rewind (try different intersection)
-        else no rollback points
-            CF-->>CS: Reset (start from Origin)
-        end
+    else RollbackImpossible — no points stored yet
+        Note over CF: target predates indexed history,<br/>nothing to undo — continue
+        CF-->>CS: Progress
+    else RollbackImpossible — points exist
+        Note over CF: armageddon — wipe database,<br/>re-enter restoration
+        CF-->>CS: Reset (start from Origin)
     end
 ```
 
-**Key invariant**: cage rollback only runs when UTxO rollback
-succeeds. This ensures both subsystems stay in sync. When rollback is
-impossible (the target slot doesn't exist as a UTxO rollback point),
-neither subsystem is modified — the follower instead resets the
-ChainSync intersection.
+**Key invariant**: a rollback either replays the stored `ComposedInv`
+inverses — cage state first, then UTxO CSMT, each list in reverse
+order — inside one atomic transaction, or it modifies nothing. When
+the target slot is older than the retained rollback history, the
+follower wipes the database (the armageddon action) and rebuilds from
+Origin in restoration mode rather than guessing at an intermediate
+state.
 
 ## Crash Safety
 
@@ -176,7 +172,7 @@ graph TD
         B --> C["writes accumulate in batch"]
         C --> D{"crash?"}
         D -->|before commit| E["batch discarded<br/>DB unchanged<br/>block replayed on restart"]
-        D -->|after commit| F["block fully applied<br/>IORef reconstructed from DB"]
+        D -->|after commit| F["block fully applied<br/>runner re-intersects on restart"]
     end
 ```
 
@@ -187,14 +183,16 @@ graph TD
         B --> C["UTxO + cage inverses applied"]
         C --> D{"crash?"}
         D -->|before commit| E["batch discarded<br/>DB at pre-rollback state<br/>rollback retried on restart"]
-        D -->|after commit| F["rollback fully applied<br/>IORef reconstructed from DB"]
+        D -->|after commit| F["rollback fully applied<br/>runner re-intersects on restart"]
     end
 ```
 
-The `IORef Int` rollback counter is the only mutable state outside
-RocksDB. It is reconstructed at startup by scanning the rollback
-points column (`countRollbackPoints`), so a crash never leaves it
-permanently inconsistent.
+All indexer state lives in RocksDB. The runner phase
+(restoration/following) is threaded through continuations — no
+mutable counters exist outside the database — and on restart the
+follower re-intersects ChainSync from the stored rollback points, so
+a crash can never leave volatile state inconsistent with the
+committed batch.
 
 ## mapColumns Lifting
 
@@ -220,20 +218,27 @@ Each sub-transaction reads and writes its own column families.
 `mapColumns` lifts them into the unified namespace so they can be
 sequenced inside a single `do` block and committed together.
 
-## Bypassing the Update Continuation
+## Runner and Backend Composition
 
-The `cardano-utxo-csmt` library exports an `Update` record that wraps
-`forwardTip` and `rollbackTip` with auto-commit and threads a
-rollback point counter through continuations. The `CageFollower`
-bypasses this:
+The block-processing machinery is split between this repository and
+the `chain-follower` library:
 
-- Calls `forwardTip` and `rollbackTip` directly (pure `Transaction`
-  values, not auto-committing)
-- Manages the rollback point counter via an `IORef Int`
-- Handles `RollbackResult` (succeeded/impossible) itself
+- **`chain-follower` `Runner`** (`processBlock`, `rollbackTo`) owns
+  the generic concerns: storing one `ComposedInv` rollback point per
+  followed block in the `InRollbacks` column, pruning the history to
+  `k + 1` points (the security parameter in blocks, see #355), and
+  managing the phase transition between restoration and following
+  (governed by the stability window in slots).
+- **`Indexer.Backend.composedInit`** supplies the business logic as
+  `restore` / `follow` / `applyInverse` callbacks: cage event
+  detection, cage state and trie mutations, and UTxO CSMT operations.
 
-This is necessary because the `Update` continuation commits each
-operation separately, violating the one-block-one-commit invariant.
+During **restoration** (replaying blocks far from the tip) the
+backend applies mutations without collecting inverses and runs the
+CSMT in KVOnly mode; on the phase flip to **following**, `toFull`
+replays the CSMT journal and subsequent blocks collect full
+`ComposedInv` inverses. The cage checkpoint is derived from the
+latest stored rollback point rather than written separately.
 
 ## Transactional vs IO Layers
 
@@ -272,16 +277,18 @@ transactional layer).
 
 | Module | Role |
 |--------|------|
-| [`Indexer.CageFollower`][s-cage-follower] | Unified `rollForward` / `rollBackward` |
-| [`Indexer.Follower`][s-follower] | `detectCageBlockEvents`, `applyCageBlockEvents` |
+| [`Indexer.CageFollower`][s-cage-follower] | `rollForward` / `rollBackward` via the chain-follower `Runner` |
+| [`Indexer.Backend`][s-backend] | `composedInit` — restore/follow/applyInverse callbacks |
+| [`Indexer.Follower`][s-follower] | `detectCageBlockEvents`, `applyCageBlockEvents`, `applyCageInverses` |
+| [`Indexer.ComposedInv`][s-composed-inv] | `ComposedInv` — combined UTxO + cage inverse ops |
 | [`Indexer.Columns`][s-columns] | `UnifiedColumns` GADT (14 CFs) |
-| [`Indexer.Rollback`][s-rollback] | `storeRollbackT`, `rollbackToSlotT` |
 | [`Indexer.Persistent`][s-persistent] | `mkTransactionalState`, `mkPersistentState` |
 | [`Trie.Persistent`][s-trie-pers] | `mkUnifiedTrieManager`, `mkPersistentTrieManager` |
 
 [s-cage-follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
+[s-backend]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Backend%22&type=code
 [s-follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
+[s-composed-inv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.ComposedInv%22&type=code
 [s-columns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
-[s-rollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
 [s-persistent]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
 [s-trie-pers]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code

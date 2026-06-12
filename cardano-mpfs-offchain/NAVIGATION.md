@@ -1,11 +1,11 @@
-# cardano-mpfs-offchain — Semantic Navigation
+# cardano-mpfs-offchain — Package Navigation
 
-A human-readable map of the offchain library. Each section explains
-*what* the code does and *why*, with links to the source.
+A map of the `cardano-mpfs-offchain` package: the production server
+(indexer + proof-bearing HTTP API). For the repo-wide map covering all
+packages see [`../NAVIGATION.md`](../NAVIGATION.md); for prose
+architecture see [`../docs/architecture/`](../docs/architecture/).
 
 Base module: `Cardano.MPFS`
-
-[lib]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS
 
 ---
 
@@ -13,139 +13,32 @@ Base module: `Cardano.MPFS`
 
 1. [Core Domain](#core-domain)
 2. [Service Interfaces](#service-interfaces)
-3. [Node-to-Client Protocol](#node-to-client-protocol)
-4. [Transaction Builders](#transaction-builders)
-5. [Chain Indexer](#chain-indexer)
-6. [Trie Backends](#trie-backends)
+3. [HTTP Layer](#http-layer)
+4. [Chain Indexer](#chain-indexer)
+5. [Trie Backends](#trie-backends)
+6. [Node Integration](#node-integration)
 7. [Mock Implementations](#mock-implementations)
 8. [Application Wiring](#application-wiring)
+9. [Executables](#executables)
 
 ---
 
 ## Core Domain
 
-Pure types and logic with no IO dependencies. Everything else imports
-from here.
+Pure types and logic with no IO dependencies.
 
-### Types
+| Module | Purpose |
+|--------|---------|
+| [`Core.Types`][s-core-types] | `TokenId`, `Root`, `Request`, `TokenState`, `Operation`, `BlockId`, ledger re-exports |
+| [`Core.OnChain`][s-core-onchain] | Re-exports from [`cardano-mpfs-cage`][cage]: `CageDatum`, `MintRedeemer`, `UpdateRedeemer`, `ProofStep`; offchain-specific `cageScriptHash`, `cageAddr` |
+| [`Core.Proof`][s-core-proof] | Re-exports from [`cardano-mpfs-cage`][cage]: `serializeProof`, `toProofSteps` |
+| [`Core.Blueprint`][s-core-blueprint] | Re-exports from [`cardano-mpfs-cage`][cage]: CIP-57 blueprint loading, schema validation |
 
-Ledger re-exports and MPFS-specific domain types.
-
-| Type | Purpose |
-|------|---------|
-| [`TokenId`][s-TokenId] | Newtype over `AssetName` — identifies a cage token |
-| [`Root`][s-Root] | 32-byte Blake2b-256 Merkle root hash |
-| [`Request`][s-Request] | Pending insert/delete/update request with fee and timestamp |
-| [`TokenState`][s-TokenState] | On-chain token state: owner, root, fee, time windows |
-| [`Operation`][s-Operation] | `Insert` / `Delete` / `Update` — what a request asks for |
-| [`Fact`][s-Fact] | Key-value pair stored in a trie |
-| [`BlockId`][s-BlockId] | Block identifier (hash bytes) |
-
--> [Core/Types.hs:L69-L136][f-types]
-
-[s-TokenId]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22newtype+TokenId%22&type=code
-[s-Root]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22newtype+Root%22+path%3ACore&type=code
-[s-Request]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Request%22+path%3ACore%2FTypes&type=code
-[s-TokenState]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+TokenState%22+path%3ACore%2FTypes&type=code
-[s-Operation]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Operation%22+path%3ACore&type=code
-[s-Fact]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Fact%22&type=code
-[s-BlockId]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22newtype+BlockId%22&type=code
-[f-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Types.hs#L69-L136
-
-### OnChain
-
-Plutus-level datum/redeemer types matching the Aiken validator
-layout byte-for-byte. Manual `ToData`/`FromData` instances.
-
-| Type | Purpose |
-|------|---------|
-| [`CageDatum`][s-CageDatum] | `RequestDatum` or `StateDatum` — inline datum on cage UTxOs |
-| [`MintRedeemer`][s-MintRedeemer] | `Minting` / `Migrating` / `Burning` — cage policy redeemer |
-| [`UpdateRedeemer`][s-UpdateRedeemer] | `End` / `Contribute` / `Modify` / `Retract` / `Reject` — spending redeemer |
-| [`ProofStep`][s-ProofStep] | `Branch` / `Fork` / `Leaf` — on-chain Merkle proof step |
-
-Key functions:
-
-- **[`cageScriptHash`][s-cageScriptHash]**: Cage validator script hash (hardcoded from blueprint)
-  -> [Core/OnChain.hs:L668-L710][f-onchain-hash]
-- **[`cageAddr`][s-cageAddr]**: Derive cage script address for a network
-  -> [Core/OnChain.hs:L713-L718][f-onchain-addr]
-- **[`deriveAssetName`][s-deriveAssetName]**: SHA2-256(txId ++ bigEndian16(idx)) — deterministic token name
-  -> [Core/OnChain.hs:L728-L747][f-onchain-derive]
-
-[s-CageDatum]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageDatum%22&type=code
-[s-MintRedeemer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+MintRedeemer%22&type=code
-[s-UpdateRedeemer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+UpdateRedeemer%22&type=code
-[s-ProofStep]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+ProofStep%22+path%3AOnChain&type=code
-[s-cageScriptHash]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=cageScriptHash+path%3AOnChain&type=code
-[s-cageAddr]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=cageAddr+path%3AOnChain&type=code
-[s-deriveAssetName]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=deriveAssetName&type=code
-[f-onchain-hash]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/OnChain.hs#L668-L710
-[f-onchain-addr]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/OnChain.hs#L713-L718
-[f-onchain-derive]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/OnChain.hs#L728-L747
-
-### Blueprint
-
-CIP-57 Plutus blueprint loading and schema validation.
-
-- **[`loadBlueprint`][s-loadBlueprint]**: Parse blueprint JSON from file
-  -> [Core/Blueprint.hs:L198-L202][f-blueprint-load]
-- **[`extractCompiledCode`][s-extractCompiledCode]**: Extract hex-decoded PlutusV3 script bytes
-  -> [Core/Blueprint.hs:L262-L274][f-blueprint-extract]
-- **[`validateData`][s-validateData]**: Validate `Data` against `Schema` with `$ref` resolution
-  -> [Core/Blueprint.hs:L210-L236][f-blueprint-validate]
-- **[`applyVersion`][s-applyVersion]**: Apply version parameter to UPLC script
-  -> [Core/Blueprint.hs:L312-L346][f-blueprint-version]
-
-[s-loadBlueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=loadBlueprint&type=code
-[s-extractCompiledCode]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=extractCompiledCode&type=code
-[s-validateData]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=validateData+path%3ABlueprint&type=code
-[s-applyVersion]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=applyVersion&type=code
-[f-blueprint-load]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Blueprint.hs#L198-L202
-[f-blueprint-extract]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Blueprint.hs#L262-L274
-[f-blueprint-validate]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Blueprint.hs#L210-L236
-[f-blueprint-version]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Blueprint.hs#L312-L346
-
-### Proof
-
-Aiken-compatible proof serialization — converts MPF proofs to
-on-chain `ProofStep` lists and raw CBOR bytes.
-
-- **[`serializeProof`][s-serializeProof]**: MPF proof -> CBOR bytes (byte-identical to TypeScript reference)
-  -> [Core/Proof.hs:L54-L63][f-proof-ser]
-- **[`toProofSteps`][s-toProofSteps]**: MPF proof -> `[ProofStep]` (reverses leaf-to-root to root-to-leaf)
-  -> [Core/Proof.hs:L147-L150][f-proof-steps]
-
-[s-serializeProof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=serializeProof&type=code
-[s-toProofSteps]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=toProofSteps&type=code
-[f-proof-ser]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Proof.hs#L54-L63
-[f-proof-steps]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Proof.hs#L147-L150
-
-### Balance
-
-Fee estimation fixpoint loop. Adds a fee-paying UTxO and change
-output, iterates `setMinFeeTx` until stable (max 10 rounds).
-
-- **[`balanceTx`][s-balanceTx]**: Pure transaction balancer
-  -> [Core/Balance.hs:L64-L153][f-balance]
-
-[s-balanceTx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=balanceTx+path%3ABalance&type=code
-[f-balance]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Balance.hs#L64-L153
-
-### Bootstrap
-
-CBOR bootstrap file for UTxO seeding on fresh databases.
-Stream-decodes entries without loading the full map into memory.
-
-- **[`encodeBootstrapFile`][s-encodeBootstrap]**: Write header + key-value entries to CBOR file
-  -> [Core/Bootstrap.hs:L69-L90][f-bootstrap-enc]
-- **[`foldBootstrapEntries`][s-foldBootstrap]**: Stream-decode with callbacks (header, then each entry)
-  -> [Core/Bootstrap.hs:L96-L135][f-bootstrap-fold]
-
-[s-encodeBootstrap]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=encodeBootstrapFile&type=code
-[s-foldBootstrap]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=foldBootstrapEntries&type=code
-[f-bootstrap-enc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Bootstrap.hs#L69-L90
-[f-bootstrap-fold]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Core/Bootstrap.hs#L96-L135
+[s-core-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&type=code
+[s-core-onchain]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&type=code
+[s-core-proof]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&type=code
+[s-core-blueprint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&type=code
+[cage]: https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell
 
 ---
 
@@ -156,43 +49,32 @@ Every major component is a **record of functions**, polymorphic in
 
 ### Provider
 
-Read-only blockchain queries.
+Ledger metadata and evaluation via N2C LocalStateQuery.
 
-| Field | Signature |
-|-------|-----------|
-| `queryUTxOs` | `Addr -> m [(TxIn, TxOut ConwayEra)]` |
-| `queryProtocolParams` | `m (PParams ConwayEra)` |
-| `evaluateTx` | `ByteString -> m ExUnits` |
+| Field | Purpose |
+|-------|---------|
+| `queryProtocolParams` | Current `PParams ConwayEra` |
+| `evaluateTx` | Script ex-unit evaluation |
+| `posixMsToSlot` / `posixMsCeilSlot` | POSIX-ms to slot conversion |
+| `queryUTxOs` | LSQ address scan — **forbidden on tx-build paths** (cost is O(total UTxO on chain); the indexed CSMT is the fact source, see #252) |
 
--> [Provider.hs:L24-L36][f-provider]
+Real: [`mkNodeClientProvider`][s-mkNodeClientProvider] ·
+Mock: [`mkMockProvider`][s-mkMockProvider]
 
-Real: [`mkNodeClientProvider`][s-mkNodeClientProvider] (N2C LSQ)
-Mock: [`mkMockProvider`][s-mkMockProvider] (empty results)
-
-[f-provider]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Provider.hs#L24-L36
 [s-mkNodeClientProvider]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkNodeClientProvider&type=code
 [s-mkMockProvider]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockProvider&type=code
 
 ### State
 
-Token and request state with three sub-records.
+Indexed token and request state with three sub-records: `Tokens`,
+`Requests`, `Checkpoints`, plus `hoistState` natural transformations.
 
-| Sub-record | Key operations |
-|------------|----------------|
-| [`Tokens`][s-Tokens] | `getToken`, `putToken`, `removeToken`, `listTokens` |
-| [`Requests`][s-Requests] | `getRequest`, `putRequest`, `removeRequest`, `requestsByToken` |
-| [`Checkpoints`][s-Checkpoints] | `getCheckpoint`, `putCheckpoint` |
-
--> [State.hs:L30-L77][f-state]
-
-Real: [`mkPersistentState`][s-mkPersistentState] (RocksDB)
+Real: [`mkPersistentState`][s-mkPersistentState] (RocksDB) ·
+Transactional: [`mkTransactionalState`][s-mkTransactionalState] ·
 Mock: [`mkMockState`][s-mkMockState] (IORef maps)
 
-[s-Tokens]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Tokens%22&type=code
-[s-Requests]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Requests%22&type=code
-[s-Checkpoints]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Checkpoints%22&type=code
-[f-state]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/State.hs#L30-L77
 [s-mkPersistentState]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPersistentState&type=code
+[s-mkTransactionalState]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkTransactionalState&type=code
 [s-mkMockState]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockState&type=code
 
 ### TrieManager
@@ -201,403 +83,214 @@ Per-token MPF trie access. Each cage token has an isolated trie.
 
 | Field | Purpose |
 |-------|---------|
-| `withTrie` | Run action with token's trie |
-| `withSpeculativeTrie` | Speculative session (copied DB, rolled back on exit) |
+| `withTrie` | Run an action with a token's trie |
+| `withSpeculativeTrie` | Read-your-writes session, discarded on exit |
 | `createTrie` / `deleteTrie` | Lifecycle |
 | `hideTrie` / `unhideTrie` | Soft-delete for burn forward/rollback |
 
-The [`Trie m`][s-Trie] record exposes: `insert`, `delete`, `lookup`,
-`getRoot`, `getProof`, `getProofSteps`.
-
--> [Trie.hs:L32-L88][f-trie]
-
-Real: [`mkPersistentTrieManager`][s-mkPersistentTrieManager] (RocksDB, token-prefixed keys)
-Pure: [`mkPureTrieManager`][s-mkPureTrieManager] (IORef maps)
+The [`Trie m`][s-Trie] record exposes insert/delete/lookup, root, and
+proof operations.
 
 [s-Trie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+Trie+m%22&type=code
-[f-trie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie.hs#L32-L88
-[s-mkPersistentTrieManager]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPersistentTrieManager&type=code
-[s-mkPureTrieManager]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPureTrieManager&type=code
 
 ### Submitter
 
-Transaction submission. Takes a `Tx ConwayEra`, returns `Submitted TxId`
-or `Rejected reason`.
+`submitTx :: Tx ConwayEra -> m SubmitResult` — returns
+`Submitted TxId` or `Rejected reason`.
 
--> [Submitter.hs:L20-L35][f-submitter]
-
-Real: [`mkN2CSubmitter`][s-mkN2CSubmitter] (N2C LocalTxSubmission)
+Real: [`mkN2CSubmitter`][s-mkN2CSubmitter] (N2C LocalTxSubmission) ·
 Mock: [`mkMockSubmitter`][s-mkMockSubmitter] (rejects all)
 
-[f-submitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Submitter.hs#L20-L35
 [s-mkN2CSubmitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkN2CSubmitter&type=code
 [s-mkMockSubmitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockSubmitter&type=code
 
 ### TxBuilder
 
-Constructs transactions for all cage protocol operations.
+Internal proof-envelope builders. Each field consumes a
+`BundleSnapshot` plus indexed UTxO facts and returns a
+`ProofEnvelope` — the builders never query the node for UTxO state.
 
 | Field | Cage operation |
 |-------|----------------|
-| `bootToken` | Mint new cage token |
-| `requestInsert` / `requestDelete` | Submit request UTxO |
+| `bootToken` | **Errors** — server-side boot was removed; clients use `POST /facts/boot` and build locally |
+| `requestInsert` / `requestDelete` / `requestUpdate` | Submit request UTxO |
 | `updateToken` | Consume requests, update trie root |
-| `retractRequest` | Cancel pending request |
+| `retractRequest` | Cancel a pending request |
+| `rejectRequests` | Owner rejection of expired requests |
 | `endToken` | Burn cage token |
 
--> [TxBuilder.hs:L24-L56][f-txbuilder]
+The owner-only sweep transaction is not a `TxBuilder` field:
+[`sweepUtxoImpl`][s-sweepUtxoImpl] from `TxBuilder.Real` is invoked
+directly by the `POST /tx/sweep` handler.
 
-Real: [`mkRealTxBuilder`][s-mkRealTxBuilder]
+Real: [`mkRealTxBuilder`][s-mkRealTxBuilder] ·
 Mock: [`mkMockTxBuilder`][s-mkMockTxBuilder] (throws on all ops)
 
-[f-txbuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder.hs#L24-L56
 [s-mkRealTxBuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&type=code
 [s-mkMockTxBuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&type=code
-
-### Indexer
-
-Chain sync follower with lifecycle control.
-
-| Field | Purpose |
-|-------|---------|
-| `start` / `stop` | Follower lifecycle |
-| `pause` / `resume` | Temporary suspension |
-| `getTip` | Current [`ChainTip`][s-ChainTip] (slot + block hash) |
-
--> [Indexer.hs:L16-L36][f-indexer]
-
-Real: [`Indexer.Follower`][s-Follower] (block processing)
-Mock: [`mkSkeletonIndexer`][s-mkSkeletonIndexer] (no-op) / [`mkMockIndexer`][s-mkMockIndexer]
-
-[s-ChainTip]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+ChainTip%22&type=code
-[f-indexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer.hs#L16-L36
-[s-Follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
-[s-mkSkeletonIndexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkSkeletonIndexer&type=code
-[s-mkMockIndexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockIndexer&type=code
+[s-sweepUtxoImpl]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=sweepUtxoImpl&type=code
 
 ### Context
 
-Facade record bundling all singletons into one environment.
+Facade record bundling the singletons plus indexed-read primitives:
+`utxoExists`, `resolveUtxo`, `awaitUtxo`, `utxoRoot`, `utxoProof`,
+`indexerProofsReady`, `evalContext`, `runIndexerTx`, `readMetrics`,
+and the static `cfgCage`.
 
--> [Context.hs:L19-L32][f-context]
+[`runIndexerTx`][s-runIndexerTx] runs a composed `IndexerTx` read
+inside one underlying transaction — the atomicity anchor for all
+proof-bearing handlers.
 
-[f-context]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Context.hs#L19-L32
-
----
-
-## Node-to-Client Protocol
-
-Multiplexed N2C connection over a Unix socket to `cardano-node`.
-Two mini-protocols share one connection.
-
-### Connection
-
-- **[`runNodeClient`][s-runNodeClient]**: Establish multiplexed connection, launch protocol threads
-  -> [NodeClient/Connection.hs:L122-L143][f-nc-conn]
-- **[`newLSQChannel`][s-newLSQChannel]** / **[`newLTxSChannel`][s-newLTxSChannel]**: Create `TBQueue`-backed channels
-  -> [NodeClient/Connection.hs:L234-L244][f-nc-chan]
-
-[s-runNodeClient]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=runNodeClient+path%3AConnection&type=code
-[s-newLSQChannel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=newLSQChannel&type=code
-[s-newLTxSChannel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=newLTxSChannel&type=code
-[f-nc-conn]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/NodeClient/Connection.hs#L122-L143
-[f-nc-chan]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/NodeClient/Connection.hs#L234-L244
-
-### Channel Types
-
-| Type | Purpose |
-|------|---------|
-| [`LSQChannel`][s-LSQChannel] | `TBQueue` of `(Query, TMVar result)` pairs |
-| [`LTxSChannel`][s-LTxSChannel] | `TBQueue` of `(GenTx, TMVar result)` pairs |
-| [`SomeLSQQuery`][s-SomeLSQQuery] | Existential wrapper hiding the query result type |
-
--> [NodeClient/Types.hs:L36-L75][f-nc-types]
-
-[s-LSQChannel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22newtype+LSQChannel%22&type=code
-[s-LTxSChannel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22newtype+LTxSChannel%22&type=code
-[s-SomeLSQQuery]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+SomeLSQQuery%22&type=code
-[f-nc-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/NodeClient/Types.hs#L36-L75
-
-### LocalStateQuery
-
-Protocol client driven by `LSQChannel`. Acquires volatile tip per
-query (no long-lived acquired state).
-
-- **[`queryLSQ`][s-queryLSQ]**: Submit query through channel, block on `TMVar` result
-  -> [NodeClient/LocalStateQuery.hs:L124-L133][f-lsq]
-
-[s-queryLSQ]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=queryLSQ&type=code
-[f-lsq]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/NodeClient/LocalStateQuery.hs#L124-L133
-
-### LocalTxSubmission
-
-- **[`submitTxN2C`][s-submitTxN2C]**: Submit `GenTx` through channel, block on result
-  -> [NodeClient/LocalTxSubmission.hs:L77-L89][f-ltxs]
-
-[s-submitTxN2C]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=submitTxN2C&type=code
-[f-ltxs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/NodeClient/LocalTxSubmission.hs#L77-L89
+[s-runIndexerTx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=runIndexerTx&type=code
 
 ---
 
-## Transaction Builders
+## HTTP Layer
 
-Real implementations for all cage protocol operations. Each builds
-a full `Tx ConwayEra` with PlutusV3 script witnesses, inline datums,
-and validity intervals, then balances via [`balanceTx`][s-balanceTx].
+Servant REST API with Swagger UI. `mkApp` from `HTTP.Server` wraps a
+`Context IO` into a WAI `Application`. The canonical API type and
+wire DTOs live in the `cardano-mpfs-api` package; this layer adds the
+handlers and the server-local metrics endpoints.
 
-### Config
+| Module | Purpose |
+|--------|---------|
+| [`HTTP.API`][s-http-api] | Server-local wrapper around the shared Servant API plus `/metrics` |
+| [`HTTP.Types`][s-http-types] | Server compatibility re-exports and ledger conversion helpers |
+| [`HTTP.Types.Facts`][s-http-facts] | Assembly helpers for facts-only responses |
+| [`HTTP.Encoding`][s-http-enc] | `Hex` newtype for binary-as-hex JSON transport |
+| [`HTTP.Server`][s-http-server] | WAI wiring, `mkApp`, all handlers |
+| [`HTTP.SubmitScope`][s-http-scope] | `txTouchesMpfs` — the `POST /submit` MPFS-scope gate |
+| [`HTTP.Swagger`][s-http-swagger] | OpenAPI generation, Swagger UI at `/swagger-ui` |
 
-[`CageConfig`][s-CageConfig]: Script bytes, script hash, time windows,
-network, slot parameters.
-
--> [TxBuilder/Config.hs:L24-L41][f-txb-cfg]
-
-[s-CageConfig]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageConfig%22&type=code
-[f-txb-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Config.hs#L24-L41
-
-### Entry Point
-
-- **[`mkRealTxBuilder`][s-mkRealTxBuilder]**: Wire Config + Provider + State + TrieManager into `TxBuilder IO`
-  -> [TxBuilder/Real.hs:L56-L74][f-txb-real]
-
-[f-txb-real]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real.hs#L56-L74
-
-### Per-Operation Builders
-
-| Module | Operation | Key steps |
-|--------|-----------|-----------|
-| [`Real.Boot`][f-txb-boot] | Mint cage token | Pick seed UTxO, derive asset name, build +1 mint, create state datum |
-| [`Real.Request`][f-txb-req] | Submit request | Pay to cage address with `RequestDatum`, no script execution |
-| [`Real.Update`][f-txb-upd] | Process requests | Find state + request UTxOs, compute proofs speculatively, build `Modify` redeemer with proof lists |
-| [`Real.Retract`][f-txb-ret] | Cancel request | Spend request UTxO with `Retract` redeemer, reference state UTxO, Phase 2 validity window |
-| [`Real.End`][f-txb-end] | Burn token | Consume state with `End` spending, mint -1 with `Burning` minting |
-
-[f-txb-boot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Boot.hs#L80-L200
-[f-txb-req]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Request.hs#L56-L161
-[f-txb-upd]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Update.hs#L95-L284
-[f-txb-ret]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Retract.hs#L83-L224
-[f-txb-end]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/End.hs#L75-L178
-
-### Internal Helpers
-
-Shared helpers used by all builders.
-
-| Function | Purpose |
-|----------|---------|
-| [`posixMsToSlot`][s-posixMsToSlot] / [`posixMsCeilSlot`][s-posixMsCeilSlot] | POSIX ms -> `SlotNo` (floor/ceiling) |
-| [`findStateUtxo`][s-findStateUtxo] | Find state UTxO by policy ID + token ID in MultiAsset |
-| [`findRequestUtxos`][s-findRequestUtxos] | Find request UTxOs by decoding inline datums |
-| [`extractCageDatum`][s-extractCageDatum] | Extract `CageDatum` from inline datum in `TxOut` |
-| [`mkRequestDatum`][s-mkRequestDatum] | Build `CageDatum` for request submission |
-| [`spendingIndex`][s-spendingIndex] | Compute redeemer index of `TxIn` in sorted input set |
-| [`computeScriptIntegrity`][s-computeScriptIntegrity] | Compute `ScriptIntegrityHash` for tx body |
-
--> [TxBuilder/Real/Internal.hs][f-txb-int]
-
-[s-posixMsToSlot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=posixMsToSlot&type=code
-[s-posixMsCeilSlot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=posixMsCeilSlot&type=code
-[s-findStateUtxo]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=findStateUtxo&type=code
-[s-findRequestUtxos]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=findRequestUtxos&type=code
-[s-extractCageDatum]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=extractCageDatum&type=code
-[s-mkRequestDatum]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRequestDatum&type=code
-[s-spendingIndex]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=spendingIndex+path%3AInternal&type=code
-[s-computeScriptIntegrity]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=computeScriptIntegrity&type=code
-[f-txb-int]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/TxBuilder/Real/Internal.hs
+[s-http-api]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.API%22&type=code
+[s-http-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types%22&type=code
+[s-http-facts]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types.Facts%22&type=code
+[s-http-enc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Encoding%22&type=code
+[s-http-server]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&type=code
+[s-http-scope]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.SubmitScope%22&type=code
+[s-http-swagger]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Swagger%22&type=code
 
 ---
 
 ## Chain Indexer
 
 Block-by-block processing of cage transactions with rollback support.
-All state changes in one block commit in a single RocksDB WriteBatch.
+One block = one RocksDB transaction — see
+[block processing](../docs/architecture/block-processing.md).
 
-### Event Detection
+| Module | Purpose |
+|--------|---------|
+| [`Indexer.Event`][s-idx-event] | `detectCageEvents` — classify cage-relevant txs into `CageEvent`; `CageInverseOp`; `/submit` scope predicates |
+| [`Indexer.Follower`][s-idx-follower] | `detectCageBlockEvents`, `applyCageBlockEvents`, `applyCageInverses` — generic over `Monad m` |
+| [`Indexer.CageFollower`][s-idx-cage] | `rollForward`/`rollBackward` via the chain-follower `Runner` (`processBlock`, `rollbackTo`); phase threading, armageddon reset |
+| [`Indexer.Backend`][s-idx-backend] | `composedInit` — composed UTxO + cage backend (restore/follow/applyInverse callbacks) |
+| [`Indexer.ComposedInv`][s-idx-inv] | `ComposedInv` — combined UTxO + cage inverse ops, one per rollback point |
+| [`Indexer.Reads`][s-idx-reads] | `IndexerTx` composable atomic reads: `readSnapshot`, `readUtxoWitness`, `readTrieFacts`, `readRequestUtxosAt`, … |
+| [`Indexer.Columns`][s-idx-columns] | `AllColumns` + `UnifiedColumns` GADTs — the 14-column DB schema |
+| [`Indexer.Codecs`][s-idx-codecs] | CBOR codecs for column key-value types |
+| [`Indexer.Persistent`][s-idx-persist] | `mkTransactionalState` (composable) + `mkPersistentState` (IO) |
 
-[`CageEvent`][s-CageEvent] classifies cage-relevant transactions:
-
-| Constructor | Signal |
-|-------------|--------|
-| `CageBoot` | Mint +1 under cage policy |
-| `CageRequest` | Output to cage address with `RequestDatum` |
-| `CageUpdate` | Cage input with `Modify` redeemer |
-| `CageRetract` | Cage input with `Retract` redeemer |
-| `CageBurn` | Mint -1 under cage policy |
-
-- **[`detectCageEvents`][s-detectCageEvents]**: Extract events from a transaction
-  -> [Indexer/Event.hs:L146-L154][f-idx-detect]
-- **[`inversesOf`][s-inversesOf]**: Compute [`CageInverseOp`][s-CageInverseOp] for rollback
-  -> [Indexer/Event.hs:L346-L380][f-idx-inverse]
-
-[s-CageEvent]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageEvent%22&type=code
-[s-detectCageEvents]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=detectCageEvents&type=code
-[s-inversesOf]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=inversesOf&type=code
-[s-CageInverseOp]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
-[f-idx-detect]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Event.hs#L146-L154
-[f-idx-inverse]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Event.hs#L346-L380
-
-### Block Processor (Follower)
-
-Processes each block: extract Conway txs, detect cage events, apply
-to state and trie, record inverse ops for rollback.
-
-- **[`processCageBlock`][s-processCageBlock]**: Process full block for cage events
-  -> [Indexer/Follower.hs:L86-L107][f-follower-block]
-- **[`applyCageEvent`][s-applyCageEvent]**: Apply single event to State + TrieManager
-  -> [Indexer/Follower.hs:L200-L253][f-follower-apply]
-- **[`applyCageInverses`][s-applyCageInverses]**: Replay inverse ops for rollback
-  -> [Indexer/Follower.hs:L310-L342][f-follower-inv]
-
-[s-processCageBlock]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=processCageBlock&type=code
-[s-applyCageEvent]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=applyCageEvent&type=code
-[s-applyCageInverses]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=applyCageInverses&type=code
-[f-follower-block]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Follower.hs#L86-L107
-[f-follower-apply]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Follower.hs#L200-L253
-[f-follower-inv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Follower.hs#L310-L342
-
-### Column Families
-
-[`AllColumns`][s-AllColumns] GADT — type-safe column family selectors for
-the shared RocksDB instance.
-
-| Column | Key | Value |
-|--------|-----|-------|
-| `CageTokens` | `TokenId` | `TokenState` |
-| `CageRequests` | `TxIn` | `Request` |
-| `CageCfg` | `()` | [`CageCheckpoint`][s-CageCheckpoint] |
-| `CageRollbacks` | `SlotNo` | `[CageInverseOp]` |
-| `TrieNodes` | prefixed bytes | trie node data |
-| `TrieKV` | prefixed bytes | key-value data |
-
--> [Indexer/Columns.hs:L49-L95][f-columns]
-
-[s-AllColumns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&type=code
-[s-CageCheckpoint]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageCheckpoint%22&type=code
-[f-columns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Columns.hs#L49-L95
-
-### Codecs
-
-CBOR serialization for all column key-value types. Uses
-`rocksdb-kv-transactions` `Prism` pattern.
-
-- **[`allCodecs`][s-allCodecs]**: `DMap` of codecs keyed by `AllColumns`
-  -> [Indexer/Codecs.hs:L93-L126][f-codecs]
-
-[s-allCodecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=allCodecs+path%3ACodecs&type=code
-[f-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Codecs.hs#L93-L126
-
-### Rollback
-
-Slot-based rollback by replaying stored inverse operations.
-
-- **[`storeRollback`][s-storeRollback]**: Persist inverse ops for a slot
-  -> [Indexer/Rollback.hs:L46-L56][f-rollback-store]
-- **[`rollbackToSlot`][s-rollbackToSlot]**: Replay inverses from current tip back to target slot
-  -> [Indexer/Rollback.hs:L80-L113][f-rollback-to]
-
-[s-storeRollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=storeRollback&type=code
-[s-rollbackToSlot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=rollbackToSlot&type=code
-[f-rollback-store]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Rollback.hs#L46-L56
-[f-rollback-to]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Rollback.hs#L80-L113
-
-### Persistent State
-
-RocksDB-backed `State IO` implementation.
-
-- **[`mkPersistentState`][s-mkPersistentState]**: Build State from RocksDB column families
-  -> [Indexer/Persistent.hs:L48-L56][f-persistent]
-
-[f-persistent]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Indexer/Persistent.hs#L48-L56
+[s-idx-event]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
+[s-idx-follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
+[s-idx-cage]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
+[s-idx-backend]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Backend%22&type=code
+[s-idx-inv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.ComposedInv%22&type=code
+[s-idx-reads]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Reads%22&type=code
+[s-idx-columns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
+[s-idx-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
+[s-idx-persist]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
 
 ---
 
 ## Trie Backends
 
-Three `TrieManager` implementations sharing the same interface.
+`TrieManager` implementations sharing the same interface.
 
-### Pure (in-memory)
+| Module | Purpose |
+|--------|---------|
+| [`Trie.Pure`][s-trie-pure] | In-memory trie backed by an `IORef`, for tests |
+| [`Trie.PureManager`][s-trie-pm] | `mkPureTrieManager` — in-memory manager keyed by `TokenId` |
+| [`Trie.Persistent`][s-trie-pers] | `mkUnifiedTrieManager` (transactional, composes into the block transaction) + `mkPersistentTrieManager` (IO, token-prefixed keys, speculative sessions) |
 
-`IORef MPFInMemoryDB` per token. Good for testing.
+[s-trie-pure]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Pure%22&type=code
+[s-trie-pm]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&type=code
+[s-trie-pers]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&type=code
 
-- **[`mkPureTrie`][s-mkPureTrie]**: New empty trie backed by fresh IORef
-  -> [Trie/Pure.hs:L51-L54][f-trie-pure]
-- **[`mkPureTrieManager`][s-mkPureTrieManager]**: Manager backed by `Map TokenId (IORef MPFInMemoryDB)`
-  -> [Trie/PureManager.hs:L39-L57][f-trie-pm]
+---
 
-[s-mkPureTrie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPureTrie&type=code
-[f-trie-pure]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Pure.hs#L51-L54
-[f-trie-pm]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/PureManager.hs#L39-L57
+## Node Integration
 
-### Persistent (RocksDB)
+Thin wrappers over
+[cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients),
+which owns the N2C connection, channels, and protocol state machines.
 
-Token-prefixed keys in shared column families. Supports speculative
-sessions via transactional snapshots.
+| Module | Purpose |
+|--------|---------|
+| [`Provider.NodeClient`][s-prv-nc] | `mkNodeClientProvider` — N2C LocalStateQuery for PParams, evaluation, slot conversion, eval context |
+| [`Submitter.N2C`][s-sub-n2c] | `mkN2CSubmitter` — N2C LocalTxSubmission |
 
-- **[`mkPersistentTrieManager`][s-mkPersistentTrieManager]**: Manager from DB + two column families (nodes, kv)
-  -> [Trie/Persistent.hs:L117-L162][f-trie-pers]
-- **[`mkPrefixedTrieDB`][s-mkPrefixedTrieDB]**: Prefixed `Database` with transparent key wrapping
-  -> [Trie/Persistent.hs:L365-L409][f-trie-prefixed]
-- **[`tokenPrefix`][s-tokenPrefix]**: Serialize `TokenId` to prefix bytes
-  -> [Trie/Persistent.hs:L206-L210][f-trie-prefix]
-
-[s-mkPrefixedTrieDB]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPrefixedTrieDB&type=code
-[s-tokenPrefix]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=tokenPrefix+path%3APersistent&type=code
-[f-trie-pers]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs#L117-L162
-[f-trie-prefixed]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs#L365-L409
-[f-trie-prefix]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Trie/Persistent.hs#L206-L210
+[s-prv-nc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&type=code
+[s-sub-n2c]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter.N2C%22&type=code
 
 ---
 
 ## Mock Implementations
 
-Test doubles for all interfaces. No IO side effects, no node
-connection required.
+Test doubles. No node connection required.
 
 | Module | Constructor | Behavior |
 |--------|-------------|----------|
-| [`Mock.Context`][f-mock-ctx] | [`mkMockContext`][s-mkMockContext] | Wires all mocks into `Context IO` |
-| [`Mock.State`][f-mock-st] | [`mkMockState`][s-mkMockState] | `IORef (Map k v)` per sub-record |
-| [`Mock.Provider`][f-mock-prv] | [`mkMockProvider`][s-mkMockProvider] | Returns empty UTxO sets |
-| [`Mock.Submitter`][f-mock-sub] | [`mkMockSubmitter`][s-mkMockSubmitter] | Rejects all transactions |
-| [`Mock.TxBuilder`][f-mock-txb] | [`mkMockTxBuilder`][s-mkMockTxBuilder] | Throws on all operations |
-| [`Mock.Indexer`][f-mock-idx] | [`mkMockIndexer`][s-mkMockIndexer] | No-op lifecycle |
-| [`Mock.Skeleton`][f-mock-skel] | [`mkSkeletonIndexer`][s-mkSkeletonIndexer] | IORef/MVar tracking, no chain sync |
+| [`Mock.Context`][s-mock-ctx] | `mkMockContext` | Wires all mocks into `Context IO` |
+| [`Mock.State`][s-mock-st] | `mkMockState` | `IORef (Map k v)` per sub-record |
+| [`Mock.Provider`][s-mock-prv] | `mkMockProvider` | Empty UTxO sets, empty evaluation |
+| [`Mock.Submitter`][s-mock-sub] | `mkMockSubmitter` | Rejects all transactions |
+| [`Mock.TxBuilder`][s-mock-txb] | `mkMockTxBuilder` | Throws on all operations |
 
-[s-mkMockContext]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockContext&type=code
-[f-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/Context.hs
-[f-mock-st]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/State.hs
-[f-mock-prv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/Provider.hs
-[f-mock-sub]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/Submitter.hs
-[f-mock-txb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/TxBuilder.hs
-[f-mock-idx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/Indexer.hs
-[f-mock-skel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Mock/Skeleton.hs
+[s-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code
+[s-mock-st]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code
+[s-mock-prv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Provider%22&type=code
+[s-mock-sub]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&type=code
+[s-mock-txb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code
 
 ---
 
 ## Application Wiring
 
-[`withApplication`][s-withApplication] creates the full `Context IO`:
+[`withApplication`][s-withApplication] creates the full `Context IO`
+with bracket lifecycle:
 
-1. Open RocksDB with all [column families][f-app-cfs]
-2. Create persistent State + TrieManager
-3. Seed from bootstrap file if fresh DB
-4. Open N2C connection (LSQ + LTxS channels)
-5. Wire Provider, Submitter, TxBuilder
-6. Bundle into `Context IO`
-7. Bracket: tear down on exit
+1. Read the Shelley genesis (network magic, stability window,
+   security parameter `k`)
+2. Open RocksDB over all 14 column families behind one unified
+   transaction runner
+3. Project cage and UTxO column subsets; check schema migration
+4. Build persistent State + TrieManager; seed genesis UTxOs on a
+   fresh DB
+5. Start the `CageFollower` on its own ChainSync N2C connection
+6. Wire Provider + Submitter on a second N2C connection (LSQ + LTxS)
+7. Bundle everything into `Context IO`; tear down on exit
 
--> [Application.hs:L123-L190][f-app]
+`AppConfig` fields: `epochSlots`, `shelleyGenesisPath`, `socketPath`,
+`dbPath`, `channelCapacity`, `cageConfig`, `byronGenesisPath`,
+`followerEnabled`, `appTracer`.
 
-| Config field | Purpose |
-|--------------|---------|
-| `networkMagic` | Mainnet / testnet identifier |
-| `socketPath` | cardano-node Unix socket |
-| `dbPath` | RocksDB directory |
-| `cageConfig` | Script bytes, time windows, slot params |
-| `bootstrapFile` | Optional CBOR file for fresh DB seeding |
-
--> [Application.hs:L76-L89][f-app-cfg]
+[`Trace`][s-trace] defines the structured `AppTrace` type and
+`jsonLinesTracer` for stderr JSON-lines logging.
 
 [s-withApplication]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=withApplication&type=code
-[f-app]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs#L123-L190
-[f-app-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs#L76-L89
-[f-app-cfs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/cardano-mpfs-offchain/lib/Cardano/MPFS/Application.hs#L107-L115
+[s-trace]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trace%22&type=code
+
+---
+
+## Executables
+
+Under `exe/`:
+
+| Executable | Source | Purpose |
+|------------|--------|---------|
+| `mpfs-serve` | `Serve.hs` | Production server: `--socket`, `--db`, `--port`, `--shelley-genesis`, `--blueprint`; optional `--byron-genesis`, `--epoch-slots`, `--mainnet` |
+| `mpfs-devnet-server` | `DevnetServer.hs` | Single-node devnet + MPFS API, for E2E and SPA testing |
+| `mpfs-run-preprod` | `RunPreprod.hs` | Minimal runner to smoke-test the follower against a preprod node |
+| `cardano-mpfs-swagger` | `swagger/Main.hs` | Print the OpenAPI spec (drives `just update-swagger`) |
+| `mpfs-inspect-db` | `InspectDb.hs` | Report per-column statistics of an MPFS RocksDB database |
+| `mpfs-tx-vectors` | `TxVectors.hs` | Generate CBOR transaction test vectors |

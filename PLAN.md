@@ -1,5 +1,12 @@
 # PLAN: Haskell MPFS Service
 
+> **Status: historical.** This is the original build-out plan; all of
+> its phases have shipped. Ongoing work is tracked per issue under
+> `specs/` and in [CHANGELOG.md](CHANGELOG.md). Some module names
+> below (e.g. `NodeClient.Connection`, `TxBuilder.Real.Boot`) refer
+> to the architecture as planned and have since been superseded — see
+> [docs/architecture/](docs/architecture/) for the current state.
+
 ## Goal
 
 Rewrite the MPFS (Merkle Patricia Forestry Service) in Haskell,
