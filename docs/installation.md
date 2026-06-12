@@ -6,9 +6,12 @@ Each [GitHub release](https://github.com/lambdasistemi/cardano-mpfs-offchain/rel
 ships self-contained `mpfs-cli` bundles for `x86_64-linux` and
 `aarch64-darwin`:
 
+The tarball unpacks `bin/`, `lib/`, and `libexec/` into the current
+directory:
+
 ```bash
-tar -xzf mpfs-cli-<version>-x86_64-linux.tar.gz
-./mpfs-cli-<version>/bin/mpfs-cli --help
+mkdir mpfs-cli && tar -xzf mpfs-cli-<version>-x86_64-linux.tar.gz -C mpfs-cli
+./mpfs-cli/bin/mpfs-cli --help
 ```
 
 The bundle carries its own libraries and loader, so no Nix or Haskell
