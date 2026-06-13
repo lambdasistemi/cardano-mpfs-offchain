@@ -50,14 +50,32 @@ Commit: `ci: cover shared mpfs verify wasm kernel`
 Owned files: `gate.sh`, `.github/workflows/ci.yml`, `justfile`,
 `specs/359-shared-ledger-wasm/tasks.md`
 
-- [ ] T009 Ensure the PR-local `gate.sh` and CI cover native verifier tests,
+- [X] T009 Ensure the PR-local `gate.sh` and CI cover native verifier tests,
       `wasm-mpfs-verify`, `mpfs-spa`, and repository CI.
-- [ ] T010 Run `nix build --quiet .#mpfs-spa` and verify it consumes the real
+- [X] T010 Run `nix build --quiet .#mpfs-spa` and verify it consumes the real
       `mpfs-cage-reactor.wasm` from `wasm-mpfs-verify`.
 - [ ] T011 Run `nix develop --quiet -c just e2e-spa` for the Playwright
       reactor smoke, or record an environmental live-boundary blocker with
       exact failure output.
-- [ ] T012 Run `./gate.sh` at HEAD and capture `GATE-PASS` before
+      BLOCKED 2026-06-13: `nix develop --quiet -c just e2e-spa` exited 1
+      after serving `/mpfs-cage-reactor.OCJUB4BI.wasm` with HTTP 200. Exact
+      failures:
+      - `expect(locator).toBeVisible() failed`; locator
+        `getByRole('heading', { name: 'Facts' })`; expected visible; timeout
+        15000ms; page showed `An error occurred while decoding a JSON value:
+        Expected value of type 'Array'.`
+      - `TypeError: Cannot read properties of null (reading 'slice')` at
+        `mpfs-spa/tests/devnet.spec.mjs:152:53` for `tokenId.slice(0, 12)`
+        after a submitted transaction.
+      Artifacts:
+      `mpfs-spa/test-results/devnet-separates-facts-and-99277-ts-with-owner-gated-actions-firefox/`
+      and
+      `mpfs-spa/test-results/devnet-runs-the-full-token-ce298-from-the-polished-workbench-firefox/`.
+      Devnet log:
+      `/tmp/nix-shell.c8P3Fd/mpfs-spa-devnet.32284.10218/mpfs-devnet-server.log`
+      (`Starting devnet server on port 34263`; `Serving on
+      http://localhost:34263`; `Swagger UI: http://localhost:34263/swagger-ui`).
+- [X] T012 Run `./gate.sh` at HEAD and capture `GATE-PASS` before
       finalization.
 
 ## Finalization
