@@ -12,17 +12,17 @@ done by amending the reviewed slice commit.
 Commit: `build: pin shared cardano-ledger-wasm kernel`
 Owned files: `cabal.project`, `flake.nix`, `flake.lock`
 
-- [ ] T001 Add `source-repository-package` for
+- [X] T001 Add `source-repository-package` for
       `lambdasistemi/cardano-ledger-wasm` tag
       `845877fde0907b58b150a2c8302033b4e73e9061` with nix32 hash
       `1gamv01par1zgj6wr1lldk51fpad1jw4pwf5jyfvi18x01jnvplx` in
       `cabal.project`.
-- [ ] T002 Align `cabal.project` CHaP index-state and `flake.lock` CHaP input
+- [X] T002 Align `cabal.project` CHaP index-state and `flake.lock` CHaP input
       to `cardano-ledger-wasm` v0.1.1 (`2026-04-15T11:20:53Z`,
       `00c90c10812a98ef9680f4bfa269d42366d46d89`).
-- [ ] T003 Add the pinned `cardano-ledger-wasm` flake input in `flake.nix`
+- [X] T003 Add the pinned `cardano-ledger-wasm` flake input in `flake.nix`
       and update `flake.lock`.
-- [ ] T004 Prove the native verifier still resolves with
+- [X] T004 Prove the native verifier still resolves with
       `nix develop --quiet -c just unit-client "Verify"`.
 
 ## Slice S2 — Replace Local WASM Builder with Shared Builder

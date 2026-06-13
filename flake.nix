@@ -29,6 +29,10 @@
       url =
         "github:cardano-foundation/cardano-mpfs-onchain/d352d25dbe821cd518e8d51d5cc069b015a56533";
     };
+    cardano-ledger-wasm = {
+      url =
+        "github:lambdasistemi/cardano-ledger-wasm/845877fde0907b58b150a2c8302033b4e73e9061";
+    };
     ghc-wasm-meta.url =
       "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
     purescript-overlay = {
