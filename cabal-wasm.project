@@ -1,11 +1,7 @@
--- WASM (wasm32-wasi) / GHC-JS build configuration for the pure MPFS
--- verifier and cage transaction builders. Self-contained: only
--- cardano-mpfs-verify, cardano-mpfs-cage-tx, and cardano-mpfs-api are in
--- the package set, so the solver never touches cardano-mpfs-client's
--- IO main library (http-client, servant-client, cardano-node-clients,
--- rocksdb). Fork overrides + index-state mirror nix/wasm/forks.json; the
--- source-repository-package stanzas below are pre-fetched and rewritten to
--- local store paths by mkCardanoLedgerWasm (srpForks).
+-- MPFS-specific WASM (wasm32-wasi) project content for the pure verifier
+-- and cage transaction builders. nix/wasm-targets.nix combines this file
+-- with cardano-ledger-wasm.lib.wasm.cabalWasmProjectFragment and injects
+-- MPFS-specific fetched package paths before calling the shared builder.
 
 repository cardano-haskell-packages
   url: https://chap.intersectmbo.org/
@@ -23,120 +19,23 @@ active-repositories:
   , cardano-haskell-packages:override
 
 allow-newer: *:template-haskell, *:base, *:deepseq, *:ghc-prim, *:time, *:text
--- The wasm GHC ships containers 0.7; mts caps it <0.7 (mirrors the same
--- allow-newer in cabal.project for the native build).
+-- The wasm GHC ships containers 0.7; mts caps it <0.7.
 allow-newer: mts:containers
 
--- hackage pinned to the truncated index's latest entry (the FOD builds
--- the index at forks.json indexState 2026-04-15, whose newest revision is
--- 2026-04-14T23:46:27Z); requesting a later instant trips Cabal-7159.
 index-state:
-  , hackage.haskell.org 2026-04-14T23:46:27Z
-  , cardano-haskell-packages 2026-05-25T13:25:40Z
+  , hackage.haskell.org 2026-04-14T00:00:00Z
+  , cardano-haskell-packages 2026-04-15T11:20:53Z
 
 packages:
   cardano-mpfs-verify/
   cardano-mpfs-cage-tx/
   cardano-mpfs-api/
 
--- Package flags mirrored from nix/wasm/forks.json.
-package cardano-crypto-praos
-  flags: -external-libsodium-vrf
-
-package crypton
-  ghc-options: -optc-DARGON2_NO_THREADS
-
-package atomic-counter
-  flags: +no-cmm
-
-package digest
-  flags: -pkg-config
-
-package plutus-core
-  flags: +do-not-build-plutus-exec
-
 package cardano-tx-tools
   flags: -build-node-tools
 
 package mts
   flags: +wasm
-
--- SRP entries pre-fetched and rewritten by mkCardanoLedgerWasm at build time
--- via srpForks. Listed here so the solver's first pass has the versions.
-source-repository-package
-  type: git
-  location: https://github.com/amesgen/cborg
-  tag: 2dff24d241d9940c5a7f5e817fcf4c1aa4a8d4bf
-  subdir: cborg
-
-source-repository-package
-  type: git
-  location: https://github.com/intersectmbo/plutus.git
-  tag: d1684df33d1b7226dfa5f2247aa67a46c2d5453b
-  subdir:
-    plutus-core
-    plutus-ledger-api
-    plutus-tx
-
-source-repository-package
-  type: git
-  location: https://github.com/haskell-wasm/hs-memory.git
-  tag: a198a76c584dc2cfdcde6b431968de92a5fed65e
-
-source-repository-package
-  type: git
-  location: https://github.com/Jimbo4350/foundation.git
-  tag: b3cb78484fe6f6ce1dfcef59e72ceccc530e86ac
-  subdir:
-    basement
-    foundation
-
-source-repository-package
-  type: git
-  location: https://github.com/haskell-wasm/network
-  tag: ab92e48e9fdf3abe214f85fdbe5301c1280e14e9
-
-source-repository-package
-  type: git
-  location: https://github.com/palas/double-conversion.git
-  tag: b2030245727ee56de76507fe305e3741f6ce3260
-
-source-repository-package
-  type: git
-  location: https://github.com/palas/criterion.git
-  tag: dd160d2b5f051e918e72fe1957d77905682b8d6c
-  subdir: criterion-measurement
-
-source-repository-package
-  type: git
-  location: https://github.com/palas/haskell-lmdb-mock.git
-  tag: c8d61e6eee03ee271e7768c0576110da885aec48
-
-source-repository-package
-  type: git
-  location: https://github.com/cardano-foundation/cardano-mpfs-onchain
-  tag: 5c482af9289c6cbefe1062d04b828f3260d248ee
-  subdir: haskell
-
-source-repository-package
-  type: git
-  location: https://github.com/lambdasistemi/haskell-mts
-  tag: 2893775286801e91afe10e14775507a36e97e169
-
-source-repository-package
-  type: git
-  location: https://github.com/paolino/rocksdb-kv-transactions
-  tag: 0888387a5de81711273ea9b1e9d160decc33c231
-
-source-repository-package
-  type: git
-  location: https://github.com/paolino/aiken-codegen
-  tag: 74f364c10e930ce2bf47e64b755ede4424733325
-
-source-repository-package
-  type: git
-  location: https://github.com/lambdasistemi/cardano-tx-tools
-  tag: 631f1341fde6e4a11e94b058cf5f2925ffeb9eac
 
 tests: False
 benchmarks: False
