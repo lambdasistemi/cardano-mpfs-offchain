@@ -34,14 +34,14 @@ Owned files: `flake.nix`, `nix/wasm-targets.nix`, `cabal-wasm.project`,
 `nix/wasm/c-libs/default.nix`, `nix/wasm/c-libs/libsodium.nix`,
 `nix/wasm/c-libs/secp256k1.nix`, `nix/wasm/c-libs/blst.nix`
 
-- [ ] T005 Rewire `nix/wasm-targets.nix` so `wasm-mpfs-verify` calls
+- [X] T005 Rewire `nix/wasm-targets.nix` so `wasm-mpfs-verify` calls
       `cardano-ledger-wasm.lib.wasm.mkCardanoLedgerWasm`.
-- [ ] T006 Keep only MPFS-specific wasm project/SRP content locally; inherit
+- [X] T006 Keep only MPFS-specific wasm project/SRP content locally; inherit
       ledger-kernel forks, flags, and C library wiring from
       `cardano-ledger-wasm`.
-- [ ] T007 Delete duplicated local ledger wasm builder and fork source files
+- [X] T007 Delete duplicated local ledger wasm builder and fork source files
       that are no longer imported by this repo.
-- [ ] T008 Prove the independent Plutus repin is gone with repository search
+- [X] T008 Prove the independent Plutus repin is gone with repository search
       and build `nix build --quiet .#wasm-mpfs-verify`.
 
 ## Slice S3 — Verification, SPA Smoke, and CI Coverage

@@ -47,7 +47,8 @@
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
     , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
-    , ghc-wasm-meta, purescript-overlay, mkSpagoDerivation, ... }:
+    , cardano-ledger-wasm, ghc-wasm-meta, purescript-overlay
+    , mkSpagoDerivation, ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -80,7 +81,7 @@
             };
             wasmTargets = import ./nix/wasm-targets.nix {
               inherit pkgs;
-              libWasm = import ./nix/wasm { lib = pkgs.lib; };
+              libWasm = cardano-ledger-wasm.lib.wasm;
               ghcWasmMeta = ghc-wasm-meta.packages.${system}.all_9_12;
               wasiSdk = ghc-wasm-meta.packages.${system}.wasi-sdk;
               chap = CHaP;
