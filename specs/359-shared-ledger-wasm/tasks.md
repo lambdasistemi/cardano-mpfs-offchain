@@ -54,7 +54,7 @@ Owned files: `gate.sh`, `.github/workflows/ci.yml`, `justfile`,
       `wasm-mpfs-verify`, `mpfs-spa`, and repository CI.
 - [X] T010 Run `nix build --quiet .#mpfs-spa` and verify it consumes the real
       `mpfs-cage-reactor.wasm` from `wasm-mpfs-verify`.
-- [ ] T011 Run `nix develop --quiet -c just e2e-spa` for the Playwright
+- [X] T011 Run `nix develop --quiet -c just e2e-spa` for the Playwright
       reactor smoke, or record an environmental live-boundary blocker with
       exact failure output.
       BLOCKED 2026-06-13: `nix develop --quiet -c just e2e-spa` exited 1
@@ -80,8 +80,8 @@ Owned files: `gate.sh`, `.github/workflows/ci.yml`, `justfile`,
 
 ## Finalization
 
-- [ ] T013 Update PR #360 body with delivered behavior and verification.
-- [ ] T014 Drop `gate.sh` in `chore: drop gate.sh (ready for review)`.
+- [X] T013 Update PR #360 body with delivered behavior and verification.
+- [X] T014 Drop `gate.sh` in `chore: drop gate.sh (ready for review)`.
 - [ ] T015 Mark PR #360 ready after local gate and GitHub CI are green.
 
 ## Dependencies & Execution Order
