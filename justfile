@@ -70,7 +70,7 @@ unit-cli match="":
 
 # Non-Docker CI gate (mirrors .github/workflows/ci.yml)
 ci:
-    nix build --quiet .#cardano-mpfs-offchain .#checks.x86_64-linux.swagger-up-to-date
+    nix build --quiet .#cardano-mpfs-offchain .#wasm-mpfs-verify .#mpfs-spa .#checks.x86_64-linux.swagger-up-to-date
     just unit
     just unit-client
     just unit-workflows
