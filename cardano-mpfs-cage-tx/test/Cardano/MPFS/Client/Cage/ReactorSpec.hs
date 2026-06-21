@@ -187,6 +187,7 @@ fixedEnvelopes =
     , requestInsertEnvelope
     , requestUpdateEnvelope
     , requestDeleteEnvelope
+    , updateEnvelope
     , retractEnvelope
     , rejectEnvelope
     , decodeRequestEnvelope
@@ -266,6 +267,17 @@ requestDeleteEnvelope =
     encodeStrict
         $ object
             [ "op" .= ("request_delete" :: Text)
+            , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
+            , "cage_config" .= cageConfigValue
+            , "wallet_policy" .= object []
+            , "facts" .= object []
+            ]
+
+updateEnvelope :: ByteString
+updateEnvelope =
+    encodeStrict
+        $ object
+            [ "op" .= ("update" :: Text)
             , "trusted_root" .= hexText (BSC.replicate 32 '\NUL')
             , "cage_config" .= cageConfigValue
             , "wallet_policy" .= object []
