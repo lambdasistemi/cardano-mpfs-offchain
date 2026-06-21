@@ -107,22 +107,27 @@ graph TD
     TM["TrieManager<br/>(per-token MPF tries)"]
     ST["State<br/>(tokens, requests, checkpoints)"]
     READS["Indexer Reads<br/>(atomic proof queries)"]
-    IDX["Indexer<br/>(ChainSync)"]
+    IDX["CageFollower<br/>(ChainSync indexer)"]
     SUB["Submitter<br/>(N2C LocalTxSubmission)"]
     TXB["TxBuilder<br/>(internal proof envelopes<br/>/tx/sweep + legacy native paths)"]
     NODE["Cardano Node<br/>(Unix socket)"]
 
     APP --> CTX
+    APP --> IDX
     CTX --> PRV
     CTX --> TM
     CTX --> ST
     CTX --> READS
-    CTX --> IDX
     CTX --> SUB
     CTX --> TXB
     PRV --> NODE
     SUB --> NODE
+    IDX --> NODE
 ```
+
+The `CageFollower` is not a `Context` field: `Application` drives it on
+its own ChainSync connection, and `Context` observes its output through
+the atomic `runIndexerTx` read primitives and the proof-readiness flag.
 
 ## Application Wiring
 
@@ -238,7 +243,6 @@ modules live under `Cardano.MPFS`.
 | [`State`][s-state] | `Tokens`, `Requests`, `Checkpoints` sub-records |
 | [`Trie`][s-trie] | `TrieManager` — per-token MPF trie access |
 | [`TxBuilder`][s-txbuilder] | internal proof-envelope builders and `/tx/sweep`; browser-facing script-bearing transactions are built client-side from facts |
-| [`Indexer`][s-indexer] | Chain follower lifecycle (`start`, `stop`, `getTip`) |
 | [`Submitter`][s-submitter] | `submitTx :: Tx ConwayEra -> m SubmitResult` |
 | [`Application`][s-application] | `withApplication` — wiring and lifecycle |
 
@@ -247,7 +251,6 @@ modules live under `Cardano.MPFS`.
 [s-state]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.State%22&type=code
 [s-trie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie%22+path%3Alib%2FCardano%2FMPFS%2FTrie.hs&type=code
 [s-txbuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder%22+path%3Alib%2FCardano%2FMPFS%2FTxBuilder.hs&type=code
-[s-indexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&type=code
 [s-submitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&type=code
 [s-application]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Application%22&type=code
 
@@ -280,13 +283,15 @@ The shared API and DTO definitions live in `cardano-mpfs-api`:
 
 | Module | Purpose |
 |--------|---------|
-| [`Indexer.CageFollower`][s-idx-cage] | Unified `rollForward`/`rollBackward` — [one block = one transaction](block-processing.md) |
+| [`Indexer.CageFollower`][s-idx-cage] | chain-follower `Runner` integration: `processBlock`/`rollbackTo` — [one block = one transaction](block-processing.md) |
+| [`Indexer.Backend`][s-idx-backend] | `composedInit` — composed UTxO + cage backend (restore/follow/applyInverse callbacks) |
 | [`Indexer.Event`][s-idx-event] | [`detectCageEvents`][s-detect] — cage tx classification |
-| [`Indexer.Follower`][s-idx-follower] | `detectCageBlockEvents`, `applyCageBlockEvents` — generic over `Monad m` |
+| [`Indexer.Follower`][s-idx-follower] | `detectCageBlockEvents`, `applyCageBlockEvents`, `applyCageInverses` — generic over `Monad m` |
+| [`Indexer.ComposedInv`][s-idx-inv] | `ComposedInv` — combined UTxO + cage inverse ops stored per rollback point |
+| [`Indexer.Reads`][s-idx-reads] | `IndexerTx` composable read primitives (`readSnapshot`, `readUtxoWitness`, `readTrieFacts`, …) |
 | [`Indexer.Persistent`][s-idx-persist] | `mkTransactionalState` (composable) + `mkPersistentState` (IO) |
 | [`Indexer.Columns`][s-idx-columns] | [`AllColumns`][s-allcolumns] + [`UnifiedColumns`][s-unifiedcols] GADTs — full DB schema |
 | [`Indexer.Codecs`][s-idx-codecs] | CBOR serialization for column key-value types |
-| [`Indexer.Rollback`][s-idx-rollback] | `storeRollbackT`, `rollbackToSlotT` — transactional rollback |
 
 [s-idx-cage]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&type=code
 [s-idx-event]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
@@ -297,8 +302,9 @@ The shared API and DTO definitions live in `cardano-mpfs-api`:
 [s-allcolumns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&type=code
 [s-unifiedcols]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+UnifiedColumns%22&type=code
 [s-idx-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
-[s-idx-rollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
-[s-inverseop]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+CageInverseOp%22&type=code
+[s-idx-backend]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Backend%22&type=code
+[s-idx-inv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.ComposedInv%22&type=code
+[s-idx-reads]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Reads%22&type=code
 
 ### Node integration — thin wrappers over [cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients)
 
@@ -315,11 +321,12 @@ The shared API and DTO definitions live in `cardano-mpfs-api`:
 | Module | Purpose |
 |--------|---------|
 | [`TxBuilder.Config`][s-txb-cfg] | `CageConfig` loading |
-| [`TxBuilder.Real`][s-txb-real] | [`mkRealTxBuilder`][s-mkrealtxb] entry point |
-| [`TxBuilder.Real.Boot`][s-txb-boot] | Mint cage token |
-| [`TxBuilder.Real.Request`][s-txb-req] | Submit insert/delete request |
+| [`TxBuilder.Real`][s-txb-real] | [`mkRealTxBuilder`][s-mkrealtxb] entry point; `bootToken` errors — boot moved to `POST /facts/boot` plus client-side construction |
+| [`TxBuilder.Real.Request`][s-txb-req] | Submit insert/delete/update request |
 | [`TxBuilder.Real.Update`][s-txb-upd] | Consume requests, update root |
 | [`TxBuilder.Real.Retract`][s-txb-ret] | Cancel pending request |
+| [`TxBuilder.Real.Reject`][s-txb-rej] | Owner rejection of expired requests |
+| [`TxBuilder.Real.Sweep`][s-txb-sweep] | Owner-only sweep of non-legitimate request UTxOs (`POST /tx/sweep`) |
 | [`TxBuilder.Real.End`][s-txb-end] | Burn cage token |
 | [`TxBuilder.Real.Internal`][s-txb-int] | Shared helpers, POSIX-to-slot conversion |
 
@@ -344,7 +351,8 @@ UTxO state. The public browser path uses facts endpoints plus the
 [s-txb-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&type=code
 [s-txb-real]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code
 [s-mkrealtxb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&type=code
-[s-txb-boot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Boot%22&type=code
+[s-txb-rej]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Reject%22&type=code
+[s-txb-sweep]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Sweep%22&type=code
 [s-txb-req]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Request%22&type=code
 [s-txb-upd]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Update%22&type=code
 [s-txb-ret]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Retract%22&type=code
@@ -369,7 +377,7 @@ UTxO state. The public browser path uses facts endpoints plus the
 | [`Mock.Context`][s-mock-ctx] | [`withMockContext`][s-withmock] — full mock wiring |
 | [`Mock.Provider`][s-mock-prv] | In-memory UTxO store |
 | [`Mock.State`][s-mock-st] | [`mkMockState`][s-mkmockst] — `IORef`-backed state |
-| [`Mock.Submitter`][s-mock-sub] | Always-succeeds submitter |
+| [`Mock.Submitter`][s-mock-sub] | Rejects all transactions ("not connected") |
 | [`Mock.TxBuilder`][s-mock-txb] | [`mkMockTxBuilder`][s-mkmocktxb] — placeholder builder |
 
 [s-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code

@@ -5,25 +5,40 @@ Off-chain service for
 --- indexing, proof-bearing facts, and HTTP API for Cardano Merkle
 Patricia Forestry.
 
-Connects to a Cardano node via N2C, indexes cage UTxOs into RocksDB,
-and exposes a trust-minimized REST API. The server is a fact provider:
-it serves indexed snapshots, UTxOs with CSMT proofs, MPF facts, request
-sets, and ledger evaluation metadata. Clients verify those facts, build
-transactions locally, sign with their wallet, and submit signed CBOR via
-`POST /submit`.
+## What is this
+
+The server connects to a Cardano node via node-to-client (N2C),
+indexes cage UTxOs into RocksDB, and exposes a trust-minimized REST
+API. It is a fact provider: it serves indexed snapshots, UTxOs with
+CSMT proofs, MPF facts, request sets, and ledger evaluation metadata.
+Clients verify those facts, build transactions locally, sign with
+their wallet, and submit signed CBOR via `POST /submit` --- the server
+never returns unsigned transactions for script-bearing operations.
 
 The browser SPA is available at <https://umpfs.plutimus.com/spa/>. It
 uses HTTP plus CIP-30 only; protocol logic runs inside the pure Haskell
 wasm cage reactor, not in ad hoc browser code.
 
-## Dependencies
+The #62 bounded-refund validator cutover uses cage script hash
+`ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. The old
+`c0f05a30...` exact-refund hash is legacy. The SPA and server both take
+validator identity from the pinned `cardano-mpfs-onchain` blueprint so
+the browser reactor and offchain indexer agree on state and per-cage
+request validator addresses.
+
+## Architecture
+
+The repository hosts seven Haskell packages plus the PureScript SPA:
 
 ```mermaid
 graph TD
-    OFFCHAIN["cardano-mpfs-offchain"]
+    OFFCHAIN["cardano-mpfs-offchain<br/><i>server: indexer + fact API</i>"]
     API["cardano-mpfs-api<br/><i>wire types</i>"]
     VERIFY["cardano-mpfs-verify<br/><i>proof verifiers</i>"]
     CAGETX["cardano-mpfs-cage-tx<br/><i>client builders</i>"]
+    CLIENT["cardano-mpfs-client<br/><i>native HTTP client</i>"]
+    WORKFLOWS["cardano-mpfs-workflows<br/><i>workflow helpers</i>"]
+    CLI["cardano-mpfs-cli<br/><i>mpfs-cli executable</i>"]
     ONCHAIN["cardano-mpfs-onchain/haskell<br/><i>cage library</i>"]
     CLIENTS["cardano-node-clients"]
     MTS["haskell-mts"]
@@ -34,6 +49,12 @@ graph TD
     OFFCHAIN -->|"Servant API<br/>JSON DTOs"| API
     VERIFY -->|"wire DTOs"| API
     CAGETX -->|"verifies facts first"| VERIFY
+    CLIENT -->|"HTTP wrappers"| API
+    CLIENT -->|"re-exports verifiers"| VERIFY
+    CLIENT -->|"local cage builders"| CAGETX
+    WORKFLOWS -->|"read + write flows"| CLIENT
+    CLI -->|"owner/requester<br/>workflows"| WORKFLOWS
+    CLI --> CLIENT
     OFFCHAIN -->|"on-chain types<br/>proof serialization<br/>blueprint loading"| ONCHAIN
     CAGETX -->|"on-chain types<br/>scripts"| ONCHAIN
     OFFCHAIN -->|"N2C provider<br/>LocalTxSubmission<br/>eval context"| CLIENTS
@@ -89,7 +110,58 @@ graph TD
   `GET /eval-context` metadata and return local unsigned transactions
   for wallet signing.
 
-## HTTP API
+- **`cardano-mpfs-client`** ---
+  native HTTP client wrappers re-exporting the verifier surface, plus
+  the `mpfs-verify` snapshot-checking executable.
+
+- **`cardano-mpfs-workflows`** ---
+  higher-level verified read/write workflows over the client surface,
+  used by the CLI.
+
+See [docs/architecture](https://lambdasistemi.github.io/cardano-mpfs-offchain/architecture/overview/)
+for the server-internal architecture.
+
+## Install
+
+- **Release tarballs** --- each
+  [GitHub release](https://github.com/lambdasistemi/cardano-mpfs-offchain/releases)
+  ships self-contained `mpfs-cli` bundles for `x86_64-linux` and
+  `aarch64-darwin` (`mpfs-cli-<version>-<platform>.tar.gz`; unpack and
+  run `bin/mpfs-cli`).
+- **Nix** --- the flake exposes the server and tools as packages:
+
+  ```bash
+  nix build .#mpfs-serve   # production server
+  nix build .#mpfs-cli     # command-line client
+  ```
+
+- **Docker** --- `just build-docker` builds the server image via Nix
+  and loads it into the local Docker daemon as
+  `ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve`.
+
+## Quickstart
+
+Query the live preprod deployment:
+
+```bash
+curl -s https://umpfs.plutimus.com/status
+```
+
+Or run everything locally --- a single-node devnet with the MPFS API
+on port 3000, then the CLI against it:
+
+```bash
+nix run .#mpfs-devnet-server -- --port 3000
+nix run .#mpfs-cli -- --help
+```
+
+The [CLI walkthrough](https://lambdasistemi.github.io/cardano-mpfs-offchain/cli/walkthrough/)
+drives the full token lifecycle (register, insert, process, get,
+delete, end) against the devnet server.
+
+## Usage
+
+### HTTP API
 
 Servant REST API wrapping the internal `Context` record-of-functions.
 The public model is facts-first: script-bearing write endpoints return
@@ -114,6 +186,7 @@ path.
 | GET | `/utxo/:txId/:txIx` | Resolve an indexed UTxO |
 | GET | `/utxo/:txId/:txIx/proof` | UTxO CSMT inclusion proof |
 | GET | `/tx/:txId?timeout=30` | Block until tx is indexed |
+| GET | `/metrics`, `/metrics/prometheus` | Server metrics (JSON / Prometheus exposition) |
 | POST | `/facts/boot` | Return boot facts for wallet-side transaction construction |
 | POST | `/facts/request/insert` | Return insert-request facts for wallet-side transaction construction |
 | POST | `/facts/request/delete` | Return delete-request facts for wallet-side transaction construction |
@@ -133,7 +206,22 @@ changing the batch.
 
 Swagger UI is served at `/swagger-ui`.
 
-## Verification client
+### CLI
+
+`mpfs-cli` drives the full owner/requester lifecycle against a server,
+signing locally with a Bech32 ed25519 key. Configuration comes from
+`MPFS_SERVER`, `MPFS_SIGNER_WALLET`, and `MPFS_BLUEPRINT` (or the
+corresponding `--server`, `--owner-key`, `--cage-config` flags):
+
+- owner: `register-token`, `token process`, `fact reject`, `token end`
+- requester: `fact insert`, `fact update`, `fact delete`, `fact retract`
+- verified reads: `token list`, `token get`, `fact list`, `fact get`,
+  `requests list`
+
+See the [CLI manual](https://lambdasistemi.github.io/cardano-mpfs-offchain/cli/)
+for flags, defaults, and troubleshooting.
+
+### Verification client
 
 The `cardano-mpfs-verify` package is the pure verifier. It is carved out
 from `cardano-mpfs-client` so the verification closure is free of IO,
@@ -164,26 +252,31 @@ envelopes on stdin and return deterministic one-line verdicts:
 `mpfs-verify-reactor` verifies envelopes and `mpfs-cage-reactor` verifies
 facts before building cage transactions.
 
-## Current validator identity
+## Documentation
 
-The #62 bounded-refund validator cutover uses cage script hash
-`ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. The old
-`c0f05a30...` exact-refund hash is legacy. The SPA and server both take
-validator identity from the pinned `cardano-mpfs-onchain` blueprint so
-the browser reactor and offchain indexer agree on state and per-cage
-request validator addresses.
+The full manual lives at
+<https://lambdasistemi.github.io/cardano-mpfs-offchain/> (CLI manual,
+architecture, API reference).
 
-## Building
+For AI agents, start at [AGENTS.md](AGENTS.md).
+
+## Development
 
 ```bash
 nix develop
-just build
+just build           # cabal build all components
 just unit            # unit tests via nix run .#unit-tests
-just unit-offchain   # same unit-test flake app
+just unit-client     # client unit tests
+just unit-workflows  # workflows unit tests
+just unit-cli        # CLI unit tests
 just e2e             # E2E tests via nix run .#e2e-tests
+just format          # fourmolu
+just hlint           # lint
+just ci              # full local CI mirror
 just update-swagger  # regenerate docs/assets/swagger.json
+just docs            # serve the mkdocs site locally
 ```
 
-## Documentation
+## License
 
-https://lambdasistemi.github.io/cardano-mpfs-offchain/
+[Apache-2.0](LICENSE)

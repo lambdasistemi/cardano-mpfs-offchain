@@ -47,19 +47,17 @@ No typeclasses -- dependencies are explicit values.
 
 | Module | Description |
 |--------|-------------|
-| [`Provider`][s-provider] | `queryUTxOs`, `queryProtocolParams`, `evaluateTx` |
+| [`Provider`][s-provider] | `queryProtocolParams`, `evaluateTx`, slot conversion; `queryUTxOs` exists but is forbidden on tx-build paths |
 | [`Submitter`][s-submitter] | `submitTx :: Tx ConwayEra -> m SubmitResult` |
-| [`TxBuilder`][s-txbuilder] | Cage protocol operations: boot, request, update, retract, end |
+| [`TxBuilder`][s-txbuilder] | Proof-envelope builders: request, update, retract, reject, end, sweep (`bootToken` errors — boot is client-side) |
 | [`State`][s-state] | `Tokens`, `Requests`, `Checkpoints` sub-records for indexed state |
-| [`Indexer`][s-indexer] | Chain follower lifecycle: `start`, `stop`, `pause`, `resume`, `getTip` |
-| [`Trie`][s-trie] | `TrieManager` -- per-token MPF trie access (`withTrie`, `createTrie`, `deleteTrie`) |
-| [`Context`][s-context] | Facade bundling all singletons + `utxoExists` into one record |
+| [`Trie`][s-trie] | `TrieManager` -- per-token MPF trie access (`withTrie`, `withSpeculativeTrie`, `createTrie`, `deleteTrie`, `hideTrie`/`unhideTrie`) |
+| [`Context`][s-context] | Facade bundling all singletons plus indexed-read primitives (`utxoExists`, `resolveUtxo`, `awaitUtxo`, `utxoRoot`, `utxoProof`, `runIndexerTx`, `evalContext`, `readMetrics`) |
 
 [s-provider]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider%22+path%3Alib%2FCardano%2FMPFS%2FProvider.hs&type=code
 [s-submitter]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&type=code
 [s-txbuilder]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder%22+path%3Alib%2FCardano%2FMPFS%2FTxBuilder.hs&type=code
 [s-state]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.State%22&type=code
-[s-indexer]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&type=code
 [s-trie]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie%22+path%3Alib%2FCardano%2FMPFS%2FTrie.hs&type=code
 [s-context]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Context%22&type=code
 
@@ -76,9 +74,13 @@ a `Context IO` into a WAI `Application`.
 | [`HTTP.Types`][s-http-types] | JSON wire types: `StatusResponse`, `TokenIdJSON`, `RequestJSON`, request bodies |
 | [`HTTP.Encoding`][s-http-enc] | `Hex` newtype for binary-as-hex JSON transport |
 | [`HTTP.Server`][s-http-server] | WAI application wiring, `mkApp`, all Servant handlers |
+| [`HTTP.SubmitScope`][s-http-scope] | `txTouchesMpfs` -- the `POST /submit` MPFS-scope gate |
+| [`HTTP.Types.Facts`][s-http-facts] | Server-side helpers for facts response types |
 | [`HTTP.Swagger`][s-http-swagger] | OpenAPI spec generation, `swaggerDoc`, Swagger UI serving |
 
 [s-http-api]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.API%22&type=code
+[s-http-scope]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.SubmitScope%22&type=code
+[s-http-facts]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types.Facts%22&type=code
 [s-http-types]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types%22&type=code
 [s-http-enc]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Encoding%22&type=code
 [s-http-server]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&type=code
@@ -94,13 +96,15 @@ WriteBatch.
 
 | Module | Description |
 |--------|-------------|
-| [`Indexer.Event`][s-idx-event] | `detectCageEvents` -- classify cage-relevant transactions into `CageEvent` |
-| [`Indexer.Follower`][s-idx-follower] | `processCageBlock`, `applyCageEvent`, `applyCageInverses` -- generic over `Monad m` |
-| [`Indexer.CageFollower`][s-idx-cage] | Unified `rollForward`/`rollBackward` -- one block = one RocksDB transaction |
+| [`Indexer.Event`][s-idx-event] | `detectCageEvents` -- classify cage-relevant transactions into `CageEvent`; scope predicates for the `/submit` gate |
+| [`Indexer.Follower`][s-idx-follower] | `detectCageBlockEvents`, `applyCageBlockEvents`, `applyCageInverses` -- generic over `Monad m` |
+| [`Indexer.CageFollower`][s-idx-cage] | `rollForward`/`rollBackward` via the chain-follower `Runner` -- one block = one RocksDB transaction |
+| [`Indexer.Backend`][s-idx-backend] | `composedInit` -- composed UTxO + cage backend (restore/follow/applyInverse) |
+| [`Indexer.ComposedInv`][s-idx-composed] | `ComposedInv` -- combined UTxO + cage inverse ops per rollback point |
+| [`Indexer.Reads`][s-idx-reads] | `IndexerTx` composable atomic read primitives for proof-bearing handlers |
 | [`Indexer.Columns`][s-idx-columns] | `AllColumns` + `UnifiedColumns` GADTs -- full DB schema |
 | [`Indexer.Codecs`][s-idx-codecs] | CBOR serialization for column key-value types |
 | [`Indexer.Persistent`][s-idx-persist] | `mkTransactionalState` (composable) + `mkPersistentState` (IO) |
-| [`Indexer.Rollback`][s-idx-rollback] | `storeRollback`, `rollbackToSlot` -- slot-based rollback via inverse ops |
 
 [s-idx-event]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&type=code
 [s-idx-follower]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&type=code
@@ -108,7 +112,9 @@ WriteBatch.
 [s-idx-columns]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&type=code
 [s-idx-codecs]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&type=code
 [s-idx-persist]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&type=code
-[s-idx-rollback]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&type=code
+[s-idx-backend]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Backend%22&type=code
+[s-idx-composed]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.ComposedInv%22&type=code
+[s-idx-reads]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Reads%22&type=code
 
 ---
 
@@ -137,17 +143,19 @@ Each builds a full transaction with PlutusV3 script witnesses.
 | Module | Description |
 |--------|-------------|
 | [`TxBuilder.Config`][s-txb-cfg] | `CageConfig` -- script bytes, hash, time windows, network, slot params |
-| [`TxBuilder.Real`][s-txb-real] | `mkRealTxBuilder` entry point wiring Config + Provider + State + TrieManager |
-| [`TxBuilder.Real.Boot`][s-txb-boot] | Mint cage token (pick seed UTxO, derive asset name, build +1 mint) |
-| [`TxBuilder.Real.Request`][s-txb-req] | Submit insert/delete request (pay to cage address with `RequestDatum`) |
+| [`TxBuilder.Real`][s-txb-real] | `mkRealTxBuilder` entry point; `bootToken` errors (boot is built client-side from `POST /facts/boot`) |
+| [`TxBuilder.Real.Request`][s-txb-req] | Submit insert/delete/update request (pay to request address with `RequestDatum`) |
 | [`TxBuilder.Real.Update`][s-txb-upd] | Consume requests, compute proofs speculatively, update root |
 | [`TxBuilder.Real.Retract`][s-txb-ret] | Cancel pending request (spend with `Retract` redeemer) |
+| [`TxBuilder.Real.Reject`][s-txb-rej] | Owner rejection of expired requests (`Reject` redeemer) |
+| [`TxBuilder.Real.Sweep`][s-txb-sweep] | Owner-only sweep of non-legitimate request UTxOs (`POST /tx/sweep`) |
 | [`TxBuilder.Real.End`][s-txb-end] | Burn cage token (consume state with `End`, mint -1 with `Burning`) |
 | [`TxBuilder.Real.Internal`][s-txb-int] | Shared helpers: POSIX-to-slot, UTxO finders, datum extraction, redeemer indexing |
 
 [s-txb-cfg]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&type=code
 [s-txb-real]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&type=code
-[s-txb-boot]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Boot%22&type=code
+[s-txb-rej]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Reject%22&type=code
+[s-txb-sweep]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Sweep%22&type=code
 [s-txb-req]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Request%22&type=code
 [s-txb-upd]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Update%22&type=code
 [s-txb-ret]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Retract%22&type=code
@@ -195,16 +203,12 @@ Test doubles for all interfaces. No node connection required.
 | [`Mock.Provider`][s-mock-prv] | `mkMockProvider` -- returns empty UTxO sets |
 | [`Mock.Submitter`][s-mock-sub] | `mkMockSubmitter` -- rejects all transactions |
 | [`Mock.TxBuilder`][s-mock-txb] | `mkMockTxBuilder` -- throws on all operations |
-| [`Mock.Indexer`][s-mock-idx] | `mkMockIndexer` -- no-op lifecycle |
-| [`Mock.Skeleton`][s-mock-skel] | `mkSkeletonIndexer` -- IORef/MVar tracking, no chain sync |
 
 [s-mock-ctx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&type=code
 [s-mock-st]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&type=code
 [s-mock-prv]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Provider%22&type=code
 [s-mock-sub]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&type=code
 [s-mock-txb]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&type=code
-[s-mock-idx]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Indexer%22&type=code
-[s-mock-skel]: https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Skeleton%22&type=code
 
 ### Unit test structure
 
@@ -212,9 +216,9 @@ Tests under `test/Cardano/MPFS/`:
 
 - `BalanceSpec`, `OnChainSpec`, `ProofSpec` -- core logic
 - `StateSpec`, `TrieSpec`, `TrieManagerSpec`, `TxBuilderSpec` -- interface specs
-- `Indexer/EventSpec`, `Indexer/FollowerSpec`, `Indexer/CodecsSpec`, `Indexer/PersistentSpec`, `Indexer/RollbackSpec`, `Indexer/InverseSpec` -- indexer pipeline
+- `Indexer/EventSpec`, `Indexer/FollowerSpec`, `Indexer/CodecsSpec`, `Indexer/PersistentSpec`, `Indexer/RollbackSpec`, `Indexer/InverseSpec`, `Indexer/ArmageddonSpec`, `Indexer/ReadsSpec`, `Indexer/ResumeSpec`, `Indexer/UnifiedSpec` -- indexer pipeline
 - `Trie/PersistentSpec` -- RocksDB trie backend
-- `HTTP/StatusSpec`, `HTTP/TokensSpec`, `HTTP/TokenSpec`, `HTTP/RequestsSpec`, `HTTP/TrieSpec` -- REST API via WAI test sessions
+- `HTTP/*Spec` -- REST API via WAI test sessions: status, tokens, token, token facts, requests, trie, the eight `/facts/*` endpoints, submit, and the submit scope gate (see [testing](docs/architecture/testing.md) for the full table)
 
 ### E2E test structure
 
@@ -227,6 +231,12 @@ Tests under `e2e-test/Cardano/MPFS/E2E/`:
 - `IndexerSpec` -- detectFromTx + applyCageEvent
 - `ChainSyncSpec` -- chain sync protocol
 - `HTTPLifecycleSpec` -- full token lifecycle via HTTP API
+- `BootFactsSpec` -- boot facts verified and built client-side
+- `CrashRecoverySpec` -- cage state survives a kill during following
+- `ProofsSpec`, `TokensCompletenessSpec`, `TokenFactsCompletenessSpec` -- proof-bearing reads and completeness witnesses
+- `FactsMatrixSpec` -- facts API coverage matrix
+- `SubmitEndpointSpec` -- signed submit endpoint behavior
+- `WorkflowsIntegrationSpec` -- workflow helpers over facts
 
 ---
 
@@ -241,17 +251,18 @@ cardano-mpfs-offchain/
     HTTP/
       API.hs            Encoding.hs
       Types.hs          Server.hs
-      Swagger.hs
+      SubmitScope.hs    Swagger.hs
+      Types/Facts.hs
     Indexer/
       Event.hs          Follower.hs
-      CageFollower.hs   Columns.hs
-      Codecs.hs         Persistent.hs
-      Rollback.hs
+      CageFollower.hs   Backend.hs
+      ComposedInv.hs    Reads.hs
+      Columns.hs        Codecs.hs
+      Persistent.hs
     Mock/
       Context.hs        State.hs
       Provider.hs       Submitter.hs
-      TxBuilder.hs      Indexer.hs
-      Skeleton.hs
+      TxBuilder.hs
     Provider/
       NodeClient.hs
     Submitter/
@@ -262,14 +273,18 @@ cardano-mpfs-offchain/
     TxBuilder/
       Config.hs         Real.hs
       Real/
-        Boot.hs         Request.hs
-        Update.hs       Retract.hs
-        End.hs          Internal.hs
+        Request.hs      Update.hs
+        Retract.hs      Reject.hs
+        Sweep.hs        End.hs
+        Internal.hs
     Application.hs      Context.hs
-    Indexer.hs          Provider.hs
-    State.hs            Submitter.hs
-    Trace.hs            Trie.hs
-    TxBuilder.hs
+    Provider.hs         State.hs
+    Submitter.hs        Trace.hs
+    Trie.hs             TxBuilder.hs
+  exe/
+    Serve.hs            DevnetServer.hs
+    RunPreprod.hs       InspectDb.hs
+    TxVectors.hs        swagger/Main.hs
   test/Cardano/MPFS/
     HTTP/               Indexer/
     Trie/               BalanceSpec.hs
@@ -280,5 +295,11 @@ cardano-mpfs-offchain/
     ProviderSpec.hs     SubmitterSpec.hs
     CageSpec.hs         CageFlowSpec.hs
     IndexerSpec.hs      ChainSyncSpec.hs
-    HTTPLifecycleSpec.hs
+    HTTPLifecycleSpec.hs BootFactsSpec.hs
+    CrashRecoverySpec.hs ProofsSpec.hs
+    FactsMatrixSpec.hs  SubmitEndpointSpec.hs
+    TokensCompletenessSpec.hs
+    TokenFactsCompletenessSpec.hs
+    WorkflowsIntegrationSpec.hs
+    Helpers/Boot.hs
 ```

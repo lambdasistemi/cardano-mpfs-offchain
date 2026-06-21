@@ -49,6 +49,7 @@ The REST API is exercised through WAI test sessions against a mock
 | `RejectFactsSpec` | `POST /facts/reject`, including request subset selection |
 | `EndFactsSpec` | `POST /facts/end` |
 | `SubmitSpec` | `POST /submit` signed transaction submission |
+| `SubmitScopeSpec` | `POST /submit` MPFS-scope gate — non-MPFS transactions are rejected |
 
 Client tests cover `verifyTokenState`, `verifyTokenFacts`,
 `verifyTokenRequests`, the `verify*Facts` family, CSMT replay failures,
@@ -68,12 +69,14 @@ just e2e             # same app, with optional --match support
 
 ### How It Works
 
-The test harness (`Cardano.MPFS.E2E.Devnet`) manages a
-single-node devnet:
+The test harness (`Cardano.Node.Client.E2E.Devnet` from the
+[cardano-node-clients](https://github.com/lambdasistemi/cardano-node-clients)
+package, used as `withCardanoNode`) manages a single-node devnet:
 
-1. **Genesis files** are checked into `e2e-test/genesis/`. They
-   define a testnet with magic 42, 0.1s slots, all hard forks at
-   epoch 0 (instant Conway).
+1. **Genesis files** ship with the `devnet-genesis` package of
+   `cardano-node-clients`; the flake apps export their location as
+   `E2E_GENESIS_DIR`. They define a testnet with magic 42, 0.1s
+   slots, all hard forks at epoch 0 (instant Conway).
 
 2. **At startup**, the harness copies genesis files to a temp
    directory and patches `systemStart` to current UTC time + 5
@@ -109,6 +112,10 @@ single-node devnet:
   `GET /tx/:txId` blocking endpoint
 - **ProofsSpec** — proof-bearing reads and facts checked against the
   indexed trusted root
+- **BootFactsSpec** — `POST /facts/boot`: verify facts, build the
+  boot transaction locally, submit, and confirm indexing
+- **CrashRecoverySpec** — kill the service during following and
+  verify cage state survives the restart
 - **TokensCompletenessSpec** — token set completeness witnesses
 - **TokenFactsCompletenessSpec** — fact enumeration completeness
 - **FactsMatrixSpec** — local-cluster matrix for facts endpoints,

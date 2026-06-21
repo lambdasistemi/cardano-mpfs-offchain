@@ -24,6 +24,8 @@ The current bounded-refund cage script hash is
 
 ## Documentation
 
+- [Installation](installation.md) --- release tarballs, Nix packages, Docker image, running `mpfs-serve`
+- [CLI manual](cli/index.md) --- `mpfs-cli` commands, walkthrough, troubleshooting
 - [Architecture Overview](architecture/overview.md) --- system diagram, fact-provider flow, dependency graph, module hierarchy
 - [Block Processing](architecture/block-processing.md) --- one block = one RocksDB transaction over UTxO CSMT, cage state, and MPF tries
 - [Data Sources](architecture/data-sources.md) --- ChainSync, indexed proof reads, `GET /eval-context`, and submission flow
