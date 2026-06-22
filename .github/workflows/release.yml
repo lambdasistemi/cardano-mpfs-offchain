@@ -163,8 +163,8 @@ jobs:
         id: tap-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.TAP_APP_ID }}
-          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
           owner: lambdasistemi
           repositories: homebrew-tap
 
