@@ -127,15 +127,19 @@ let
       --replace-fail "    Cardano.MPFS.Client.Cage.Update" \
                      "    Cardano.MPFS.Client.Cage.Update"$'\n\n'"  other-extensions:"
   '';
-in {
+
   wasm-mpfs-verify = (libWasm.mkCardanoLedgerWasm {
     inherit pkgs ghcWasmMeta wasiSdk chap;
     projectFile = "cabal-wasm.project";
     # mpfs-verify-reactor exercises the verifier closure; building the
     # cardano-mpfs-cage-tx library forces every cage transaction builder
     # to cross-compile to wasm32-wasi alongside it (#258 cage extension).
-    packages =
-      [ "mpfs-verify-reactor" "mpfs-cage-reactor" "cardano-mpfs-cage-tx" ];
+    packages = [
+      "mpfs-verify-reactor"
+      "mpfs-cage-reactor"
+      "cardano-mpfs-cage-tx"
+      "csmt-verify-wasm"
+    ];
     src = wasmSrc;
     srpForks = [
       "plutus"
@@ -176,4 +180,11 @@ in {
       EOF
     '';
   });
+in {
+  inherit wasm-mpfs-verify;
+
+  csmt-verify-wasm = pkgs.runCommand "csmt-verify-wasm" { } ''
+    mkdir -p $out
+    cp ${wasm-mpfs-verify}/csmt-verify-wasm.wasm $out/
+  '';
 }

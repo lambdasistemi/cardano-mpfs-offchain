@@ -168,7 +168,7 @@
                 offchain-tests client-tests workflows-tests e2e-tests
                 cardano-mpfs-offchain mpfs-serve mpfs-cli mpfs-devnet-server
                 mpfs-bootstrap-genesis docker-image haddock;
-              inherit (wasmTargets) wasm-mpfs-verify;
+              inherit (wasmTargets) wasm-mpfs-verify csmt-verify-wasm;
               inherit mpfs-spa;
               default = project.packages.cardano-mpfs-offchain;
             };
