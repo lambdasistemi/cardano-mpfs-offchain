@@ -120,48 +120,6 @@
               cageReactorWasm =
                 "${wasmTargets.wasm-mpfs-verify}/mpfs-cage-reactor.wasm";
             };
-            test-playwright-spa = pkgs.writeShellApplication {
-              name = "test-playwright-spa";
-              runtimeInputs = [
-                pkgs.playwright-test
-                pkgs.nodejs_20
-                pkgs.python3
-                pkgs.coreutils
-                pkgs.bash
-                pkgs.gnugrep
-                cardano-node-pkgs.cardano-node
-                cardano-node-pkgs.cardano-cli
-              ];
-              text = ''
-                export MPFS_DEVNET_SERVER="${project.packages.mpfs-devnet-server}/bin/mpfs-devnet-server"
-                export MPFS_BLUEPRINT="${mpfs-blueprint}"
-                export E2E_GENESIS_DIR="${devnet-genesis}"
-                export MPFS_SPA_SITE_DIR="${mpfs-spa}"
-                export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
-                export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-                exec bash ${./scripts/e2e-spa-devnet.sh}
-              '';
-            };
-            test-playwright-spa-preprod = pkgs.writeShellApplication {
-              name = "test-playwright-spa-preprod";
-              runtimeInputs = [
-                pkgs.playwright-test
-                pkgs.nodejs_20
-                pkgs.python3
-                pkgs.coreutils
-                pkgs.bash
-                cardano-node-pkgs.cardano-cli
-                cardanoAddress
-              ];
-              text = ''
-                export MPFS_SPA_SITE_DIR="${mpfs-spa}"
-                export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
-                export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-                export MPFS_BASE_URL="''${MPFS_BASE_URL:-https://umpfs.plutimus.com}"
-                export MPFS_SIGNER_WALLET="''${MPFS_SIGNER_WALLET:-/code/moog/tmp/requester.json}"
-                exec bash ${./scripts/e2e-spa-preprod.sh}
-              '';
-            };
           in {
             packages = {
               inherit (project.packages)
@@ -186,17 +144,7 @@
               };
             };
             checks = project.checks;
-            apps = project.apps // {
-              test-playwright-spa = {
-                type = "app";
-                program = "${test-playwright-spa}/bin/test-playwright-spa";
-              };
-              test-playwright-spa-preprod = {
-                type = "app";
-                program =
-                  "${test-playwright-spa-preprod}/bin/test-playwright-spa-preprod";
-              };
-            };
+            apps = project.apps;
           };
       };
     in {
