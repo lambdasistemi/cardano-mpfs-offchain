@@ -3,15 +3,14 @@
 #
 # haskell.nix hashes this `src` into every package's build plan, so an
 # unfiltered `./.` makes *any* repo edit invalidate the whole Haskell (and
-# wasm) build cache — a docs change, a CI-workflow edit, a PureScript SPA
-# commit, or release-please's per-release CHANGELOG/version bump all force a
-# cold rebuild even though no Haskell input changed. Keep only the paths the
-# cabal build actually reads.
+# wasm) build cache — a docs change, a CI-workflow edit, a flake lock prune,
+# or release-please's per-release CHANGELOG/version bump all force a cold
+# rebuild even though no Haskell input changed. Keep only the paths the cabal
+# build actually reads.
 #
 # Excluded paths are NOT cabal build inputs (verified: no .cabal references
-# them via data-files / extra-source-files). The PureScript SPA has its own
-# source in nix/mpfs-spa.nix; the swagger check reads docs/ directly — both
-# are unaffected by filtering them out of the Haskell source.
+# them via data-files / extra-source-files). The swagger check reads docs/
+# directly and is unaffected by filtering docs out of the Haskell source.
 { lib, src }:
 let
   root = toString src;
@@ -19,9 +18,8 @@ let
     "docs" # mkdocs site + swagger.json (own derivations)
     "specs" # speckit artifacts
     "lean" # Lean formal model
-    "deploy" # SPA Dockerfile / nginx.conf
     "scripts" # helper scripts
-    "mpfs-spa" # PureScript SPA (built by nix/mpfs-spa.nix, not cabal)
+    "flake.lock" # flake input metadata
     ".github" # CI workflows
     ".orch" # orchestration scratch
   ];

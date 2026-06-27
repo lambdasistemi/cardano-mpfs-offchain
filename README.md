@@ -12,10 +12,6 @@ sets, and ledger evaluation metadata. Clients verify those facts, build
 transactions locally, sign with their wallet, and submit signed CBOR via
 `POST /submit`.
 
-The browser SPA is available at <https://umpfs.plutimus.com/spa/>. It
-uses HTTP plus CIP-30 only; protocol logic runs inside the pure Haskell
-wasm cage reactor, not in ad hoc browser code.
-
 ## Dependencies
 
 ```mermaid
@@ -29,7 +25,6 @@ graph TD
     MTS["haskell-mts"]
     FOLLOWER["chain-follower"]
     NODE["cardano-node<br/><i>Unix socket</i>"]
-    SPA["mpfs-spa<br/><i>HTTP + CIP-30</i>"]
 
     OFFCHAIN -->|"Servant API<br/>JSON DTOs"| API
     VERIFY -->|"wire DTOs"| API
@@ -43,8 +38,6 @@ graph TD
     OFFCHAIN -->|"ChainSync<br/>block streaming"| FOLLOWER
     CLIENTS --> NODE
     FOLLOWER --> NODE
-    SPA -->|"facts + eval context"| OFFCHAIN
-    SPA -->|"wasm reactor"| CAGETX
 
     click ONCHAIN "https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell"
     click CLIENTS "https://github.com/lambdasistemi/cardano-node-clients"
@@ -168,10 +161,10 @@ facts before building cage transactions.
 
 The #62 bounded-refund validator cutover uses cage script hash
 `ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5`. The old
-`c0f05a30...` exact-refund hash is legacy. The SPA and server both take
-validator identity from the pinned `cardano-mpfs-onchain` blueprint so
-the browser reactor and offchain indexer agree on state and per-cage
-request validator addresses.
+`c0f05a30...` exact-refund hash is legacy. The server and downstream
+wasm clients both take validator identity from the pinned
+`cardano-mpfs-onchain` blueprint so the browser reactor and offchain
+indexer agree on state and per-cage request validator addresses.
 
 ## Building
 

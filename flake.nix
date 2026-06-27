@@ -35,20 +35,11 @@
     };
     ghc-wasm-meta.url =
       "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
-    purescript-overlay = {
-      url = "github:paolino/purescript-overlay/fix/remove-nodePackages";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    mkSpagoDerivation = {
-      url = "github:jeslie0/mkSpagoDerivation";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs = inputs@{ self, nixpkgs, flake-parts, haskellNix, mkdocs, asciinema
     , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
-    , cardano-ledger-wasm, ghc-wasm-meta, purescript-overlay
-    , mkSpagoDerivation, ... }:
+    , cardano-ledger-wasm, ghc-wasm-meta, ... }:
     let
       version = self.dirtyShortRev or self.shortRev;
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
@@ -66,9 +57,9 @@
               inherit system;
             };
             cardano-node-pkgs = cardano-node.packages.${system};
-            # Validator identity source for the server and SPA. The wasm
-            # Haskell fork pins are separate library-code inputs; this unifies
-            # only cage/request validator identity, not those rev pins.
+            # Validator identity source for the server and wasm clients. The
+            # wasm Haskell fork pins are separate library-code inputs; this
+            # unifies only cage/request validator identity, not those rev pins.
             mpfs-blueprint = cardano-mpfs-onchain.packages.${system}.default;
             devnet-genesis =
               cardano-node-clients.packages.${system}.devnet-genesis;
@@ -87,16 +78,6 @@
               chap = CHaP;
               src = import ./nix/clean-src.nix { inherit (pkgs) lib; src = ./.; };
             };
-            # Separate nixpkgs instance carrying the PureScript toolchain
-            # overlays; kept apart from the haskell.nix `pkgs` above to avoid
-            # cross-overlay interference (#291 browser SPA).
-            psPkgs = import nixpkgs {
-              inherit system;
-              overlays = [
-                purescript-overlay.overlays.default
-                mkSpagoDerivation.overlays.default
-              ];
-            };
             cardanoAddressPkgs = import nixpkgs {
               inherit system;
               config.allowBroken = true;
@@ -111,15 +92,6 @@
                 };
               };
             cardanoAddress = cardanoAddressHaskellPackages.cardano-addresses;
-            mpfs-spa = import ./nix/mpfs-spa.nix {
-              pkgs = psPkgs;
-              mpfsBlueprint = mpfs-blueprint;
-              # Integration (298): feed the real reactor wasm built by the
-              # wasm target instead of the placeholder, so the SPA bundles
-              # and loads the live mpfs-cage-reactor.
-              cageReactorWasm =
-                "${wasmTargets.wasm-mpfs-verify}/mpfs-cage-reactor.wasm";
-            };
           in {
             packages = {
               inherit (project.packages)
@@ -127,22 +99,9 @@
                 cardano-mpfs-offchain mpfs-serve mpfs-cli mpfs-devnet-server
                 mpfs-bootstrap-genesis docker-image haddock;
               inherit (wasmTargets) wasm-mpfs-verify csmt-verify-wasm;
-              inherit mpfs-spa;
               default = project.packages.cardano-mpfs-offchain;
             };
-            devShells = project.devShells // {
-              mpfs-spa = psPkgs.mkShell {
-                packages = [
-                  psPkgs.purs
-                  psPkgs.spago-unstable
-                  psPkgs.purs-tidy-bin.purs-tidy-0_10_0
-                  psPkgs.purescript-language-server
-                  psPkgs.esbuild
-                  psPkgs.nodejs_20
-                  psPkgs.just
-                ];
-              };
-            };
+            devShells = project.devShells;
             checks = project.checks;
             apps = project.apps;
           };

@@ -138,17 +138,3 @@ just e2e
 | `securityParam` | 10 | 1-second stability window (10 × 0.1s) |
 | `systemStart` | patched at runtime | UTC now + 5 seconds |
 | All hard forks | epoch 0 | Instant Conway |
-
-## Browser SPA Tests
-
-The PureScript SPA is exercised with Playwright:
-
-```bash
-just e2e-spa          # local devnet
-just e2e-spa-preprod  # https://umpfs.plutimus.com
-```
-
-The preprod smoke points the browser at the live server, injects a
-CIP-30 signer, fetches facts and `GET /eval-context`, runs the wasm cage
-reactor, signs locally, and submits via `POST /submit`. The SPA itself
-is served at `https://umpfs.plutimus.com/spa/`.
