@@ -13,10 +13,6 @@ facts, build and sign locally, then submit signed CBOR through
 `POST /submit`; script-bearing endpoints must not return unsigned
 transactions.
 
-The browser SPA is live at <https://umpfs.plutimus.com/spa/>. It uses
-HTTP plus CIP-30 only; all MPFS protocol logic runs in the pure Haskell
-wasm cage reactor.
-
 On-chain types and proof serialization come from the
 [cage library](https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell).
 The current bounded-refund cage script hash is
@@ -28,5 +24,5 @@ The current bounded-refund cage script hash is
 - [Block Processing](architecture/block-processing.md) --- one block = one RocksDB transaction over UTxO CSMT, cage state, and MPF tries
 - [Data Sources](architecture/data-sources.md) --- ChainSync, indexed proof reads, `GET /eval-context`, and submission flow
 - [Singletons](architecture/singletons.md) --- record-of-functions interfaces
-- [Testing](architecture/testing.md) --- unit tests, E2E tests, verifier/reactor coverage, SPA smoke tests
+- [Testing](architecture/testing.md) --- unit tests, E2E tests, and verifier/reactor coverage
 - [API Reference](swagger-ui.md) --- Swagger UI for the HTTP API

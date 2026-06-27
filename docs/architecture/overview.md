@@ -10,7 +10,7 @@ flowchart TD
     mpf["MPF Trie<br/>(merkle-patricia-forestry)<br/>Proofs, insertion, deletion"]
     verify["cardano-mpfs-verify<br/>CSMT/MPF/read/facts verifiers"]
     cageTx["cardano-mpfs-cage-tx<br/>pure cage builders<br/>*WithEval API"]
-    spa["Browser SPA<br/>https://umpfs.plutimus.com/spa/<br/>HTTP + CIP-30"]
+    browser["Downstream browser clients<br/>HTTP + CIP-30"]
     submit["Submitter<br/>(LocalTxSubmission)"]
     n2c["Node Client<br/>(node-to-client)<br/>ChainSync + eval context + LTxS"]
 
@@ -18,8 +18,8 @@ flowchart TD
     http --> verify
     http --> idx
     app --> idx --> mpf
-    spa --> http
-    spa --> cageTx
+    browser --> http
+    browser --> cageTx
     cageTx --> verify
     http --> submit
     submit --> n2c
@@ -158,7 +158,6 @@ graph TD
     API["cardano-mpfs-api<br/>Wire DTOs + Servant API"]
     VERIFY["cardano-mpfs-verify<br/>Pure verifiers"]
     CAGETX["cardano-mpfs-cage-tx<br/>Pure cage tx builders"]
-    SPA["mpfs-spa<br/>Browser HTTP + CIP-30"]
     CAGE["cardano-mpfs-cage<br/>On-chain types + scripts"]
     CLIENTS["cardano-node-clients<br/>TxBuild DSL, N2C provider,<br/>fee balancing"]
     MTS["haskell-mts<br/>CSMT + MPF libraries"]
@@ -168,8 +167,6 @@ graph TD
     OFFCHAIN --> API
     VERIFY --> API
     CAGETX --> VERIFY
-    SPA --> OFFCHAIN
-    SPA --> CAGETX
     OFFCHAIN --> CAGE
     CAGETX --> CAGE
     OFFCHAIN --> CLIENTS
@@ -206,8 +203,8 @@ new preprod/browser flows.
 The repository is split into several packages. The server lives in
 `cardano-mpfs-offchain`; shared wire types live in `cardano-mpfs-api`;
 pure verifiers live in `cardano-mpfs-verify`; pure cage builders live in
-`cardano-mpfs-cage-tx`; native clients can consume the re-exporting
-`cardano-mpfs-client`; and the browser UI lives in `mpfs-spa`.
+`cardano-mpfs-cage-tx`; and native clients can consume the re-exporting
+`cardano-mpfs-client`.
 
 The `cardano-mpfs-offchain` library is organized in layers. Server
 modules live under `Cardano.MPFS`.
@@ -435,4 +432,4 @@ graph LR
 | 3 | Transaction builders — real `TxBuilder` implementations for boot, update, reject, retract, end operations with Plutus script witnesses, proof envelopes, and on-chain datum construction | Done |
 | 4 | ChainSync indexer + persistent state — real ChainSync follower; RocksDB-backed UTxO CSMT, State, and TrieManager; block processing with rollback support | Done |
 | 5 | HTTP API + deployment — Servant HTTP layer with Swagger UI, proof-bearing token/trie/request reads, facts endpoints, signed submission, WAI application wiring | Done |
-| 6 | Trust-minimized client flow — facts-only script-bearing writes, `cardano-mpfs-verify`, `cardano-mpfs-cage-tx`, wasm cage reactor, browser SPA at `https://umpfs.plutimus.com/spa/`, and trusted interim `GET /eval-context` for ex-unit evaluation | Done |
+| 6 | Trust-minimized client flow — facts-only script-bearing writes, `cardano-mpfs-verify`, `cardano-mpfs-cage-tx`, wasm cage reactor, and trusted interim `GET /eval-context` for ex-unit evaluation | Done |

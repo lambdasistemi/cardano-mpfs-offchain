@@ -9,7 +9,7 @@
 
 ## Slice S2 - Remove SPA package and source
 
-- [ ] T372-S2 Remove `mpfs-spa/`, `nix/mpfs-spa.nix`, package/dev-shell/CI
+- [X] T372-S2 Remove `mpfs-spa/`, `nix/mpfs-spa.nix`, package/dev-shell/CI
   wiring, clean-source inclusion, and stale docs references.
-- [ ] T372-S2 Prove the full gate, including no live `mpfs-spa` references and
+- [X] T372-S2 Prove the full gate, including no live `mpfs-spa` references and
   the unchanged wasm keep-invariant.
