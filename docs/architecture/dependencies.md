@@ -21,7 +21,6 @@ Computed from the Nix flake closure + `cabal.project` `source-repository-package
 | [**rocksdb-kv-transactions**](https://github.com/lambdasistemi/rocksdb-kv-transactions/tree/e2e77579888e) | lambdasistemi | RocksDB backend for key-value transactions |
 | [**aiken-codegen**](https://github.com/paolino/aiken-codegen/tree/74f364c10e93) | paolino | Haskell DSL for generating Aiken source code |
 | [**dev-assets**](https://github.com/paolino/dev-assets/tree/1623f2925791) | paolino | Actions for haskell, nix and mkdocs workflows |
-| [**purescript-overlay**](https://github.com/paolino/purescript-overlay/tree/e1f4cc532a84) | paolino | PureScript core tools in Nix |
 
 ## Flake inputs
 
@@ -34,7 +33,6 @@ Computed from the Nix flake closure + `cabal.project` `source-repository-package
 | `cardano-node-clients` | lambdasistemi/cardano-node-clients `e4b01cb9efdf` | flake | [flake.nix](https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/flake.nix) |
 | `mkdocs` | paolino/dev-assets `1623f2925791` | flake | [flake.nix](https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/flake.nix) |
 | `asciinema` | paolino/dev-assets `1623f2925791` | flake | [flake.nix](https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/flake.nix) |
-| `purescript-overlay` | paolino/purescript-overlay `e1f4cc532a84` | flake | [flake.nix](https://github.com/lambdasistemi/cardano-mpfs-offchain/blob/main/flake.nix) |
 
 ### lambdasistemi/cardano-node-clients @ `e4b01cb9efdf`
 
@@ -254,7 +252,6 @@ graph TD
     rocksdb_kv_transactions["<a href='https://github.com/lambdasistemi/rocksdb-kv-transactions/tree/e2e77579888e'>rocksdb-kv-transactions</a><br/>RocksDB backend for key-value<br/>transactions<br/><a href='https://github.com/lambdasistemi/rocksdb-kv-transactions/commit/e2e77579888e'><code>e2e77579888e</code></a>"]:::haskell
     aiken_codegen["<a href='https://github.com/paolino/aiken-codegen/tree/74f364c10e93'>aiken-codegen</a><br/>Haskell DSL for generating Aiken source<br/>code<br/><a href='https://github.com/paolino/aiken-codegen/commit/74f364c10e93'><code>74f364c10e93</code></a>"]:::haskell
     dev_assets["<a href='https://github.com/paolino/dev-assets/tree/1623f2925791'>dev-assets</a><br/>Actions for haskell, nix and mkdocs<br/>workflows<br/><a href='https://github.com/paolino/dev-assets/commit/1623f2925791'><code>1623f2925791</code></a>"]:::nix
-    purescript_overlay["<a href='https://github.com/paolino/purescript-overlay/tree/e1f4cc532a84'>purescript-overlay</a><br/>PureScript core tools in Nix<br/><a href='https://github.com/paolino/purescript-overlay/commit/e1f4cc532a84'><code>e1f4cc532a84</code></a>"]:::haskell
 
     cardano_node_clients -->|"mkdocs"| dev_assets
     cardano_mpfs_offchain -->|"cardano-mpfs-onchain"| cardano_mpfs_onchain
@@ -262,7 +259,6 @@ graph TD
     cardano_mpfs_offchain -->|"cardano-node-clients"| cardano_node_clients
     cardano_mpfs_offchain -->|"mkdocs"| dev_assets
     cardano_mpfs_offchain -->|"asciinema"| dev_assets
-    cardano_mpfs_offchain -->|"purescript-overlay"| purescript_overlay
     cardano_mpfs_offchain ==> cardano_ledger_read
     cardano_mpfs_offchain ==> cardano_mpfs_onchain
     cardano_mpfs_offchain ==> cardano_ledger_wasm
@@ -309,9 +305,9 @@ graph TD
     cardano_utxo_csmt -.->|"skew 9a5106790759"| haskell_mts
     cardano_utxo_csmt -.->|"skew 85977e8673f1"| rocksdb_haskell
 
-    linkStyle 0,1,2,3,4,5,6 stroke:#2196F3,stroke-width:2px
-    linkStyle 7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44 stroke:#e53935,stroke-width:2px
-    linkStyle 45,46,47,48,49,50,51 stroke:#ffb300,stroke-width:1px,stroke-dasharray:4 3
+    linkStyle 0,1,2,3,4,5 stroke:#2196F3,stroke-width:2px
+    linkStyle 6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43 stroke:#e53935,stroke-width:2px
+    linkStyle 44,45,46,47,48,49,50 stroke:#ffb300,stroke-width:1px,stroke-dasharray:4 3
 ```
 
 **Legend**
