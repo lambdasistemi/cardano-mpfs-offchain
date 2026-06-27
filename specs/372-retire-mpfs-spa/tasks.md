@@ -2,9 +2,9 @@
 
 ## Slice S1 - Remove SPA Playwright e2e wiring
 
-- [ ] T372-S1 Remove `test-playwright-spa` shell apps, SPA e2e scripts, and
+- [X] T372-S1 Remove `test-playwright-spa` shell apps, SPA e2e scripts, and
   `just` recipes while keeping the SPA package itself buildable until S2.
-- [ ] T372-S1 Prove the wasm keep-invariant, flake check, and absence of
+- [X] T372-S1 Prove the wasm keep-invariant, flake check, and absence of
   `test-playwright-spa` / `e2e-spa` references.
 
 ## Slice S2 - Remove SPA package and source

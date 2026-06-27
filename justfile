@@ -88,14 +88,6 @@ e2e match="":
     fi
     nix run --quiet .#e2e-tests -- "${args[@]}"
 
-# Run the browser SPA against a local MPFS devnet.
-e2e-spa:
-    nix run --quiet .#test-playwright-spa
-
-# Run the browser SPA against the live preprod MPFS service.
-e2e-spa-preprod:
-    nix run --quiet .#test-playwright-spa-preprod
-
 # Run the #278 facts API coverage matrix only.
 # See specs/278-local-cluster-facts-api-coverage-matrix/quickstart.md.
 e2e-facts-matrix:
