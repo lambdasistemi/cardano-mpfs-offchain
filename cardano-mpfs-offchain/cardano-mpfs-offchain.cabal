@@ -87,6 +87,7 @@ library
     , text                                     >=2.0  && <2.2
     , time
     , wai
+    , wai-cors
     , warp
 
   exposed-modules:
@@ -309,6 +310,7 @@ test-suite unit-tests
     Cardano.MPFS.Generators
     Cardano.MPFS.HTTP.AtomicReadFixture
     Cardano.MPFS.HTTP.BootFactsSpec
+    Cardano.MPFS.HTTP.CorsSpec
     Cardano.MPFS.HTTP.EndFactsSpec
     Cardano.MPFS.HTTP.RejectFactsSpec
     Cardano.MPFS.HTTP.RequestDeleteFactsSpec

@@ -67,6 +67,10 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp qualified as Warp
+import Network.Wai.Middleware.Cors
+    ( CorsResourcePolicy (..)
+    , cors
+    )
 
 import Cardano.Crypto.Hash.Class qualified as Crypto
 import Cardano.Ledger.BaseTypes (TxIx (..))
@@ -230,7 +234,8 @@ type FullAPI = SwaggerAPI :<|> API
 -- | Build a WAI 'Application' from a 'Context IO'.
 mkApp :: Context IO -> Application
 mkApp ctx =
-    serve (Proxy @FullAPI)
+    cors (const (Just corsPolicy))
+        $ serve (Proxy @FullAPI)
         $ swaggerServer
             :<|> metricsPrometheusHandler ctx
             :<|> metricsHandler ctx
@@ -257,6 +262,20 @@ mkApp ctx =
             :<|> factsEndHandler ctx
             :<|> txSweepHandler ctx
             :<|> txSubmitHandler ctx
+
+corsPolicy :: CorsResourcePolicy
+corsPolicy =
+    CorsResourcePolicy
+        { corsOrigins =
+            Just (["https://preview.dev.plutimus.com"], False)
+        , corsMethods = ["GET", "POST", "OPTIONS"]
+        , corsRequestHeaders = ["content-type"]
+        , corsExposedHeaders = Nothing
+        , corsMaxAge = Nothing
+        , corsVaryOrigin = True
+        , corsRequireOrigin = False
+        , corsIgnoreFailures = False
+        }
 
 -- | Warp settings with useful logging for uncaught handler exceptions.
 warpSettings :: Int -> Warp.Settings
