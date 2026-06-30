@@ -2,19 +2,19 @@
 
 ## Slice S1 - Reactor Read-Side Ops
 
-- [ ] T380-S1-RED Add failing reactor tests for `verify_tokens`,
+- [X] T380-S1-RED Add failing reactor tests for `verify_tokens`,
   `verify_snapshot`, `verify_fact_inclusion`, and `verify_facts` using
   real non-empty UMPFS response fixtures.
-- [ ] T380-S1-RED Add tampered fixture assertions that decode
+- [X] T380-S1-RED Add tampered fixture assertions that decode
   successfully and return `verify_error`.
-- [ ] T380-S1-GREEN Add dispatch arms in `Reactor.hs` that decode raw
+- [X] T380-S1-GREEN Add dispatch arms in `Reactor.hs` that decode raw
   response payloads and wrap existing read-side verifier functions.
-- [ ] T380-S1-GREEN Add only necessary read-side exports/wrappers for
+- [X] T380-S1-GREEN Add only necessary read-side exports/wrappers for
   per-fact inclusion, with no new proof algorithm.
-- [ ] T380-S1-PROOF Run `nix develop --quiet -c just unit-client
+- [X] T380-S1-PROOF Run `nix develop --quiet -c just unit-client
   "runEnvelope"`, `nix build .#wasm-mpfs-verify --fallback`, and
   `./gate.sh`.
-- [ ] T380-S1-COMMIT Commit as
+- [X] T380-S1-COMMIT Commit as
   `feat(verify): expose read-side reactor ops` with
   `Tasks: T380-S1`.
 

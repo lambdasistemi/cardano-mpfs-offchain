@@ -17,9 +17,13 @@
 --
 -- > { "op": "boot" | "request_insert" | "request_delete"
 -- >       | "request_update" | "update" | "retract" | "reject" | "end"
+-- >       | "verify_tokens" | "verify_snapshot"
+-- >       | "verify_fact_inclusion" | "verify_facts"
 -- > , "trusted_root": "<hex>"
 -- > , "facts": { ... }          -- the op's facts wire object
--- > , "cage_config": { ... }    -- required only for op == "end"
+-- > , "cage_config": { ... }    -- required for end/tokens/snapshot
+-- > , "token_id": "<hex>"       -- required for verify_snapshot
+-- > , "key": "<hex>"            -- required for verify_fact_inclusion
 -- > }
 --
 -- Verdict (one line, UTF-8): @verify_ok@, @verify_error: <VerifyError>@,
@@ -28,6 +32,7 @@ module Cardano.MPFS.Client.Verify.Reactor
     ( runEnvelope
     ) where
 
+import Control.Monad (void)
 import Data.Aeson
     ( FromJSON
     , Result (..)
@@ -50,10 +55,18 @@ import Cardano.Ledger.Coin (Coin (..))
 
 -- The facts types are decoded via 'fromJSON' inside 'run'; we need only
 -- their 'FromJSON' instances in scope, not the type names.
+import Cardano.MPFS.API.Encoding (Hex)
+import Cardano.MPFS.API.Types
+    ( FactResponse
+    )
 import Cardano.MPFS.API.Types.Facts ()
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
     , computeScriptHash
+    )
+import Cardano.MPFS.Client.Facts
+    ( FactPresentFacts (..)
+    , verifyFactPresentFacts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Client.Verify
@@ -66,6 +79,11 @@ import Cardano.MPFS.Client.Verify
     , verifyRequestUpdateFacts
     , verifyRetractFacts
     , verifyUpdateFacts
+    )
+import Cardano.MPFS.Client.Verify.Read
+    ( verifyTokenFacts
+    , verifyTokenRequests
+    , verifyTokens
     )
 
 -- | Decode a request envelope and render the verifier verdict as bytes.
@@ -100,6 +118,21 @@ dispatch = withObject "Envelope" $ \o -> do
         "end" -> do
             cfg <- o .: "cage_config" >>= parseCageConfig
             pure (run (verifyEndFacts cfg tr) facts)
+        "verify_tokens" -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            pure (run (verifyTokens cfg tr) facts)
+        "verify_snapshot" -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            token <- o .: "token_id"
+            pure (run (verifyTokenRequests cfg token tr) facts)
+        "verify_requests" -> do
+            cfg <- o .: "cage_config" >>= parseCageConfig
+            token <- o .: "token_id"
+            pure (run (verifyTokenRequests cfg token tr) facts)
+        "verify_fact_inclusion" -> do
+            key <- o .: "key"
+            pure (run (verifyFactInclusion tr key) facts)
+        "verify_facts" -> pure (run (verifyTokenFacts tr) facts)
         _ -> pure ("unknown_op: " <> op)
 
 -- | Decode the facts payload, run the verifier, render the verdict.
@@ -113,6 +146,17 @@ run verify facts = case fromJSON facts of
     Success x -> case verify x of
         Left e -> "verify_error: " <> T.pack (show e)
         Right _ -> "verify_ok"
+
+verifyFactInclusion
+    :: TrustedRoot -> Hex -> FactResponse -> Either VerifyError ()
+verifyFactInclusion tr key response =
+    void
+        $ verifyFactPresentFacts
+            tr
+            FactPresentFacts
+                { fpfKey = key
+                , fpfResponse = response
+                }
 
 -- | Parse the blueprint-derived 'CageConfig' the @end@ verifier needs.
 -- Script bytes arrive as hex; the script hash is recomputed locally so
