@@ -1037,6 +1037,11 @@ parseTokenStateRoot :: Text -> CBOR.Term -> Either VerifyError Hex
 parseTokenStateRoot field stateTerm = do
     (stateTag, stateFields) <- parseConstr (field <> ".state") stateTerm
     case (stateTag, stateFields) of
+        ( 0
+            , [_owner, _stakeScript, CBOR.TBytes rootBs, _fee, _process, _retract]
+            )
+                | BS.length rootBs == 32 ->
+                    Right (Hex (T.decodeUtf8 (Base16.encode rootBs)))
         (0, [_owner, CBOR.TBytes rootBs, _fee, _process, _retract])
             | BS.length rootBs == 32 ->
                 Right (Hex (T.decodeUtf8 (Base16.encode rootBs)))

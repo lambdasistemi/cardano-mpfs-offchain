@@ -43,7 +43,6 @@ import Cardano.Ledger.Address
     , AccountId (..)
     , Addr
     )
-import Cardano.Ledger.Credential (Credential (ScriptHashObj))
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
 import Cardano.Ledger.Api.Tx
     ( bodyTxL
@@ -65,6 +64,7 @@ import Cardano.Ledger.Conway.Scripts
     ( ConwayPlutusPurpose
     )
 import Cardano.Ledger.Core (Script)
+import Cardano.Ledger.Credential (Credential (ScriptHashObj))
 import Cardano.Ledger.Keys
     ( KeyHash
     , KeyRole (..)

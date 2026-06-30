@@ -293,6 +293,7 @@ stateDatumTerm root =
         [ constr
             0
             [ CBOR.TBytes (BS.replicate 28 0xAA)
+            , constr 1 []
             , CBOR.TBytes root
             , CBOR.TInteger 1_000_000
             , CBOR.TInteger 60_000

@@ -278,6 +278,7 @@ spec = do
                     [ Constr
                         0
                         [ B "own"
+                        , Constr 1 []
                         , B "rt"
                         , I 1000
                         , I 300

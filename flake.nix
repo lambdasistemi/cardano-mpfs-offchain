@@ -76,7 +76,10 @@
               ghcWasmMeta = ghc-wasm-meta.packages.${system}.all_9_12;
               wasiSdk = ghc-wasm-meta.packages.${system}.wasi-sdk;
               chap = CHaP;
-              src = import ./nix/clean-src.nix { inherit (pkgs) lib; src = ./.; };
+              src = import ./nix/clean-src.nix {
+                inherit (pkgs) lib;
+                src = ./.;
+              };
             };
             cardanoAddressPkgs = import nixpkgs {
               inherit system;

@@ -9,8 +9,8 @@ let
   mpfsForks = {
     cardano-mpfs-onchain = {
       location = "https://github.com/cardano-foundation/cardano-mpfs-onchain";
-      rev = "5c482af9289c6cbefe1062d04b828f3260d248ee";
-      sha256 = "15aqmghgs9zrqsgx19kz1mx9j1a5n2ia486b93akm57lq8ikprph";
+      rev = "39bf3302fce7c7097b432767606a9485a9faa940";
+      sha256 = "1xk64xdhv53d6zq4qv1xsawaad4jkinfi9ld5sv9ixnqn8axj29b";
       subdirs = [ "haskell" ];
     };
     haskell-mts = {
@@ -75,34 +75,30 @@ let
     else
       "  subdir:\n" + lib.concatMapStrings (subdir: "    ${subdir}\n") subdirs;
 
-  renderPin = _name: pin: ''
-    source-repository-package
-      type: git
-      location: ${pin.location}
-      tag: ${pin.rev}
-  '' + renderSubdirs pin.subdirs + ''
+  renderPin = _name: pin:
+    ''
+      source-repository-package
+        type: git
+        location: ${pin.location}
+        tag: ${pin.rev}
+    '' + renderSubdirs pin.subdirs + ''
       --sha256: ${pin.sha256}
-  '';
+    '';
 
   ledgerForkProjectFragment =
     lib.concatStringsSep "\n" (lib.mapAttrsToList renderPin libWasm.forks.pins)
-    + "\n"
-    + lib.concatStringsSep "" (lib.mapAttrsToList (pkg: flags: ''
+    + "\n" + lib.concatStringsSep "" (lib.mapAttrsToList (pkg: flags: ''
       package ${pkg}
         flags: ${flags}
-    '') libWasm.forks.packageFlags)
-    + "\n"
-    + lib.concatStringsSep "" (lib.mapAttrsToList (pkg: opts: ''
+    '') libWasm.forks.packageFlags) + "\n" + lib.concatStringsSep ""
+    (lib.mapAttrsToList (pkg: opts: ''
       package ${pkg}
         ghc-options: ${opts}
-    '') libWasm.forks.packageGhcOptions)
-    + "\n"
-    + lib.optionalString (libWasm.forks.constraints != [ ])
-    ("constraints: " + lib.concatStringsSep ", " libWasm.forks.constraints
-      + "\n")
-    + lib.optionalString (libWasm.forks.allowNewer != [ ])
-    ("allow-newer: " + lib.concatStringsSep ", " libWasm.forks.allowNewer
-      + "\n");
+    '') libWasm.forks.packageGhcOptions) + "\n"
+    + lib.optionalString (libWasm.forks.constraints != [ ]) ("constraints: "
+      + lib.concatStringsSep ", " libWasm.forks.constraints + "\n")
+    + lib.optionalString (libWasm.forks.allowNewer != [ ]) ("allow-newer: "
+      + lib.concatStringsSep ", " libWasm.forks.allowNewer + "\n");
 
   cabalWasmProject = pkgs.writeText "cabal-wasm.project" ''
     ${builtins.readFile ../cabal-wasm.project}

@@ -744,6 +744,10 @@ parseStateProcessTime field stateTerm = do
     (stateTag, stateFields) <-
         parseConstr (field <> ".datum.state") stateTerm
     case (stateTag, stateFields) of
+        (0, [_owner, _stakeScript, _root, _fee, processTime, _retract]) ->
+            termInteger
+                (field <> ".datum.state.process_time")
+                processTime
         (0, [_owner, _root, _fee, processTime, _retract]) ->
             termInteger
                 (field <> ".datum.state.process_time")
