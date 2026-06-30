@@ -127,6 +127,7 @@ instance Arbitrary OnChainTokenState where
     arbitrary =
         OnChainTokenState
             <$> genBBS 28
+            <*> pure Nothing
             <*> arbitrary
             <*> ( fromIntegral
                     <$> (arbitrary :: Gen Int)
@@ -137,7 +138,6 @@ instance Arbitrary OnChainTokenState where
             <*> ( fromIntegral
                     <$> (arbitrary :: Gen Int)
                 )
-            <*> pure Nothing
 
 instance Arbitrary CageDatum where
     arbitrary =
