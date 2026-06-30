@@ -318,6 +318,7 @@ sampleStateOutBytes pt rt =
                     , stateMaxFee = 1_000_000
                     , stateProcessTime = pt
                     , stateRetractTime = rt
+                    , stateStakeScript = Nothing
                     }
         txOut =
             mkBasicTxOut testCageAddr (inject (Coin 2_000_000))

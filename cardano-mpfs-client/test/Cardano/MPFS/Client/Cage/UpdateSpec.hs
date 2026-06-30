@@ -882,6 +882,7 @@ stateTxOut cfg asset root =
                 , stateMaxFee = 1_000_000
                 , stateProcessTime = 60_000
                 , stateRetractTime = 30_000
+                , stateStakeScript = Nothing
                 }
 
 requestTxOut :: Coin -> Addr -> OnChainRequest -> TxOut ConwayEra

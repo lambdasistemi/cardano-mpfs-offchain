@@ -38,7 +38,12 @@ import Lens.Micro ((&), (.~), (^.))
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 
-import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Address
+    ( AccountAddress (..)
+    , AccountId (..)
+    , Addr
+    )
+import Cardano.Ledger.Credential (Credential (ScriptHashObj))
 import Cardano.Ledger.Alonzo.Scripts (AsIx)
 import Cardano.Ledger.Api.Tx
     ( bodyTxL
@@ -541,6 +546,22 @@ buildProgram
         Tx.requireSignature (witnessKeyHashToGuard ownerKh)
         Tx.collateral (fst feeUtxo)
         Tx.validTo upperSlot
+        case cfgStakeScript cfg of
+            Nothing -> pure ()
+            Just (stakeBytes, stakeHash) -> do
+                let stakeScript =
+                        mkStakeScript stakeBytes
+                    rewardAcct =
+                        AccountAddress
+                            (network cfg)
+                            ( AccountId
+                                (ScriptHashObj stakeHash)
+                            )
+                Tx.withdrawScript
+                    rewardAcct
+                    (Coin 0)
+                    (0 :: Integer)
+                Tx.attachScript stakeScript
 
 -- | Process a single request: apply the operation
 -- to the trie and get proof steps.

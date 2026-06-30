@@ -690,6 +690,7 @@ sampleOnChainTokenState =
         , stateMaxFee = 1_000_000
         , stateProcessTime = 60_000
         , stateRetractTime = 30_000
+        , stateStakeScript = Nothing
         }
 
 expectedRootBytes :: ByteString

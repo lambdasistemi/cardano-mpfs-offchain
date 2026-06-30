@@ -364,6 +364,7 @@ bootStateDatum cfg ownerAddr =
                 in  c
             , stateProcessTime = defaultProcessTime cfg
             , stateRetractTime = defaultRetractTime cfg
+            , stateStakeScript = Nothing
             }
 
 txInToRef :: TxIn -> OnChainTxOutRef

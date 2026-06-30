@@ -188,7 +188,7 @@ mkCageCfg
     :: Args
     -> CageScripts
     -> CageConfig
-mkCageCfg args (stateBytes, requestBytes) =
+mkCageCfg args (stateBytes, requestBytes, mStakingBytes) =
     CageConfig
         { cageScriptBytes = stateBytes
         , requestScriptBytes = requestBytes
@@ -198,6 +198,10 @@ mkCageCfg args (stateBytes, requestBytes) =
         , defaultRetractTime = 300_000
         , defaultTip = Coin 2_000_000
         , network = argNetwork args
+        , cfgStakeScript =
+            fmap
+                (\bs -> (bs, computeScriptHash bs))
+                mStakingBytes
         }
 
 mkAppConfig :: Args -> CageConfig -> AppConfig

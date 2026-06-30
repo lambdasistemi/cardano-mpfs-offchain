@@ -137,6 +137,7 @@ instance Arbitrary OnChainTokenState where
             <*> ( fromIntegral
                     <$> (arbitrary :: Gen Int)
                 )
+            <*> pure Nothing
 
 instance Arbitrary CageDatum where
     arbitrary =
@@ -269,6 +270,7 @@ spec = do
                         , stateMaxFee = 1000
                         , stateProcessTime = 300
                         , stateRetractTime = 600
+                        , stateStakeScript = Nothing
                         }
             toData' (StateDatum st)
                 `shouldBe` Constr

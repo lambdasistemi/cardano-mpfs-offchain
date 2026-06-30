@@ -1019,4 +1019,5 @@ mkStateOut tid ts =
                     processTime ts
                 , stateRetractTime =
                     retractTime ts
+                , stateStakeScript = Nothing
                 }

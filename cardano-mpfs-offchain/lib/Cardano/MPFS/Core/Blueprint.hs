@@ -54,23 +54,29 @@ import Cardano.MPFS.Cage.Blueprint
     , validateData
     )
 
--- | Unparameterized state and request validator UPLC bytes
--- loaded from the upstream split-validator blueprint.
+-- | Unparameterized state, request, and optional staking
+-- validator UPLC bytes loaded from the upstream
+-- split-validator blueprint.
 type CageScripts =
     ( SBS.ShortByteString
     , SBS.ShortByteString
+    , Maybe SBS.ShortByteString
     )
 
--- | Load the state and request validator compiled code
--- from a split-validator cage blueprint.
+-- | Load the state, request, and optional staking
+-- validator compiled code from a split-validator cage
+-- blueprint.
 loadCageScripts :: FilePath -> IO (Either String CageScripts)
 loadCageScripts path = do
     ebp <- loadBlueprint path
     pure $ do
         bp <- ebp
         stateBytes <- requireCompiledCode "state.state" bp
-        requestBytes <- requireCompiledCode "request.request" bp
-        pure (stateBytes, requestBytes)
+        requestBytes <-
+            requireCompiledCode "request.request" bp
+        let stakingBytes =
+                extractCompiledCode "staking.staking" bp
+        pure (stateBytes, requestBytes, stakingBytes)
   where
     requireCompiledCode prefix bp =
         maybe
