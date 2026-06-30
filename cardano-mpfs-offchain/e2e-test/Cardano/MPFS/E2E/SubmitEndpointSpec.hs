@@ -90,6 +90,7 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types (Coin (..))
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , registerStakeCredIfNeeded
     , withBootFactsTxBuilder
     )
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
@@ -272,6 +273,7 @@ withE2E scripts action = do
                         queryProtocolParams
                             (provider ctx')
                     awaitProofReadsReady ctx'
+                    registerStakeCredIfNeeded cfg ctx'
                     action cfg ctx'
 
 -- -------------------------------------------------

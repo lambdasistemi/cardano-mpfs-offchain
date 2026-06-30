@@ -126,6 +126,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , registerStakeCredIfNeeded
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.HTTP.Types
@@ -777,6 +778,7 @@ withSharedEnv scripts action = do
             withApplication appCfg $ \ctx -> do
                 _ <- queryProtocolParams (provider ctx)
                 awaitProofReadsReady ctx
+                registerStakeCredIfNeeded cfg ctx
                 evalCtxWire <- evalContext ctx
                 evalCtx <-
                     case decodeEvalContext evalCtxWire of

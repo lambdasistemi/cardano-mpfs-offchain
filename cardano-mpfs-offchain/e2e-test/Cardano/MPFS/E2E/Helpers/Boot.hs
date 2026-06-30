@@ -32,14 +32,15 @@ module Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
     , withBootFactsTxBuilder
     , awaitProofReadsReady
+    , registerStakeCredIfNeeded
     ) where
 
-import Control.Concurrent (threadDelay)
-import Data.ByteString qualified as BS
-import Data.Text qualified as T
-
 import Control.Applicative ((<|>))
-import Control.Monad (when)
+import Control.Concurrent (threadDelay)
+import Control.Monad (void, when)
+import Data.ByteString qualified as BS
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 
 import Cardano.Ledger.Address (Addr)
 import Cardano.Ledger.Binary
@@ -48,6 +49,12 @@ import Cardano.Ledger.Binary
     )
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
+import Cardano.Node.Client.E2E.Setup
+    ( addKeyWitness
+    , genesisAddr
+    , genesisSignKey
+    )
+import Cardano.Tx.Build qualified as Tx
 
 import Cardano.MPFS.API.Types
     ( BootFacts (..)
@@ -72,6 +79,7 @@ import Cardano.MPFS.Indexer.Reads
     , readWalletInputsAt
     )
 import Cardano.MPFS.Provider (Provider (..))
+import Cardano.MPFS.Submitter (SubmitResult (..), Submitter (..))
 import Cardano.MPFS.TxBuilder
     ( BootProof (..)
     , BundleSnapshot (..)
@@ -249,3 +257,65 @@ toClientCageConfig cfg =
         , Client.defaultTip = defaultTip cfg
         , Client.network = network cfg
         }
+
+-- | Register the cage staking credential on the devnet if
+-- 'cfgStakeScript' is set. Must be called once before any
+-- Update or End transaction; those do a zero-ADA withdrawal
+-- from the staking script, which requires the credential to
+-- be registered in the ledger rewards map first.
+-- No-op when 'cfgStakeScript' is 'Nothing'.
+registerStakeCredIfNeeded :: CageConfig -> Context IO -> IO ()
+registerStakeCredIfNeeded cfg ctx =
+    case cfgStakeScript cfg of
+        Nothing -> pure ()
+        Just (_, stakeHash) -> do
+            pp <- queryProtocolParams (provider ctx)
+            utxos <- queryUTxOs (provider ctx) genesisAddr
+            feeInput <-
+                case utxos of
+                    [] ->
+                        fail
+                            "registerStakeCredIfNeeded: \
+                            \no genesis UTxOs available"
+                    (u : _) -> pure u
+            let prog :: Tx.TxBuild NoCtx String ()
+                prog =
+                    void
+                        $ Tx.certify
+                            ( Tx.ConwayTxCertDeleg
+                                ( Tx.ConwayRegCert
+                                    (Tx.ScriptHashObj stakeHash)
+                                    Tx.SNothing
+                                )
+                            )
+                            Tx.PubKeyCert
+            result <-
+                Tx.build
+                    (Tx.mkPParamsBound pp)
+                    (Tx.InterpretIO noCtx)
+                    (\_ -> pure Map.empty)
+                    [feeInput]
+                    []
+                    genesisAddr
+                    prog
+            case result of
+                Left err ->
+                    fail
+                        $ "registerStakeCredIfNeeded: \
+                          \build failed: "
+                            <> show err
+                Right unsigned -> do
+                    let signed = addKeyWitness genesisSignKey unsigned
+                    res <- submitTx (submitter ctx) signed
+                    case res of
+                        Submitted _ -> threadDelay 5_000_000
+                        Rejected msg ->
+                            fail
+                                $ "registerStakeCredIfNeeded: \
+                                  \submit rejected: "
+                                    <> show msg
+
+data NoCtx a
+
+noCtx :: NoCtx a -> IO a
+noCtx q = case q of {}
