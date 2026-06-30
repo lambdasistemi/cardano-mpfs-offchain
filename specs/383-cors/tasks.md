@@ -2,7 +2,7 @@
 
 ## Slice 1 - HTTP CORS Middleware
 
-- [ ] T383 Add HTTP CORS middleware at `mkApp`, allow `GET`/`POST`/`OPTIONS` and `content-type`, prove preflight and `GET /tokens` Origin responses with unit tests, and pass the branch gate.
+- [X] T383 Add HTTP CORS middleware at `mkApp`, allow `GET`/`POST`/`OPTIONS` and `content-type`, prove preflight and `GET /tokens` Origin responses with unit tests, and pass the branch gate.
 
 ## Finalization
 
