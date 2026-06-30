@@ -20,8 +20,8 @@
 
 ## Slice S2 - Finalize
 
-- [ ] T380-S2-PR Update the PR body with delivered ops, fixture
+- [X] T380-S2-PR Update the PR body with delivered ops, fixture
   provenance, and verification evidence.
-- [ ] T380-S2-GATE Confirm `./gate.sh` passes at HEAD.
-- [ ] T380-S2-COMMIT Drop `gate.sh` in
+- [X] T380-S2-GATE Confirm `./gate.sh` passes at HEAD.
+- [X] T380-S2-COMMIT Drop `gate.sh` in
   `chore: drop gate.sh (ready for review)` when the PR is ready.
