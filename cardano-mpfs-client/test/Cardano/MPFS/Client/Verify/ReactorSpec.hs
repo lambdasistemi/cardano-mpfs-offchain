@@ -11,6 +11,8 @@ module Cardano.MPFS.Client.Verify.ReactorSpec
     ( spec
     ) where
 
+import Codec.CBOR.Encoding qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.Aeson
     ( Value (..)
     , eitherDecodeStrict'
@@ -28,6 +30,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString, fromShort)
 import Data.Text (Text)
+import Data.Word (Word64)
 import System.Environment (getEnv)
 import Test.Hspec
     ( Spec
@@ -37,12 +40,54 @@ import Test.Hspec
     , shouldSatisfy
     )
 
+import CSMT (Direction (..), Standalone (StandaloneCSMTCol))
+import CSMT.Backend.Pure (runPureTransaction)
+import CSMT.Core.CBOR (renderCompletenessProof)
+import CSMT.Core.Hash
+    ( Hash
+    , byteStringToKey
+    , renderHash
+    )
+import CSMT.Hashes (mkHash)
+import CSMT.Proof.Completeness (CompletenessProof, generateProof)
+import CSMT.Test.Lib
+    ( evalPureFromEmptyDB
+    , getRootHashM
+    , hashCodecs
+    , insertMHash
+    )
+
+import Cardano.Ledger.BaseTypes (Network (Testnet))
 import Cardano.MPFS.API.Encoding (Hex (..))
-import Cardano.MPFS.API.Types (UnsignedTxResponse (..))
+import Cardano.MPFS.API.Types
+    ( ChainPointJSON (..)
+    , RequestsResponse (..)
+    , TokenIdJSON (..)
+    , TokenSetWitness (..)
+    , TokenUtxoEntry (..)
+    , TokensResponse (..)
+    , TxInJSON (..)
+    , UnsignedTxResponse (..)
+    , UtxoEntryRefOnly (..)
+    , UtxoRef (..)
+    , UtxoSetWitness (..)
+    , VerificationSnapshot (..)
+    , WitnessedRequest (..)
+    , WitnessedUtxo (..)
+    )
 import Cardano.MPFS.Cage.Blueprint
     ( Blueprint
     , extractCompiledCode
     , loadBlueprint
+    )
+import Cardano.MPFS.Cage.Ledger (Coin (..))
+import Cardano.MPFS.Client.Cage.Config
+    ( CageConfig (..)
+    , computeScriptHash
+    )
+import Cardano.MPFS.Client.Cage.Identity
+    ( cageSetPrefixFromCfg
+    , requestSetPrefixFromCfg
     )
 import Cardano.MPFS.Client.Facts
     ( BootFacts (..)
@@ -81,29 +126,31 @@ spec = describe "runEnvelope" $ do
             (envelope "boot" honestBootTrustedRoot (object []))
         `shouldSatisfy` hasPrefix "bad_facts: "
 
-    describe "read-side ops captured from umpfs.plutimus.com" $ do
-        it "verifies a raw /tokens response" $ do
-            cfg <- cageConfigValue
-            payload <- fixtureValue "tokens.json"
+    describe "read-side ops" $ do
+        it "verifies a /tokens response" $ do
+            cfg <- parsedCageConfig
+            cfgValue <- cageConfigValue
+            let (tr, payload) = genTokensPayload cfg
             runEnvelope
                 ( envelopeWithCage
                     "verify_tokens"
-                    (trustedRootOf payload)
+                    tr
                     payload
-                    cfg
+                    cfgValue
                 )
                 `shouldBe` "verify_ok"
 
-        it "verifies a raw /tokens/:id/requests response" $ do
-            cfg <- cageConfigValue
-            payload <- fixtureValue "token-requests.json"
+        it "verifies a /tokens/:id/requests response" $ do
+            cfg <- parsedCageConfig
+            cfgValue <- cageConfigValue
+            let (tr, payload) = genRequestsPayload cfg syntheticTokenId
             runEnvelope
                 ( snapshotEnvelope
                     "verify_snapshot"
-                    requestsTokenId
-                    (trustedRootOf payload)
+                    syntheticTokenIdHex
+                    tr
                     payload
-                    cfg
+                    cfgValue
                 )
                 `shouldBe` "verify_ok"
 
@@ -129,27 +176,29 @@ spec = describe "runEnvelope" $ do
                 `shouldBe` "verify_ok"
 
         it "rejects a tampered /tokens response" $ do
-            cfg <- cageConfigValue
-            payload <- fixtureValue "tokens.json"
+            cfg <- parsedCageConfig
+            cfgValue <- cageConfigValue
+            let (tr, payload) = genTokensPayload cfg
             runEnvelope
                 ( envelopeWithCage
                     "verify_tokens"
-                    (trustedRootOf payload)
+                    tr
                     (tamperSnapshotRoot payload)
-                    cfg
+                    cfgValue
                 )
                 `shouldSatisfy` hasPrefix "verify_error: "
 
         it "rejects a tampered /tokens/:id/requests response" $ do
-            cfg <- cageConfigValue
-            payload <- fixtureValue "token-requests.json"
+            cfg <- parsedCageConfig
+            cfgValue <- cageConfigValue
+            let (tr, payload) = genRequestsPayload cfg syntheticTokenId
             runEnvelope
                 ( snapshotEnvelope
                     "verify_snapshot"
-                    requestsTokenId
-                    (trustedRootOf payload)
+                    syntheticTokenIdHex
+                    tr
                     (tamperSnapshotRoot payload)
-                    cfg
+                    cfgValue
                 )
                 `shouldSatisfy` hasPrefix "verify_error: "
 
@@ -308,9 +357,148 @@ requireCompiledCode prefix blueprint =
 scriptHex :: ShortByteString -> Hex
 scriptHex = Hex . fromShort
 
-requestsTokenId :: Text
-requestsTokenId =
-    "976821dbd0922f93cda689da92a6faf1894c8151bc86d6c8f725ec089aaacbc6"
+parsedCageConfig :: IO CageConfig
+parsedCageConfig = do
+    blueprintPath <- getEnv "MPFS_BLUEPRINT"
+    eBlueprint <- loadBlueprint blueprintPath
+    blueprint <- case eBlueprint of
+        Left err -> fail ("loadBlueprint failed: " <> err)
+        Right bp -> pure bp
+    stateBytes <- requireCompiledCode "state." blueprint
+    requestBytes <- requireCompiledCode "request." blueprint
+    pure
+        CageConfig
+            { cageScriptBytes = stateBytes
+            , requestScriptBytes = requestBytes
+            , cfgScriptHash = computeScriptHash stateBytes
+            , defaultProcessTime = 60_000
+            , defaultRetractTime = 30_000
+            , defaultTip = Coin 1_000_000
+            , network = Testnet
+            }
+
+-- | Build a minimal in-memory CSMT with one entry under @prefix@ plus
+-- two diverging siblings, and return the CSMT root bytes and a
+-- completeness witness for that prefix.
+genCsmtRow :: [Direction] -> (ByteString, UtxoSetWitness)
+genCsmtRow prefix = evalPureFromEmptyDB $ do
+    let entryKey = prefix <> byteStringToKey (encodeTxIn fakeTxId 0)
+    insertMHash entryKey (mkHash fakeTxOut)
+    insertMHash (divergeAt 0) (mkHash "sibling-0")
+    insertMHash (divergeAt 127) (mkHash "sibling-127")
+    mProof <-
+        runPureTransaction hashCodecs
+            $ generateProof StandaloneCSMTCol [] prefix
+    rootBs <- maybe BS.empty renderHash <$> getRootHashM
+    let proofBs = case mProof of
+            Just p -> renderCompletenessProof (p :: CompletenessProof Hash)
+            Nothing -> error "genCsmtRow: completeness proof missing"
+    pure
+        ( rootBs
+        , UtxoSetWitness
+            { uswEntries =
+                [ UtxoEntryRefOnly
+                    { uerRef =
+                        UtxoRef
+                            { urTxId = Hex fakeTxId
+                            , urTxIx = 0
+                            }
+                    , uerTxOutCbor = Hex fakeTxOut
+                    }
+                ]
+            , uswCompletenessProof = Hex proofBs
+            }
+        )
+  where
+    divergeAt n =
+        case splitAt n prefix of
+            (before, L : _) -> before <> [R] <> byteStringToKey (BS.pack [fromIntegral n])
+            (before, R : _) -> before <> [L] <> byteStringToKey (BS.pack [fromIntegral n])
+            _ -> byteStringToKey (BS.pack [fromIntegral n])
+
+encodeTxIn :: ByteString -> Word64 -> ByteString
+encodeTxIn txIdBs txIx =
+    CBOR.toStrictByteString
+        $ mconcat
+            [ CBOR.encodeListLen 2
+            , CBOR.encodeBytes txIdBs
+            , CBOR.encodeWord64 txIx
+            ]
+
+fakeTxId :: ByteString
+fakeTxId = BS.replicate 32 0x42
+
+fakeTxOut :: ByteString
+fakeTxOut = "fake-txout-cbor"
+
+snapshotWithRoot :: ByteString -> VerificationSnapshot
+snapshotWithRoot rootBs =
+    VerificationSnapshot
+        { vsUtxoRoot = Hex rootBs
+        , vsChainPoint =
+            ChainPointJSON
+                { cpSlot = 0
+                , cpBlockId = Hex (BS.replicate 32 0)
+                }
+        }
+
+genTokensPayload :: CageConfig -> (TrustedRoot, Value)
+genTokensPayload cfg =
+    let (rootBs, tokenSet) = genCsmtRow (cageSetPrefixFromCfg cfg)
+        resp =
+            TokensResponse
+                { trsSnapshot = snapshotWithRoot rootBs
+                , trsTokens =
+                    TokenSetWitness
+                        { tswEntries =
+                            [ TokenUtxoEntry
+                                { tueRef =
+                                    UtxoRef
+                                        { urTxId = Hex fakeTxId
+                                        , urTxIx = 0
+                                        }
+                                , tueTxOutCbor = Hex fakeTxOut
+                                }
+                            ]
+                        , tswCompletenessProof =
+                            uswCompletenessProof tokenSet
+                        }
+                }
+    in  (TrustedRoot (Hex rootBs), toJSON resp)
+
+genRequestsPayload
+    :: CageConfig -> TokenIdJSON -> (TrustedRoot, Value)
+genRequestsPayload cfg token =
+    let requestPrefix = requestSetPrefixFromCfg cfg token
+        (rootBs, requestSet) = genCsmtRow requestPrefix
+        resp =
+            RequestsResponse
+                { rrSnapshot = snapshotWithRoot rootBs
+                , rrRequestSet = requestSet
+                , rrRequests =
+                    [ WitnessedRequest
+                        { wrUtxo =
+                            WitnessedUtxo
+                                { wuTxIn =
+                                    TxInJSON
+                                        { tjTxId = Hex fakeTxId
+                                        , tjTxIx = 0
+                                        }
+                                , wuTxOut = Hex fakeTxOut
+                                , wuProof = Hex "\x82\x01\x02"
+                                }
+                        }
+                    ]
+                }
+    in  (TrustedRoot (Hex rootBs), toJSON resp)
+
+-- | Synthetic token-ID used for the inline-generated requests fixture.
+-- Hex text "cafe" decodes to bytes [0xca, 0xfe].
+syntheticTokenId :: TokenIdJSON
+syntheticTokenId = TokenIdJSON "\xca\xfe"
+
+syntheticTokenIdHex :: Text
+syntheticTokenIdHex = "cafe"
 
 factKey :: Text
 factKey = "70616f6c696e6f"

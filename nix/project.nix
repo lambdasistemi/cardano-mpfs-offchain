@@ -60,7 +60,10 @@ let
 
   mkProject = ctx@{ lib, pkgs, ... }: {
     name = "cardano-mpfs-offchain";
-    src = import ./clean-src.nix { inherit (pkgs) lib; src = ./..; };
+    src = import ./clean-src.nix {
+      inherit (pkgs) lib;
+      src = ./..;
+    };
     compiler-nix-name = "ghc9123";
     shell = shell { inherit pkgs; };
     modules = [ fix-libs ];

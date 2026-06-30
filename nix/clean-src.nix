@@ -23,8 +23,7 @@ let
     ".github" # CI workflows
     ".orch" # orchestration scratch
   ];
-in
-lib.cleanSourceWith {
+in lib.cleanSourceWith {
   name = "cardano-mpfs-offchain-src";
   inherit src;
   filter = path: type:
@@ -33,9 +32,7 @@ lib.cleanSourceWith {
       parts = lib.splitString "/" rel;
       top = lib.head parts;
       isTopLevel = lib.length parts == 1;
-    in
-    lib.cleanSourceFilter path type
-    && !(builtins.elem top excludedTop)
+    in lib.cleanSourceFilter path type && !(builtins.elem top excludedTop)
     # drop root-level *.md churn (CHANGELOG.md rewritten every release, etc.)
     && !(isTopLevel && lib.hasSuffix ".md" rel);
 }
