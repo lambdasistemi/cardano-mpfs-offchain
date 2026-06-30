@@ -77,6 +77,9 @@ module Cardano.MPFS.TxBuilder.Real.Internal
       -- * CSMT-backed witness construction
     , witness
     , witnesses
+
+      -- * Script construction helpers
+    , mkStakeScript
     ) where
 
 import Data.ByteString (ByteString)
@@ -375,6 +378,23 @@ computeScriptHash sbs =
             Nothing ->
                 raiseTxBuilderFailure
                     "computeScriptHash: invalid \
+                    \PlutusV3 script"
+
+-- | Build a PlutusV3 'Script' from raw UPLC bytes.
+-- Used for staking scripts loaded from the blueprint.
+mkStakeScript
+    :: SBS.ShortByteString
+    -- ^ Flat-encoded PlutusV3 script bytes
+    -> Script ConwayEra
+mkStakeScript sbs =
+    let plutus =
+            Plutus @PlutusV3
+                $ PlutusBinary sbs
+    in  case mkPlutusScript plutus of
+            Just ps -> fromPlutusScript ps
+            Nothing ->
+                raiseTxBuilderFailure
+                    "mkStakeScript: invalid \
                     \PlutusV3 script"
 
 -- | Compute the cage minting policy ID from config.

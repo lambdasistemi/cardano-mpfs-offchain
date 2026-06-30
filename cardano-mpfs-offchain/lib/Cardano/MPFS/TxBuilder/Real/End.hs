@@ -17,7 +17,12 @@ import Data.Map.Strict qualified as Map
 import Data.Void (Void)
 import Lens.Micro ((^.))
 
-import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Address
+    ( AccountAddress (..)
+    , AccountId (..)
+    , Addr
+    )
+import Cardano.Ledger.Credential (Credential (ScriptHashObj))
 import PlutusTx.Builtins.Internal
     ( BuiltinByteString (..)
     )
@@ -33,6 +38,7 @@ import Cardano.MPFS.Core.OnChain
     )
 import Cardano.MPFS.Core.Types
     ( AssetName (..)
+    , Coin (..)
     , TokenId (..)
     )
 import Cardano.MPFS.Provider (Provider (..))
@@ -135,6 +141,22 @@ endTokenImpl cfg prov proofFn snap tid addr = do
             Tx.requireSignature
                 (witnessKeyHashToGuard ownerKh)
             Tx.collateral (fst feeUtxo)
+            case cfgStakeScript cfg of
+                Nothing -> pure ()
+                Just (stakeBytes, stakeHash) -> do
+                    let stakeScript =
+                            mkStakeScript stakeBytes
+                        rewardAcct =
+                            AccountAddress
+                                (network cfg)
+                                ( AccountId
+                                    (ScriptHashObj stakeHash)
+                                )
+                    Tx.withdrawScript
+                        rewardAcct
+                        (Coin 0)
+                        (0 :: Integer)
+                    Tx.attachScript stakeScript
         evalTx tx =
             Map.map
                 (either (Left . show) Right)

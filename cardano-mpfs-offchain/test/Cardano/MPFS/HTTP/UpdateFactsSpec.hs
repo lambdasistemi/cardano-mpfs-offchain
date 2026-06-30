@@ -482,6 +482,7 @@ stateTxOutBytes ownerAddr =
                 , stateMaxFee = 1_000_000
                 , stateProcessTime = 300_000
                 , stateRetractTime = 60_000
+                , stateStakeScript = Nothing
                 }
     txOut =
         mkBasicTxOut

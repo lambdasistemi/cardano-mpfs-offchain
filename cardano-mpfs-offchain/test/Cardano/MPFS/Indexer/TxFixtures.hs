@@ -480,6 +480,7 @@ mkStateDatum TokenState{..} r =
                 , stateMaxFee = mf
                 , stateProcessTime = processTime
                 , stateRetractTime = retractTime
+                , stateStakeScript = Nothing
                 }
 
 -- | Compute spending index of a TxIn in a set.

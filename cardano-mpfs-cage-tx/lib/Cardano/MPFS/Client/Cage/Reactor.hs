@@ -374,7 +374,7 @@ operationSeries (OpUpdate old new) =
         <> "new" .= bytesHex new
 
 stateSeries :: Text -> OnChainTokenState -> Series
-stateSeries tokenId OnChainTokenState{..} =
+stateSeries tokenId OnChainTokenState{stateStakeScript = _, ..} =
     "datum" .= ("state" :: Text)
         <> "token_id" .= tokenId
         <> "owner" .= builtinHex stateOwner

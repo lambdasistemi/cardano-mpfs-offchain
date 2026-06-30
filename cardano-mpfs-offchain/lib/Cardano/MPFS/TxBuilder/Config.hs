@@ -53,4 +53,8 @@ data CageConfig = CageConfig
     -- ^ Default max fee for newly booted tokens
     , network :: !Network
     -- ^ Target network (Mainnet or Testnet)
+    , cfgStakeScript :: !(Maybe (ShortByteString, ScriptHash))
+    -- ^ Optional staking script: bytes + hash.
+    -- When set, Modify\/End include a
+    -- withdraw-zero from the staking credential.
     }

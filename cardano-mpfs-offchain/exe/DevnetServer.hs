@@ -160,7 +160,7 @@ loadScripts = do
 mkCageCfg
     :: CageScripts
     -> CageConfig
-mkCageCfg (stateBytes, requestBytes) =
+mkCageCfg (stateBytes, requestBytes, mStakingBytes) =
     CageConfig
         { cageScriptBytes = stateBytes
         , requestScriptBytes = requestBytes
@@ -170,4 +170,8 @@ mkCageCfg (stateBytes, requestBytes) =
         , defaultRetractTime = 300_000
         , defaultTip = Coin 2_000_000
         , network = Testnet
+        , cfgStakeScript =
+            fmap
+                (\bs -> (bs, computeScriptHash bs))
+                mStakingBytes
         }

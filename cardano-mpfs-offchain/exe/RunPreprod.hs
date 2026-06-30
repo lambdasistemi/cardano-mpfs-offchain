@@ -66,6 +66,7 @@ dummyCageConfig =
         , defaultRetractTime = 300_000
         , defaultTip = Coin 2_000_000
         , network = Testnet
+        , cfgStakeScript = Nothing
         }
 
 main :: IO ()

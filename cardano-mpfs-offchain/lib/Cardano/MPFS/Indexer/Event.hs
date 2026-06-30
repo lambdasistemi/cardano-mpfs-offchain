@@ -643,7 +643,7 @@ requestOutputToken txOut =
 fromOnChainState
     :: OnChainTokenState
     -> Either CageEventFailure TokenState
-fromOnChainState OnChainTokenState{..} = do
+fromOnChainState OnChainTokenState{stateStakeScript = _, ..} = do
     owner <- keyHashFromBBS stateOwner
     pure
         TokenState

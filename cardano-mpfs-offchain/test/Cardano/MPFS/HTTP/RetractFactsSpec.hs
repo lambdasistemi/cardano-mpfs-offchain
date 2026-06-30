@@ -337,6 +337,7 @@ testCageConfig =
         , defaultRetractTime = 30_000
         , defaultTip = Coin 1_000_000
         , network = Testnet
+        , cfgStakeScript = Nothing
         }
 
 testRequestScriptBytes :: SBS.ShortByteString
@@ -512,6 +513,7 @@ stateTxOutBytes ownerAddr processTime retractTime =
                 , stateMaxFee = 1_000_000
                 , stateProcessTime = processTime
                 , stateRetractTime = retractTime
+                , stateStakeScript = Nothing
                 }
     txOut =
         mkBasicTxOut

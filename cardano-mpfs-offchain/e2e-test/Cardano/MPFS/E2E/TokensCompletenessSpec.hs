@@ -298,7 +298,7 @@ withE2E scripts action = do
                 action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig
-cageCfg (stateBytes, requestBytes) =
+cageCfg (stateBytes, requestBytes, mStakingBytes) =
     CageConfig
         { cageScriptBytes = stateBytes
         , requestScriptBytes = requestBytes
@@ -307,6 +307,10 @@ cageCfg (stateBytes, requestBytes) =
         , defaultRetractTime = 5_000
         , defaultTip = Coin 1_000_000
         , network = Testnet
+        , cfgStakeScript =
+            fmap
+                (\bs -> (bs, computeScriptHash bs))
+                mStakingBytes
         }
 
 emptySnap :: BundleSnapshot

@@ -320,6 +320,7 @@ testCageConfig =
         , defaultRetractTime = 600_000
         , defaultTip = Coin 1_000_000
         , network = Testnet
+        , cfgStakeScript = Nothing
         }
 
 -- | Build a Provider that returns a fixed UTxO set
@@ -358,6 +359,7 @@ fallbackState =
         , stateMaxFee = 1_000_000
         , stateProcessTime = 300_000
         , stateRetractTime = 600_000
+        , stateStakeScript = Nothing
         }
 
 -- | Dummy CSMT proof function that always returns
@@ -465,6 +467,7 @@ mkStateTxOut =
                     , stateMaxFee = 1_000_000
                     , stateProcessTime = 300_000
                     , stateRetractTime = 600_000
+                    , stateStakeScript = Nothing
                     }
     in  mkBasicTxOut (cageAddr Testnet) val
             & datumTxOutL
