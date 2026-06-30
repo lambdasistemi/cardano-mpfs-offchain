@@ -72,6 +72,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , registerStakeCredIfNeeded
     , walletBootInputs
     , withBootFactsTxBuilder
     )
@@ -1106,6 +1107,7 @@ withE2EWithFollower enableFollower scripts action = do
                         queryProtocolParams
                             (provider ctx')
                     awaitProofReadsReady ctx'
+                    registerStakeCredIfNeeded cfg ctx'
                     action cfg ctx'
 
 -- ---------------------------------------------------------

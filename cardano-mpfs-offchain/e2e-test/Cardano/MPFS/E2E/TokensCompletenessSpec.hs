@@ -48,6 +48,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , registerStakeCredIfNeeded
     , walletBootInputs
     , withBootFactsTxBuilder
     )
@@ -295,6 +296,7 @@ withE2E scripts action = do
                 let ctx' = withBootFactsTxBuilder cfg ctx
                 _ <- queryProtocolParams (provider ctx')
                 awaitProofReadsReady ctx'
+                registerStakeCredIfNeeded cfg ctx'
                 action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig
