@@ -308,15 +308,27 @@ registerStakeCredIfNeeded cfg ctx =
                     let signed = addKeyWitness genesisSignKey unsigned
                     res <- submitTx (submitter ctx) signed
                     case res of
-                        Submitted _ ->
-                            awaitCertConfirmed (fst feeInput)
+                        Submitted _ -> do
+                            awaitNodeConfirmed (fst feeInput)
+                            awaitIndexerDropped (fst feeInput)
                         Rejected msg ->
                             fail
                                 $ "registerStakeCredIfNeeded: \
                                   \submit rejected: "
                                     <> show msg
   where
-    awaitCertConfirmed spentRef = go (120 :: Int)
+    awaitNodeConfirmed spentRef = go (240 :: Int)
+      where
+        go 0 =
+            fail
+                "registerStakeCredIfNeeded: \
+                \cert tx not confirmed on-chain after 120s"
+        go n = do
+            utxos <- queryUTxOs (provider ctx) genesisAddr
+            when (any ((== spentRef) . fst) utxos)
+                $ threadDelay 500_000
+                    >> go (n - 1)
+    awaitIndexerDropped spentRef = go (120 :: Int)
       where
         go 0 =
             fail
