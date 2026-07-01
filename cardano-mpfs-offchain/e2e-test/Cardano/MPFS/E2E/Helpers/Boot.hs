@@ -308,12 +308,32 @@ registerStakeCredIfNeeded cfg ctx =
                     let signed = addKeyWitness genesisSignKey unsigned
                     res <- submitTx (submitter ctx) signed
                     case res of
-                        Submitted _ -> threadDelay 5_000_000
+                        Submitted _ ->
+                            awaitCertConfirmed (fst feeInput)
                         Rejected msg ->
                             fail
                                 $ "registerStakeCredIfNeeded: \
                                   \submit rejected: "
                                     <> show msg
+  where
+    awaitCertConfirmed spentRef = go (120 :: Int)
+      where
+        go 0 =
+            fail
+                "registerStakeCredIfNeeded: \
+                \cert tx not indexed after 60s"
+        go n = do
+            eInputs <-
+                runIndexerTx
+                    ctx
+                    (readWalletInputsAt genesisAddr)
+            case eInputs of
+                Left _ ->
+                    threadDelay 500_000 >> go (n - 1)
+                Right inputs ->
+                    if any (\(tin, _, _) -> tin == spentRef) inputs
+                        then threadDelay 500_000 >> go (n - 1)
+                        else pure ()
 
 data NoCtx a
 
