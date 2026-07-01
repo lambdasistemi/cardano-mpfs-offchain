@@ -328,24 +328,32 @@ registerStakeCredIfNeeded cfg ctx =
             when (any ((== spentRef) . fst) utxos)
                 $ threadDelay 500_000
                     >> go (n - 1)
-    awaitIndexerDropped spentRef = go (120 :: Int)
+    awaitIndexerDropped spentRef = go (120 :: Int) (0 :: Int) (0 :: Int)
       where
-        go 0 =
+        go 0 leftCount presentCount =
             fail
-                "registerStakeCredIfNeeded: \
-                \cert tx not indexed after 60s"
-        go n = do
+                $ "registerStakeCredIfNeeded: \
+                  \cert tx not indexed after 60s"
+                    <> " (Left="
+                    <> show leftCount
+                    <> " Present="
+                    <> show presentCount
+                    <> ")"
+        go n leftCount presentCount = do
             eInputs <-
                 runIndexerTx
                     ctx
                     (readWalletInputsAt genesisAddr)
             case eInputs of
                 Left _ ->
-                    threadDelay 500_000 >> go (n - 1)
+                    threadDelay 500_000
+                        >> go (n - 1) (leftCount + 1) presentCount
                 Right inputs ->
-                    when (any (\(tin, _, _) -> tin == spentRef) inputs)
-                        $ threadDelay 500_000
-                            >> go (n - 1)
+                    if any (\(tin, _, _) -> tin == spentRef) inputs
+                        then
+                            threadDelay 500_000
+                                >> go (n - 1) leftCount (presentCount + 1)
+                        else pure ()
 
 data NoCtx a
 
