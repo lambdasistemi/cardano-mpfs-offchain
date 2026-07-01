@@ -1,7 +1,7 @@
 # cardano-mpfs-offchain Development Guidelines
 
 Auto-generated from active feature plans and maintained by hand where
-repo-wide guidance is stable. Last updated: 2026-05-17.
+repo-wide guidance is stable. Last updated: 2026-07-01.
 
 ## Source of Truth
 
@@ -23,10 +23,18 @@ after design.
 - Haskell GHC 9.10.1; Servant/Aeson boot facts API; pure
   `cardano-mpfs-client` boot verifier and local cage helper; RocksDB
   IndexerTx reads unchanged (261-boot-fact-provider-pivot)
+- wasm32-wasi targets: `mpfs-verify-reactor` (verifier closure) +
+  `mpfs-cage-reactor` (cage tx builders — boot/assemble/end/request-*/
+  retract/reject/update ops via WASI stdio envelope); built via
+  `nix/wasm-targets.nix` mirroring `cardano-ledger-inspector`;
+  `cardano-mpfs-cage-tx` package carves cage tx builders out of client
+  as a WASM-portable sublibrary (258-cage-helper-wasm)
 
 - Haskell with GHC 9.10.1 for native builds.
 - `cardano-mpfs-client` verifiers must remain compatible with native
   GHC, GHC-WASM, and GHC-JS targets.
+- `cardano-mpfs-cage-tx` cage tx builders must remain compatible with
+  native GHC and GHC-WASM (wasm32-wasi) targets.
 - Nix flakes provide the development shell and CI environment.
 - Cabal drives Haskell builds inside the nix shell.
 - Fourmolu and HLint enforce formatting and linting.
@@ -85,6 +93,12 @@ Every issue starts with speckit artifacts before implementation:
 4. Implementation follows the task list, updating status as work lands.
 
 ## Recent Changes
+- 258-cage-helper-wasm: Added wasm32-wasi cross-compilation targets
+  (`wasm-mpfs-verify` via `nix/wasm-targets.nix`); `cardano-mpfs-cage-tx`
+  package carving cage tx builders as a WASM-portable library;
+  `mpfs-cage-reactor` WASI stdio-envelope reactor covering all cage ops
+  (boot, assemble, end, request-insert/update/delete, retract, reject,
+  update); build infrastructure mirrors `cardano-ledger-inspector` pattern
 - 261-boot-fact-provider-pivot: Added boot facts API planning,
   proof-only verifier and local cage-helper design, and paired MOOG
   cutover constraints
