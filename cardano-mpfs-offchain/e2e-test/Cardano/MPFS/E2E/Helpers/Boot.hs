@@ -331,9 +331,9 @@ registerStakeCredIfNeeded cfg ctx =
                 Left _ ->
                     threadDelay 500_000 >> go (n - 1)
                 Right inputs ->
-                    if any (\(tin, _, _) -> tin == spentRef) inputs
-                        then threadDelay 500_000 >> go (n - 1)
-                        else pure ()
+                    when (any (\(tin, _, _) -> tin == spentRef) inputs)
+                        $ threadDelay 500_000
+                            >> go (n - 1)
 
 data NoCtx a
 
