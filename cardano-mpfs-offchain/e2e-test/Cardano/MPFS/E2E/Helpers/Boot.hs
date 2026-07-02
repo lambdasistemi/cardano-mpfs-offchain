@@ -43,12 +43,15 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Api.Tx (txIdTx)
+import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary
     ( natVersion
     , serialize'
     )
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
+import Cardano.Ledger.TxIn (TxIn (..))
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
     , genesisAddr
@@ -310,11 +313,21 @@ registerStakeCredIfNeeded cfg ctx =
                     case res of
                         Submitted _ -> do
                             awaitNodeConfirmed (fst feeInput)
-                            -- Give the chain follower an uncontested
-                            -- window to commit the cert tx block.
-                            -- Polling runIndexerTx here starves the
-                            -- follower of the shared run lock.
-                            threadDelay 15_000_000
+                            indexed <-
+                                awaitUtxo
+                                    ctx
+                                    ( TxIn
+                                        (txIdTx signed)
+                                        (TxIx 0)
+                                    )
+                                    (Just 120)
+                            case indexed of
+                                Nothing ->
+                                    fail
+                                        "registerStakeCredIfNeeded: \
+                                        \cert tx not indexed \
+                                        \within 120s"
+                                Just _ -> pure ()
                         Rejected msg ->
                             fail
                                 $ "registerStakeCredIfNeeded: \
