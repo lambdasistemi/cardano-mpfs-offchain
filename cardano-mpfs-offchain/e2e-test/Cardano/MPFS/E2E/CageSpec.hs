@@ -87,7 +87,7 @@ import Cardano.MPFS.Core.Types
 import Cardano.MPFS.E2E.Helpers.Boot
     ( registerStakeCredIfNeeded
     , walletBootInputs
-    , withBootFactsTxBuilder
+    , withWalletBootTxBuilder
     )
 import Cardano.MPFS.Provider
     ( Provider (..)
@@ -443,7 +443,7 @@ withE2E scripts action = do
                         nullTracer
                     }
         withApplication appCfg $ \ctx -> do
-            let ctx' = withBootFactsTxBuilder cfg ctx
+            let ctx' = withWalletBootTxBuilder cfg ctx
             _ <-
                 queryProtocolParams
                     (provider ctx')

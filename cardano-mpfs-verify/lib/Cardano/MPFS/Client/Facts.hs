@@ -38,6 +38,7 @@ module Cardano.MPFS.Client.Facts
     , verifiedEndFacts
     , verifiedFactPresentFacts
     , verifiedFactAbsentFacts
+    , unsafeVerifiedBootFacts
     , verifyBootFacts
     , verifyRequestInsertFacts
     , verifyRequestDeleteFacts
@@ -203,6 +204,13 @@ newtype VerifiedFactAbsentFacts
 -- established the trusted-root and CSMT proof checks.
 verifiedBootFacts :: VerifiedBootFacts -> BootFacts
 verifiedBootFacts (VerifiedBootFacts facts) = facts
+
+-- | Bypass proof verification. Only for E2E test contexts where
+-- no CSMT indexer is running and the proof bytes are empty.
+-- Never call this in production or in tests that exercise proof
+-- verification behaviour.
+unsafeVerifiedBootFacts :: BootFacts -> VerifiedBootFacts
+unsafeVerifiedBootFacts = VerifiedBootFacts
 
 -- | Extract the verified facts after 'verifyRequestInsertFacts'
 -- has established the trusted-root and CSMT proof checks.

@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : Cardano.MPFS.E2E.Helpers.Boot
@@ -31,6 +32,7 @@
 module Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
     , withBootFactsTxBuilder
+    , withWalletBootTxBuilder
     , awaitProofReadsReady
     , registerStakeCredIfNeeded
     ) where
@@ -43,15 +45,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Api.Tx (txIdTx)
-import Cardano.Ledger.BaseTypes (TxIx (..))
 import Cardano.Ledger.Binary
     ( natVersion
     , serialize'
     )
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
-import Cardano.Ledger.TxIn (TxIn (..))
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
     , genesisAddr
@@ -67,7 +66,10 @@ import Cardano.MPFS.Client.Cage.Boot (bootCageTxWithEval)
 import Cardano.MPFS.Client.Cage.Config qualified as Client
 import Cardano.MPFS.Client.Cage.Eval (decodeEvalContext)
 import Cardano.MPFS.Client.Cage.Policy (WalletPolicy (..))
-import Cardano.MPFS.Client.Facts (verifyBootFacts)
+import Cardano.MPFS.Client.Facts
+    ( unsafeVerifiedBootFacts
+    , verifyBootFacts
+    )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
@@ -129,6 +131,63 @@ withBootFactsTxBuilder cfg ctx =
                         buildBootEnvelopeFromFacts cfg ctx addr
                 }
         }
+
+-- | Replace the production boot stub with a wallet-side boot
+-- that uses explicitly-provided inputs (no indexer needed).
+-- Use in test contexts where 'followerEnabled' is 'False'.
+withWalletBootTxBuilder
+    :: CageConfig
+    -> Context IO
+    -> Context IO
+withWalletBootTxBuilder cfg ctx =
+    ctx
+        { txBuilder =
+            (txBuilder ctx)
+                { bootToken = buildBootEnvelopeFromWalletInputs cfg ctx
+                }
+        }
+
+buildBootEnvelopeFromWalletInputs
+    :: CageConfig
+    -> Context IO
+    -> BundleSnapshot
+    -> [ResolvedWalletInput]
+    -> Addr
+    -> IO (ProofEnvelope BootProof)
+buildBootEnvelopeFromWalletInputs cfg ctx snap inputs _addr = do
+    pp <- queryProtocolParams (provider ctx)
+    let facts = mkBootFacts snap inputs pp
+        -- Skip proof verification: CageSpec runs without the CSMT
+        -- indexer (followerEnabled = False) so inclusion proofs are
+        -- empty. The cage TX builder only uses ueRef + ueTxOutCbor.
+        verified = unsafeVerifiedBootFacts facts
+    evalCtxWire <- evalContext ctx
+    evalCtx <-
+        case decodeEvalContext evalCtxWire of
+            Left err ->
+                fail
+                    $ "E2E boot: decodeEvalContext failed: "
+                        <> show err
+            Right v -> pure v
+    tx <-
+        case bootCageTxWithEval
+            evalCtx
+            (toClientCageConfig cfg)
+            permissiveWalletPolicy
+            verified of
+            Left err ->
+                fail
+                    $ "E2E boot: bootCageTx failed: "
+                        <> show err
+            Right v -> pure v
+    pure
+        ProofEnvelope
+            { envTx = tx
+            , envSnapshot = snap
+            , envProof =
+                BootProof
+                    (map witnessedInputFromResolved inputs)
+            }
 
 -- | Wait until the application may serve CSMT proof reads.
 awaitProofReadsReady :: Context IO -> IO ()
@@ -311,28 +370,16 @@ registerStakeCredIfNeeded cfg ctx =
                     let signed = addKeyWitness genesisSignKey unsigned
                     res <- submitTx (submitter ctx) signed
                     case res of
-                        Submitted _ -> do
+                        Submitted _ ->
                             awaitNodeConfirmed (fst feeInput)
-                            indexed <-
-                                awaitUtxo
-                                    ctx
-                                    ( TxIn
-                                        (txIdTx signed)
-                                        (TxIx 0)
-                                    )
-                                    (Just 120)
-                            case indexed of
-                                Nothing ->
-                                    fail
-                                        "registerStakeCredIfNeeded: \
-                                        \cert tx not indexed \
-                                        \within 120s"
-                                Just _ -> pure ()
-                        Rejected msg ->
-                            fail
-                                $ "registerStakeCredIfNeeded: \
-                                  \submit rejected: "
-                                    <> show msg
+                        Rejected msg
+                            | "All inputs are spent" `BS.isInfixOf` msg ->
+                                awaitNodeConfirmed (fst feeInput)
+                            | otherwise ->
+                                fail
+                                    $ "registerStakeCredIfNeeded: \
+                                      \submit rejected: "
+                                        <> show msg
   where
     awaitNodeConfirmed spentRef = go (240 :: Int)
       where
