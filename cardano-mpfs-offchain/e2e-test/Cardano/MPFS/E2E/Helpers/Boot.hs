@@ -310,7 +310,11 @@ registerStakeCredIfNeeded cfg ctx =
                     case res of
                         Submitted _ -> do
                             awaitNodeConfirmed (fst feeInput)
-                            awaitIndexerDropped (fst feeInput)
+                            -- Give the chain follower an uncontested
+                            -- window to commit the cert tx block.
+                            -- Polling runIndexerTx here starves the
+                            -- follower of the shared run lock.
+                            threadDelay 15_000_000
                         Rejected msg ->
                             fail
                                 $ "registerStakeCredIfNeeded: \
@@ -328,32 +332,6 @@ registerStakeCredIfNeeded cfg ctx =
             when (any ((== spentRef) . fst) utxos)
                 $ threadDelay 500_000
                     >> go (n - 1)
-    awaitIndexerDropped spentRef = go (120 :: Int) (0 :: Int) (0 :: Int)
-      where
-        go 0 leftCount presentCount =
-            fail
-                $ "registerStakeCredIfNeeded: \
-                  \cert tx not indexed after 60s"
-                    <> " (Left="
-                    <> show leftCount
-                    <> " Present="
-                    <> show presentCount
-                    <> ")"
-        go n leftCount presentCount = do
-            eInputs <-
-                runIndexerTx
-                    ctx
-                    (readWalletInputsAt genesisAddr)
-            case eInputs of
-                Left _ ->
-                    threadDelay 500_000
-                        >> go (n - 1) (leftCount + 1) presentCount
-                Right inputs ->
-                    if any (\(tin, _, _) -> tin == spentRef) inputs
-                        then
-                            threadDelay 500_000
-                                >> go (n - 1) leftCount (presentCount + 1)
-                        else pure ()
 
 data NoCtx a
 
