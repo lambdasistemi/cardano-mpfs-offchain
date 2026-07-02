@@ -75,6 +75,7 @@ import Cardano.MPFS.E2E.Helpers.Boot
     , registerStakeCredIfNeeded
     , walletBootInputs
     , withBootFactsTxBuilder
+    , withWalletBootTxBuilder
     )
 import Cardano.MPFS.Indexer.Event
     ( CageEvent (..)
@@ -1102,7 +1103,9 @@ withE2EWithFollower enableFollower scripts action = do
                             }
                 withApplication appCfg $ \ctx -> do
                     let ctx' =
-                            withBootFactsTxBuilder cfg ctx
+                            if enableFollower
+                                then withBootFactsTxBuilder cfg ctx
+                                else withWalletBootTxBuilder cfg ctx
                     _ <-
                         queryProtocolParams
                             (provider ctx')
