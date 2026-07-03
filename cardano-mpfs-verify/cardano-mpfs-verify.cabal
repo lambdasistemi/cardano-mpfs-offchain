@@ -47,6 +47,7 @@ library
     , bytestring             >=0.11 && <0.13
     , cardano-crypto-class
     , cardano-ledger-alonzo
+    , memory
     , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-mary
@@ -75,6 +76,8 @@ library
     Cardano.MPFS.Client.Verify.Snapshot
     Cardano.MPFS.Client.Verify.TxView
     Cardano.MPFS.Client.Verify.Write
+    Cardano.MPFS.Client.KERI.CESR
+    Cardano.MPFS.Client.KERI.Ed25519
 
 -- | Cross-target reactor: reads a JSON request envelope on stdin and
 -- writes a one-line verdict on stdout via 'runEnvelope'. This is the

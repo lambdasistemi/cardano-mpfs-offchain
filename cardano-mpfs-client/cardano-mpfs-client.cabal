@@ -75,6 +75,8 @@ library
     , Cardano.MPFS.Client.Verify.Snapshot
     , Cardano.MPFS.Client.Verify.TxView
     , Cardano.MPFS.Client.Verify.Write
+    , Cardano.MPFS.Client.KERI.CESR
+    , Cardano.MPFS.Client.KERI.Ed25519
 
   exposed-modules:
     Cardano.MPFS.Client
@@ -110,6 +112,7 @@ test-suite unit-tests
     , bytestring
     , cardano-crypto-class
     , cardano-ledger-allegra
+    , memory
     , cardano-ledger-alonzo
     , cardano-ledger-api
     , cardano-ledger-binary
@@ -169,5 +172,6 @@ test-suite unit-tests
     Cardano.MPFS.Client.Verify.ReadSpec
     Cardano.MPFS.Client.Verify.WriteSpec
     Cardano.MPFS.Client.VerifySpec
+    Cardano.MPFS.Client.KERI.Ed25519Spec
 
   ghc-options:      -threaded -with-rtsopts=-N
