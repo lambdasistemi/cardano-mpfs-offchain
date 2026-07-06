@@ -63,6 +63,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , ensureBootFunding
     , genesisCageConfigWith
     , registerStakeCredIfNeeded
     , walletBootInputs
@@ -333,6 +334,7 @@ withE2E scripts action = do
                     _ <-
                         queryProtocolParams
                             (provider ctx')
+                    ensureBootFunding ctx'
                     -- Let ChainSync catch up to
                     -- the tip before submitting txs
                     awaitProofReadsReady ctx'

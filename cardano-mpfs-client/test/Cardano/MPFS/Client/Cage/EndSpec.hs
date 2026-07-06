@@ -239,6 +239,23 @@ spec = describe "endCageTx" $ do
             verified
             `shouldBe` Left EmptyFunding
 
+    it "rejects single-UTxO wallets because collateral must be disjoint" $ do
+        cfg <- testCageConfig
+        let EndFixture{trustedRoot, facts} = honestEndFixture cfg
+            singleFunding =
+                facts{efWalletUtxos = take 1 (efWalletUtxos facts)}
+        verified <- expectVerified cfg trustedRoot singleFunding
+        endCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
+            `shouldBe` Left
+                ( InsufficientCollateralUtxos
+                    "end requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+                )
+
     it "rejects wallet policy caps before signing" $ do
         cfg <- testCageConfig
         let EndFixture{trustedRoot, facts} = honestEndFixture cfg
@@ -260,7 +277,7 @@ spec = describe "endCageTx" $ do
                     )
                 )
 
-    it "selects the largest wallet UTxO as collateral" $ do
+    it "keeps end collateral disjoint from spent inputs" $ do
         cfg <- testCageConfig
         let EndFixture
                 { trustedRoot
@@ -281,7 +298,9 @@ spec = describe "endCageTx" $ do
                         *> error "unreachable"
                 Right tx -> pure tx
         let collateral = tx ^. bodyTxL . collateralInputsTxBodyL
+            inputs = tx ^. bodyTxL . inputsTxBodyL
         Set.member expectedCollateral collateral `shouldBe` True
+        Set.intersection collateral inputs `shouldBe` Set.empty
 
     it "builds an unsigned burn transaction for the verified facts" $ do
         cfg <- testCageConfig
@@ -290,6 +309,7 @@ spec = describe "endCageTx" $ do
                 , facts
                 , stateInput
                 , walletInput
+                , collateralInput
                 , tokenAsset
                 } = honestEndFixture cfg
             policyId = cagePolicyIdFromCfg cfg
@@ -327,6 +347,12 @@ spec = describe "endCageTx" $ do
                     (TxDats mempty)
         Set.member stateInput inputs `shouldBe` True
         Set.member walletInput inputs `shouldBe` True
+        Set.member collateralInput (tx ^. bodyTxL . collateralInputsTxBodyL)
+            `shouldBe` True
+        Set.intersection
+            (tx ^. bodyTxL . collateralInputsTxBodyL)
+            inputs
+            `shouldBe` Set.empty
         Map.lookup policyId minted
             `shouldBe` Just (Map.singleton tokenAsset (-1))
         Map.member (hashScript (mkCageScript cfg)) scripts
@@ -347,6 +373,7 @@ data EndFixture = EndFixture
     , facts :: EndFacts
     , stateInput :: TxIn
     , walletInput :: TxIn
+    , collateralInput :: TxIn
     , tokenAsset :: TokenIdAsset
     }
 
@@ -358,15 +385,18 @@ honestEndFixture cfg =
         token = tokenIdFromJSON sampleToken
         asset = unTokenId token
         stateBytes = stateTxOutBytes cfg asset
-        walletBytes = walletTxOutBytes
-        (root, stateEntry, walletEntry, proofBs) =
-            csmtEndRows requestPrefix stateBytes walletBytes
+        (root, stateEntry, walletEntry, collateralEntry, proofBs) =
+            csmtEndRowsMixed
+                requestPrefix
+                stateBytes
+                walletTxOutBytes
+                collateralWalletTxOutBytes
         endFacts =
             EndFacts
                 { efSnapshot = snapshotWithRoot root
                 , efToken = sampleToken
                 , efStateUtxo = stateEntry
-                , efWalletUtxos = [walletEntry]
+                , efWalletUtxos = [walletEntry, collateralEntry]
                 , efRequestSet =
                     UtxoSetWitness
                         { uswEntries = []
@@ -380,6 +410,7 @@ honestEndFixture cfg =
             , facts = endFacts
             , stateInput = txInFromBytes stateTxId 0
             , walletInput = txInFromBytes walletTxId 1
+            , collateralInput = txInFromBytes walletTxId 2
             , tokenAsset = asset
             }
 
@@ -425,7 +456,8 @@ mixedBalanceEndFixture cfg =
             { trustedRoot = TrustedRoot (Hex root)
             , facts = endFacts
             , stateInput = txInFromBytes stateTxId 0
-            , walletInput = txInFromBytes walletTxId 2
+            , walletInput = txInFromBytes walletTxId 1
+            , collateralInput = txInFromBytes walletTxId 2
             , tokenAsset = asset
             }
 
@@ -489,67 +521,6 @@ csmtEndRowsMixed requestPrefix stateBytes smallBytes largeBytes =
                         }
                 , ueTxOutCbor = Hex largeBytes
                 , ueInclusionProof = Hex largeProof
-                }
-            , case completenessProof of
-                Just proof ->
-                    renderCompletenessProof
-                        (proof :: CompletenessProof Hash)
-                Nothing ->
-                    error "expected request-set completeness proof"
-            )
-  where
-    proofBytes key = do
-        mProof <-
-            proofM
-                hashCodecs
-                identityFromKV
-                hashHashing
-                key
-        pure $ case mProof of
-            Just (_, proof) -> renderProof proof
-            Nothing -> BS.empty
-
-csmtEndRows
-    :: [Direction]
-    -> ByteString
-    -> ByteString
-    -> (ByteString, UtxoEntry, UtxoEntry, ByteString)
-csmtEndRows requestPrefix stateBytes walletBytes =
-    evalPureFromEmptyDB $ do
-        let stateKey =
-                byteStringToKey (encodeTxIn stateTxId 0)
-            walletKey =
-                byteStringToKey (encodeTxIn walletTxId 1)
-            rows =
-                [ (stateKey, stateBytes)
-                , (walletKey, walletBytes)
-                ]
-        mapM_ (\(key, txOut) -> insertMHash key (mkHash txOut)) rows
-        stateProof <- proofBytes stateKey
-        walletProof <- proofBytes walletKey
-        completenessProof <-
-            runPureTransaction hashCodecs
-                $ generateProof StandaloneCSMTCol [] requestPrefix
-        root <- maybe BS.empty renderHash <$> getRootHashM
-        pure
-            ( root
-            , UtxoEntry
-                { ueRef =
-                    UtxoRef
-                        { urTxId = Hex stateTxId
-                        , urTxIx = 0
-                        }
-                , ueTxOutCbor = Hex stateBytes
-                , ueInclusionProof = Hex stateProof
-                }
-            , UtxoEntry
-                { ueRef =
-                    UtxoRef
-                        { urTxId = Hex walletTxId
-                        , urTxIx = 1
-                        }
-                , ueTxOutCbor = Hex walletBytes
-                , ueInclusionProof = Hex walletProof
                 }
             , case completenessProof of
                 Just proof ->
@@ -664,6 +635,16 @@ walletTxOut =
     mkBasicTxOut
         fundingAddr
         (inject (Coin 50_000_000))
+
+collateralWalletTxOutBytes :: ByteString
+collateralWalletTxOutBytes =
+    serialize' (natVersion @11) collateralWalletTxOut
+
+collateralWalletTxOut :: TxOut ConwayEra
+collateralWalletTxOut =
+    mkBasicTxOut
+        fundingAddr
+        (inject (Coin 100_000_000))
 
 smallWalletTxOutBytes :: ByteString
 smallWalletTxOutBytes =

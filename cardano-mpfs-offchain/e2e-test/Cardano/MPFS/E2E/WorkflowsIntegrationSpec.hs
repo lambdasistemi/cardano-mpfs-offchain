@@ -126,6 +126,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , ensureBootFunding
     , genesisCageConfig
     , registerStakeCredIfNeeded
     )
@@ -777,6 +778,7 @@ withSharedEnv scripts action = do
                         }
             withApplication appCfg $ \ctx -> do
                 _ <- queryProtocolParams (provider ctx)
+                ensureBootFunding ctx
                 awaitProofReadsReady ctx
                 registerStakeCredIfNeeded cfg ctx
                 evalCtxWire <- evalContext ctx

@@ -89,6 +89,7 @@ import Cardano.MPFS.Core.Blueprint
 import Cardano.MPFS.Core.Types (Coin (..))
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , ensureBootFunding
     , genesisCageConfigWith
     , registerStakeCredIfNeeded
     , withBootFactsTxBuilder
@@ -269,6 +270,7 @@ withE2E scripts action = do
                     _ <-
                         queryProtocolParams
                             (provider ctx')
+                    ensureBootFunding ctx'
                     awaitProofReadsReady ctx'
                     registerStakeCredIfNeeded cfg ctx'
                     action cfg ctx'

@@ -217,6 +217,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , ensureBootFunding
     , genesisCageConfig
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
@@ -2030,6 +2031,7 @@ withE2E scripts action = do
                         }
             withApplication appCfg $ \ctx -> do
                 _ <- queryProtocolParams (provider ctx)
+                ensureBootFunding ctx
                 awaitProofReadsReady ctx
                 action cfg ctx
 
