@@ -252,6 +252,24 @@ spec = describe "rejectCageTx" $ do
             verified
             `shouldBe` Left EmptyFunding
 
+    it "rejects single-UTxO wallets because collateral must be disjoint" $ do
+        cfg <- testCageConfig
+        let RejectFixture{trustedRoot, facts} =
+                honestRejectFixture cfg
+            singleFunding =
+                facts{rfWalletUtxos = take 1 (rfWalletUtxos facts)}
+        verified <- expectVerified trustedRoot singleFunding
+        rejectCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
+            `shouldBe` Left
+                ( InsufficientCollateralUtxos
+                    "reject requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+                )
+
     it "rejects wallet policy caps before signing" $ do
         cfg <- testCageConfig
         let RejectFixture{trustedRoot, facts} =
@@ -328,6 +346,7 @@ spec = describe "rejectCageTx" $ do
                 , stateInput
                 , requestInput
                 , walletInput
+                , collateralInput
                 } = honestRejectFixture cfg
         verified <- expectVerified trustedRoot facts
         tx <- expectBuilt cfg verified
@@ -349,7 +368,8 @@ spec = describe "rejectCageTx" $ do
             `shouldBe` Set.fromList
                 [stateInput, requestInput, walletInput]
         refs `shouldBe` Set.empty
-        collateral `shouldBe` Set.singleton walletInput
+        collateral `shouldBe` Set.singleton collateralInput
+        Set.intersection collateral inputs `shouldBe` Set.empty
         Map.size scripts `shouldBe` 2
         Map.size rdmrs `shouldBe` 2
         body ^. mintTxBodyL `shouldBe` mempty
@@ -454,6 +474,7 @@ data RejectFixture = RejectFixture
     , stateInput :: TxIn
     , requestInput :: TxIn
     , walletInput :: TxIn
+    , collateralInput :: TxIn
     }
 
 honestRejectFixture :: CageConfig -> RejectFixture
@@ -474,15 +495,20 @@ honestRejectFixture cfg =
             serialize' (natVersion @11)
                 $ stateTxOut stateAddr cfg asset
         walletBytes = walletTxOutBytes
-        (root, stateEntry, requestEntry, walletEntry) =
-            csmtRejectRows stateBytes requestBytes walletBytes
+        collateralBytes = collateralWalletTxOutBytes
+        (root, stateEntry, requestEntry, walletEntry, collateralEntry) =
+            csmtRejectRows
+                stateBytes
+                requestBytes
+                walletBytes
+                collateralBytes
         reject =
             RejectFacts
                 { rfSnapshot = snapshotWithRoot root
                 , rfToken = sampleToken
                 , rfStateUtxo = stateEntry
                 , rfRequestUtxos = [requestEntry]
-                , rfWalletUtxos = [walletEntry]
+                , rfWalletUtxos = [walletEntry, collateralEntry]
                 , rfValidityLowerSlot = phase3LowerSlot
                 , rfValidityUpperSlot = phase3UpperSlot
                 , rfProtocolParameters =
@@ -494,26 +520,32 @@ honestRejectFixture cfg =
             , stateInput = txInFromBytes stateTxId 0
             , requestInput = txInFromBytes requestTxId 1
             , walletInput = txInFromBytes walletTxId 2
+            , collateralInput = txInFromBytes walletTxId 3
             }
 
 csmtRejectRows
     :: ByteString
     -> ByteString
     -> ByteString
-    -> (ByteString, UtxoEntry, UtxoEntry, UtxoEntry)
-csmtRejectRows stateBytes requestBytes walletBytes =
+    -> ByteString
+    -> (ByteString, UtxoEntry, UtxoEntry, UtxoEntry, UtxoEntry)
+csmtRejectRows stateBytes requestBytes walletBytes collateralBytes =
     evalPureFromEmptyDB $ do
         let stKey = byteStringToKey (encodeTxIn stateTxId 0)
             reqKey =
                 byteStringToKey (encodeTxIn requestTxId 1)
             walKey =
                 byteStringToKey (encodeTxIn walletTxId 2)
+            colKey =
+                byteStringToKey (encodeTxIn walletTxId 3)
         insertMHash stKey (mkHash stateBytes)
         insertMHash reqKey (mkHash requestBytes)
         insertMHash walKey (mkHash walletBytes)
+        insertMHash colKey (mkHash collateralBytes)
         stProof <- proofBytes stKey
         reqProof <- proofBytes reqKey
         walProof <- proofBytes walKey
+        colProof <- proofBytes colKey
         root <-
             maybe BS.empty renderHash <$> getRootHashM
         pure
@@ -521,6 +553,7 @@ csmtRejectRows stateBytes requestBytes walletBytes =
             , mkUtxoEntry stateTxId 0 stateBytes stProof
             , mkUtxoEntry requestTxId 1 requestBytes reqProof
             , mkUtxoEntry walletTxId 2 walletBytes walProof
+            , mkUtxoEntry walletTxId 3 collateralBytes colProof
             )
   where
     proofBytes key = do
@@ -615,22 +648,30 @@ rejectInputUtxos
     :: CageConfig
     -> RejectFixture
     -> [(TxIn, TxOut ConwayEra)]
-rejectInputUtxos cfg RejectFixture{stateInput, requestInput, walletInput} =
-    let token = tokenIdFromJSON sampleToken
-        requestAddr =
-            requestAddrFromCfg cfg token Testnet
-        stateAddr =
-            Addr
-                Testnet
-                (ScriptHashObj $ cfgScriptHash cfg)
-                StakeRefNull
-    in  [
-            ( stateInput
-            , stateTxOut stateAddr cfg (unTokenId token)
-            )
-        , (requestInput, requestTxOut requestAddr token)
-        , (walletInput, walletTxOut)
-        ]
+rejectInputUtxos
+    cfg
+    RejectFixture
+        { stateInput
+        , requestInput
+        , walletInput
+        , collateralInput
+        } =
+        let token = tokenIdFromJSON sampleToken
+            requestAddr =
+                requestAddrFromCfg cfg token Testnet
+            stateAddr =
+                Addr
+                    Testnet
+                    (ScriptHashObj $ cfgScriptHash cfg)
+                    StakeRefNull
+        in  [
+                ( stateInput
+                , stateTxOut stateAddr cfg (unTokenId token)
+                )
+            , (requestInput, requestTxOut requestAddr token)
+            , (walletInput, walletTxOut)
+            , (collateralInput, collateralWalletTxOut)
+            ]
 
 shouldCoverExUnits :: ExUnits -> ExUnits -> IO ()
 shouldCoverExUnits budget@(ExUnits budgetMem budgetSteps) actual@(ExUnits actualMem actualSteps) =
@@ -704,6 +745,16 @@ walletTxOut =
     mkBasicTxOut
         fundingAddr
         (inject (Coin 50_000_000))
+
+collateralWalletTxOutBytes :: ByteString
+collateralWalletTxOutBytes =
+    serialize' (natVersion @11) collateralWalletTxOut
+
+collateralWalletTxOut :: TxOut ConwayEra
+collateralWalletTxOut =
+    mkBasicTxOut
+        fundingAddr
+        (inject (Coin 100_000_000))
 
 mkInlineDatum :: (ToData a) => a -> Datum ConwayEra
 mkInlineDatum datum =

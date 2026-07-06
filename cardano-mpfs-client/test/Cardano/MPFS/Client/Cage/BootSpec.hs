@@ -163,6 +163,23 @@ spec = describe "bootCageTx" $ do
             verified
             `shouldBe` Left EmptyFunding
 
+    it "rejects single-UTxO wallets because collateral must be disjoint" $ do
+        cfg <- testCageConfig
+        facts <- deterministicBootFacts
+        verified <-
+            verifiedBootFacts
+                facts{bfWalletUtxos = take 1 (bfWalletUtxos facts)}
+        bootCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
+            `shouldBe` Left
+                ( InsufficientCollateralUtxos
+                    "boot requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+                )
+
     it "rejects wallet policy caps before signing" $ do
         cfg <- testCageConfig
         facts <- deterministicBootFacts
@@ -224,7 +241,7 @@ spec = describe "bootCageTx" $ do
             BS.readFile =<< legacyBootVectorPath
         serialize' (natVersion @11) tx `shouldNotBe` expected
 
-    it "selects the largest wallet UTxO as collateral" $ do
+    it "keeps boot collateral disjoint from spent inputs" $ do
         cfg <- testCageConfig
         facts <- mixedBalanceBootFacts
         verified <- verifiedBootFacts facts
@@ -248,7 +265,7 @@ spec = describe "bootCageTx" $ do
                 txInFor testTxId1Bytes 0
         Set.member expectedCollateral collateral `shouldBe` True
         Set.member expectedSeed inputs `shouldBe` True
-        Set.member expectedCollateral inputs `shouldBe` True
+        Set.intersection collateral inputs `shouldBe` Set.empty
 
     it "sets a submit-valid minting budget and script integrity" $ do
         cfg <- testCageConfig

@@ -72,7 +72,8 @@ import Cardano.Ledger.Api.Tx
     , witsTxL
     )
 import Cardano.Ledger.Api.Tx.Body
-    ( feeTxBodyL
+    ( collateralInputsTxBodyL
+    , feeTxBodyL
     , inputsTxBodyL
     )
 import Cardano.Ledger.Api.Tx.Out
@@ -133,7 +134,8 @@ import Cardano.Slotting.Time
     )
 import Cardano.Tx.Balance
     ( BalanceResult (..)
-    , balanceTx
+    , CollateralUtxos (..)
+    , balanceTxWith
     , computeScriptIntegrity
     , evalBudgetExUnits
     , languagesUsedInTx
@@ -441,10 +443,11 @@ evaluateAndBalancePure
     :: DecodedEvalContext
     -> [(TxIn, TxOut ConwayEra)]
     -> [(TxIn, TxOut ConwayEra)]
+    -> [(TxIn, TxOut ConwayEra)]
     -> Addr
     -> ConwayTx
     -> Either BuildError ConwayTx
-evaluateAndBalancePure ctx inputUtxos refUtxos changeAddr tx =
+evaluateAndBalancePure ctx inputUtxos collateralUtxos refUtxos changeAddr tx =
     go (0 :: Int) (Coin 0) Nothing
   where
     pp = evalProtocolParameters ctx
@@ -470,6 +473,7 @@ evaluateAndBalancePure ctx inputUtxos refUtxos changeAddr tx =
             let txForEval =
                     baseTx
                         & bodyTxL . feeTxBodyL .~ previousFee
+            ensureCollateralInputsResolved collateralUtxos txForEval
             preBalanceReport <-
                 evaluateRedeemers ctx inputUtxos refUtxos txForEval
             preBalancePatched <-
@@ -495,7 +499,14 @@ evaluateAndBalancePure ctx inputUtxos refUtxos changeAddr tx =
                 else go (n + 1) finalFee (Just finalExUnits)
 
     balance candidate =
-        case balanceTx pp inputUtxos refUtxos changeAddr candidate of
+        case balanceTxWith
+            pp
+            inputUtxos
+            (CollateralUtxos collateralUtxos)
+            refUtxos
+            changeAddr
+            Nothing
+            candidate of
             Left err ->
                 Left
                     $ DSLBuildFailed
@@ -518,58 +529,94 @@ evaluateAndBalancePureAtFee
     -> Coin
     -> [(TxIn, TxOut ConwayEra)]
     -> [(TxIn, TxOut ConwayEra)]
+    -> [(TxIn, TxOut ConwayEra)]
     -> Addr
     -> ConwayTx
     -> Either BuildError ConwayTx
-evaluateAndBalancePureAtFee ctx expectedFee inputUtxos refUtxos changeAddr tx = do
-    let txForEval =
-            baseTx
-                & bodyTxL . feeTxBodyL .~ expectedFee
-    preBalanceReport <-
-        evaluateRedeemers ctx inputUtxos refUtxos txForEval
-    preBalancePatched <-
-        patchEvaluatedRedeemers
-            ctx
-            refUtxos
-            txForEval
-            preBalanceReport
-    preBalanced <- balance preBalancePatched
-    let balancedFee =
-            preBalanced ^. bodyTxL . feeTxBodyL
-    if balancedFee /= expectedFee
-        then Right preBalanced
-        else do
-            finalPatched <-
-                stabilizeSubmittedRedeemers
-                    ctx
-                    inputUtxos
-                    refUtxos
-                    preBalanced
-            Right finalPatched
-  where
-    pp = evalProtocolParameters ctx
-    existingInputs =
-        tx ^. bodyTxL . inputsTxBodyL
-    allInputs =
-        foldl
-            ( \acc (txIn, _) ->
-                Set.insert txIn acc
-            )
-            existingInputs
-            inputUtxos
-    baseTx =
-        tx
-            & bodyTxL . inputsTxBodyL .~ allInputs
+evaluateAndBalancePureAtFee
+    ctx
+    expectedFee
+    inputUtxos
+    collateralUtxos
+    refUtxos
+    changeAddr
+    tx = do
+        let txForEval =
+                baseTx
+                    & bodyTxL . feeTxBodyL .~ expectedFee
+        ensureCollateralInputsResolved collateralUtxos txForEval
+        preBalanceReport <-
+            evaluateRedeemers ctx inputUtxos refUtxos txForEval
+        preBalancePatched <-
+            patchEvaluatedRedeemers
+                ctx
+                refUtxos
+                txForEval
+                preBalanceReport
+        preBalanced <- balance preBalancePatched
+        let balancedFee =
+                preBalanced ^. bodyTxL . feeTxBodyL
+        if balancedFee /= expectedFee
+            then Right preBalanced
+            else do
+                finalPatched <-
+                    stabilizeSubmittedRedeemers
+                        ctx
+                        inputUtxos
+                        refUtxos
+                        preBalanced
+                Right finalPatched
+      where
+        pp = evalProtocolParameters ctx
+        existingInputs =
+            tx ^. bodyTxL . inputsTxBodyL
+        allInputs =
+            foldl
+                ( \acc (txIn, _) ->
+                    Set.insert txIn acc
+                )
+                existingInputs
+                inputUtxos
+        baseTx =
+            tx
+                & bodyTxL . inputsTxBodyL .~ allInputs
 
-    balance candidate =
-        case balanceTx pp inputUtxos refUtxos changeAddr candidate of
-            Left err ->
-                Left
-                    $ DSLBuildFailed
-                    $ T.pack
-                    $ show err
-            Right BalanceResult{balancedTx} ->
-                Right balancedTx
+        balance candidate =
+            case balanceTxWith
+                pp
+                inputUtxos
+                (CollateralUtxos collateralUtxos)
+                refUtxos
+                changeAddr
+                Nothing
+                candidate of
+                Left err ->
+                    Left
+                        $ DSLBuildFailed
+                        $ T.pack
+                        $ show err
+                Right BalanceResult{balancedTx} ->
+                    Right balancedTx
+
+ensureCollateralInputsResolved
+    :: [(TxIn, TxOut ConwayEra)]
+    -> ConwayTx
+    -> Either BuildError ()
+ensureCollateralInputsResolved collateralUtxos tx =
+    case Set.toList missing of
+        [] -> Right ()
+        unresolved ->
+            Left
+                $ MissingBalancedInput
+                $ "collateral inputs missing from collateral UTxO set: "
+                    <> T.pack (show unresolved)
+  where
+    collateralInputs =
+        tx ^. bodyTxL . collateralInputsTxBodyL
+    collateralRefs =
+        Set.fromList (map fst collateralUtxos)
+    missing =
+        collateralInputs `Set.difference` collateralRefs
 
 evaluateRedeemers
     :: DecodedEvalContext

@@ -287,10 +287,28 @@ spec = describe "updateCageTx" $ do
             verified
             `shouldBe` Left EmptyFunding
 
+    it "rejects single-UTxO wallets because collateral must be disjoint" $ do
+        cfg <- testCageConfig
+        let UpdateFixture{trustedRoot, facts} =
+                honestUpdateFixture
+                    cfg
+                    [(walletTxId, 2, walletTxOutBytes)]
+        verified <- expectVerified trustedRoot facts
+        updateCageTxWithEval
+            (testEvalContext realisticPParams)
+            cfg
+            permissiveWalletPolicy
+            verified
+            `shouldBe` Left
+                ( InsufficientCollateralUtxos
+                    "update requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+                )
+
     it "rejects wallet policy caps before signing" $ do
         cfg <- testCageConfig
         let UpdateFixture{trustedRoot, facts} =
-                honestUpdateFixture cfg [(walletTxId, 2, walletTxOutBytes)]
+                honestUpdateFixture cfg twoWalletRows
             policy =
                 permissiveWalletPolicy
                     { wpMaxMinUtxoCoinPerByte = Coin 1
@@ -314,7 +332,7 @@ spec = describe "updateCageTx" $ do
         let UpdateFixture{trustedRoot, facts} =
                 honestUpdateFixture
                     cfg
-                    [(walletTxId, 2, walletTxOutBytes)]
+                    twoWalletRows
             mismatchedFacts =
                 facts{ufTrieFacts = []}
         verifyUpdateFacts trustedRoot mismatchedFacts
@@ -332,10 +350,9 @@ spec = describe "updateCageTx" $ do
                 , stateInput
                 , requestInputs
                 , walletInput
+                , collateralInput
                 } =
-                    honestUpdateFixture
-                        cfg
-                        [(walletTxId, 2, walletTxOutBytes)]
+                    honestUpdateFixture cfg twoWalletRows
         verified <- expectVerified trustedRoot facts
         tx <- expectUpdateTx cfg verified
         let body = tx ^. bodyTxL
@@ -359,7 +376,8 @@ spec = describe "updateCageTx" $ do
             )
             requestInputs
         Set.member walletInput inputs `shouldBe` True
-        Set.member walletInput collateral `shouldBe` True
+        Set.member collateralInput collateral `shouldBe` True
+        Set.intersection collateral inputs `shouldBe` Set.empty
         body ^. mintTxBodyL `shouldBe` mempty
         Map.size scripts `shouldBe` 2
         Map.member (hashScript (mkCageScript cfg)) scripts
@@ -379,7 +397,7 @@ spec = describe "updateCageTx" $ do
             UpdateFixture{trustedRoot, facts} =
                 honestUpdateFixture
                     cfg
-                    [(walletTxId, 2, walletTxOutBytes)]
+                    twoWalletRows
             factsWithSlot =
                 facts{ufValidityUpperSlot = factSlot}
         verified <- expectVerified trustedRoot factsWithSlot
@@ -398,7 +416,7 @@ spec = describe "updateCageTx" $ do
                 honestUpdateFixtureWithRequestOut
                     cfg
                     requestOut
-                    [(walletTxId, 2, walletTxOutBytes)]
+                    twoWalletRows
         verified <- expectVerified trustedRoot facts
         tx <- expectUpdateTx cfg verified
         let refundOut = singleRequestRefundOutput tx
@@ -412,7 +430,7 @@ spec = describe "updateCageTx" $ do
                 honestUpdateFixtureWithRequestCoin
                     cfg
                     (minFundedRequestCoin cfg)
-                    [(walletTxId, 2, walletTxOutBytes)]
+                    twoWalletRows
         verified <- expectVerified trustedRoot facts
         tx <- expectUpdateTx cfg verified
         let Coin perReqFee = tx ^. bodyTxL . feeTxBodyL
@@ -426,7 +444,7 @@ spec = describe "updateCageTx" $ do
                 honestUpdateFixtureWithRequestCoin
                     cfg
                     (minFundedRequestCoin cfg)
-                    [(walletTxId, 2, walletTxOutBytes)]
+                    twoWalletRows
         verified <- expectVerified trustedRoot facts
         tx <- expectUpdateTx cfg verified
         let Coin refundCoin =
@@ -441,11 +459,10 @@ spec = describe "updateCageTx" $ do
                 , stateInput
                 , requestInputs
                 , walletInput
+                , collateralInput
                 , expectedNewRoot
                 } =
-                    honestUpdateFixture
-                        cfg
-                        [(walletTxId, 2, walletTxOutBytes)]
+                    honestUpdateFixture cfg twoWalletRows
         verified <- expectVerified trustedRoot facts
         tx <- expectUpdateTx cfg verified
         let token = tokenIdFromJSON sampleToken
@@ -481,7 +498,7 @@ spec = describe "updateCageTx" $ do
                 (stateInput : walletInput : requestInputs)
         body ^. referenceInputsTxBodyL `shouldBe` mempty
         body ^. collateralInputsTxBodyL
-            `shouldBe` Set.singleton walletInput
+            `shouldBe` Set.singleton collateralInput
         take 2 outputs `shouldBe` [expectedStateOut, expectedRefund]
         fmap (^. addrTxOutL) outputs
             `shouldSatisfy` elem (stateAddr cfg)
@@ -523,7 +540,7 @@ spec = describe "updateCageTx" $ do
                 } =
                     honestUpdateFixture
                         cfg
-                        [(walletTxId, 2, walletTxOutBytes)]
+                        twoWalletRows
             Hex oldRoot = ufTrieRoot
         foldUpdateTrieFacts oldRoot (zip requestDatums ufTrieFacts)
             `shouldBe` Right expectedNewRoot
@@ -534,6 +551,7 @@ data UpdateFixture = UpdateFixture
     , stateInput :: TxIn
     , requestInputs :: [TxIn]
     , walletInput :: TxIn
+    , collateralInput :: TxIn
     , requestDatums :: [OnChainRequest]
     , expectedNewRoot :: ByteString
     }
@@ -603,6 +621,7 @@ honestUpdateFixtureWithRequestOut cfg requestOut walletRows =
             , stateInput = txInFromBytes stateTxId 0
             , requestInputs = [txInFromBytes requestTxId 1]
             , walletInput = txInFromBytes walletTxId 2
+            , collateralInput = txInFromBytes walletTxId 3
             , requestDatums = [requestDatum]
             , expectedNewRoot = newRoot
             }
@@ -903,6 +922,12 @@ updateRequestDatum token =
         , requestSubmittedAt = submittedAt
         }
 
+twoWalletRows :: [(ByteString, Word, ByteString)]
+twoWalletRows =
+    [ (walletTxId, 2, walletTxOutBytes)
+    , (walletTxId, 3, collateralWalletTxOutBytes)
+    ]
+
 walletTxOutBytes :: ByteString
 walletTxOutBytes =
     serialize' (natVersion @11) walletTxOut
@@ -912,6 +937,16 @@ walletTxOut =
     mkBasicTxOut
         fundingAddr
         (inject (Coin 50_000_000))
+
+collateralWalletTxOutBytes :: ByteString
+collateralWalletTxOutBytes =
+    serialize' (natVersion @11) collateralWalletTxOut
+
+collateralWalletTxOut :: TxOut ConwayEra
+collateralWalletTxOut =
+    mkBasicTxOut
+        fundingAddr
+        (inject (Coin 100_000_000))
 
 stateAddr :: CageConfig -> Addr
 stateAddr cfg =

@@ -169,23 +169,23 @@ bootCageTxWithEval evalCtx cfg policy verified = do
     pure tx
 
 -- | Pick the wallet rows that fund the boot transaction.
--- Conway requires the collateral row to back the script
--- fee, which is larger than the smallest funding entry can
--- guarantee when the wallet holds several UTxOs of mixed
--- size. Select by largest lovelace balance (matching
--- 'requestInsertCageTx' and 'retractCageTx'): the largest
--- row is the collateral, the second-largest is the spent
--- seed input. When only one row is available it serves
--- both roles, as before.
+-- The largest row is reserved for collateral and must not
+-- appear in the spent inputs. All remaining rows are
+-- available as funding, with the second-largest row serving
+-- as the seed input.
 selectBootRows
     :: [InputRow]
     -> Either BuildError ([InputRow], InputRow, InputRow)
 selectBootRows rows =
     case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
         [] -> Left EmptyFunding
-        [only] -> Right ([only], only, only)
-        largest : second : _ ->
-            Right ([largest, second], second, largest)
+        [_] ->
+            Left
+                $ InsufficientCollateralUtxos
+                    "boot requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+        largest : second : rest ->
+            Right (second : rest, second, largest)
 
 data InputRow = InputRow
     { rowRef :: !TxIn
@@ -264,6 +264,7 @@ buildBootTx evalCtx cfg pp seedRow collateralRow rows ownerAddr =
     evaluateAndBalancePure
         evalCtx
         ledgerPairs
+        collateralPairs
         []
         ownerAddr
         withSubmitBudget
@@ -286,6 +287,8 @@ buildBootTx evalCtx cfg pp seedRow collateralRow rows ownerAddr =
         [ (rowRef row, rowOut row)
         | row <- rows
         ]
+    collateralPairs =
+        [(collateralRef, rowOut collateralRow)]
 
 patchRedeemerBudgets
     :: PParams ConwayEra
