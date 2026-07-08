@@ -19,14 +19,14 @@
 
 ## Slice 2 - CLI and E2E Boot PreviousPolicies Adoption
 
-- [ ] T005 RED: add a focused CLI/e2e failing proof that a raw state-byte
+- [X] T005 RED: add a focused CLI/e2e failing proof that a raw state-byte
   `CageConfig` no longer matches the genesis `applyPreviousPolicies []` script
   identity after the bump, and record the failing command/output.
-- [ ] T006 GREEN: centralize or apply `applyPreviousPolicies []` in
+- [X] T006 GREEN: centralize or apply `applyPreviousPolicies []` in
   `cardano-mpfs-cli/**` and `cardano-mpfs-offchain/e2e-test/**` so all six
   live boot/e2e construction sites use applied state bytes for
   `cageScriptBytes` and `cfgScriptHash`.
-- [ ] T007 Verify the focused proof, run an e2e boot proof with
+- [X] T007 Verify the focused proof, run an e2e boot proof with
   `MPFS_BLUEPRINT` set to the bumped blueprint, run `./gate.sh`, then commit
   one bisect-safe implementation commit.
 

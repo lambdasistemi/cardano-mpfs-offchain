@@ -31,6 +31,8 @@
 -- indexer in a single transaction.
 module Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
+    , genesisCageConfig
+    , genesisCageConfigWith
     , withBootFactsTxBuilder
     , withWalletBootTxBuilder
     , awaitProofReadsReady
@@ -45,11 +47,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.BaseTypes (Network (Testnet))
 import Cardano.Ledger.Binary
     ( natVersion
     , serialize'
     )
-import Cardano.Ledger.Coin (Coin (..))
+import Cardano.Ledger.Coin qualified as Ledger
 import Cardano.Ledger.Plutus.ExUnits (Prices (..))
 import Cardano.Node.Client.E2E.Setup
     ( addKeyWitness
@@ -72,8 +75,10 @@ import Cardano.MPFS.Client.Facts
     )
 import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
 import Cardano.MPFS.Context (Context (..))
+import Cardano.MPFS.Core.Blueprint (CageScripts)
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , Coin (..)
     , SlotNo (..)
     )
 import Cardano.MPFS.HTTP.Server (mkBootFacts)
@@ -112,6 +117,35 @@ walletBootInputs prov addr = do
           )
         | (tin, tout) <- utxos
         ]
+
+-- | Build the standard genesis e2e cage config from blueprint scripts.
+genesisCageConfig :: CageScripts -> CageConfig
+genesisCageConfig =
+    genesisCageConfigWith 5_000 5_000 (Coin 1_000_000)
+
+-- | Build a genesis e2e cage config with caller-specific timing and tip.
+genesisCageConfigWith
+    :: Integer
+    -> Integer
+    -> Coin
+    -> CageScripts
+    -> CageConfig
+genesisCageConfigWith processTime retractTime tip (stateBytes, requestBytes, mStakingBytes) =
+    let appliedStateBytes =
+            Client.applyPreviousPolicies [] stateBytes
+    in  CageConfig
+            { cageScriptBytes = appliedStateBytes
+            , requestScriptBytes = requestBytes
+            , cfgScriptHash = Client.computeScriptHash appliedStateBytes
+            , defaultProcessTime = processTime
+            , defaultRetractTime = retractTime
+            , defaultTip = tip
+            , network = Testnet
+            , cfgStakeScript =
+                fmap
+                    (\bs -> (bs, Client.computeScriptHash bs))
+                    mStakingBytes
+            }
 
 -- | Replace the production boot stub in an E2E context
 -- with the post-pivot wallet-side flow. Production code
@@ -302,9 +336,9 @@ fallbackSnapshot root =
 permissiveWalletPolicy :: WalletPolicy
 permissiveWalletPolicy =
     WalletPolicy
-        { wpMaxFee = Coin 10_000_000
+        { wpMaxFee = Ledger.Coin 10_000_000
         , wpMaxExUnitPrices = Prices maxBound maxBound
-        , wpMaxMinUtxoCoinPerByte = Coin 10_000
+        , wpMaxMinUtxoCoinPerByte = Ledger.Coin 10_000
         , wpMaxValidityWindow = SlotNo maxBound
         }
 
