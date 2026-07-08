@@ -32,8 +32,8 @@
 
 ## Slice 3 - Final PR Readiness
 
-- [ ] T008 Ticket owner reviews the expanded implementation commits, amends
+- [X] T008 Ticket owner reviews the expanded implementation commits, amends
   completed task checkboxes into the second slice commit, pushes, and records
   gate/e2e evidence.
-- [ ] T009 Drop `gate.sh`, run finalization audit, mark the PR ready, and report
+- [X] T009 Drop `gate.sh`, run finalization audit, mark the PR ready, and report
   completion to the epic owner.
