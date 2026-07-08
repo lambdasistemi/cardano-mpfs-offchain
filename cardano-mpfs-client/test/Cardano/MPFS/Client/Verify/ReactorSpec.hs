@@ -83,6 +83,7 @@ import Cardano.MPFS.Cage.Blueprint
 import Cardano.MPFS.Cage.Ledger (Coin (..))
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , computeScriptHash
     )
 import Cardano.MPFS.Client.Cage.Identity
@@ -366,11 +367,13 @@ parsedCageConfig = do
         Right bp -> pure bp
     stateBytes <- requireCompiledCode "state." blueprint
     requestBytes <- requireCompiledCode "request." blueprint
+    let appliedStateBytes =
+            applyPreviousPolicies [] stateBytes
     pure
         CageConfig
-            { cageScriptBytes = stateBytes
+            { cageScriptBytes = appliedStateBytes
             , requestScriptBytes = requestBytes
-            , cfgScriptHash = computeScriptHash stateBytes
+            , cfgScriptHash = computeScriptHash appliedStateBytes
             , defaultProcessTime = 60_000
             , defaultRetractTime = 30_000
             , defaultTip = Coin 1_000_000

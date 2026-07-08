@@ -27,7 +27,7 @@
     cardano-node.follows = "cardano-node-clients/cardano-node";
     cardano-mpfs-onchain = {
       url =
-        "github:cardano-foundation/cardano-mpfs-onchain/39bf3302fce7c7097b432767606a9485a9faa940";
+        "github:cardano-foundation/cardano-mpfs-onchain/e37e33ed2ebad5b079d59eb1d4250f5f6d0c93e3";
     };
     cardano-ledger-wasm = {
       url =
