@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.2](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.2.1...v0.2.2) (2026-07-08)
+
+
+### Features
+
+* **#378:** bump onchain to staking-script release, wire cfgStakeScript ([979a145](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/979a145db12d8985f31a2a59632e274cddb8a677))
+* **cage:** reactor update op ([048fd51](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/048fd51f5acf5eb32f250271d27791c0279c7c7a))
+* **http:** enable CORS for browser clients ([c312102](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/c312102068cf17b376984750269f6761b945203f))
+* **verify:** expose read-side reactor ops ([e8928d9](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/e8928d98f1315f0aa849961e8826ace10c293a62))
+* **wasm:** expose neutral csmt verifier wasm ([30474ab](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/30474abe15f30363668a14e08dfc801b17b2c8c2))
+
+
+### Bug Fixes
+
+* **#378:** correct Arbitrary OnChainTokenState field order; update dep graph ([4e4866b](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/4e4866b2177cf733fa16b8df9c167f1fb9858124))
+* **#378:** fix test failures after onchain staking-script bump ([0de4919](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/0de4919944adfabe9c760099de8059e30219bc40))
+* apply previousPolicies in cli and e2e boot configs ([edaa6f4](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/edaa6f452c0cf0af6dfc0e22e6b82298a075479d))
+* apply previousPolicies to state script hashing ([f1700ed](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/f1700ed5fbded2846adcd98e359703159a4433be))
+* drop indexer poll, fixed delay after node confirmation ([f54accc](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/f54acccb773d1e2095adc6c29789bcd4dfa2e11b))
+* **e2e:** register cage staking credential before update/end txs ([57c6386](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/57c63860d07d89dcf984aa0b248b6600b6d478ed))
+* **e2e:** wait for cert tx indexing via awaitUtxo instead of fixed delay ([f9da51e](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/f9da51ea4a68e153e58fb809f7212e44b9f37a65))
+* **e2e:** wallet-side boot and cert tx handling for followerEnabled=False ([552e18d](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/552e18db745cd75b15197c60f2adb78e29cb3217))
+* poll indexer until cert tx block is processed before returning ([9c6ebb2](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/9c6ebb29754c20450c60a71aeddba048b115a461))
+* two-phase wait — node confirmation then indexer sync ([c1d37b6](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/c1d37b6197b4c9d4c7568542909de8499981beff))
+* use when instead of if/else to satisfy hlint ([750f17e](https://github.com/lambdasistemi/cardano-mpfs-offchain/commit/750f17e9572d15a6559a380ed9a4df35bca0a313))
+
 ## [0.2.1](https://github.com/lambdasistemi/cardano-mpfs-offchain/compare/v0.2.0...v0.2.1) (2026-06-12)
 
 
