@@ -1,0 +1,1774 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://lambdasistemi.github.io/cardano-mpfs-offchain/architecture/overview/">
+      
+      
+        <link rel="prev" href="../../cli/troubleshooting/">
+      
+      
+        <link rel="next" href="../block-processing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Overview - Cardano MPFS Offchain</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../css/terminal-player.css">
+    
+      <link rel="stylesheet" href="../../css/asciinema-player.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture-overview" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-header__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Cardano MPFS Offchain
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Overview
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-nav__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Cardano MPFS Offchain
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../cli/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#system-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#singleton-dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Singleton Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application-wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application Wiring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Hierarchy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Module Hierarchy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#core-domain-types-and-pure-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core — domain types and pure logic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interfaces-record-of-functions-singletons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interfaces — record-of-functions singletons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#http-rest-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP — REST API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#indexer-chain-sync-and-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer — chain sync and persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-integration-thin-wrappers-over-cardano-node-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node integration — thin wrappers over cardano-node-clients
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#txbuilder-internal-server-builders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TxBuilder — internal server builders
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-verification-and-cage-reactors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client verification and cage reactors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trie-mpf-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trie — MPF backends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mock-test-doubles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mock — test doubles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Utilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Phases
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../block-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../singletons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Singletons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PHASE4-DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../swagger-ui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Swagger UI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Architecture
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture-overview">Architecture Overview</h1>
+<h2 id="system-stack">System Stack</h2>
+<pre class="mermaid"><code>flowchart TD
+    app["Application&lt;br/&gt;(wiring + lifecycle)"]
+    http["HTTP Server&lt;br/&gt;(Servant REST API + Swagger UI)&lt;br/&gt;proof-bearing fact provider"]
+    idx["CageFollower&lt;br/&gt;(ChainSync block processing)&lt;br/&gt;unified transaction per block"]
+    mpf["MPF Trie&lt;br/&gt;(merkle-patricia-forestry)&lt;br/&gt;Proofs, insertion, deletion"]
+    verify["cardano-mpfs-verify&lt;br/&gt;CSMT/MPF/read/facts verifiers"]
+    cageTx["cardano-mpfs-cage-tx&lt;br/&gt;pure cage builders&lt;br/&gt;*WithEval API"]
+    browser["Downstream browser clients&lt;br/&gt;HTTP + CIP-30"]
+    submit["Submitter&lt;br/&gt;(LocalTxSubmission)"]
+    n2c["Node Client&lt;br/&gt;(node-to-client)&lt;br/&gt;ChainSync + eval context + LTxS"]
+
+    app --&gt; http
+    http --&gt; verify
+    http --&gt; idx
+    app --&gt; idx --&gt; mpf
+    browser --&gt; http
+    browser --&gt; cageTx
+    cageTx --&gt; verify
+    http --&gt; submit
+    submit --&gt; n2c
+    idx --&gt; n2c</code></pre>
+<p>The service connects to a Cardano node via two N2C connections:</p>
+<ol>
+<li><strong>ChainSync</strong> — blocks are processed by the <code>CageFollower</code>, which
+   applies UTxO, cage state, and trie mutations in a single atomic
+   RocksDB transaction per block (see
+   <a href="../block-processing/">Block Processing</a>).</li>
+<li><strong>LocalStateQuery + LocalTxSubmission</strong> — LocalTxSubmission sends
+   signed transactions. LocalStateQuery is used for protocol parameters,
+   script evaluation, slot conversion, and the trusted interim
+   <code>GET /eval-context</code> metadata. It is not used as a public UTxO
+   fact source.</li>
+</ol>
+<p>The public write path is facts-first. The server returns proof-bearing
+facts anchored to one indexed UTxO-CSMT snapshot; clients verify them
+with <code>cardano-mpfs-verify</code>, run <code>cardano-mpfs-cage-tx</code> locally, sign
+with wallet keys, and submit signed CBOR through <code>POST /submit</code>. The
+server must not return unsigned transactions for script-bearing cage
+operations. The remaining server-built transaction route is the
+owner-only <code>/tx/sweep</code> cleanup path.</p>
+<p>Read endpoints ship only <strong>provable on-chain data plus proofs</strong>:
+witnessed UTxOs (<code>TxIn</code> + full <code>TxOut</code> + CSMT inclusion proof), the
+completeness / MPF-replay proofs binding them to the snapshot's
+<code>utxo_root</code>, and genuinely server-only data the client cannot derive
+(the snapshot, chain tip, and <code>utxo_root</code>). They must <strong>not</strong> ship
+server-side <em>projections</em> - parsed convenience JSON re-rendering data
+already present in a witnessed <code>TxOut</code>. Projections are unverified,
+frequently lossy, and tempt verifying clients into trusting
+non-provable data. A client reconstructs everything it needs (token
+id, token state, request payload) by decoding the inline datum of the
+witnessed <code>TxOut</code>; the server's job is to provide that provable
+material, not to interpret it.</p>
+<p><code>POST /submit</code> accepts <strong>only MPFS operations</strong>. Before relaying, the
+server runs a cheap scope gate on the decoded tx. A transaction is
+admitted when it touches the cage contract surface in any of these ways:</p>
+<ul>
+<li>it mints or burns the cage state-token policy (boot, end);</li>
+<li>it locks an output at the cage state address (boot, update, reject);</li>
+<li>it produces a request output — a <code>RequestDatum</code>-bearing output sitting
+  at this cage's per-token request validator address
+  (<code>requestAddrFromCfg</code> for the token named in the datum), so a crafted
+  <code>RequestDatum</code> at any other script address is rejected (request
+  create);</li>
+<li>it <strong>spends</strong> a cage-owned UTxO — the cage state UTxO or a request
+  UTxO at a request validator address. This input-aware clause is what
+  admits the spend-only operations <strong>retract</strong> and <strong>sweep</strong>, which
+  refund or reclaim a request UTxO and so leave no cage mint and no cage
+  output.</li>
+</ul>
+<p>The mint and output checks are purely structural, but the spend check
+needs the chain: the handler resolves the tx's spent inputs against the
+indexer's UTxO set (one atomic read) and feeds the resolved <code>TxOut</code>s
+into the pure predicate. The gate is conservative — an input the indexer
+cannot resolve (its view may lag the chain) is treated as touching the
+cage, so a valid operation is never false-rejected; only a transaction
+that is definitely non-MPFS (no cage mint, no cage output, every spent
+input resolved to a non-cage UTxO) — a plain ADA transfer, say — is
+rejected, with a typed <code>400 "this service only submits MPFS
+operations"</code>. This is abuse prevention at the gateway, not a new trust
+boundary; the on-chain validators remain authoritative.</p>
+<p>The 502 era-history failure was fixed by carrying live era history in
+<code>GET /eval-context</code> and deriving <code>EpochInfo</code> from it in the reactor.
+<code>ScriptContext</code> <code>POSIXTimeRange</code> costs now use the same era clock as the
+node instead of a hardcoded clock.</p>
+<h2 id="singleton-dependency-graph">Singleton Dependency Graph</h2>
+<p>Every major component is a <strong>record of functions</strong> (no typeclasses).
+Records are created bottom-up and torn down top-down using bracket
+patterns.</p>
+<pre class="mermaid"><code>graph TD
+    APP["Application&lt;br/&gt;(withApplication)"]
+    CTX["Context&lt;br/&gt;(facade record)"]
+    PRV["Provider&lt;br/&gt;(N2C params/eval context)"]
+    TM["TrieManager&lt;br/&gt;(per-token MPF tries)"]
+    ST["State&lt;br/&gt;(tokens, requests, checkpoints)"]
+    READS["Indexer Reads&lt;br/&gt;(atomic proof queries)"]
+    IDX["Indexer&lt;br/&gt;(ChainSync)"]
+    SUB["Submitter&lt;br/&gt;(N2C LocalTxSubmission)"]
+    TXB["TxBuilder&lt;br/&gt;(internal proof envelopes&lt;br/&gt;/tx/sweep + legacy native paths)"]
+    NODE["Cardano Node&lt;br/&gt;(Unix socket)"]
+
+    APP --&gt; CTX
+    CTX --&gt; PRV
+    CTX --&gt; TM
+    CTX --&gt; ST
+    CTX --&gt; READS
+    CTX --&gt; IDX
+    CTX --&gt; SUB
+    CTX --&gt; TXB
+    PRV --&gt; NODE
+    SUB --&gt; NODE</code></pre>
+<h2 id="application-wiring">Application Wiring</h2>
+<p><code>withApplication</code> creates and wires all components:</p>
+<pre class="mermaid"><code>graph LR
+    DB["RocksDB&lt;br/&gt;(14 CFs)"]
+    DB --&gt; ST["State&lt;br/&gt;(persistent)"]
+    DB --&gt; TM["TrieManager&lt;br/&gt;(persistent)"]
+    DB --&gt; CF["CageFollower&lt;br/&gt;(unified txn)"]
+    DB --&gt; READS["IndexerTx reads&lt;br/&gt;(proof snapshots)"]
+    N2C1["N2C #1&lt;br/&gt;(ChainSync)"] --&gt; CF
+    N2C2["N2C #2&lt;br/&gt;(LSQ eval context + LTxS)"] --&gt; PRV["Provider"]
+    N2C2 --&gt; SUB["Submitter"]
+    PRV &amp; SUB &amp; ST &amp; TM &amp; READS --&gt; TXB["TxBuilder"]
+    PRV &amp; SUB &amp; ST &amp; TM &amp; READS &amp; TXB --&gt; CTX["Context"]</code></pre>
+<p>All components use real implementations backed by RocksDB and N2C
+connections. The <code>CageFollower</code> runs on connection 1 (ChainSync),
+processing each block in a single atomic transaction. The proof-bearing
+HTTP handlers read through <code>Context.runIndexerTx</code>, composing snapshot,
+UTxO, request-set, and MPF reads into a single underlying transaction.
+The <code>Provider</code> uses connection 2 only for ledger metadata/evaluation;
+<code>Submitter</code> uses it for LocalTxSubmission.</p>
+<h2 id="external-dependencies">External Dependencies</h2>
+<pre class="mermaid"><code>graph TD
+    OFFCHAIN["cardano-mpfs-offchain&lt;br/&gt;Service: indexer + fact API"]
+    API["cardano-mpfs-api&lt;br/&gt;Wire DTOs + Servant API"]
+    VERIFY["cardano-mpfs-verify&lt;br/&gt;Pure verifiers"]
+    CAGETX["cardano-mpfs-cage-tx&lt;br/&gt;Pure cage tx builders"]
+    CAGE["cardano-mpfs-cage&lt;br/&gt;On-chain types + scripts"]
+    CLIENTS["cardano-node-clients&lt;br/&gt;TxBuild DSL, N2C provider,&lt;br/&gt;fee balancing"]
+    MTS["haskell-mts&lt;br/&gt;CSMT + MPF libraries"]
+    ONCHAIN["cardano-mpfs-onchain&lt;br/&gt;Aiken validators + cage lib"]
+    LEDGER["cardano-ledger&lt;br/&gt;Conway era types"]
+
+    OFFCHAIN --&gt; API
+    VERIFY --&gt; API
+    CAGETX --&gt; VERIFY
+    OFFCHAIN --&gt; CAGE
+    CAGETX --&gt; CAGE
+    OFFCHAIN --&gt; CLIENTS
+    CAGETX --&gt; CLIENTS
+    OFFCHAIN --&gt; MTS
+    VERIFY --&gt; MTS
+    OFFCHAIN --&gt; LEDGER
+    CAGETX --&gt; LEDGER
+    CAGE -.-&gt;|"lives in"| ONCHAIN
+
+    style OFFCHAIN fill:#e1f5fe
+    style CAGE fill:#fff3e0
+    style CLIENTS fill:#e8f5e9
+    style MTS fill:#e8f5e9
+    style ONCHAIN fill:#fff3e0
+    style LEDGER fill:#f3e5f5</code></pre>
+<table>
+<thead>
+<tr>
+<th>Color</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Blue</td>
+<td>This project</td>
+</tr>
+<tr>
+<td>Blue-linked packages</td>
+<td>Split local packages in this repository</td>
+</tr>
+<tr>
+<td>Orange</td>
+<td>On-chain repo (validators + cage library)</td>
+</tr>
+<tr>
+<td>Green</td>
+<td>lambdasistemi libraries</td>
+</tr>
+<tr>
+<td>Purple</td>
+<td>Cardano ecosystem dependencies</td>
+</tr>
+</tbody>
+</table>
+<p>The current #62 bounded-refund validator cutover uses cage script hash
+<code>ad0a8eeeec8b0a5ee9930be5d6ea2e80b285fc2f3e9675a13a392dd5</code>. The old
+<code>c0f05a30...</code> exact-refund hash is legacy and should not be used for
+new preprod/browser flows.</p>
+<h2 id="module-hierarchy">Module Hierarchy</h2>
+<p>The repository is split into several packages. The server lives in
+<code>cardano-mpfs-offchain</code>; shared wire types live in <code>cardano-mpfs-api</code>;
+pure verifiers live in <code>cardano-mpfs-verify</code>; pure cage builders live in
+<code>cardano-mpfs-cage-tx</code>; and native clients can consume the re-exporting
+<code>cardano-mpfs-client</code>.</p>
+<p>The <code>cardano-mpfs-offchain</code> library is organized in layers. Server
+modules live under <code>Cardano.MPFS</code>.</p>
+<h3 id="core-domain-types-and-pure-logic">Core — domain types and pure logic</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Types%22&amp;type=code"><code>Core.Types</code></a></td>
+<td><code>TokenId</code>, <code>Root</code>, <code>Request</code>, <code>TokenState</code>, <code>CageConfig</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.OnChain%22&amp;type=code"><code>Core.OnChain</code></a></td>
+<td>Re-exports from <a href="https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell">cage</a> + offchain-specific <code>cagePolicyId</code>, <code>cageAddr</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Blueprint%22&amp;type=code"><code>Core.Blueprint</code></a></td>
+<td>Re-exports from <a href="https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell">cage</a>: blueprint loading, validation</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Core.Proof%22&amp;type=code"><code>Core.Proof</code></a></td>
+<td>Re-exports from <a href="https://github.com/cardano-foundation/cardano-mpfs-onchain/tree/main/haskell">cage</a>: proof serialization</td>
+</tr>
+</tbody>
+</table>
+<h3 id="interfaces-record-of-functions-singletons">Interfaces — record-of-functions singletons</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Context%22&amp;type=code"><code>Context</code></a></td>
+<td>Facade bundling all singletons</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider%22+path%3Alib%2FCardano%2FMPFS%2FProvider.hs&amp;type=code"><code>Provider</code></a></td>
+<td>protocol params, evaluation, slot conversion, and trusted interim eval context support; LSQ UTxO queries are forbidden on proof/write hot paths</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.State%22&amp;type=code"><code>State</code></a></td>
+<td><code>Tokens</code>, <code>Requests</code>, <code>Checkpoints</code> sub-records</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie%22+path%3Alib%2FCardano%2FMPFS%2FTrie.hs&amp;type=code"><code>Trie</code></a></td>
+<td><code>TrieManager</code> — per-token MPF trie access</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder%22+path%3Alib%2FCardano%2FMPFS%2FTxBuilder.hs&amp;type=code"><code>TxBuilder</code></a></td>
+<td>internal proof-envelope builders and <code>/tx/sweep</code>; browser-facing script-bearing transactions are built client-side from facts</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer%22+path%3Alib%2FCardano%2FMPFS%2FIndexer.hs&amp;type=code"><code>Indexer</code></a></td>
+<td>Chain follower lifecycle (<code>start</code>, <code>stop</code>, <code>getTip</code>)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter%22+path%3Alib%2FCardano%2FMPFS%2FSubmitter.hs&amp;type=code"><code>Submitter</code></a></td>
+<td><code>submitTx :: Tx ConwayEra -&gt; m SubmitResult</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Application%22&amp;type=code"><code>Application</code></a></td>
+<td><code>withApplication</code> — wiring and lifecycle</td>
+</tr>
+</tbody>
+</table>
+<h3 id="http-rest-api">HTTP — REST API</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.API%22&amp;type=code"><code>HTTP.API</code></a></td>
+<td>Server-local API wrapper around shared Servant API plus metrics</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Types%22&amp;type=code"><code>HTTP.Types</code></a></td>
+<td>Server compatibility re-exports and ledger conversion helpers</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Encoding%22&amp;type=code"><code>HTTP.Encoding</code></a></td>
+<td><code>Hex</code> newtype for binary-as-hex transport</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&amp;type=code"><code>HTTP.Server</code></a></td>
+<td>WAI application wiring, <code>mkApp</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Swagger%22&amp;type=code"><code>HTTP.Swagger</code></a></td>
+<td>OpenAPI spec generation, Swagger UI</td>
+</tr>
+</tbody>
+</table>
+<p>The shared API and DTO definitions live in <code>cardano-mpfs-api</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Package module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Cardano.MPFS.API</code></td>
+<td>Canonical Servant API: <code>GET /eval-context</code>, proof-bearing reads, facts endpoints, <code>/tx/sweep</code>, <code>/submit</code></td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.API.Types</code></td>
+<td>Status, token, request, read-response, submit, and sweep JSON types</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.API.Types.Facts</code></td>
+<td>Facts-only response types for boot/request/update/retract/reject/end</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.API.Types.Common</code></td>
+<td>Shared snapshot, UTxO witness, token id, and eval-context primitives</td>
+</tr>
+</tbody>
+</table>
+<h3 id="indexer-chain-sync-and-persistence">Indexer — chain sync and persistence</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.CageFollower%22&amp;type=code"><code>Indexer.CageFollower</code></a></td>
+<td>Unified <code>rollForward</code>/<code>rollBackward</code> — <a href="../block-processing/">one block = one transaction</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Event%22&amp;type=code"><code>Indexer.Event</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=detectCageEvents&amp;type=code"><code>detectCageEvents</code></a> — cage tx classification</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Follower%22&amp;type=code"><code>Indexer.Follower</code></a></td>
+<td><code>detectCageBlockEvents</code>, <code>applyCageBlockEvents</code> — generic over <code>Monad m</code></td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&amp;type=code"><code>Indexer.Persistent</code></a></td>
+<td><code>mkTransactionalState</code> (composable) + <code>mkPersistentState</code> (IO)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Columns%22&amp;type=code"><code>Indexer.Columns</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+AllColumns%22&amp;type=code"><code>AllColumns</code></a> + <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22data+UnifiedColumns%22&amp;type=code"><code>UnifiedColumns</code></a> GADTs — full DB schema</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Codecs%22&amp;type=code"><code>Indexer.Codecs</code></a></td>
+<td>CBOR serialization for column key-value types</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Rollback%22&amp;type=code"><code>Indexer.Rollback</code></a></td>
+<td><code>storeRollbackT</code>, <code>rollbackToSlotT</code> — transactional rollback</td>
+</tr>
+</tbody>
+</table>
+<h3 id="node-integration-thin-wrappers-over-cardano-node-clients">Node integration — thin wrappers over <a href="https://github.com/lambdasistemi/cardano-node-clients">cardano-node-clients</a></h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&amp;type=code"><code>Provider.NodeClient</code></a></td>
+<td>N2C-backed <code>Provider</code> (PParams, script eval, slot conversion, <code>queryEvalContext</code>)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter.N2C%22&amp;type=code"><code>Submitter.N2C</code></a></td>
+<td>N2C-backed <code>Submitter</code> (LocalTxSubmission)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="txbuilder-internal-server-builders">TxBuilder — internal server builders</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Config%22&amp;type=code"><code>TxBuilder.Config</code></a></td>
+<td><code>CageConfig</code> loading</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&amp;type=code"><code>TxBuilder.Real</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&amp;type=code"><code>mkRealTxBuilder</code></a> entry point</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Boot%22&amp;type=code"><code>TxBuilder.Real.Boot</code></a></td>
+<td>Mint cage token</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Request%22&amp;type=code"><code>TxBuilder.Real.Request</code></a></td>
+<td>Submit insert/delete request</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Update%22&amp;type=code"><code>TxBuilder.Real.Update</code></a></td>
+<td>Consume requests, update root</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Retract%22&amp;type=code"><code>TxBuilder.Real.Retract</code></a></td>
+<td>Cancel pending request</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.End%22&amp;type=code"><code>TxBuilder.Real.End</code></a></td>
+<td>Burn cage token</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real.Internal%22&amp;type=code"><code>TxBuilder.Real.Internal</code></a></td>
+<td>Shared helpers, POSIX-to-slot conversion</td>
+</tr>
+</tbody>
+</table>
+<p>These server builders now return proof envelopes and consume
+<code>BundleSnapshot</code>/indexed UTxO facts rather than querying the node for
+UTxO state. The public browser path uses facts endpoints plus the
+<code>cardano-mpfs-cage-tx</code> package, whose <code>*WithEval</code> builders run after
+<code>cardano-mpfs-verify</code> verifies the supplied facts.</p>
+<h3 id="client-verification-and-cage-reactors">Client verification and cage reactors</h3>
+<table>
+<thead>
+<tr>
+<th>Package module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Cardano.MPFS.Client.Verify</code></td>
+<td>Re-exported verifier facade</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Verify.Read</code></td>
+<td><code>verifyTokenState</code>, <code>verifyTokenFacts</code>, <code>verifyTokenRequests</code></td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Facts</code></td>
+<td><code>verifyBootFacts</code>, <code>verifyRequest*Facts</code>, <code>verifyUpdateFacts</code>, <code>verifyRetractFacts</code>, <code>verifyRejectFacts</code>, <code>verifyEndFacts</code></td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Verify.Completeness</code></td>
+<td>CSMT completeness witness checks</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Verify.MPF</code></td>
+<td>MPF proof replay</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Cage.Reactor</code></td>
+<td>JSON envelope dispatcher for native/wasm cage transactions</td>
+</tr>
+<tr>
+<td><code>Cardano.MPFS.Client.Cage.Eval</code></td>
+<td>Decodes <code>GET /eval-context</code> and derives <code>EpochInfo</code> from live era history</td>
+</tr>
+</tbody>
+</table>
+<h3 id="trie-mpf-backends">Trie — MPF backends</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.Persistent%22&amp;type=code"><code>Trie.Persistent</code></a></td>
+<td><code>mkUnifiedTrieManager</code> (transactional) + <code>mkPersistentTrieManager</code> (IO with caches)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&amp;type=code"><code>Trie.PureManager</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPureTrieManager&amp;type=code"><code>mkPureTrieManager</code></a> — in-memory <code>TrieManager</code> for tests</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mock-test-doubles">Mock — test doubles</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Context%22&amp;type=code"><code>Mock.Context</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=withMockContext&amp;type=code"><code>withMockContext</code></a> — full mock wiring</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Provider%22&amp;type=code"><code>Mock.Provider</code></a></td>
+<td>In-memory UTxO store</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&amp;type=code"><code>Mock.State</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockState&amp;type=code"><code>mkMockState</code></a> — <code>IORef</code>-backed state</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.Submitter%22&amp;type=code"><code>Mock.Submitter</code></a></td>
+<td>Always-succeeds submitter</td>
+</tr>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&amp;type=code"><code>Mock.TxBuilder</code></a></td>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&amp;type=code"><code>mkMockTxBuilder</code></a> — placeholder builder</td>
+</tr>
+</tbody>
+</table>
+<h3 id="utilities">Utilities</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trace%22&amp;type=code"><code>Trace</code></a></td>
+<td><code>AppTrace</code> structured tracing type, <code>jsonLinesTracer</code> for stderr JSON-lines logging</td>
+</tr>
+</tbody>
+</table>
+<h2 id="design-principles">Design Principles</h2>
+<ul>
+<li><strong>No typeclasses</strong> — closed world with explicit records of functions.</li>
+<li><strong>All types from cardano-ledger</strong> — <code>Tx ConwayEra</code>, <code>PParams ConwayEra</code>, <code>Addr</code>, <code>TxIn</code>, etc.</li>
+<li><strong>Visible dependency graph</strong> — no implicit resolution surprises.</li>
+<li><strong>Trivial testing</strong> — swap the record for a mock backend.</li>
+<li><strong>Fact-provider boundary</strong> — public script-bearing writes return
+  proof-bearing material, not unsigned transactions.</li>
+<li><strong>No LSQ UTxO hot path</strong> — UTxO and request facts come from the
+  indexed CSMT snapshot. LSQ UTxO scans bypass the proof system and are
+  forbidden on production write/read proof paths.</li>
+<li><strong>One verifier, many targets</strong> — the same pure verifier and cage
+  builder code runs native, wasm32-wasi, and GHC-JS.</li>
+<li><strong>No orphan instances</strong>.</li>
+</ul>
+<h2 id="implementation-phases">Implementation Phases</h2>
+<pre class="mermaid"><code>graph LR
+    P0["Phase 0&lt;br/&gt;MPF Library ✓"]
+    P1["Phase 1&lt;br/&gt;Service Interfaces ✓"]
+    P2["Phase 2&lt;br/&gt;N2C Client +&lt;br/&gt;Provider ✓"]
+    P3["Phase 3&lt;br/&gt;Transaction&lt;br/&gt;Builders"]
+    P4["Phase 4&lt;br/&gt;ChainSync Indexer +&lt;br/&gt;Persistent State"]
+    P5["Phase 5&lt;br/&gt;HTTP API +&lt;br/&gt;Deployment"]
+    P6["Phase 6&lt;br/&gt;Fact Provider +&lt;br/&gt;Browser Reactor"]
+
+    P0 --&gt; P1 --&gt; P2 --&gt; P3 --&gt; P4 --&gt; P5 --&gt; P6
+
+    style P0 fill:#2d6,color:#fff
+    style P1 fill:#2d6,color:#fff
+    style P2 fill:#2d6,color:#fff
+    style P3 fill:#2d6,color:#fff
+    style P4 fill:#2d6,color:#fff
+    style P5 fill:#2d6,color:#fff
+    style P6 fill:#2d6,color:#fff</code></pre>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Description</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>MPF library — 16-ary Merkle Patricia Forestry, Blake2b-256 hashing, insertion/deletion/proofs, pure and RocksDB backends</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Service interfaces — <code>Provider</code>, <code>Submitter</code>, <code>TxBuilder</code>, <code>State</code>, <code>TrieManager</code>, <code>Context</code> records; mock implementations; on-chain type encodings; CIP-57 blueprint validation; Aiken-compatible proof serialization</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>2</td>
+<td>N2C client + Provider — <code>ouroboros-network</code> LocalStateQuery and LocalTxSubmission clients; <code>mkNodeClientProvider</code> for PParams/evaluation/slot conversion; <code>mkN2CSubmitter</code> for transaction submission; E2E tests with cardano-node subprocess</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Transaction builders — real <code>TxBuilder</code> implementations for boot, update, reject, retract, end operations with Plutus script witnesses, proof envelopes, and on-chain datum construction</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>4</td>
+<td>ChainSync indexer + persistent state — real ChainSync follower; RocksDB-backed UTxO CSMT, State, and TrieManager; block processing with rollback support</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>5</td>
+<td>HTTP API + deployment — Servant HTTP layer with Swagger UI, proof-bearing token/trie/request reads, facts endpoints, signed submission, WAI application wiring</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Trust-minimized client flow — facts-only script-bearing writes, <code>cardano-mpfs-verify</code>, <code>cardano-mpfs-cage-tx</code>, wasm cage reactor, and trusted interim <code>GET /eval-context</code> for ex-unit evaluation</td>
+<td>Done</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.path", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+        <script src="../../js/asciinema-player.min.js"></script>
+      
+    
+  </body>
+</html>

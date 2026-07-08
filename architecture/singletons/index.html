@@ -1,0 +1,1322 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://lambdasistemi.github.io/cardano-mpfs-offchain/architecture/singletons/">
+      
+      
+        <link rel="prev" href="../data-sources/">
+      
+      
+        <link rel="next" href="../testing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Singletons - Cardano MPFS Offchain</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../css/terminal-player.css">
+    
+      <link rel="stylesheet" href="../../css/asciinema-player.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#singletons" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-header__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Cardano MPFS Offchain
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Singletons
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Cardano MPFS Offchain" class="md-nav__button md-logo" aria-label="Cardano MPFS Offchain" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Cardano MPFS Offchain
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../cli/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../block-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Singletons
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Singletons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#triemanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TrieManager
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indexer-reads-and-follower" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer Reads And Follower
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#submitter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Submitter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#txbuilder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TxBuilder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-and-balance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation And Balance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Context">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#http-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP Server
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PHASE4-DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase 4 Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../swagger-ui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Swagger UI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../overview/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Architecture
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="singletons">Singletons</h1>
+<p>Every major component is a <strong>record of functions</strong>, polymorphic in
+the monad <code>m</code>. No typeclasses are used — dependencies are explicit
+and passed as values. This makes testing trivial: swap a record for
+a mock.</p>
+<h2 id="provider">Provider</h2>
+<p>Ledger metadata queries. The real implementation uses N2C
+LocalStateQuery for protocol parameters, script evaluation, and
+POSIX/slot conversion. <code>queryUTxOs</code> still exists in the low-level
+record, but it is forbidden on server-side proof/write hot paths:
+production UTxO facts come from the local indexer's CSMT through
+<code>Context.runIndexerTx</code>.</p>
+<p><strong>Implementation:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkNodeClientProvider&amp;type=code"><code>mkNodeClientProvider</code></a> (real N2C, in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Provider.NodeClient%22&amp;type=code"><code>Provider.NodeClient</code></a>)</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Provider</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Provider</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">queryUTxOs</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">Addr</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">[(</span><span class="kt">TxIn</span><span class="p">,</span><span class="w"> </span><span class="kt">TxOut</span><span class="w"> </span><span class="kt">ConwayEra</span><span class="p">)]</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="c1">-- ^ Low-level LSQ address query. Forbidden on</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="c1">-- proof/write hot paths.</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">queryProtocolParams</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">PParams</span><span class="w"> </span><span class="kt">ConwayEra</span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="c1">-- ^ Fetch current protocol parameters</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">evaluateTx</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">ConwayTx</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">EvaluateTxResult</span><span class="w"> </span><span class="kt">ConwayEra</span><span class="p">)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="c1">-- ^ Evaluate script execution units</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">posixMsToSlot</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Integer</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">SlotNo</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="c1">-- ^ Convert POSIX time (ms) to slot (floor)</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">posixMsCeilSlot</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Integer</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">SlotNo</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="c1">-- ^ Convert POSIX time (ms) to slot (ceiling)</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<pre class="mermaid"><code>graph LR
+    PRV["Provider"]
+    NODE["Cardano Node&lt;br/&gt;(LocalStateQuery)"]
+
+    PRV --&gt;|PParams| NODE
+    PRV --&gt;|evaluateTx| NODE
+    PRV --&gt;|slot conversion| NODE</code></pre>
+<p><code>GET /eval-context</code> is exposed through the top-level <code>Context</code>, not the
+<code>Provider</code> record itself. It returns trusted interim PlutusV3 evaluation
+metadata: protocol parameters/cost models, <code>SystemStart</code>, epoch size,
+slot length, and live era history.</p>
+<hr />
+<h2 id="triemanager">TrieManager</h2>
+<p>Manages a map of token identifiers to MPF tries. Each token has
+its own isolated trie, sharing the same RocksDB column families
+with per-token <code>HexKey</code> prefix scoping.</p>
+<p><strong>Transactional:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkUnifiedTrieManager&amp;type=code"><code>mkUnifiedTrieManager</code></a> — composes into the caller's <code>Transaction</code> (used by <code>CageFollower</code> for atomic block processing)
+<strong>IO:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPersistentTrieManager&amp;type=code"><code>mkPersistentTrieManager</code></a> — auto-commits + IORef caches (used by <code>TxBuilder</code> and speculative sessions)
+<strong>Test:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPureTrieManager&amp;type=code"><code>mkPureTrieManager</code></a> — in-memory (in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Trie.PureManager%22&amp;type=code"><code>Trie.PureManager</code></a>)</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">TrieManager</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">TrieManager</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">withTrie</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="n">forall</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">         </span><span class="o">.</span><span class="w"> </span><span class="kt">TokenId</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="kt">Trie</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="n">a</span><span class="p">)</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="c1">-- ^ Run an action with access to a token&#39;s trie</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">withSpeculativeTrie</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="n">forall</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">         </span><span class="o">.</span><span class="w"> </span><span class="kt">TokenId</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">forall</span><span class="w"> </span><span class="n">n</span><span class="o">.</span><span class="w"> </span><span class="kt">Monad</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="ow">=&gt;</span><span class="w"> </span><span class="kt">Trie</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="n">a</span><span class="p">)</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="c1">-- ^ Run read-your-writes trie mutations and</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="c1">-- discard them at the end</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">createTrie</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="c1">-- ^ Create a new empty trie for a token</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">deleteTrie</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="c1">-- ^ Delete a token&#39;s trie</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">hideTrie</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="c1">-- ^ Hide a burned trie while preserving data</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">unhideTrie</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">    </span><span class="c1">-- ^ Restore a hidden trie during rollback</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Trie</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Trie</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">insert</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">Root</span>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">delete</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">Root</span>
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)</span>
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">enumerate</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">[(</span><span class="kt">ByteString</span><span class="p">,</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)]</span>
+</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">getRoot</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">Root</span>
+</span><span id="__span-1-32"><a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">getProof</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">Proof</span><span class="p">)</span>
+</span><span id="__span-1-33"><a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">getProofSteps</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="p">[</span><span class="kt">ProofStep</span><span class="p">])</span>
+</span><span id="__span-1-34"><a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="state">State</h2>
+<p>Token and request state tracking. Three sub-records for tokens,
+requests, and chain sync checkpoints.</p>
+<p><strong>Transactional:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkTransactionalState&amp;type=code"><code>mkTransactionalState</code></a> — composes into the caller's <code>Transaction</code> (used by <code>CageFollower</code>)
+<strong>IO:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkPersistentState&amp;type=code"><code>mkPersistentState</code></a> — auto-commits via <code>hoistState</code> (in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Indexer.Persistent%22&amp;type=code"><code>Indexer.Persistent</code></a>)
+<strong>Test:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockState&amp;type=code"><code>mkMockState</code></a> — in-memory (in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.State%22&amp;type=code"><code>Mock.State</code></a>)</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">State</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">State</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">tokens</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Tokens</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">requests</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Requests</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">checkpoints</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Checkpoints</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Tokens</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Tokens</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">getToken</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">LocatedTokenState</span><span class="p">)</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">putToken</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">LocatedTokenState</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">removeToken</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">listTokens</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">[</span><span class="kt">TokenId</span><span class="p">]</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Requests</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Requests</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">getRequest</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">LocatedRequest</span><span class="p">)</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">putRequest</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">LocatedRequest</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">removeRequest</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">requestsByToken</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">[</span><span class="kt">LocatedRequest</span><span class="p">]</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Checkpoints</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Checkpoints</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">getCheckpoint</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="p">(</span><span class="kt">SlotNo</span><span class="p">,</span><span class="w"> </span><span class="kt">BlockId</span><span class="p">))</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">putCheckpoint</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">SlotNo</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">BlockId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="nb">()</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="indexer-reads-and-follower">Indexer Reads And Follower</h2>
+<p>The ChainSync follower is now wired by <code>Application</code> rather than exposed
+as an <code>Indexer</code> field on <code>Context</code>. Its operational role is still the
+same: <code>CageFollower</code> processes every block in a <a href="../block-processing/">single atomic
+transaction</a> covering UTxO CSMT, cage state, MPF
+tries, and rollback data.</p>
+<p>Proof-bearing HTTP handlers use composable read primitives from
+<code>Indexer.Reads</code> and discharge them through one <code>Context</code> field:</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nf">runIndexerTx</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">forall</span><span class="w"> </span><span class="n">a</span><span class="o">.</span><span class="w"> </span><span class="kt">IndexerTx</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="n">a</span>
+</span></code></pre></div>
+<p>That field is the fact-provider boundary. A handler composes snapshot,
+wallet input, state UTxO, request-set, and MPF reads, then runs the
+composition in one underlying transaction so the emitted witnesses all
+target the same indexed <code>utxo_root</code>.</p>
+<hr />
+<h2 id="submitter">Submitter</h2>
+<p>Transaction submission via N2C LocalTxSubmission. Takes a full
+ledger <code>Tx ConwayEra</code> and returns a <code>SubmitResult</code>.</p>
+<p><strong>Implementation:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkN2CSubmitter&amp;type=code"><code>mkN2CSubmitter</code></a> (real N2C, in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Submitter.N2C%22&amp;type=code"><code>Submitter.N2C</code></a>)</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">SubmitResult</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="ow">=</span><span class="w"> </span><span class="kt">Submitted</span><span class="w"> </span><span class="kt">TxId</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="kt">Rejected</span><span class="w"> </span><span class="kt">ByteString</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kr">newtype</span><span class="w"> </span><span class="kt">Submitter</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Submitter</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">submitTx</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Tx</span><span class="w"> </span><span class="kt">ConwayEra</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">SubmitResult</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="txbuilder">TxBuilder</h2>
+<p>Internal server transaction builders. They return proof envelopes around
+unsigned ledger transactions and consume a caller-supplied
+<code>BundleSnapshot</code>; they must not query the node for UTxO state. Public
+script-bearing browser flows use facts endpoints plus
+<code>cardano-mpfs-cage-tx</code> instead of asking the server to return unsigned
+transactions.</p>
+<p><strong>Mock:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkMockTxBuilder&amp;type=code"><code>mkMockTxBuilder</code></a> (in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.Mock.TxBuilder%22&amp;type=code"><code>Mock.TxBuilder</code></a>)
+<strong>Real:</strong> <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkRealTxBuilder&amp;type=code"><code>mkRealTxBuilder</code></a> (in <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.TxBuilder.Real%22+path%3AReal.hs&amp;type=code"><code>TxBuilder.Real</code></a>)</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">TxBuilder</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">TxBuilder</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">bootToken</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="kt">ResolvedWalletInput</span><span class="p">]</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">BootProof</span><span class="p">)</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="c1">-- ^ Create a new MPFS token</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">requestInsert</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">RequestProof</span><span class="p">)</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="c1">-- ^ Request inserting a key-value pair</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">requestDelete</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">RequestProof</span><span class="p">)</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="c1">-- ^ Request deleting a key</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">requestUpdate</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">ByteString</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">RequestProof</span><span class="p">)</span>
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">    </span><span class="c1">-- ^ Request updating a key</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">updateToken</span>
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">UpdateProof</span><span class="p">)</span>
+</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">    </span><span class="c1">-- ^ Process pending requests for a token</span>
+</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">retractRequest</span>
+</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-29"><a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">RetractProof</span><span class="p">)</span>
+</span><span id="__span-5-30"><a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a><span class="w">    </span><span class="c1">-- ^ Cancel a pending request</span>
+</span><span id="__span-5-31"><a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">rejectRequests</span>
+</span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">RejectProof</span><span class="p">)</span>
+</span><span id="__span-5-34"><a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="w">    </span><span class="c1">-- ^ Reject Phase 3 requests</span>
+</span><span id="__span-5-35"><a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">endToken</span>
+</span><span id="__span-5-36"><a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a><span class="w">        </span><span class="ow">::</span><span class="w"> </span><span class="kt">BundleSnapshot</span>
+</span><span id="__span-5-37"><a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a><span class="w">        </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">TokenId</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Addr</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">ProofEnvelope</span><span class="w"> </span><span class="kt">EndProof</span><span class="p">)</span>
+</span><span id="__span-5-38"><a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a><span class="w">    </span><span class="c1">-- ^ Retire an MPFS token</span>
+</span><span id="__span-5-39"><a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<hr />
+<h2 id="evaluation-and-balance">Evaluation And Balance</h2>
+<p>Transaction construction uses ledger-native balancing helpers in
+<code>TxBuilder.Real.Internal</code> on the server side and
+<code>Cardano.MPFS.Client.Cage.Eval</code> in <code>cardano-mpfs-cage-tx</code> on the
+client/reactor side. The <code>*WithEval</code> cage APIs first decode
+<code>GET /eval-context</code>, derive <code>EpochInfo</code> from the live era history, and
+then evaluate/balance transactions with real ex-units before wallet
+signing.</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nf">bootCageTxWithEval</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="ow">::</span><span class="w"> </span><span class="kt">DecodedEvalContext</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">CageConfig</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">WalletPolicy</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">VerifiedBootFacts</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Either</span><span class="w"> </span><span class="kt">BuildError</span><span class="w"> </span><span class="kt">ConwayTx</span>
+</span></code></pre></div>
+<p>Update, retract, reject, end, and boot are eval-only because they carry
+scripts and must use current PlutusV3 cost models and era history.
+Request insert/delete/update builders do not run scripts, but they still
+consume verified facts and the same cage configuration.</p>
+<hr />
+<h2 id="context">Context</h2>
+<p>Facade record that bundles all singletons into a single environment.</p>
+<div class="language-haskell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kr">data</span><span class="w"> </span><span class="kt">Context</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="ow">=</span><span class="w"> </span><span class="kt">Context</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="n">provider</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Provider</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">trieManager</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TrieManager</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">State</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">submitter</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">Submitter</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">txBuilder</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxBuilder</span><span class="w"> </span><span class="n">m</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">cfgCage</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">CageConfig</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">utxoExists</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">Bool</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">resolveUtxo</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">awaitUtxo</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">Int</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">utxoRoot</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">utxoProof</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="kt">TxIn</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">ByteString</span><span class="p">)</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">indexerProofsReady</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">Bool</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">evalContext</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="kt">EvalContext</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">runIndexerTx</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">forall</span><span class="w"> </span><span class="n">a</span><span class="o">.</span><span class="w"> </span><span class="kt">IndexerTx</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="ow">-&gt;</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="n">a</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="p">,</span><span class="w"> </span><span class="n">readMetrics</span><span class="w"> </span><span class="ow">::</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="p">(</span><span class="kt">Maybe</span><span class="w"> </span><span class="kt">Metrics</span><span class="p">)</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="p">}</span>
+</span></code></pre></div>
+<pre class="mermaid"><code>graph TD
+    CTX["Context"]
+    PRV["Provider"]
+    TM["TrieManager"]
+    ST["State"]
+    READS["IndexerTx Reads"]
+    SUB["Submitter"]
+    TXB["TxBuilder"]
+    EVAL["EvalContext"]
+
+    CTX --&gt; PRV
+    CTX --&gt; TM
+    CTX --&gt; ST
+    CTX --&gt; READS
+    CTX --&gt; SUB
+    CTX --&gt; TXB
+    CTX --&gt; EVAL</code></pre>
+<h3 id="http-server">HTTP Server</h3>
+<p><a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=mkApp+path%3AHTTP&amp;type=code"><code>mkApp</code></a>
+from <a href="https://github.com/lambdasistemi/cardano-mpfs-offchain/search?q=%22module+Cardano.MPFS.HTTP.Server%22&amp;type=code"><code>HTTP.Server</code></a>
+wraps a <code>Context IO</code> into a WAI <code>Application</code> with Swagger UI
+at <code>/swagger-ui</code>. Each HTTP handler extracts the relevant
+interface from <code>Context</code> and delegates to it.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.path", "toc.integrate", "content.code.copy"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+        <script src="../../js/asciinema-player.min.js"></script>
+      
+    
+  </body>
+</html>

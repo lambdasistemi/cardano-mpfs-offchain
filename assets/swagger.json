@@ -1,0 +1,1864 @@
+{
+    "definitions": {
+        "BootFacts": {
+            "description": "Facts-only boot response. Carries wallet UTxO witnesses and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "BootRequest": {
+            "description": "Boot a new token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "address"
+            ],
+            "type": "object"
+        },
+        "ChainPointJSON": {
+            "description": "Indexed chain point baked into proof-bearing responses",
+            "properties": {
+                "block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "slot",
+                "block_id"
+            ],
+            "type": "object"
+        },
+        "DeleteRequest": {
+            "description": "Delete a key (value is the current stored value)",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "value",
+                "address"
+            ],
+            "type": "object"
+        },
+        "EndFacts": {
+            "description": "Facts-only end response. Carries state and wallet UTxO witnesses plus a request-set completeness proof, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_set": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "state_utxo",
+                "wallet_utxos",
+                "request_set",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "EndRequest": {
+            "description": "End a token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        },
+        "EvalContext": {
+            "description": "Trusted-not-proven ledger evaluation context for wallet-side ex-unit evaluation.",
+            "properties": {
+                "epoch_size": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "era_history_cbor": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "slot_length_ms": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "system_start_cbor": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "trust_assumption": {
+                    "type": "string"
+                },
+                "trusted": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "protocol_parameters",
+                "system_start_cbor",
+                "epoch_size",
+                "slot_length_ms",
+                "era_history_cbor",
+                "trusted",
+                "trust_assumption"
+            ],
+            "type": "object"
+        },
+        "FactEntry": {
+            "description": "One enumerated token fact entry",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "key",
+                "value"
+            ],
+            "type": "object"
+        },
+        "FactResponse": {
+            "description": "Proof-bearing fact value response",
+            "properties": {
+                "fact": {
+                    "$ref": "#/definitions/FactWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "snapshot",
+                "value",
+                "fact"
+            ],
+            "type": "object"
+        },
+        "FactWitness": {
+            "description": "State witness plus MPF inclusion proof",
+            "properties": {
+                "mpf_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "state",
+                "mpf_proof"
+            ],
+            "type": "object"
+        },
+        "FactsResponse": {
+            "description": "Proof-bearing complete token facts                    \response",
+            "properties": {
+                "facts": {
+                    "items": {
+                        "$ref": "#/definitions/FactEntry"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "snapshot",
+                "state",
+                "facts"
+            ],
+            "type": "object"
+        },
+        "Hex": {
+            "description": "Hex-encoded byte string",
+            "type": "string"
+        },
+        "InsertRequest": {
+            "description": "Insert a key-value pair",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "value",
+                "address"
+            ],
+            "type": "object"
+        },
+        "Metrics": {
+            "description": "Metrics about CSMT operations and blockchain synchronization",
+            "properties": {
+                "averageQueueLength": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgBlockDecodeDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgCSMTDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgFinalityDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgRollbackDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgTotalBlockDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "avgTransactionDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "baseCheckpoint": {
+                    "type": "string"
+                },
+                "blockSpeed": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "chainTipSlot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "cumulativeBlockDecodeDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeBlocks": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "cumulativeCSMTDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeFinalityDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalCsmtOps": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalQueryTip": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeInternalRollbackStore": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeRollbackDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeTotalBlockDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "cumulativeTransactionDuration": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "currentEra": {
+                    "type": "string"
+                },
+                "currentMerkleRoot": {
+                    "type": "string"
+                },
+                "lastBlockPoint": {
+                    "type": "string"
+                },
+                "maxQueueLength": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "syncPhase": {
+                    "$ref": "#/definitions/SyncPhase"
+                },
+                "utxoChangesCount": {
+                    "maximum": 9223372036854775807,
+                    "minimum": -9223372036854775808,
+                    "type": "integer"
+                },
+                "utxoSpeed": {
+                    "format": "double",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "averageQueueLength",
+                "maxQueueLength",
+                "utxoChangesCount",
+                "lastBlockPoint",
+                "utxoSpeed",
+                "blockSpeed",
+                "currentEra",
+                "currentMerkleRoot",
+                "baseCheckpoint",
+                "chainTipSlot",
+                "syncPhase",
+                "avgCSMTDuration",
+                "avgRollbackDuration",
+                "avgFinalityDuration",
+                "avgBlockDecodeDuration",
+                "avgTransactionDuration",
+                "avgTotalBlockDuration",
+                "cumulativeBlocks",
+                "cumulativeBlockDecodeDuration",
+                "cumulativeTransactionDuration",
+                "cumulativeCSMTDuration",
+                "cumulativeRollbackDuration",
+                "cumulativeFinalityDuration",
+                "cumulativeTotalBlockDuration",
+                "cumulativeInternalQueryTip",
+                "cumulativeInternalCsmtOps",
+                "cumulativeInternalRollbackStore"
+            ],
+            "type": "object"
+        },
+        "ProofResponse": {
+            "description": "Proof-bearing MPF proof response",
+            "properties": {
+                "fact": {
+                    "$ref": "#/definitions/FactWitness"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                }
+            },
+            "required": [
+                "snapshot",
+                "fact"
+            ],
+            "type": "object"
+        },
+        "RejectFacts": {
+            "description": "Facts-only reject response. Carries the cage state UTxO, the batch of rejectable request UTxOs, wallet funding UTxO witnesses, server-derived Phase 3 validity slot bounds, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "validity_lower_slot": {
+                    "type": "integer"
+                },
+                "validity_upper_slot": {
+                    "type": "integer"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "state_utxo",
+                "request_utxos",
+                "wallet_utxos",
+                "validity_lower_slot",
+                "validity_upper_slot",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "RejectRequest": {
+            "description": "Reject Phase 3 expired requests for a token",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "requests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        },
+        "RequestDeleteFacts": {
+            "description": "Facts-only request-delete response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "key",
+                "value",
+                "address",
+                "submitted_at",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "RequestInsertFacts": {
+            "description": "Facts-only request-insert response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "key",
+                "value",
+                "address",
+                "submitted_at",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "RequestUpdateFacts": {
+            "description": "Facts-only request-update response. Carries request payload, submission timestamp, wallet UTxO witnesses, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "new_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "old_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "submitted_at": {
+                    "type": "integer"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "key",
+                "old_value",
+                "new_value",
+                "address",
+                "submitted_at",
+                "wallet_utxos",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "RequestsResponse": {
+            "description": "Proof-bearing pending requests response",
+            "properties": {
+                "request_set": {
+                    "$ref": "#/definitions/UtxoSetWitness"
+                },
+                "requests": {
+                    "items": {
+                        "$ref": "#/definitions/WitnessedRequest"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                }
+            },
+            "required": [
+                "snapshot",
+                "request_set",
+                "requests"
+            ],
+            "type": "object"
+        },
+        "RetractFacts": {
+            "description": "Facts-only retract response. Carries the named request UTxO, cage state UTxO, wallet funding UTxO witnesses, server-derived Phase 2 validity slot bounds, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "validity_end_slot": {
+                    "type": "integer"
+                },
+                "validity_start_slot": {
+                    "type": "integer"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "request_utxo",
+                "state_utxo",
+                "wallet_utxos",
+                "validity_start_slot",
+                "validity_end_slot",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "RetractRequest": {
+            "description": "Retract a pending request. UTxO format: txhash#ix",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "utxo": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "utxo",
+                "address"
+            ],
+            "type": "object"
+        },
+        "StatusResponse": {
+            "description": "Indexer chain tip, checkpoint, and current UTxO-CSMT root",
+            "properties": {
+                "checkpoint_block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "checkpoint_slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "tip_block_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tip_slot": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                },
+                "utxo_root": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tip_slot",
+                "tip_block_id",
+                "checkpoint_slot",
+                "checkpoint_block_id",
+                "utxo_root"
+            ],
+            "type": "object"
+        },
+        "SubmitRequest": {
+            "description": "Submit a signed transaction",
+            "properties": {
+                "signedTxCbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "signedTxCbor"
+            ],
+            "type": "object"
+        },
+        "SubmitResponse": {
+            "description": "Accepted transaction id",
+            "properties": {
+                "txId": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "txId"
+            ],
+            "type": "object"
+        },
+        "SweepRequest": {
+            "description": "Owner-only sweep of a non-legitimate UTxO at the per-cage request address. UTxO format: txhash#ix",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "utxo": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "token",
+                "utxo",
+                "address"
+            ],
+            "type": "object"
+        },
+        "SweepTxResponse": {
+            "description": "Unsigned sweep transaction. Sweep does not bundle a proof envelope (the on-chain validator enforces the owner-signature predicate against the referenced state UTxO).",
+            "properties": {
+                "tx": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx"
+            ],
+            "type": "object"
+        },
+        "SyncPhase": {
+            "description": "Current synchronization phase: restoring, replaying, following, or synced",
+            "enum": [
+                "restoring",
+                "replaying",
+                "following",
+                "synced"
+            ],
+            "type": "string"
+        },
+        "TokenIdJSON": {
+            "description": "Hex-encoded token identifier",
+            "type": "string"
+        },
+        "TokenResponse": {
+            "description": "Proof-bearing token state response",
+            "properties": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state": {
+                    "$ref": "#/definitions/WitnessedTokenState"
+                }
+            },
+            "required": [
+                "snapshot",
+                "state"
+            ],
+            "type": "object"
+        },
+        "TokenSetWitness": {
+            "description": "Enumerated token-state UTxOs (token id is the state token's asset name inside each txout_cbor) with a CSMT prefix-completeness proof",
+            "properties": {
+                "completeness_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/TokenUtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "entries",
+                "completeness_proof"
+            ],
+            "type": "object"
+        },
+        "TokenUtxoEntry": {
+            "description": "Token-state UTxO entry; the token id is the state token's asset name inside txout_cbor",
+            "properties": {
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor"
+            ],
+            "type": "object"
+        },
+        "TokensResponse": {
+            "description": "Proof-bearing complete token set                    \response",
+            "properties": {
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/TokenSetWitness"
+                }
+            },
+            "required": [
+                "snapshot",
+                "tokens"
+            ],
+            "type": "object"
+        },
+        "TrieFact": {
+            "description": "Trie read fact: key, optional value, and MPF proof against a trie root.",
+            "properties": {
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "mpf_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "value": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "key",
+                "value",
+                "mpf_proof"
+            ],
+            "type": "object"
+        },
+        "TxInJSON": {
+            "description": "UTxO reference",
+            "properties": {
+                "tx_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_ix": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tx_id",
+                "tx_ix"
+            ],
+            "type": "object"
+        },
+        "UnverifiedPParams": {
+            "description": "CBOR-encoded protocol parameters reported as unverified facts.",
+            "properties": {
+                "cbor": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "verified": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "verified",
+                "cbor"
+            ],
+            "type": "object"
+        },
+        "UpdateFacts": {
+            "description": "Facts-only update response. Carries state, request and wallet UTxO witnesses, trie root/read facts, and unverified protocol parameters, with no unsigned transaction CBOR.",
+            "properties": {
+                "protocol_parameters": {
+                    "$ref": "#/definitions/UnverifiedPParams"
+                },
+                "request_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/VerificationSnapshot"
+                },
+                "state_utxo": {
+                    "$ref": "#/definitions/UtxoEntry"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                },
+                "trie_facts": {
+                    "items": {
+                        "$ref": "#/definitions/TrieFact"
+                    },
+                    "type": "array"
+                },
+                "trie_root": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "validity_upper_slot": {
+                    "type": "integer"
+                },
+                "wallet_utxos": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntry"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "snapshot",
+                "token",
+                "state_utxo",
+                "request_utxos",
+                "wallet_utxos",
+                "trie_root",
+                "trie_facts",
+                "validity_upper_slot",
+                "protocol_parameters"
+            ],
+            "type": "object"
+        },
+        "UpdateRequest": {
+            "description": "Process pending requests",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "requests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "address"
+            ],
+            "type": "object"
+        },
+        "UpdateValueRequest": {
+            "description": "Update a key's value (old and new values)",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "key": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "new_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "old_value": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "token": {
+                    "$ref": "#/definitions/TokenIdJSON"
+                }
+            },
+            "required": [
+                "token",
+                "key",
+                "old_value",
+                "new_value",
+                "address"
+            ],
+            "type": "object"
+        },
+        "UtxoEntry": {
+            "description": "UTxO ref, CBOR body, and CSMT inclusion proof against the enclosing snapshot's utxo_root",
+            "properties": {
+                "inclusion_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor",
+                "inclusion_proof"
+            ],
+            "type": "object"
+        },
+        "UtxoEntryRefOnly": {
+            "description": "UTxO ref and CBOR body, without a per-entry inclusion proof. Used inside a UtxoSetWitness.",
+            "properties": {
+                "ref": {
+                    "$ref": "#/definitions/UtxoRef"
+                },
+                "txout_cbor": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "ref",
+                "txout_cbor"
+            ],
+            "type": "object"
+        },
+        "UtxoRef": {
+            "description": "UTxO reference",
+            "properties": {
+                "tx_id": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "tx_ix": {
+                    "format": "int64",
+                    "maximum": 1.8446744073709551615e19,
+                    "minimum": 0,
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "tx_id",
+                "tx_ix"
+            ],
+            "type": "object"
+        },
+        "UtxoSetWitness": {
+            "description": "Enumerated UTxOs at a known script-hash prefix, with a single CSMT prefix-completeness proof attesting the set is exactly the leaves under that prefix.",
+            "properties": {
+                "completeness_proof": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/UtxoEntryRefOnly"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "entries",
+                "completeness_proof"
+            ],
+            "type": "object"
+        },
+        "VerificationSnapshot": {
+            "description": "UTxO-CSMT root and indexed chain point against which bundled proofs are valid",
+            "properties": {
+                "chainpoint": {
+                    "$ref": "#/definitions/ChainPointJSON"
+                },
+                "utxo_root": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "utxo_root",
+                "chainpoint"
+            ],
+            "type": "object"
+        },
+        "WitnessedRequest": {
+            "description": "UTxO witness for a pending-request output; the request is the inline datum in utxo.tx_out",
+            "properties": {
+                "utxo": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "utxo"
+            ],
+            "type": "object"
+        },
+        "WitnessedTokenState": {
+            "description": "UTxO witness for a token-state output; the on-chain state is the inline datum in utxo.tx_out",
+            "properties": {
+                "utxo": {
+                    "$ref": "#/definitions/WitnessedUtxo"
+                }
+            },
+            "required": [
+                "utxo"
+            ],
+            "type": "object"
+        },
+        "WitnessedUtxo": {
+            "description": "UTxO reference, CBOR body, and UTxO-CSMT inclusion proof",
+            "properties": {
+                "tx_in": {
+                    "$ref": "#/definitions/TxInJSON"
+                },
+                "tx_out": {
+                    "$ref": "#/definitions/Hex"
+                },
+                "utxo_proof": {
+                    "$ref": "#/definitions/Hex"
+                }
+            },
+            "required": [
+                "tx_in",
+                "tx_out",
+                "utxo_proof"
+            ],
+            "type": "object"
+        }
+    },
+    "info": {
+        "description": "HTTP service for the Cardano Merkle Patricia Forestry offchain node. Provides token lifecycle, trie queries, and transaction building endpoints.\n\nContract: verified read endpoints provide only provable on-chain data (witnessed UTxOs: TxIn + full TxOut + CSMT proof) plus the proofs that bind it to the snapshot's utxo_root, and genuinely server-only data the client cannot derive (snapshot / chain tip / utxo_root). They never ship server-side projections - parsed convenience JSON of data already present in a witnessed TxOut. Clients reconstruct everything else (token id, token state, request payload) by decoding the inline datum in the witnessed TxOut.",
+        "license": {
+            "name": "Apache 2.0"
+        },
+        "title": "MPFS HTTP API",
+        "version": "0.0.0"
+    },
+    "paths": {
+        "/eval-context": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/EvalContext"
+                        }
+                    }
+                }
+            }
+        },
+        "/facts/boot": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/BootRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/BootFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/end": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/EndRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/EndFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/reject": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RejectFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/request/delete": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/DeleteRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestDeleteFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/request/insert": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/InsertRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestInsertFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/request/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateValueRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestUpdateFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/retract": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RetractRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RetractFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/facts/update": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UpdateFacts"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Metrics"
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/prometheus": {
+            "get": {
+                "produces": [
+                    "text/plain;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/status": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/StatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/submit": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SubmitRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/SubmitResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tokens": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/TokensResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/tokens/{id}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/TokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/facts": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/FactsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/facts/{key}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/FactResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `key` or `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/proofs/{key}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "in": "path",
+                        "name": "key",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/ProofResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `key` or `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/requests": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/RequestsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tokens/{id}/root": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `id`"
+                    }
+                }
+            }
+        },
+        "/tx/sweep": {
+            "post": {
+                "consumes": [
+                    "application/json;charset=utf-8"
+                ],
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SweepRequest"
+                        }
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/SweepTxResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    }
+                }
+            }
+        },
+        "/tx/{txId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "query",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "timeout",
+                        "required": false,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid `timeout` or `txId`"
+                    }
+                }
+            }
+        },
+        "/utxo/root": {
+            "get": {
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    }
+                }
+            }
+        },
+        "/utxo/{txId}/{txIx}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "path",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "txIx",
+                        "required": true,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `txIx` or `txId`"
+                    }
+                }
+            }
+        },
+        "/utxo/{txId}/{txIx}/proof": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "txId",
+                        "required": true,
+                        "type": "string"
+                    },
+                    {
+                        "format": "int64",
+                        "in": "path",
+                        "maximum": 1.8446744073709551615e19,
+                        "minimum": 0,
+                        "name": "txIx",
+                        "required": true,
+                        "type": "integer"
+                    }
+                ],
+                "produces": [
+                    "application/json;charset=utf-8"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Hex"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `txIx` or `txId`"
+                    }
+                }
+            }
+        }
+    },
+    "swagger": "2.0"
+}
