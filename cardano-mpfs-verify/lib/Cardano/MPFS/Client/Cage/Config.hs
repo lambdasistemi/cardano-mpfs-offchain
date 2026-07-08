@@ -9,12 +9,14 @@
 -- fields and avoids depending on the offchain server package.
 module Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , cageAddrFromCfg
     , cagePolicyIdFromCfg
     , computeScriptHash
     , mkCageScript
     ) where
 
+import Data.ByteString (ByteString)
 import Data.ByteString.Short (ShortByteString)
 
 import Cardano.Ledger.Address (Addr (..))
@@ -41,10 +43,18 @@ import Cardano.Ledger.Plutus.Language
     , PlutusBinary (..)
     )
 
+import Cardano.MPFS.Cage.Blueprint
+    ( applyDataParam
+    )
 import Cardano.MPFS.Cage.Ledger
     ( Coin
     , ConwayEra
     )
+import PlutusTx.Builtins.Internal
+    ( BuiltinByteString (..)
+    , BuiltinData (..)
+    )
+import PlutusTx.IsData.Class (toBuiltinData)
 
 -- | Configuration for client-side cage transaction builders.
 data CageConfig = CageConfig
@@ -82,6 +92,14 @@ computeScriptHash sbs =
         $ ConwayPlutusV3
         $ Plutus @PlutusV3
         $ PlutusBinary sbs
+
+-- | Apply the state validator's @previousPolicies@ parameter.
+applyPreviousPolicies
+    :: [ByteString] -> ShortByteString -> ShortByteString
+applyPreviousPolicies pids =
+    let BuiltinData d =
+            toBuiltinData (BuiltinByteString <$> pids)
+    in  applyDataParam d
 
 -- | Compute the cage minting policy id from config.
 cagePolicyIdFromCfg :: CageConfig -> PolicyID

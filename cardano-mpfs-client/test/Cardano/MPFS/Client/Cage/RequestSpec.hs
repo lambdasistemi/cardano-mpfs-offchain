@@ -147,6 +147,7 @@ import Cardano.MPFS.Client.Cage.BuildError
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , computeScriptHash
     )
 import Cardano.MPFS.Client.Cage.Identity
@@ -742,11 +743,13 @@ testCageConfig = do
                 expectationFailure
                     "request script not found in MPFS_BLUEPRINT"
                     *> error "unreachable"
+    let appliedStateBytes =
+            applyPreviousPolicies [] scriptBytes
     pure
         CageConfig
-            { cageScriptBytes = scriptBytes
+            { cageScriptBytes = appliedStateBytes
             , requestScriptBytes = requestBytes
-            , cfgScriptHash = computeScriptHash scriptBytes
+            , cfgScriptHash = computeScriptHash appliedStateBytes
             , defaultProcessTime = 60_000
             , defaultRetractTime = 30_000
             , defaultTip = Coin 1_000_000

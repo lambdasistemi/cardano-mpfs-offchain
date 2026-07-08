@@ -62,6 +62,7 @@ import Cardano.MPFS.API.Types
 import Cardano.MPFS.API.Types.Facts ()
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , computeScriptHash
     )
 import Cardano.MPFS.Client.Facts
@@ -169,11 +170,13 @@ parseCageConfig = withObject "CageConfig" $ \o -> do
     retractTime <- o .: "default_retract_time"
     tip <- o .: "default_tip"
     net <- o .: "network" >>= parseNetwork
+    let appliedCageBytes =
+            applyPreviousPolicies [] cageBytes
     pure
         CageConfig
-            { cageScriptBytes = cageBytes
+            { cageScriptBytes = appliedCageBytes
             , requestScriptBytes = requestBytes
-            , cfgScriptHash = computeScriptHash cageBytes
+            , cfgScriptHash = computeScriptHash appliedCageBytes
             , defaultProcessTime = processTime
             , defaultRetractTime = retractTime
             , defaultTip = Coin tip

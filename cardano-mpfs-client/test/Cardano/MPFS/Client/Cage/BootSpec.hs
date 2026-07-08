@@ -123,6 +123,7 @@ import Cardano.MPFS.Client.Cage.BuildError
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , computeScriptHash
     )
 import Cardano.MPFS.Client.Cage.Policy
@@ -145,6 +146,14 @@ import Cardano.Tx.Balance
 
 spec :: Spec
 spec = describe "bootCageTx" $ do
+    it "matches the previousPolicies genesis state identity" $ do
+        rawStateBytes <- testStateScriptBytes
+        cfg <- testCageConfig
+        let appliedStateBytes =
+                applyPreviousPolicies [] rawStateBytes
+        cageScriptBytes cfg `shouldBe` appliedStateBytes
+        cfgScriptHash cfg `shouldBe` computeScriptHash appliedStateBytes
+
     it "rejects empty funding before building" $ do
         cfg <- testCageConfig
         verified <-
@@ -459,6 +468,22 @@ ownerAddr = Addr Testnet (KeyHashObj testKh) StakeRefNull
 
 testCageConfig :: IO CageConfig
 testCageConfig = do
+    scriptBytes <- testStateScriptBytes
+    let appliedStateBytes =
+            applyPreviousPolicies [] scriptBytes
+    pure
+        CageConfig
+            { cageScriptBytes = appliedStateBytes
+            , requestScriptBytes = SBS.empty
+            , cfgScriptHash = computeScriptHash appliedStateBytes
+            , defaultProcessTime = 300_000
+            , defaultRetractTime = 600_000
+            , defaultTip = Coin 1_000_000
+            , network = Testnet
+            }
+
+testStateScriptBytes :: IO SBS.ShortByteString
+testStateScriptBytes = do
     blueprintPath <- getEnv "MPFS_BLUEPRINT"
     eBlueprint <- loadBlueprint blueprintPath
     blueprint <- case eBlueprint of
@@ -467,21 +492,11 @@ testCageConfig = do
                 ("loadBlueprint failed: " <> err)
                 *> error "unreachable"
         Right blueprint -> pure blueprint
-    scriptBytes <- case extractCompiledCode "state." blueprint of
+    case extractCompiledCode "state." blueprint of
         Nothing ->
             expectationFailure "state compiled code missing"
                 *> error "unreachable"
         Just scriptBytes -> pure scriptBytes
-    pure
-        CageConfig
-            { cageScriptBytes = scriptBytes
-            , requestScriptBytes = SBS.empty
-            , cfgScriptHash = computeScriptHash scriptBytes
-            , defaultProcessTime = 300_000
-            , defaultRetractTime = 600_000
-            , defaultTip = Coin 1_000_000
-            , network = Testnet
-            }
 
 realisticPParams :: PParams ConwayEra
 realisticPParams =

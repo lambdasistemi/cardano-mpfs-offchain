@@ -9,11 +9,14 @@
   - `cardano-mpfs-verify/lib/Cardano/MPFS/Client/Cage/Identity.hs`
   - `cardano-mpfs-verify/lib/Cardano/MPFS/Client/Verify/Reactor.hs`
   - `cardano-mpfs-client/test/**` config fixtures that extract `state.`
+  - `cardano-mpfs-cli/lib/Cardano/MPFS/CLI/Cage.hs`
+  - `cardano-mpfs-offchain/e2e-test/**` boot/e2e config fixtures that
+    extract `state.`
   - `flake.nix` and `flake.lock`
 - Upstream helper shape from on-chain #76:
   `applyPreviousPolicies pids = applyDataParam (List (map B pids))`.
-  The bumped `cardano-mpfs-cage` package exposes this helper, so the offchain
-  verifier should reuse or wrap it without adding new dependency manifests.
+  The offchain verifier ports this helper through existing `applyDataParam`
+  surface without adding dependency manifests.
 
 ## Constitution Check
 
@@ -49,13 +52,23 @@
    - Re-run the RED focused test and the affected `just unit-client` matchers.
    - Run `./gate.sh`.
    - Commit one bisect-safe implementation commit with a `Tasks:` trailer.
+4. Expanded CLI/e2e adoption:
+   - Apply the same genesis `previousPolicies = []` parameter in live CLI and
+     e2e boot paths that build a `CageConfig` from raw state bytes.
+   - Prefer central constructors: CLI has `buildCageConfig`, and e2e already
+     has `Cardano.MPFS.E2E.Helpers.Boot` as a shared helper module.
+   - Prove the e2e boot path with `just e2e` using a real `MPFS_BLUEPRINT` so
+     the affected specs do not skip.
 
 ## Slice Plan
 
-One implementation slice is appropriate because the pin bump, lock update, RED
-test, and parameter application are coupled. The pin alone intentionally makes
-the old hash derivation wrong, and the fix alone cannot be proven against the
-old blueprint.
+Two implementation slices are required after scope clarification A-001:
+
+1. Pin bump plus verifier/client genesis state parameter adoption. The pin
+   bump, lock update, RED test, and verifier parameter application are coupled.
+2. CLI plus e2e boot adoption. These are live boot paths and must be proven by
+   an e2e run against the freshly built bumped blueprint, not compile-only
+   evidence.
 
 ## Gate
 
@@ -69,5 +82,8 @@ The PR gate is `./gate.sh`, currently covering:
   .#checks.x86_64-linux.swagger-up-to-date`
 - `just format-check`
 - `just hlint`
+- second-slice proof: `MPFS_BLUEPRINT=<bumped blueprint JSON> just e2e
+  "Boot facts E2E"` at minimum; broaden to the affected e2e matchers when the
+  focused run passes.
 
 Baseline evidence before behavior changes: `./gate.sh` exited 0.
