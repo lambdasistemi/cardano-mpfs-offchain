@@ -607,17 +607,24 @@ instance FromJSON RequestsResponse where
 
 -- | @POST \/tx\/boot@ request body.
 newtype BootRequest = BootRequest
-    { brAddr :: Hex
-    -- ^ Address (hex-encoded serialized)
+    { brAddr :: [Hex]
+    -- ^ Addresses (hex-encoded serialized)
     }
 
 instance ToJSON BootRequest where
     toJSON BootRequest{..} =
-        object ["address" .= brAddr]
+        object ["addresses" .= brAddr]
 
 instance FromJSON BootRequest where
-    parseJSON = withObject "BootRequest" $ \o ->
-        BootRequest <$> o .: "address"
+    parseJSON = withObject "BootRequest" $ \o -> do
+        mAddresses <- o .:? "addresses"
+        case mAddresses of
+            Just addresses ->
+                pure (BootRequest addresses)
+            Nothing ->
+                BootRequest
+                    . maybe [] pure
+                    <$> o .:? "address"
 
 -- | Request body for inserting a key-value pair.
 data InsertRequest = InsertRequest
@@ -1259,8 +1266,8 @@ instance ToSchema StatusResponse where
 
 instance ToSchema BootRequest where
     declareNamedSchema _ = do
-        hexSchema <-
-            declareSchemaRef (Proxy @Hex)
+        addressesSchema <-
+            declareSchemaRef (Proxy @[Hex])
         pure
             $ Swagger.NamedSchema
                 (Just "BootRequest")
@@ -1269,10 +1276,10 @@ instance ToSchema BootRequest where
                 ?~ Swagger.SwaggerObject
             & properties
                 .~ fromList
-                    [("address", hexSchema)]
-            & required .~ ["address"]
+                    [("addresses", addressesSchema)]
+            & required .~ ["addresses"]
             & description
-                ?~ "Boot a new token"
+                ?~ "Boot a new token; legacy address field is also accepted"
 
 instance ToSchema InsertRequest where
     declareNamedSchema _ = do

@@ -229,7 +229,7 @@ postBootFacts app addr = do
             "/facts/boot"
             BootRequest
                 { brAddr =
-                    Hex (serialiseAddr addr)
+                    [Hex (serialiseAddr addr)]
                 }
     simpleStatus resp `shouldBe` status200
     case eitherDecode (simpleBody resp) of

@@ -33,6 +33,7 @@ import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
+import Data.ByteString qualified as BS
 import Data.ByteString.Base16 qualified as B16
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BSL
@@ -847,22 +848,22 @@ requireIndexerRead =
     either (throwInternal . indexerReadErrorMessage) pure
 
 -- | @POST \/facts\/boot@. Reads snapshot and wallet
--- inputs at the owner address inside ONE indexer
+-- inputs at the owner addresses inside ONE indexer
 -- transaction, then returns facts for wallet-side
 -- boot transaction construction.
 factsBootHandler
     :: Context IO
     -> BootRequest
     -> Handler BootFacts
-factsBootHandler ctx (BootRequest addrHex) = do
-    addr <- requireAddr addrHex
+factsBootHandler ctx (BootRequest addrHexes) = do
+    addrs <- traverse requireAddr (dedupeAddressHexes addrHexes)
     (mSnap, eInputs) <-
         runProofIndexerTx ctx
             $ do
                 snap <- readSnapshot
-                ins <- readWalletInputsAt addr
+                ins <- traverse readWalletInputsAt addrs
                 pure (snap, ins)
-    inputs <- requireIndexerRead eInputs
+    inputs <- requireIndexerRead (concat <$> sequence eInputs)
     case mSnap of
         Nothing ->
             throwError
@@ -872,7 +873,7 @@ factsBootHandler ctx (BootRequest addrHex) = do
                         \snapshot unavailable"
                     }
         Just snap
-            | null inputs ->
+            | not (null addrs) && null inputs ->
                 throwError
                     err400
                         { errBody =
@@ -885,6 +886,16 @@ factsBootHandler ctx (BootRequest addrHex) = do
                         $ queryProtocolParams
                             (provider ctx)
                 pure (mkBootFacts snap inputs pp)
+
+dedupeAddressHexes :: [Hex] -> [Hex]
+dedupeAddressHexes =
+    go Set.empty
+  where
+    go _ [] = []
+    go seen (h@(Hex bytes) : rest)
+        | BS.null bytes = go seen rest
+        | Set.member bytes seen = go seen rest
+        | otherwise = h : go (Set.insert bytes seen) rest
 
 -- | Build the facts-only boot response from an indexed
 -- snapshot, resolved wallet inputs, and protocol

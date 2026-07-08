@@ -1372,7 +1372,7 @@ postBootFacts app addr =
     postFactsRequest
         app
         "/facts/boot"
-        BootRequest{brAddr = Hex (serialiseAddr addr)}
+        BootRequest{brAddr = [Hex (serialiseAddr addr)]}
         "boot row"
         "BootFacts"
 

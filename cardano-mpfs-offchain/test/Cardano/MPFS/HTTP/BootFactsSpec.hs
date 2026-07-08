@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Cardano.MPFS.HTTP.BootFactsSpec
@@ -8,6 +10,7 @@ module Cardano.MPFS.HTTP.BootFactsSpec (spec) where
 
 import Data.Aeson
     ( ToJSON (toJSON)
+    , decode
     , eitherDecode
     , encode
     , object
@@ -17,9 +20,11 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Value (..))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BL
+import Data.Either (isRight)
 import Network.HTTP.Types
     ( hContentType
     , methodPost
+    , status200
     , status400
     , status503
     )
@@ -38,18 +43,27 @@ import Test.Hspec
     , expectationFailure
     , it
     , shouldBe
+    , shouldSatisfy
     )
-import Test.QuickCheck (generate)
+import Test.QuickCheck (generate, suchThat)
 
-import Cardano.Ledger.Address (serialiseAddr)
+import Cardano.Ledger.Address (Addr, serialiseAddr)
 import Cardano.Ledger.Api.PParams (emptyPParams)
+import Cardano.Ledger.Api.Tx.Out (TxOut, mkBasicTxOut)
+import Cardano.Ledger.BaseTypes (Inject (..))
+import Cardano.Ledger.Binary (natVersion, serialize')
 
+import Cardano.MPFS.Client.TrustedRoot (TrustedRoot (..))
+import Cardano.MPFS.Client.Verify (verifyBootFacts)
 import Cardano.MPFS.Context (Context (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , Coin (..)
+    , ConwayEra
     , SlotNo (..)
     )
 import Cardano.MPFS.Generators (genTxIn)
+import Cardano.MPFS.HTTP.AtomicReadFixture (withProofIndexer)
 import Cardano.MPFS.HTTP.Encoding (Hex (..))
 import Cardano.MPFS.HTTP.Server
     ( mkApp
@@ -57,7 +71,15 @@ import Cardano.MPFS.HTTP.Server
     )
 import Cardano.MPFS.HTTP.StatusSpec (mkTestContext)
 import Cardano.MPFS.HTTP.Swagger (renderSwaggerJSON)
-import Cardano.MPFS.Indexer.TxFixtures (testCageAddr)
+import Cardano.MPFS.HTTP.Types
+    ( BootFacts (..)
+    , VerificationSnapshot (..)
+    )
+import Cardano.MPFS.Indexer.TxFixtures
+    ( testCageAddr
+    , testWalletAddr
+    )
+import Cardano.MPFS.Provider (Provider (..))
 import Cardano.MPFS.TxBuilder (BundleSnapshot (..))
 
 spec :: Spec
@@ -84,6 +106,70 @@ spec = describe "POST /facts/boot" $ do
                 mkTestContext
         resp <- postJson ctx "/facts/boot" validBootRequest
         simpleStatus resp `shouldBe` status503
+
+    it
+        "returns the union of wallet UTxOs for unique addresses \
+        \against one snapshot root"
+        $ do
+            txInA <- generate genTxIn
+            txInB <- generate (genTxIn `suchThat` (/= txInA))
+            ctx0 <- mkBootTestContext
+            let outA = walletTxOutBytes testWalletAddr
+                outB = walletTxOutBytes testCageAddr
+            withProofIndexer
+                Nothing
+                [(txInA, outA), (txInB, outB)]
+                ctx0
+                $ \root ctx -> do
+                    resp <-
+                        postJson
+                            ctx
+                            "/facts/boot"
+                            ( multiAddressBootRequest
+                                [ testWalletAddr
+                                , testCageAddr
+                                , testWalletAddr
+                                ]
+                            )
+                    simpleStatus resp `shouldBe` status200
+                    case decode (simpleBody resp) of
+                        Just body@BootFacts{..} -> do
+                            vsUtxoRoot bfSnapshot
+                                `shouldBe` Hex root
+                            length bfWalletUtxos `shouldBe` 2
+                            verifyBootFacts
+                                (TrustedRoot (vsUtxoRoot bfSnapshot))
+                                body
+                                `shouldSatisfy` isRight
+                        Nothing ->
+                            expectationFailure
+                                "Expected BootFacts JSON"
+
+    it "keeps accepting the legacy single address request body" $ do
+        txIn <- generate genTxIn
+        ctx0 <- mkBootTestContext
+        withProofIndexer
+            Nothing
+            [(txIn, walletTxOutBytes testWalletAddr)]
+            ctx0
+            $ \root ctx -> do
+                resp <-
+                    postJson
+                        ctx
+                        "/facts/boot"
+                        (singleAddressBootRequest testWalletAddr)
+                simpleStatus resp `shouldBe` status200
+                case decode (simpleBody resp) of
+                    Just body@BootFacts{..} -> do
+                        vsUtxoRoot bfSnapshot `shouldBe` Hex root
+                        length bfWalletUtxos `shouldBe` 1
+                        verifyBootFacts
+                            (TrustedRoot (vsUtxoRoot bfSnapshot))
+                            body
+                            `shouldSatisfy` isRight
+                    Nothing ->
+                        expectationFailure
+                            "Expected BootFacts JSON"
 
     it "documents facts route and omits legacy boot route"
         $ case eitherDecode renderSwaggerJSON of
@@ -149,11 +235,49 @@ badBootRequest = "{\"address\":\"00\"}"
 
 validBootRequest :: String
 validBootRequest =
+    singleAddressBootRequest testCageAddr
+
+singleAddressBootRequest :: Addr -> String
+singleAddressBootRequest addr =
     BL.unpack
         $ encode
         $ object
-            [ "address" .= Hex (serialiseAddr testCageAddr)
+            ["address" .= Hex (serialiseAddr addr)]
+
+multiAddressBootRequest :: [Addr] -> String
+multiAddressBootRequest addrs =
+    BL.unpack
+        $ encode
+        $ object
+            [ "addresses"
+                .= fmap
+                    (Hex . serialiseAddr)
+                    addrs
             ]
+
+walletTxOutBytes :: Addr -> ByteString
+walletTxOutBytes addr =
+    serialize'
+        (natVersion @11)
+        ( mkBasicTxOut
+            addr
+            (inject (Coin 2_000_000))
+            :: TxOut ConwayEra
+        )
+
+mkBootTestContext :: IO (Context IO)
+mkBootTestContext =
+    fmap
+        ( \ctx ->
+            ctx
+                { provider =
+                    (provider ctx)
+                        { queryProtocolParams =
+                            pure emptyPParams
+                        }
+                }
+        )
+        mkTestContext
 
 postJson
     :: Context IO

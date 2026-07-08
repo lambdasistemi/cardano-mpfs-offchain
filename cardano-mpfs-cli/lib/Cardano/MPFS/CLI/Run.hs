@@ -140,7 +140,7 @@ run App{appOutput, appCommand} = case appCommand of
             cageConfig
             trustedRoot
             (applyBootTiming processTimeMs retractTimeMs)
-            BootRequest
+            (BootRequest . pure)
             registerToken
     FactInsert{..} -> do
         tid <- decodeToken token
