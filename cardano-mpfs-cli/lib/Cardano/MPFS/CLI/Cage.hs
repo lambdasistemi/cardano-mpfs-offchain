@@ -39,6 +39,7 @@ import Cardano.MPFS.Cage.Blueprint
     )
 import Cardano.MPFS.Client.Cage.Config
     ( CageConfig (..)
+    , applyPreviousPolicies
     , computeScriptHash
     )
 
@@ -76,15 +77,16 @@ resolveCageConfig mPath = do
 -- mainnet or custom-timing flag is a future addition.
 buildCageConfig :: ShortByteString -> ShortByteString -> CageConfig
 buildCageConfig stateBytes requestBytes =
-    CageConfig
-        { cageScriptBytes = stateBytes
-        , requestScriptBytes = requestBytes
-        , cfgScriptHash = computeScriptHash stateBytes
-        , defaultProcessTime = 300_000
-        , defaultRetractTime = 600_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        }
+    let appliedStateBytes = applyPreviousPolicies [] stateBytes
+    in  CageConfig
+            { cageScriptBytes = appliedStateBytes
+            , requestScriptBytes = requestBytes
+            , cfgScriptHash = computeScriptHash appliedStateBytes
+            , defaultProcessTime = 300_000
+            , defaultRetractTime = 600_000
+            , defaultTip = Coin 1_000_000
+            , network = Testnet
+            }
 
 -- | The requester's enterprise address bytes, as the @POST /facts/*@
 -- endpoints expect (the inverse of the server's @decodeAddrEither@):

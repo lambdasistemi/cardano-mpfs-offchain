@@ -15,8 +15,6 @@ module Cardano.MPFS.E2E.CrashRecoverySpec
     ) where
 
 import Cardano.Chain.Slotting (EpochSlots (..))
-import Cardano.Ledger.BaseTypes (Network (..))
-import Cardano.Ledger.Coin (Coin (..))
 import Cardano.MPFS.Application
     ( AppConfig (..)
     , withApplication
@@ -28,11 +26,13 @@ import Cardano.MPFS.Core.Blueprint
     )
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
+    , Coin (..)
     , SlotNo (..)
     , TokenId
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , genesisCageConfigWith
     , walletBootInputs
     , withBootFactsTxBuilder
     )
@@ -52,9 +52,6 @@ import Cardano.MPFS.TxBuilder
     )
 import Cardano.MPFS.TxBuilder.Config
     ( CageConfig (..)
-    )
-import Cardano.MPFS.TxBuilder.Real.Internal
-    ( computeScriptHash
     )
 import Cardano.Node.Client.E2E.CrashRecovery
     ( KillResult (..)
@@ -379,18 +376,5 @@ emptySnap =
 
 cageCfg
     :: CageScripts -> CageConfig
-cageCfg (stateBytes, requestBytes, mStakingBytes) =
-    CageConfig
-        { cageScriptBytes = stateBytes
-        , requestScriptBytes = requestBytes
-        , cfgScriptHash =
-            computeScriptHash stateBytes
-        , defaultProcessTime = 15_000
-        , defaultRetractTime = 15_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        , cfgStakeScript =
-            fmap
-                (\bs -> (bs, computeScriptHash bs))
-                mStakingBytes
-        }
+cageCfg =
+    genesisCageConfigWith 15_000 15_000 (Coin 1_000_000)

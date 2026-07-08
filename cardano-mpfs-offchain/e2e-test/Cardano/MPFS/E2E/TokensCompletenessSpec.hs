@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Cardano.MPFS.E2E.TokensCompletenessSpec
@@ -20,8 +19,7 @@ import Cardano.Ledger.Api.Tx.Body
     ( outputsTxBodyL
     )
 import Cardano.Ledger.BaseTypes
-    ( Network (..)
-    , TxIx (..)
+    ( TxIx (..)
     )
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
@@ -44,10 +42,10 @@ import Cardano.MPFS.Core.Blueprint (CageScripts, loadCageScripts)
 import Cardano.MPFS.Core.OnChain (CageDatum (..))
 import Cardano.MPFS.Core.Types
     ( BlockId (..)
-    , Coin (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , genesisCageConfig
     , registerStakeCredIfNeeded
     , walletBootInputs
     , withBootFactsTxBuilder
@@ -63,7 +61,6 @@ import Cardano.MPFS.TxBuilder
 import Cardano.MPFS.TxBuilder.Config (CageConfig (..))
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cageAddrFromCfg
-    , computeScriptHash
     , extractCageDatum
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
@@ -300,20 +297,7 @@ withE2E scripts action = do
                 action cfg ctx'
 
 cageCfg :: CageScripts -> CageConfig
-cageCfg (stateBytes, requestBytes, mStakingBytes) =
-    CageConfig
-        { cageScriptBytes = stateBytes
-        , requestScriptBytes = requestBytes
-        , cfgScriptHash = computeScriptHash stateBytes
-        , defaultProcessTime = 5_000
-        , defaultRetractTime = 5_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        , cfgStakeScript =
-            fmap
-                (\bs -> (bs, computeScriptHash bs))
-                mStakingBytes
-        }
+cageCfg = genesisCageConfig
 
 emptySnap :: BundleSnapshot
 emptySnap =

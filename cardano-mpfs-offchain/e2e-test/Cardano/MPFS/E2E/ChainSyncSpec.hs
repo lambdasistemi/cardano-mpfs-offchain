@@ -34,7 +34,6 @@ import Cardano.Ledger.Api.Tx
     ( bodyTxL
     )
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
-import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Mary.Value (MultiAsset (..))
 import Cardano.Tx.Ledger (ConwayTx)
 
@@ -64,6 +63,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , genesisCageConfigWith
     , registerStakeCredIfNeeded
     , walletBootInputs
     , withBootFactsTxBuilder
@@ -89,7 +89,6 @@ import Cardano.MPFS.TxBuilder.Config
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
-    , computeScriptHash
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -426,18 +425,5 @@ pollUntilJust timeoutSec action = go attempts
 -- | Build a 'CageConfig' from state and request script bytes.
 cageCfg
     :: CageScripts -> CageConfig
-cageCfg (stateBytes, requestBytes, mStakingBytes) =
-    CageConfig
-        { cageScriptBytes = stateBytes
-        , requestScriptBytes = requestBytes
-        , cfgScriptHash =
-            computeScriptHash stateBytes
-        , defaultProcessTime = 15_000
-        , defaultRetractTime = 15_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        , cfgStakeScript =
-            fmap
-                (\bs -> (bs, computeScriptHash bs))
-                mStakingBytes
-        }
+cageCfg =
+    genesisCageConfigWith 15_000 15_000 (Coin 1_000_000)

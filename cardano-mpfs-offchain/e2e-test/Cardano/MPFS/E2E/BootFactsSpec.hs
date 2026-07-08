@@ -65,7 +65,6 @@ import Cardano.Ledger.Api.Tx
     , txIdTx
     )
 import Cardano.Ledger.Api.Tx.Body (mintTxBodyL)
-import Cardano.Ledger.BaseTypes (Network (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Hashes (extractHash)
 import Cardano.Ledger.Mary.Value
@@ -108,6 +107,7 @@ import Cardano.MPFS.Core.Types
     )
 import Cardano.MPFS.E2E.Helpers.Boot
     ( awaitProofReadsReady
+    , genesisCageConfig
     )
 import Cardano.MPFS.HTTP.Server (mkApp)
 import Cardano.MPFS.Provider (Provider (..))
@@ -120,7 +120,6 @@ import Cardano.MPFS.TxBuilder.Config
     )
 import Cardano.MPFS.TxBuilder.Real.Internal
     ( cagePolicyIdFromCfg
-    , computeScriptHash
     )
 import Cardano.Node.Client.E2E.Devnet (withCardanoNode)
 import Cardano.Node.Client.E2E.Setup
@@ -148,7 +147,16 @@ spec = describe "Boot facts E2E" $ do
                     bootFactsSpec scripts
 
 bootFactsSpec :: CageScripts -> Spec
-bootFactsSpec scripts =
+bootFactsSpec scripts = do
+    it "previousPolicies e2e genesis cage identity" $ do
+        let (stateBytes, _, _) = scripts
+            cfg = cageCfg scripts
+            appliedStateBytes =
+                Client.applyPreviousPolicies [] stateBytes
+        cageScriptBytes cfg `shouldBe` appliedStateBytes
+        cfgScriptHash cfg
+            `shouldBe` Client.computeScriptHash appliedStateBytes
+
     it
         "verifies facts, builds locally, submits, and indexes boot"
         $ withE2E scripts
@@ -386,17 +394,4 @@ withE2E scripts action = do
                 action cfg ctx
 
 cageCfg :: CageScripts -> CageConfig
-cageCfg (stateBytes, requestBytes, mStakingBytes) =
-    CageConfig
-        { cageScriptBytes = stateBytes
-        , requestScriptBytes = requestBytes
-        , cfgScriptHash = computeScriptHash stateBytes
-        , defaultProcessTime = 5_000
-        , defaultRetractTime = 5_000
-        , defaultTip = Coin 1_000_000
-        , network = Testnet
-        , cfgStakeScript =
-            fmap
-                (\bs -> (bs, computeScriptHash bs))
-                mStakingBytes
-        }
+cageCfg = genesisCageConfig
