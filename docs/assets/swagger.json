@@ -24,14 +24,17 @@
             "type": "object"
         },
         "BootRequest": {
-            "description": "Boot a new token",
+            "description": "Boot a new token; legacy address field is also accepted",
             "properties": {
-                "address": {
-                    "$ref": "#/definitions/Hex"
+                "addresses": {
+                    "items": {
+                        "$ref": "#/definitions/Hex"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
-                "address"
+                "addresses"
             ],
             "type": "object"
         },

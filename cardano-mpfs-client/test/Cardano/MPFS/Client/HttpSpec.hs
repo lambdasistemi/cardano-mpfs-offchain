@@ -206,7 +206,7 @@ writeEndpointCases :: [EndpointCase]
 writeEndpointCases =
     [ EndpointCase
         ["facts", "boot"]
-        (Aeson.toJSON bootFactsParams)
+        bootFactsRequest
         (Aeson.encode honestBootFacts)
         ( \http ->
             voidRight
@@ -276,6 +276,10 @@ writeEndpointCases =
 
 bootFactsParams :: BootFactsParams
 bootFactsParams = BootFactsParams sampleAddress
+
+bootFactsRequest :: Aeson.Value
+bootFactsRequest =
+    Aeson.object ["addresses" Aeson..= [sampleAddress]]
 
 honestBootFacts :: Wire.BootFacts
 honestBootFacts =

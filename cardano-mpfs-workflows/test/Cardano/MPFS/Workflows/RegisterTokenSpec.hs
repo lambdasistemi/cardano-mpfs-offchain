@@ -82,8 +82,8 @@ spec = describe "registerToken" $ do
                     Left err ->
                         expectationFailure
                             ("request body did not decode: " <> err)
-                    Right (BootRequest addr) ->
-                        addr `shouldBe` brAddr bootRequest
+                    Right (BootRequest addrs) ->
+                        addrs `shouldBe` brAddr bootRequest
 
     it "maps a transport failure to WorkflowHttpError" $ do
         ref <- newIORef (Nothing :: Maybe (Text, ByteString))
@@ -135,7 +135,7 @@ recordingClient ref response =
         pure response
 
 bootRequest :: BootRequest
-bootRequest = BootRequest{brAddr = Hex (BS.replicate 28 0x42)}
+bootRequest = BootRequest{brAddr = [Hex (BS.replicate 28 0x42)]}
 
 trustedRootBytes :: ByteString
 trustedRootBytes = BS.replicate 32 0x07

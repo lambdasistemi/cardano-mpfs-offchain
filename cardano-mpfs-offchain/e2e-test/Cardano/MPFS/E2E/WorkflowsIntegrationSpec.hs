@@ -424,7 +424,7 @@ genesisHex :: Hex
 genesisHex = Hex (serialiseAddr genesisAddr)
 
 bootReq :: BootRequest
-bootReq = BootRequest{brAddr = genesisHex}
+bootReq = BootRequest{brAddr = [genesisHex]}
 
 insertReq :: TokenId -> ByteString -> ByteString -> InsertRequest
 insertReq tokenId key value =
