@@ -12,3 +12,6 @@ result-docker
 
 # MkDocs build output
 site/
+
+# Ticket-local, untracked runtime gate
+/gate.sh
