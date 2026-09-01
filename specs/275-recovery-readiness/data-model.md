@@ -145,3 +145,49 @@ is deterministic and testable.
 State invariant (INV-R5): this is a relation over current observations, not a
 stored flag. Nothing in the system may cache a `Ready` verdict across
 requests.
+
+## D-10 `BuildInfo`
+
+Semantic interface fixed by M2 NOTE-002; field names may follow repository
+style but the shape and the effect boundary may not change.
+
+| Field | Type | Required | Source |
+|---|---|---|---|
+| `buildVersion` | `Text` | yes | compile time |
+| `buildGitCommit` | `Text` | yes | compile time |
+| `buildImageDigest` | `Maybe Text` | no | `MPFS_IMAGE_DIGEST`, read once at startup |
+
+Validation:
+
+- a qualifying production value of `buildGitCommit` is exactly 40 lowercase
+  hex characters;
+- a present `buildImageDigest` is `sha256:` followed by exactly 64 lowercase
+  hex characters;
+- a development build may carry `unknown` or `dirty:<rev>`. These are
+  deliberately shaped so they cannot be confused with a clean SHA, and the
+  clean-source predicate must reject them.
+
+State invariant (INV-R12): the value is constructed once, before the listener
+and recovery sequence, and is immutable for the life of the process.
+
+## D-11 `VersionResponse`
+
+Wire shape of `GET /version`, always HTTP 200 while the process is alive:
+
+```json
+{
+  "version": "0.2.2",
+  "git_commit": "0f82465f5f828c2ab987a166e9e24c2368228d01",
+  "image_digest": "sha256:<64 hex>"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `version` | string | release version; never null |
+| `git_commit` | string | full commit or a development sentinel; never null |
+| `image_digest` | string or null | null when the deployment did not supply one |
+
+Invariant: no field is derived from indexer or chain state, so no recovery
+phase can affect this response. A `/version` that could 503 during replay
+would be useless for the reconciliation it exists to serve.

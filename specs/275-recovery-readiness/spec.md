@@ -76,6 +76,16 @@ so wiring one restarts a healthy, recovering process.
 - **FR-9** `mpfs-serve`'s `main` performs no boot sequencing of its own beyond
   argument parsing and validation; the boot function proven by the recovery
   tests is the exact function production runs.
+- **FR-10** `GET /version` returns 200 whenever the process is alive —
+  including before the application context exists and throughout replay —
+  carrying a mandatory release version, a mandatory full build-time commit,
+  and an optional deploy-time image digest.
+- **FR-11** Build identity is captured exactly once, during startup and before
+  the listener/replay sequence, and is thereafter immutable. No per-request
+  environment read and no `unsafePerformIO`.
+- **FR-12** A development build may report an unmistakable sentinel, but a
+  sentinel can never satisfy the clean-source predicate that qualifies a
+  published artifact.
 
 ## Route classification
 
@@ -86,6 +96,7 @@ Always available — exactly:
 
 - `GET /live`
 - `GET /ready`
+- `GET /version` (C-IDENTITY, amended into C-SIGNALS by M2 NOTE-001)
 
 Gated (503 while not ready) — everything else, which today means all of
 `Cardano.MPFS.API` (`Shared.API`) including `GET /status`, `GET /metrics`,
@@ -93,12 +104,14 @@ Gated (503 while not ready) — everything else, which today means all of
 
 Gating the Swagger assets and `/metrics` is deliberate: C-SIGNALS names the
 always-available operational surfaces exhaustively, and a default-deny gate
-with a two-entry allowlist cannot drift. Operator observability during the
+with a three-entry allowlist cannot drift. Operator observability during the
 not-ready window is preserved by FR-5 instead of by exempting `/metrics`.
 
-`GET /version` is C-IDENTITY, produced by M2-E-PUBLISH, and is out of scope
-here. The exempt set MUST be an explicit allowlist so that adding `/version`
-later is a one-line change and not a re-architecture.
+M2 NOTE-001 and NOTE-002 assign this ticket the whole Haskell side of
+`/version`: the shared route, the schema, the handler, `Cardano.MPFS.BuildInfo`
+and its startup capture. M2-E-PUBLISH owns the later build-system injection of
+the compile-time values, the OCI labels, and the release record, and must not
+edit these files in parallel.
 
 ## Readiness definition
 
@@ -138,17 +151,26 @@ HTTP client — never `Network.Wai.Test`.
   window of the observed tip, even though the phase is following and the root
   is correct.
 - **AC-5** A boot failure exits the process non-zero and closes the listener.
-- **AC-6** Every assertion behind AC-1..AC-5 is demonstrated **able to fail**
+- **AC-6** Every assertion behind AC-1..AC-5 and AC-9..AC-11 is demonstrated **able to fail**
   by an explicit negative control that is executed by the gate, not merely
   asserted in prose.
 - **AC-7** `scripts/deploy-preprod.sh` polls `/ready`; no repository artifact
   polls `/status` for readiness or configures an HTTP healthcheck.
 - **AC-8** `docs/assets/swagger.json` is regenerated and the repository
   `swagger-up-to-date` check passes.
+- **AC-9** `GET /version` returns 200 with the mandatory fields during the
+  same held-replay window in which every gated route returns 503.
+- **AC-10** Mutating `MPFS_IMAGE_DIGEST` after startup does not change any
+  `/version` response.
+- **AC-11** The clean-source predicate rejects every sentinel value, and the
+  digest predicate rejects anything that is not `sha256:` plus 64 hex
+  characters. Both are demonstrated able to fail.
 
 ## Out of scope
 
-- `GET /version` and artifact identity (C-IDENTITY, M2-E-PUBLISH).
+- Build-system injection of the compile-time identity values, OCI labels,
+  image publication, and the release record (M2-E-PUBLISH). This ticket ships
+  the Haskell interface those consume, and nothing beyond it.
 - Any production or external deployment configuration, including compose files
   and autoheal policy. This ticket must not add an HTTP healthcheck anywhere.
 - moog-side consumption (M2-T101).

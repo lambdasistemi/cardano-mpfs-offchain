@@ -112,7 +112,14 @@ untouched.
 Provable today over real TCP on the empty-database path, because that path
 already has a listener.
 
-Invariants: INV-R3, INV-R4, INV-R5, INV-R8, INV-R9 (for those).
+Invariants: INV-R3, INV-R4, INV-R5, INV-R8, INV-R11 (in-context part), INV-R12,
+INV-R13, and INV-R9 for those.
+
+The `/version` route, `BuildInfo`, and the identity predicates land here rather
+than in a later slice for two reasons: the allowlist must be written exactly
+once, and M2-E-PUBLISH is blocked on this interface. Proving `/version` answers
+*before the context exists* needs the boot restructure and therefore belongs to
+S2, but the route, schema, capture, and predicates do not.
 
 ### S2 — listener before recovery
 
@@ -120,7 +127,8 @@ Extracts the boot sequence out of `exe/Serve.hs` into a library module that
 starts Warp first and publishes the context when boot completes; `main` keeps
 only argument handling. Adds the real-TCP recovery proof across both paths.
 
-Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, INV-R9 (for those).
+Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, INV-R11 (pre-context
+part), and INV-R9 for those.
 
 ## Invariant mandate
 
@@ -136,6 +144,9 @@ Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, INV-R9 (for those).
 | INV-R8 | no repository-owned artifact treats `/status` or `/ready` as a supervisor signal; the deployment helper waits on `/ready` | `scripts/deploy-preprod.sh` polls `/status`, or any repository artifact configures an HTTP healthcheck |
 | INV-R9 | every assertion behind INV-R1..R7 is demonstrated able to fail by a control the gate executes | a control is described in prose but never run, or does not go red when its invariant is violated |
 | INV-R10 | the boot function exercised by the recovery proof is the exact function `mpfs-serve` runs | `main` contains boot sequencing the proof does not exercise |
+| INV-R11 | `/version` returns 200 with mandatory version and full commit whenever the process is alive, including before the context exists and throughout replay | `/version` is 503, 404, or missing a mandatory field during a held replay |
+| INV-R12 | build identity is captured once before the listener/replay sequence and is immutable thereafter | mutating `MPFS_IMAGE_DIGEST` after startup changes a `/version` response, or the value is read per request |
+| INV-R13 | a development sentinel can never satisfy the clean-source predicate, and a digest must be `sha256:` plus 64 hex | `unknown` or `dirty:<rev>` passes the clean-source predicate |
 
 ## Constitution check
 
@@ -166,3 +177,15 @@ Re-check after design: unchanged. No waiver required.
   would be too short to observe, and the test would pass vacuously. The
   barrier is what makes AC-1 non-vacuous, so a control must prove the barrier
   actually held.
+
+## Where build identity lives
+
+`/version` must answer 200 **before the application context exists**, so build
+identity cannot live on `Context`. It is captured by `loadBuildInfo` during
+startup, placed in the server's HTTP environment beside the server-phase cell,
+and answered by the same layer that answers `/live` and `/ready`.
+
+That placement is what makes INV-R11 and INV-R12 hold together: a value the
+gate already holds cannot be re-read per request, and a route the gate answers
+itself cannot become unavailable when the context is absent. Putting identity
+on `Context` would satisfy the schema and fail the contract.

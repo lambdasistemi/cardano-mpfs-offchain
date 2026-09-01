@@ -119,3 +119,49 @@ recovery paths, the held-replay window, and the controls of AC-6.
 
 Replaces nothing. `CrashRecoverySpec` keeps its own state-survival scope; this
 module owns the HTTP boundary during recovery, which no existing spec covers.
+
+## Added by the C-IDENTITY amendment (M2 NOTE-001, NOTE-002)
+
+### M-14 `Cardano.MPFS.BuildInfo`
+
+Package `cardano-mpfs-offchain`, library.
+
+Owns build identity: the compile-time captured release version and full source
+commit, the optional deploy-time image digest read once at startup, and the
+pure predicates that decide whether a value qualifies as clean source or as an
+immutable digest.
+
+Depends on: nothing in this repository. Depended on by M-2 and M-3.
+
+Placement rationale: M2-E-PUBLISH must be able to feed the compile-time values
+and call the predicates from a publication gate without pulling in the HTTP
+layer or the application. A leaf module is the only placement that permits
+that. The effect boundary is fixed by the ruling: identity is loaded in `IO`,
+once; nothing exposes a pure value that secretly reads the environment.
+
+### M-15 `Cardano.MPFS.API` (shared package `cardano-mpfs-api`)
+
+Gains the `GET /version` route type and its response shape.
+
+Placement rationale: the ruling designates `/version` a **typed shared-API**
+route, so it goes in the shared package even though `/live` and `/ready` do
+not. The distinction is deliberate and worth stating: `/version` has an
+accepted typed consumer contract that other producers must not redefine, while
+`/live` and `/ready` are consumed over plain HTTP by a non-Haskell client and
+would widen the cross-compiled verifier surface for no consumer.
+
+The response carries exactly the ruling's three fields. Blueprint and script
+hashes are deliberately excluded: they are functional metadata and cannot help
+reconcile a running process to an artifact.
+
+### M-2 addendum
+
+The gate answers `/version` itself from the build identity held in its
+environment, exactly as it answers `/live` and `/ready`, and never delegates
+it inward. A route that must answer before the application context exists
+cannot be served by an application built from that context.
+
+### M-16 `Cardano.MPFS.BuildInfoSpec` (unit)
+
+Covers the predicates of M-14 including every sentinel, and the
+capture-once-immutably property of INV-R12.

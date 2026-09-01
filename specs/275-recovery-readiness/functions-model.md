@@ -147,3 +147,55 @@ holdingReplay :: IO a -> (Tracer IO AppTrace -> IO () -> IO a) -> IO a
 Supplies a tracer that blocks the replaying thread at `ReplayStart` and an
 action that releases it. Built on the existing application tracer seam; no
 production code exists solely to support it.
+
+## M-14 `Cardano.MPFS.BuildInfo`
+
+```haskell
+data BuildInfo = BuildInfo
+    { buildVersion     :: Text
+    , buildGitCommit   :: Text
+    , buildImageDigest :: Maybe Text
+    }
+```
+
+```haskell
+loadBuildInfo :: IO BuildInfo
+```
+
+Called once during startup, before the listener and recovery sequence. Reads
+the optional `MPFS_IMAGE_DIGEST`. Must not be called per request and must not
+be reached through `unsafePerformIO`.
+
+```haskell
+isCleanSourceCommit :: Text -> Bool
+isImmutableImageDigest :: Text -> Bool
+```
+
+Pure predicates, exported for M2-E-PUBLISH's publication gate. `isCleanSourceCommit`
+returns `False` for every development sentinel.
+
+## M-2 addendum
+
+```haskell
+mkGate
+    :: BuildInfo             -- ^ buildInfo
+    -> IO ServerPhase        -- ^ readServerPhase
+    -> (Context IO -> IO ReadinessObservation)
+                             -- ^ observeContext
+    -> Application           -- ^ inner
+    -> Application
+```
+
+`buildInfo` is supplied at construction, which is what makes the
+capture-once property structural rather than a convention.
+
+## M-3 addendum
+
+```haskell
+data ServeConfig = ServeConfig
+    { serveAppConfig   :: AppConfig
+    , servePort        :: Int
+    , serveBuildInfo   :: BuildInfo
+    , serveOnListening :: Int -> IO ()
+    }
+```
