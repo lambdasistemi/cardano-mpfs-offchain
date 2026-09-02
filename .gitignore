@@ -9,6 +9,7 @@ result-docker
 .claude/
 .orch/
 .playwright-mcp/
+/gate.sh
 
 # MkDocs build output
 site/

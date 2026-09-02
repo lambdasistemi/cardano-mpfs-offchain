@@ -8,7 +8,17 @@ let
 in pkgs.dockerTools.buildImage {
   name = "ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve";
   tag = version;
-  config = { EntryPoint = [ "mpfs-serve" ]; };
+  config = {
+    # Docker and the OCI image spec read `Entrypoint`; any other spelling is
+    # silently ignored and yields an image with no entrypoint at all.
+    Entrypoint = [ "mpfs-serve" ];
+    Labels = {
+      "org.opencontainers.image.revision" = version;
+      "org.opencontainers.image.version" = version;
+      "org.opencontainers.image.source" =
+        "https://github.com/lambdasistemi/cardano-mpfs-offchain";
+    };
+  };
   copyToRoot = pkgs.buildEnv {
     name = "image-root";
     paths = [

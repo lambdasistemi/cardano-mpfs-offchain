@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# Executable proof for the pipeline-published mpfs-serve image contract (S1).
+#
+# Comparators judging repository source are paired with a mutated copy proving
+# they can fail, and each mutant verifies its own application. The publication
+# boundary runs against a fake registry whose positive control is asserted
+# first: if that control fails, every rejection below it would be vacuous.
+set -uo pipefail
+root=$(git rev-parse --show-toplevel)
+cd "$root" || exit 1
+publish=$root/scripts/publish-mpfs-serve-image
+startup=$root/scripts/check-mpfs-serve-image-startup
+image_nix=$root/nix/docker-image.nix
+serve_hs=$root/cardano-mpfs-offchain/exe/Serve.hs
+ci_yml=$root/.github/workflows/ci.yml
+release_yml=$root/.github/workflows/release.yml
+source_url=https://github.com/lambdasistemi/cardano-mpfs-offchain
+repository=ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve
+failures=0
+pass() { printf 'PROOF-PASS  %s\n' "$*"; }
+fail() { printf 'PROOF-FAIL  %s\n' "$*" >&2; failures=$((failures + 1)); }
+# The property holds when the command succeeds / when it fails.
+assert() { local l=$1; shift; if "$@" >/dev/null 2>&1; then pass "$l"; else fail "$l"; fi; }
+refute() { local l=$1; shift; if "$@" >/dev/null 2>&1; then fail "$l"; else pass "$l"; fi; }
+assert_eq() {
+  if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1 (wanted '$2', got '$3')"; fi
+}
+# A mutant is only evidence if the edit actually landed.
+mutate() {
+  local src=$1 dst=$2
+  shift 2
+  sed "$@" "$src" >"$dst"
+  if cmp -s "$src" "$dst"; then
+    fail "mutation did not apply to ${src##*/}: $*"
+    return 1
+  fi
+}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+have_scripts=1
+for required in "$publish" "$startup"; do
+  if [[ -x "$required" ]]; then
+    pass "present and executable: ${required#"$root"/}"
+  else
+    fail "missing or non-executable production script: ${required#"$root"/}"
+    have_scripts=0
+  fi
+done
+# I1/I2 — M-IMAGE against M-PUBLISH. The flake identity is publishable if and
+# only if the tree is clean; the branch taken is reported so neither world is
+# a vacuous pass.
+version=$(nix eval --raw .#version 2>/dev/null)
+head_sha=$(git rev-parse HEAD)
+if [[ -z "$version" ]]; then
+  fail "flake .#version did not evaluate"
+elif [[ -n "$(git status --porcelain)" ]]; then
+  if [[ "$version" == "$head_sha" ]]; then
+    fail "dirty tree yielded a publishable identity: $version"
+  else
+    pass "dirty tree yields non-qualifying identity: $version"
+  fi
+elif [[ "$version" == "$head_sha" ]]; then
+  pass "clean tree yields exact full revision: $version"
+else
+  fail "clean tree identity is not exact HEAD: version=$version head=$head_sha"
+fi
+if ((have_scripts)); then
+  repo=$tmp/repo
+  mkdir -p "$repo"
+  cp "$publish" "$repo/publish"
+  (
+    cd "$repo" || exit 1
+    git init -q && git config user.name proof && git config user.email p@example.invalid
+    git add publish && git commit -qm seed
+  ) >/dev/null 2>&1
+  sha=$(git -C "$repo" rev-parse HEAD)
+  other=$(printf 'b%.0s' {1..40})
+  p() { env -C "$repo" ./publish "$@"; }
+  # I1/I2 — the exact clean commit is the only publishable source.
+  assert "main sha alias accepted" p --validate-only --source-sha "$sha" --tag "sha-$sha"
+  assert "several valid aliases accepted" p --validate-only --source-sha "$sha" --tag "sha-$sha" --tag v1.2.3
+  refute "foreign 40-hex source refused" p --validate-only --source-sha "$other" --tag "sha-$other"
+  refute "alias naming a foreign commit refused" p --validate-only --source-sha "$sha" --tag "sha-$other"
+  refute "branch alias naming a foreign commit refused" p --validate-only --source-sha "$sha" --tag "branch-feat-x-sha-$other"
+  refute "uppercase source sha refused" p --validate-only --source-sha "${sha^^}" --tag "sha-${sha^^}"
+  refute "publication without an alias refused" p --validate-only --source-sha "$sha"
+  refute "unknown flag refused" p --validate-only --source-sha "$sha" --tag "sha-$sha" --push-anyway
+  # One forbidden alias must sink the whole publication, not merely itself.
+  refute "latest among valid aliases refused" p --validate-only --source-sha "$sha" --tag "sha-$sha" --tag latest
+  # F-CI-TAGS — one owner for the event-to-alias mapping.
+  main_alias=$(p --alias-for-event push --ref-name main --source-sha "$sha" 2>/dev/null)
+  assert_eq "push/main alias is sha-<sha>" "sha-$sha" "$main_alias"
+  branch_alias=$(p --alias-for-event workflow_dispatch --ref-name feat/publish-mpfs-serve-image --source-sha "$sha" 2>/dev/null)
+  assert_eq "dispatch alias is branch-<slug>-sha-<sha>" "branch-feat-publish-mpfs-serve-image-sha-$sha" "$branch_alias"
+  slugged=$(p --alias-for-event workflow_dispatch --ref-name 'Feat/Weird_Ref.v2' --source-sha "$sha" 2>/dev/null)
+  assert_eq "ref slug is deterministic, lowercase and OCI-safe" "branch-feat-weird-ref-v2-sha-$sha" "$slugged"
+  bounded=$(p --alias-for-event workflow_dispatch --ref-name "$(printf 'x%.0s' {1..200})" --source-sha "$sha" 2>/dev/null)
+  if [[ -n "$bounded" && ${#bounded} -le 128 ]]; then
+    pass "overlong ref bounded to a valid OCI tag (${#bounded} chars)"
+  else
+    fail "overlong ref produced an invalid tag of ${#bounded} chars"
+  fi
+  # Round-trip: an alias the mapping emits must be one the validator accepts.
+  for emitted in "$main_alias" "$branch_alias" "$slugged" "$bounded"; do
+    assert "emitted alias round-trips: ${emitted:0:18}…" p --validate-only --source-sha "$sha" --tag "$emitted"
+  done
+  refute "pull_request cannot select an alias" p --alias-for-event pull_request --ref-name main --source-sha "$sha"
+fi
+
+# ---------------------------------------------------------------------------
+# Publication boundary (F-S1-001/002/003) against a fake registry. The fakes
+# are reached by PATH, so production carries no test seam.
+# ---------------------------------------------------------------------------
+if ((have_scripts)); then
+  fakebin=$tmp/bin
+  mkdir -p "$fakebin"
+  mocklog=$tmp/registry.log
+  fakearchive=$tmp/image.tar
+  : >"$fakearchive"
+  cat >"$fakebin/nix" <<'FAKENIX'
+#!/usr/bin/env bash
+printf 'nix %s\n' "$*" >>"$MOCK_LOG"
+printf '%s\n' "$MOCK_ARCHIVE"
+FAKENIX
+  cat >"$fakebin/skopeo" <<'FAKESKOPEO'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "$*" >>"$MOCK_LOG"
+emit_config() {
+  printf '{"config":{"Labels":{"org.opencontainers.image.revision":"%s","org.opencontainers.image.version":"%s","org.opencontainers.image.source":"%s"},"Entrypoint":["mpfs-serve"]}}\n' "$1" "$2" "$3"
+}
+[[ ${1:-} == copy ]] && exit "${MOCK_COPY_EXIT:-0}"
+if [[ " $* " == *" docker-archive:"* ]]; then
+  emit_config "${MOCK_ARCHIVE_REV:-$MOCK_SHA}" "${MOCK_ARCHIVE_VER:-$MOCK_SHA}" \
+    "${MOCK_ARCHIVE_SRC:-https://github.com/lambdasistemi/cardano-mpfs-offchain}"
+  exit 0
+fi
+args="$*"
+alias_tag=${args##*:}
+if [[ " $* " == *" --config "* ]]; then
+  revision=$MOCK_SHA
+  if [[ -n "${MOCK_BAD_ALIAS:-}" && "$alias_tag" == "$MOCK_BAD_ALIAS" ]]; then
+    revision=${MOCK_BAD_REV:-0000000000000000000000000000000000000000}
+  fi
+  emit_config "$revision" "$MOCK_SHA" "https://github.com/lambdasistemi/cardano-mpfs-offchain"
+  exit 0
+fi
+digest=${MOCK_DIGEST:-sha256:$(printf 'a%.0s' {1..64})}
+if [[ -n "${MOCK_DIGEST2_ALIAS:-}" && "$alias_tag" == "$MOCK_DIGEST2_ALIAS" ]]; then
+  digest=sha256:$(printf 'b%.0s' {1..64})
+fi
+printf '%s\n' "$digest"
+FAKESKOPEO
+  chmod +x "$fakebin/nix" "$fakebin/skopeo"
+  run_url=$source_url/actions/runs/42
+  receipt=$tmp/receipt.txt
+  # The runner identity a real GitHub Actions publication job would carry.
+  ci_env=(GITHUB_ACTIONS=true "GITHUB_REPOSITORY=lambdasistemi/cardano-mpfs-offchain"
+    GITHUB_SERVER_URL=https://github.com "GITHUB_SHA=$sha" GITHUB_RUN_ID=42)
+  pub_env=(MOCK_UNUSED=1)
+  pub() {
+    : >"$mocklog"
+    env -C "$repo" "PATH=$fakebin:$PATH" "MOCK_LOG=$mocklog" "MOCK_SHA=$sha" \
+      "MOCK_ARCHIVE=$fakearchive" GHCR_USER=proof GHCR_TOKEN=not-a-secret \
+      "${ci_env[@]}" "${pub_env[@]}" ./publish --source-sha "$sha" "$@"
+  }
+  copied() { grep -q '^copy ' "$mocklog"; }
+  # Positive control FIRST: without it every rejection below proves nothing.
+  if pub --tag "sha-$sha" --receipt "$receipt" >/dev/null 2>&1 \
+    && grep -q '^nix build' "$mocklog" && copied \
+    && grep -qE '^inspect .*--config .*docker://' "$mocklog" \
+    && grep -qx "revision=$sha" "$receipt" && grep -qx "run_url=$run_url" "$receipt"; then
+    pass "publication reaches source build, copy, remote digest and config readback, receipt"
+  else
+    fail "publication positive control never reached the boundary; the rejections below are vacuous"
+  fi
+  # F-S1-001 — no prebuilt archive, no caller-supplied provenance, and a runner
+  # identity bound to this request. Each spoof keeps the clean checkout, built
+  # archive, tags and auth of the passing run, so only the CI identity differs.
+  refute "prebuilt --archive input refused" pub --tag "sha-$sha" --archive "$fakearchive"
+  refute "caller-supplied --run-url refused" pub --tag "sha-$sha" --run-url "$run_url"
+  for spoof in GITHUB_ACTIONS= GITHUB_REPOSITORY=other/repo "GITHUB_SHA=$other" \
+    GITHUB_RUN_ID=not-a-run GITHUB_SERVER_URL=https://evil.example; do
+    pub_env=("$spoof")
+    refute "publication refused without a bound ${spoof%%=*}" pub --tag "sha-$sha"
+    refute "${spoof%%=*} spoof reached no copy" copied
+  done
+  pub_env=(MOCK_UNUSED=1)
+  # F-S1-002 — every source-derived label, version included, is reconciled
+  # to the source revision before the first copy.
+  for mutant in MOCK_ARCHIVE_REV=1111111111111111111111111111111111111111 \
+    MOCK_ARCHIVE_VER=foreign-version MOCK_ARCHIVE_SRC=https://evil.example/x; do
+    pub_env=("$mutant")
+    refute "archive ${mutant%%=*} mutant refused" pub --tag "sha-$sha"
+    refute "archive ${mutant%%=*} mutant reached no copy" copied
+  done
+  pub_env=(MOCK_UNUSED=1)
+  # F-S1-003 — every alias is read back from the registry and reconciled, and
+  # the receipt reports the observed revision rather than the requested one.
+  pub_env=(MOCK_DIGEST2_ALIAS=v9.9.9)
+  refute "divergent alias digests refused" pub --tag "sha-$sha" --tag v9.9.9
+  pub_env=(MOCK_BAD_ALIAS=v9.9.9)
+  refute "second alias reporting a foreign revision refused" pub --tag "sha-$sha" --tag v9.9.9
+  pub_env=(MOCK_BAD_ALIAS="sha-$sha")
+  refute "first alias reporting a foreign revision refused" pub --tag "sha-$sha"
+  pub_env=(MOCK_DIGEST=sha256:tooshort)
+  refute "malformed remote digest refused" pub --tag "sha-$sha"
+  pub_env=(MOCK_COPY_EXIT=1)
+  refute "failed registry copy refused" pub --tag "sha-$sha"
+  pub_env=(MOCK_UNUSED=1)
+  # Two aliases must produce two remote config reads: what a checker that
+  # inspects only the first alias fails.
+  pub --tag "sha-$sha" --tag v9.9.9 >/dev/null 2>&1
+  assert_eq "every alias config is read back" 2 "$(grep -cE '^inspect .*--config .*docker://' "$mocklog")"
+fi
+
+# I3/I4 — startup checker.
+if ((have_scripts)); then
+  runtime=$tmp/runtime
+  cat >"$runtime" <<'MOCK'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "$*" >>"$MOCK_LOG"
+case "${1:-}" in
+  pull)
+    if [[ "${MOCK_MODE:-expected}" == pull-fail ]]; then exit 7; fi
+    exit 0 ;;
+  run)
+    case "${MOCK_MODE:-expected}" in
+      expected) echo 'mpfs-serve: --socket is required' >&2; exit 1 ;;
+      unrelated) echo 'oci runtime create failed: exec format error' >&2; exit 125 ;;
+      # Expected text AND a zero exit: proves the checker requires both a
+      # non-zero exit and the diagnostic, not either one alone.
+      zero) echo 'mpfs-serve: --socket is required'; exit 0 ;;
+    esac ;;
+esac
+exit 64
+MOCK
+  chmod +x "$runtime"
+  ref="$repository@sha256:$(printf 'c%.0s' {1..64})"
+  log=$tmp/mock.log
+  : >"$log"
+  ck() { env CONTAINER_RUNTIME="$runtime" MOCK_LOG="$log" "$@"; }
+  assert "expected startup diagnostic accepted" ck MOCK_MODE=expected "$startup" "$ref"
+  # That acceptance must have come from actually driving the runtime.
+  assert "checker pulled the immutable reference" grep -qE "^pull .*$ref" "$log"
+  assert "checker ran the pulled reference" grep -qE "^run .*$ref" "$log"
+  refute "checker did not override the configured entrypoint" grep -q -- '--entrypoint' "$log"
+  refute "zero exit carrying the expected text refused" ck MOCK_MODE=zero "$startup" "$ref"
+  refute "failed pull refused" ck MOCK_MODE=pull-fail "$startup" "$ref"
+  refute "short digest refused" ck MOCK_MODE=expected "$startup" "$repository@sha256:$(printf 'c%.0s' {1..63})"
+  refute "uppercase digest refused" ck MOCK_MODE=expected "$startup" "$repository@sha256:$(printf 'C%.0s' {1..64})"
+  refute "absent container runtime refused" env CONTAINER_RUNTIME="$tmp/nope" MOCK_LOG="$log" "$startup" "$ref"
+  refute "missing image argument refused" ck MOCK_MODE=expected "$startup"
+fi
+
+# I3 seam — the checker's oracle against the diagnostic the binary emits.
+diagnostic_present() { grep -qF -- "$1" "$2"; }
+if ((have_scripts)); then
+  oracle=$(sed -n 's/^EXPECTED_DIAGNOSTIC=//p' "$startup" | tr -d "'\"" | head -1)
+  if [[ -z "$oracle" ]]; then
+    fail "startup checker does not declare EXPECTED_DIAGNOSTIC"
+  elif diagnostic_present "$oracle" "$serve_hs"; then
+    pass "checker oracle '$oracle' is the diagnostic Serve.hs emits"
+    if mutate "$serve_hs" "$tmp/serve.hs" "/$oracle/d"; then
+      refute "oracle comparator rejects a source that cannot emit it" diagnostic_present "$oracle" "$tmp/serve.hs"
+    fi
+  else
+    fail "checker oracle '$oracle' is absent from ${serve_hs#"$root"/}"
+  fi
+fi
+
+# I5 seam — the config key a runtime actually reads.
+entrypoint_key_ok() {
+  grep -qE '\bEntrypoint[[:space:]]*=' "$1" && ! grep -qE '\bEntryPoint\b' "$1"
+}
+if entrypoint_key_ok "$image_nix"; then
+  pass "image config uses the Entrypoint key a runtime reads"
+  if mutate "$image_nix" "$tmp/ep.nix" 's/Entrypoint/EntryPoint/'; then
+    refute "entrypoint comparator rejects the ignored EntryPoint spelling" entrypoint_key_ok "$tmp/ep.nix"
+  fi
+else
+  fail "image config sets no runtime-readable Entrypoint (${image_nix#"$root"/})"
+fi
+
+# R-PUB-003 — OCI provenance.
+labels_ok() {
+  grep -qF 'org.opencontainers.image.revision' "$1" \
+    && grep -qF 'org.opencontainers.image.version' "$1" \
+    && grep -qF 'org.opencontainers.image.source' "$1" && grep -qF "$source_url" "$1"
+}
+if labels_ok "$image_nix"; then
+  pass "image declares the three OCI provenance labels and the mandated source"
+  if mutate "$image_nix" "$tmp/src.nix" "s|$source_url|https://example.invalid/x|"; then
+    refute "label comparator rejects a foreign source URL" labels_ok "$tmp/src.nix"
+  fi
+  if mutate "$image_nix" "$tmp/rev.nix" '/org.opencontainers.image.revision/d'; then
+    refute "label comparator rejects a missing revision label" labels_ok "$tmp/rev.nix"
+  fi
+else
+  fail "image does not declare the required OCI provenance labels"
+fi
+
+# M-CI / M-RELEASE — the workflows must delegate to the owned commands, or
+# every proof above judges code the pipeline never runs.
+for wf in "$ci_yml" "$release_yml"; do
+  name=${wf#"$root"/}
+  assert "$name invokes the owned publication command" grep -q 'scripts/publish-mpfs-serve-image' "$wf"
+  assert "$name invokes the owned startup checker" grep -q 'scripts/check-mpfs-serve-image-startup' "$wf"
+  refute "$name passes no caller-supplied run URL" grep -q -- '--run-url' "$wf"
+done
+refute "workflows do not re-implement registry copy inline" grep -qE 'skopeo[[:space:]]+copy' "$ci_yml" "$release_yml"
+assert "CI publication is guarded against pull_request" grep -q "github.event_name != 'pull_request'" "$ci_yml"
+refute "release workflow neither deletes nor recreates a tag or release" grep -qE 'gh release (delete|create)|--delete' "$release_yml"
+if grep -q 'mpfs-serve-image-receipt' "$release_yml"; then
+  pass "release workflow uploads a uniquely named digest receipt"
+  # The accepted base carries exactly two --clobber uploads (the mpfs-cli
+  # tarballs). Pinning that count is what makes "the receipt upload does not
+  # clobber" falsifiable: adding one anywhere moves the count to three.
+  assert_eq "no --clobber added to the release workflow" 2 "$(grep -c -- '--clobber' "$release_yml")"
+else
+  fail "release workflow uploads no mpfs-serve-image-receipt artifact"
+fi
+if ((failures)); then
+  printf 'PROOF-RED   %d failing check(s)\n' "$failures" >&2
+  exit 1
+fi
+printf 'PROOF-GREEN all checks passed\n'

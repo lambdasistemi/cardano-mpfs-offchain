@@ -115,3 +115,57 @@ jobs:
 
           check_cabal_version cardano-mpfs-offchain/cardano-mpfs-offchain.cabal
           check_cabal_version cardano-mpfs-cli/cardano-mpfs-cli.cabal
+
+  publish-image:
+    name: Publish mpfs-serve image
+    needs: [build, e2e]
+    # Publication is unreachable for a pull request; the alias mapping in
+    # scripts/publish-mpfs-serve-image refuses that event as well.
+    if: github.event_name != 'pull_request'
+    runs-on: nixos
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Select the registry alias
+        id: alias
+        run: |
+          set -euo pipefail
+          tag=$(scripts/publish-mpfs-serve-image \
+            --alias-for-event "${{ github.event_name }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --source-sha "${{ github.sha }}")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the image to GHCR
+        id: publish
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          nix shell --inputs-from . nixpkgs#skopeo nixpkgs#jq -c \
+            scripts/publish-mpfs-serve-image \
+            --source-sha "${{ github.sha }}" \
+            --tag "${{ steps.alias.outputs.tag }}"
+
+      - name: Verify the published image starts
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "::error::no container runtime on this runner; startup cannot be proved"
+            exit 1
+          fi
+          docker --version
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          scripts/check-mpfs-serve-image-startup "${{ steps.publish.outputs.image }}"
