@@ -6,13 +6,14 @@ frozen gate.
 
 ## S0 — ticket setup (ticket owner)
 
-- [ ] T001 Ignore `/gate.sh` in `.gitignore` (repository carries no ignore
+- [x] T001 Ignore `/gate.sh` in `.gitignore` (repository carries no ignore
       entry today; the previous ticket added and dropped a tracked gate).
-- [ ] T002 Commit the Spec Kit contract for this ticket.
+- [x] T002 Commit the Spec Kit contract for this ticket.
 
 ## S1 — signals surface and default-deny data gating
 
-Invariants: INV-R3, INV-R4, INV-R5, INV-R8, and INV-R9 for those.
+Invariants: INV-R3, INV-R4, INV-R5, INV-R8, INV-R11 (in-context part),
+INV-R12, INV-R13, and INV-R9 for those.
 
 - [ ] T101 RED: unit spec for `evalReadiness` covering every reason of D-5,
       the reason precedence of D-9, and the `FollowerDisabled` case; each case
@@ -28,7 +29,7 @@ Invariants: INV-R3, INV-R4, INV-R5, INV-R8, and INV-R9 for those.
       checkpoint is outside the stability window of the observed tip.
 - [ ] T105 Implement `Cardano.MPFS.HTTP.Readiness` (M-1).
 - [ ] T106 Implement `Cardano.MPFS.HTTP.Gate` (M-2), default-deny with the
-      two-entry allowlist.
+      three-entry allowlist of `/live`, `/ready` and `/version`.
 - [ ] T107 Add the `/live` and `/ready` route types (M-5) and response shapes
       (M-6).
 - [ ] T108 Expose the readiness observations on `Context` (M-7) and publish
@@ -43,12 +44,42 @@ Invariants: INV-R3, INV-R4, INV-R5, INV-R8, and INV-R9 for those.
 - [ ] T113 Document the signal roles: `/live` is the only supervisor signal,
       `/ready` is the dependency gate, and this repository configures no HTTP
       healthcheck.
+
+### Added by the C-IDENTITY amendment (M2 NOTE-001, NOTE-002)
+
+Invariants INV-R11 (in-context part), INV-R12, INV-R13; acceptance AC-9
+(in-context part), AC-10, AC-11.
+
+- [ ] T115 RED: unit spec for the M-14 predicates covering every sentinel
+      value and every malformed digest, each with the control that proves the
+      predicate can reject and can accept (AC-11, INV-R13).
+- [ ] T116 RED: real-TCP spec on the empty-database path asserting `GET
+      /version` returns 200 with its mandatory fields in the same window in
+      which `/ready` and every gated route return 503 (AC-9, in-context part).
+- [ ] T117 RED: spec asserting that mutating `MPFS_IMAGE_DIGEST` after startup
+      changes no `/version` response, accompanied by the control that proves
+      the variable is load-bearing when read at startup (AC-10, INV-R12).
+- [ ] T118 Implement `Cardano.MPFS.BuildInfo` (M-14): the `BuildInfo` value,
+      `loadBuildInfo` in `IO`, and the two pure predicates. No per-request
+      environment read and no `unsafePerformIO`.
+- [ ] T119 Add the `GET /version` route type and its response shape to the
+      shared `Cardano.MPFS.API` (M-15), and register M-14 in the offchain
+      cabal file.
+- [ ] T120 Capture build identity once during startup, before the
+      listener/replay sequence, and hold it in the gate environment (M-2
+      addendum, INV-R12).
+- [ ] T121 Answer `/version` from the gate itself, never by delegating inward
+      to an application built from the context (M-2 addendum, INV-R11).
+
+### Slice close
+
 - [ ] T114 Run the frozen S1 gate green, with every S1 control demonstrated
       red on injection.
 
 ## S2 — listener before recovery
 
-Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, and INV-R9 for those.
+Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, INV-R11 (pre-context
+part), and INV-R9 for those.
 
 - [ ] T201 RED: real-TCP recovery spec on the retained-reopen path — populate
       a database against a real devnet, reopen it with replay held open past
@@ -72,6 +103,9 @@ Invariants: INV-R1, INV-R2, INV-R6, INV-R7, INV-R10, and INV-R9 for those.
       window reports `opening`/`recovering`/`replaying`.
 - [ ] T209 Register the recovery spec in the e2e entry point so it is
       executed, not merely compiled.
+- [ ] T211 RED: assert `GET /version` returns 200 with its mandatory fields
+      during the held-replay window of T201, before the application context
+      exists (AC-9, pre-context part, INV-R11).
 - [ ] T210 Run the frozen S2 gate green, with every S2 control demonstrated
       red on injection.
 
