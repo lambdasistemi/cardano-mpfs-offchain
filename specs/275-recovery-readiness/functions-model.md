@@ -34,8 +34,8 @@ reason cannot silently serialize as an existing one.
 readinessAllowlist :: [[Text]]
 ```
 
-The exhaustive set of always-available path segments, currently `/live` and
-`/ready`. The only place the allowlist is written down.
+The exhaustive set of always-available path segments: `/live`, `/ready` and
+`/version`. The only place the allowlist is written down.
 
 ```haskell
 mkGate
@@ -46,8 +46,11 @@ mkGate
     -> Application
 ```
 
-Answers `/live` and `/ready` itself; forwards to `inner` only when the path is
-outside the allowlist **and** the verdict is `Ready`; otherwise responds 503
+Superseded by the **M-2 addendum** below, which prepends `buildInfo`. Implement
+the addendum signature; this block records the rest of the argument list.
+
+Answers `/live`, `/ready` and `/version` itself; forwards to `inner` only when
+the path is outside the allowlist **and** the verdict is `Ready`; otherwise 503s
 with D-8.
 
 ```haskell

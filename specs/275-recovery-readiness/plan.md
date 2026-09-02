@@ -12,7 +12,7 @@ Three structural moves, in this order:
    inputs on every request makes non-monotonicity structural rather than a
    behavior someone must remember to implement.
 2. **Gate data with default-deny middleware, not per-handler calls.** A WAI
-   layer in front of the whole application 503s every path outside a two-entry
+   layer in front of the whole application 503s every path outside a three-entry
    allowlist. A route added later is gated by construction; nobody has to
    remember to add a guard. This is the difference between an invariant and a
    convention.
@@ -137,7 +137,7 @@ part), and INV-R9 for those.
 | INV-R1 | the listener accepts TCP and answers `/live` before any retained-database recovery or journal replay begins | during a held replay on a retained DB, a TCP connect to the port is refused or times out |
 | INV-R2 | `/live` is 200 on every probe from listener start through the whole recovery window, including a window longer than the historical 10 s healthcheck timeout | any probe in the window is non-200 or fails to connect |
 | INV-R3 | `/ready` is 503 unless phase is following **and** the checkpoint is within the stability window of the observed tip **and** proofs are consistent; 200 otherwise | `/ready` 200 while restoring, while the tip is unobserved, or while the checkpoint is outside the window |
-| INV-R4 | every route outside the `{/live, /ready}` allowlist returns 503 while `/ready` is 503 | any gated route returns 2xx during a not-ready window, or returns 200 with a null or stale root |
+| INV-R4 | every route outside the `{/live, /ready, /version}` allowlist returns 503 while `/ready` is 503 | any gated route returns 2xx during a not-ready window, or returns 200 with a null or stale root |
 | INV-R5 | readiness returns to 503 when correctness or currency is lost after having been true | readiness stays 200 across a forced restoration/armageddon reset |
 | INV-R6 | INV-R1..R4 hold on the retained-reopen path **and** the empty/lost-database path | either path is unproven, or proven only in-process |
 | INV-R7 | a boot or linked-thread failure terminates the process non-zero and closes the listener | after an injected boot failure the listener still answers and the process stays alive |
@@ -160,9 +160,26 @@ part), and INV-R9 for those.
 | VI Test locally first | pass — devnet subprocess plus in-process Warp; no Docker, no external service |
 | VII Nix reproducibility | pass — all commands run through `nix develop` / `just` |
 | VIII Pure offline verification | pass — no verifier changes; the readiness decision is itself a pure function |
-| IX One verifier, many targets | pass — `/live` and `/ready` are declared in the offchain-only `Cardano.MPFS.HTTP.API`, not in the shared `cardano-mpfs-api`, so the WASM/JS client surface is unchanged |
+| IX One verifier, many targets | pass with the re-check below — `/live` and `/ready` stay in the offchain-only `Cardano.MPFS.HTTP.API`, but the C-IDENTITY amendment places `/version` in the shared `cardano-mpfs-api`, which *is* a cross-compiled target |
 
-Re-check after design: unchanged. No waiver required.
+Re-check after design: **IX changed and was re-checked.** The original wording
+justified itself by the shared package being untouched, and the C-IDENTITY
+amendment made that false. `nix/wasm-targets.nix` patches
+`cardano-mpfs-api/cardano-mpfs-api.cabal` and builds it among the three
+wasm32-wasi packages, and `cardano-mpfs-verify` depends on it. Adding the
+`/version` route type and its response record therefore does widen the
+cross-compiled surface.
+
+It still passes, for a reason that has to be stated rather than assumed: the
+addition is a Servant route type plus an Aeson record over `Text` and
+`Maybe Text`, using only dependencies that `cardano-mpfs-api` already carries
+into the wasm build. No part of build identity is evaluated there —
+`loadBuildInfo` is `IO` and lives in the offchain-only `Cardano.MPFS.BuildInfo`
+(M-14), which no verifier target depends on.
+
+This is not left to argument. The `build` leg of the ticket gate builds
+`.#wasm-mpfs-verify`, so a `/version` addition that breaks the wasm target
+fails the gate rather than surviving to CI. No waiver required.
 
 ## Risks
 
