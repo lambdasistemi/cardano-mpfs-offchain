@@ -374,6 +374,7 @@ buildRetractTx
                 <$> evaluateAndBalancePure
                     evalCtx
                     ledgerPairs
+                    [(feeRef, rowOut feeRow)]
                     [(stateRef, rowOut stateRow)]
                     changeAddr
                     draft

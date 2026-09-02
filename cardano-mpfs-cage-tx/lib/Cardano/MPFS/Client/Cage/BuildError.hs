@@ -15,6 +15,7 @@ import Cardano.MPFS.Client.Cage.Policy
 -- the transaction is available for signing.
 data BuildError
     = EmptyFunding
+    | InsufficientCollateralUtxos !Text
     | MalformedTxOut !Text
     | MalformedPParams !Text
     | LegacyRejectRefundRequiresTopUp !Text

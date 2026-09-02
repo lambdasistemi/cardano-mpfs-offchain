@@ -229,13 +229,13 @@ rejectCageTxWithEval evalCtx cfg policy verified = do
                     "reject.request_utxos must not be empty"
         _ -> Right ()
     fundingRows <- decodeWalletUtxos (rfWalletUtxos facts)
-    feeRow <- selectFeeRow fundingRows
+    (changeRow, feeRows, collateralRow) <- selectFeeRows fundingRows
     oldState <- stateDatum stateRow
     ownerSigner <-
         ownerWitnessKeyHash
             $ let BuiltinByteString ownerBytes = stateOwner oldState
               in  ownerBytes
-    let changeAddr = rowAddress feeRow
+    let changeAddr = rowAddress changeRow
         validity =
             ValidityInterval
                 (SJust (slot (rfValidityLowerSlot facts)))
@@ -248,7 +248,8 @@ rejectCageTxWithEval evalCtx cfg policy verified = do
             token
             stateRow
             orderedRequestRows
-            feeRow
+            feeRows
+            collateralRow
             changeAddr
             oldState
             ownerSigner
@@ -270,12 +271,20 @@ data InputRow = InputRow
 rowAddress :: InputRow -> Addr
 rowAddress row = rowOut row ^. addrTxOutL
 
-selectFeeRow :: [InputRow] -> Either BuildError InputRow
-selectFeeRow [] = Left EmptyFunding
-selectFeeRow rows =
+selectFeeRows
+    :: [InputRow]
+    -> Either BuildError (InputRow, [InputRow], InputRow)
+selectFeeRows [] = Left EmptyFunding
+selectFeeRows rows =
     case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
-        row : _ -> Right row
         [] -> Left EmptyFunding
+        [_] ->
+            Left
+                $ InsufficientCollateralUtxos
+                    "reject requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+        collateralRow : feeRows@(changeRow : _) ->
+            Right (changeRow, feeRows, collateralRow)
 
 canonicalRequestRows :: [InputRow] -> [InputRow]
 canonicalRequestRows =
@@ -405,6 +414,7 @@ buildRejectTx
     -> TokenId
     -> InputRow
     -> [InputRow]
+    -> [InputRow]
     -> InputRow
     -> Addr
     -> OnChainTokenState
@@ -418,7 +428,8 @@ buildRejectTx
     token
     stateRow
     requestRows
-    feeRow
+    feeRows
+    collateralRow
     changeAddr
     oldState
     ownerSigner
@@ -481,7 +492,7 @@ buildRejectTx
                     mapM_ TxBuild.output outputs
                     TxBuild.attachScript stateScript
                     TxBuild.attachScript requestScript
-                    TxBuild.collateral feeRef
+                    TxBuild.collateral collateralRef
                     TxBuild.requireSignature
                         (witnessKeyHashToGuard ownerSigner)
                     applyValidity validity
@@ -501,17 +512,20 @@ buildRejectTx
                 evalCtx
                 feeForRefunds
                 ledgerPairs
+                collateralPairs
                 []
                 changeAddr
                 draft
 
         stateRef = rowRef stateRow
-        feeRef = rowRef feeRow
-        allRows = stateRow : requestRows <> [feeRow]
+        collateralRef = rowRef collateralRow
+        allRows = stateRow : requestRows <> feeRows
         requestRefs =
             [(rowRef row, rowOut row) | row <- requestRows]
         ledgerPairs =
             [(rowRef row, rowOut row) | row <- allRows]
+        collateralPairs =
+            [(collateralRef, rowOut collateralRow)]
         stateScript = mkCageScript cfg
         newStateOut =
             mkBasicTxOut

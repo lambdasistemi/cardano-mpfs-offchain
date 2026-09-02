@@ -85,7 +85,8 @@ import Cardano.MPFS.Core.Types
     , TokenState (..)
     )
 import Cardano.MPFS.E2E.Helpers.Boot
-    ( genesisCageConfigWith
+    ( ensureBootFunding
+    , genesisCageConfigWith
     , registerStakeCredIfNeeded
     , walletBootInputs
     , withWalletBootTxBuilder
@@ -447,6 +448,7 @@ withE2E scripts action = do
             _ <-
                 queryProtocolParams
                     (provider ctx')
+            ensureBootFunding ctx'
             registerStakeCredIfNeeded cfg ctx'
             action sock startMs cfg ctx'
 

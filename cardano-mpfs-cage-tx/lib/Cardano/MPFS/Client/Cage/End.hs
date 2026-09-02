@@ -166,17 +166,17 @@ endCageTxWithEval evalCtx cfg policy verified = do
     enforcePParamsPolicy policy pp
     stateRow <- decodeStateUtxo (efStateUtxo facts)
     fundingRows <- decodeWalletUtxos (efWalletUtxos facts)
-    collateralRow <- selectFeeRow fundingRows
+    (changeRow, spendRows, collateralRow) <- selectFeeRows fundingRows
     ownerBytes <- stateOwnerBytes stateRow
     ownerSigner <- ownerWitnessKeyHash ownerBytes
-    let changeAddr = rowAddress collateralRow
+    let changeAddr = rowAddress changeRow
     tx <-
         buildEndTx
             evalCtx
             cfg
             pp
             stateRow
-            fundingRows
+            spendRows
             collateralRow
             changeAddr
             ownerSigner
@@ -193,16 +193,22 @@ rowAddress :: InputRow -> Addr
 rowAddress row =
     rowOut row ^. addrTxOutL
 
--- | Pick the wallet UTxO carrying the largest lovelace
--- balance. The selected row pays the script fee and the
--- Conway collateral on end, which requires a larger
--- balance than the smallest funding entry can guarantee.
-selectFeeRow :: [InputRow] -> Either BuildError InputRow
-selectFeeRow [] = Left EmptyFunding
-selectFeeRow rows =
+-- | Reserve the largest wallet UTxO for collateral and use
+-- the remaining rows as spendable funding.
+selectFeeRows
+    :: [InputRow]
+    -> Either BuildError (InputRow, [InputRow], InputRow)
+selectFeeRows [] = Left EmptyFunding
+selectFeeRows rows =
     case sortOn (Down . (^. coinTxOutL) . rowOut) rows of
-        row : _ -> Right row
         [] -> Left EmptyFunding
+        [_] ->
+            Left
+                $ InsufficientCollateralUtxos
+                    "end requires at least two wallet UTxOs: \
+                    \one spent input and one disjoint collateral input"
+        collateralRow : spendRows@(changeRow : _) ->
+            Right (changeRow, spendRows, collateralRow)
 
 decodeStateUtxo :: UtxoEntry -> Either BuildError InputRow
 decodeStateUtxo UtxoEntry{ueRef, ueTxOutCbor = Hex outBytes} =
@@ -332,6 +338,7 @@ buildEndTx
         evaluateAndBalancePure
             evalCtx
             ledgerPairs
+            collateralPairs
             []
             ownerAddr
             draft
@@ -369,6 +376,8 @@ buildEndTx
             [ (rowRef row, rowOut row)
             | row <- allRows
             ]
+        collateralPairs =
+            [(collateralRef, rowOut collateralRow)]
 
 patchRedeemerBudgets
     :: PParams ConwayEra

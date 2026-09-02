@@ -33,6 +33,7 @@ module Cardano.MPFS.E2E.Helpers.Boot
     ( walletBootInputs
     , genesisCageConfig
     , genesisCageConfigWith
+    , ensureBootFunding
     , withBootFactsTxBuilder
     , withWalletBootTxBuilder
     , awaitProofReadsReady
@@ -47,7 +48,10 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.BaseTypes (Network (Testnet))
+import Cardano.Ledger.BaseTypes
+    ( Inject (..)
+    , Network (Testnet)
+    )
 import Cardano.Ledger.Binary
     ( natVersion
     , serialize'
@@ -353,6 +357,67 @@ toClientCageConfig cfg =
         , Client.defaultTip = defaultTip cfg
         , Client.network = network cfg
         }
+
+-- | Ensure the genesis wallet has distinct spend and collateral UTxOs.
+--
+-- The first call splits the single genesis UTxO into a 50 ADA output plus
+-- change. Later calls are no-ops; a boot leaves its untouched collateral
+-- and change output available for the next boot.
+ensureBootFunding :: Context IO -> IO ()
+ensureBootFunding ctx = do
+    utxos <- queryUTxOs (provider ctx) genesisAddr
+    case utxos of
+        [] ->
+            fail "ensureBootFunding: no genesis UTxOs available"
+        _funding : _collateral : _rest ->
+            pure ()
+        [funding] -> do
+            pp <- queryProtocolParams (provider ctx)
+            let prog :: Tx.TxBuild NoCtx String ()
+                prog =
+                    void
+                        $ Tx.payTo
+                            genesisAddr
+                            (inject (Ledger.Coin 50_000_000))
+            result <-
+                Tx.build
+                    (Tx.mkPParamsBound pp)
+                    (Tx.InterpretIO noCtx)
+                    (\_ -> pure Map.empty)
+                    [funding]
+                    []
+                    genesisAddr
+                    prog
+            case result of
+                Left err ->
+                    fail
+                        $ "ensureBootFunding: build failed: "
+                            <> show err
+                Right unsigned -> do
+                    let signed = addKeyWitness genesisSignKey unsigned
+                    res <- submitTx (submitter ctx) signed
+                    case res of
+                        Submitted _ ->
+                            awaitNodeConfirmed (fst funding)
+                        Rejected msg
+                            | "All inputs are spent" `BS.isInfixOf` msg ->
+                                awaitNodeConfirmed (fst funding)
+                            | otherwise ->
+                                fail
+                                    $ "ensureBootFunding: submit rejected: "
+                                        <> show msg
+  where
+    awaitNodeConfirmed spentRef = go (240 :: Int)
+      where
+        go 0 =
+            fail
+                "ensureBootFunding: split tx not confirmed on-chain \
+                \after 120s"
+        go n = do
+            utxos <- queryUTxOs (provider ctx) genesisAddr
+            when (any ((== spentRef) . fst) utxos)
+                $ threadDelay 500_000
+                    >> go (n - 1)
 
 -- | Register the cage staking credential on the devnet if
 -- 'cfgStakeScript' is set. Must be called once before any
