@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Publish the pipeline-built mpfs-serve OCI image to GHCR.
+#
+# Publishable source identity is the exact clean commit and nothing else. The
+# archive is always built from the checked-out source — there is no way to hand
+# this command a prebuilt image — actual publication additionally requires a
+# GitHub Actions run URL of this repository, and every alias is read back from
+# the registry and reconciled before any receipt is written.
+set -euo pipefail
+
+REPOSITORY=ghcr.io/lambdasistemi/cardano-mpfs-offchain/mpfs-serve
+SOURCE_URL=https://github.com/lambdasistemi/cardano-mpfs-offchain
+REPOSITORY_SLUG=lambdasistemi/cardano-mpfs-offchain
+MAX_TAG_LENGTH=128
+# "branch-" + slug + "-sha-" + 40 hex must stay within MAX_TAG_LENGTH.
+MAX_SLUG_LENGTH=76
+
+die() {
+  printf 'publish-mpfs-serve-image: %s\n' "$*" >&2
+  exit 1
+}
+need_value() { [[ $# -ge 2 ]] || die "missing value for $1"; }
+
+validate_only=0
+alias_event=
+ref_name=
+source_sha=
+receipt=
+run_url=
+tags=()
+
+while (($#)); do
+  case $1 in
+    --validate-only) validate_only=1; shift ;;
+    --source-sha) need_value "$@"; source_sha=$2; shift 2 ;;
+    --tag) need_value "$@"; tags+=("$2"); shift 2 ;;
+    --receipt) need_value "$@"; receipt=$2; shift 2 ;;
+    --alias-for-event) need_value "$@"; alias_event=$2; shift 2 ;;
+    --ref-name) need_value "$@"; ref_name=$2; shift 2 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] \
+  || die "source revision is not an exact 40-character lowercase commit SHA: '$source_sha'"
+
+# Deterministic lowercase OCI-safe representation of a full Git ref name.
+slugify() {
+  local slug
+  slug=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-*//; s/-*$//')
+  printf '%s' "${slug:0:MAX_SLUG_LENGTH}" | sed 's/-*$//'
+}
+
+valid_tag() {
+  local tag=$1
+  [[ -n "$tag" && ${#tag} -le $MAX_TAG_LENGTH && "$tag" != latest ]] || return 1
+  case $tag in
+    sha-*) [[ "$tag" == "sha-$source_sha" ]] ;;
+    branch-*)
+      [[ "$tag" =~ ^branch-[a-z0-9]([a-z0-9._-]*[a-z0-9])?-sha-[0-9a-f]{40}$ ]] \
+        && [[ "$tag" == *"-sha-$source_sha" ]] ;;
+    v*) [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+# The event-to-alias mapping lives here so a workflow cannot name a tag this
+# command would refuse, and so publication is unreachable for a pull request.
+if [[ -n "$alias_event" ]]; then
+  case $alias_event in
+    push)
+      [[ "$ref_name" == main ]] || die "push publication is limited to main, got '$ref_name'"
+      selected="sha-$source_sha" ;;
+    workflow_dispatch)
+      slug=$(slugify "$ref_name")
+      [[ -n "$slug" ]] || die "ref name '$ref_name' has no OCI-safe slug"
+      selected="branch-$slug-sha-$source_sha" ;;
+    *) die "no publication alias is defined for event '$alias_event'" ;;
+  esac
+  valid_tag "$selected" || die "selected alias is not a valid tag: $selected"
+  printf '%s\n' "$selected"
+  exit 0
+fi
+
+((${#tags[@]})) || die "no registry alias requested; pass at least one --tag"
+for tag in "${tags[@]}"; do
+  valid_tag "$tag" || die "alias does not match the settled tag policy for $source_sha: '$tag'"
+done
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "publication must run from a Git checkout of the source"
+[[ -z "$(git status --porcelain)" ]] \
+  || die "source tree is dirty; publication requires a clean checkout"
+head_sha=$(git rev-parse HEAD)
+[[ "$head_sha" == "$source_sha" ]] \
+  || die "source revision is not the checked-out commit: sha=$source_sha head=$head_sha"
+
+if ((validate_only)); then
+  printf 'validated repository=%s revision=%s aliases=%s\n' \
+    "$REPOSITORY" "$source_sha" "${tags[*]}"
+  exit 0
+fi
+
+# ------------------------------------------------------------- publication
+# Provenance is read from the runner environment and bound to this request; it
+# is never a caller-supplied string, because an operator checkout can type any
+# string it likes. The receipt URL is constructed from those fields.
+[[ "${GITHUB_ACTIONS:-}" == true ]] \
+  || die "publication requires a GitHub Actions runner (GITHUB_ACTIONS=true)"
+[[ "${GITHUB_REPOSITORY:-}" == "$REPOSITORY_SLUG" ]] \
+  || die "publication is limited to $REPOSITORY_SLUG, got '${GITHUB_REPOSITORY:-}'"
+[[ "${GITHUB_SERVER_URL:-}" == https://github.com ]] \
+  || die "unexpected GitHub server: '${GITHUB_SERVER_URL:-}'"
+[[ "${GITHUB_SHA:-}" == "$source_sha" ]] \
+  || die "runner commit '${GITHUB_SHA:-}' is not the requested revision $source_sha"
+[[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] \
+  || die "GITHUB_RUN_ID is not a run identifier: '${GITHUB_RUN_ID:-}'"
+run_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+command -v skopeo >/dev/null 2>&1 || die "skopeo is required for registry copy"
+command -v jq >/dev/null 2>&1 || die "jq is required to read image configs"
+[[ -n "${GHCR_USER:-}" && -n "${GHCR_TOKEN:-}" ]] \
+  || die "GHCR_USER and GHCR_TOKEN must be set for registry authentication"
+
+# The archive is built here, from the checked-out pipeline source. A prebuilt
+# or caller-supplied image is not a publication input.
+archive=$(nix build --quiet --no-link --print-out-paths .#docker-image)
+[[ -f "$archive" ]] || die "docker-image output is not an archive file: $archive"
+
+# Every source-derived identity field is reconciled before the first copy, so a
+# mislabelled archive never reaches the registry under any alias.
+config=$(skopeo inspect --config "docker-archive:$archive")
+label() { printf '%s' "$1" | jq -r --arg k "$2" '.config.Labels[$k] // ""'; }
+[[ "$(label "$config" org.opencontainers.image.revision)" == "$source_sha" ]] \
+  || die "archive revision label is not the source revision $source_sha"
+[[ "$(label "$config" org.opencontainers.image.version)" == "$source_sha" ]] \
+  || die "archive version label is not the source revision $source_sha"
+[[ "$(label "$config" org.opencontainers.image.source)" == "$SOURCE_URL" ]] \
+  || die "archive source label is not $SOURCE_URL"
+[[ "$(printf '%s' "$config" | jq -r '(.config.Entrypoint // []) | join(" ")')" == "mpfs-serve" ]] \
+  || die "archive entrypoint is not mpfs-serve"
+
+digest=
+revision=
+for tag in "${tags[@]}"; do
+  skopeo copy --dest-creds "$GHCR_USER:$GHCR_TOKEN" \
+    "docker-archive:$archive" "docker://$REPOSITORY:$tag"
+  seen_digest=$(skopeo inspect --creds "$GHCR_USER:$GHCR_TOKEN" \
+    --format '{{.Digest}}' "docker://$REPOSITORY:$tag")
+  [[ "$seen_digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die "registry returned a malformed digest for '$tag': $seen_digest"
+  # Read the published config back for this alias. The receipt reports what the
+  # registry says it is holding, never an echo of what was requested.
+  seen_revision=$(label "$(skopeo inspect --creds "$GHCR_USER:$GHCR_TOKEN" \
+    --config "docker://$REPOSITORY:$tag")" org.opencontainers.image.revision)
+  [[ "$seen_revision" == "$source_sha" ]] \
+    || die "published '$tag' reports revision '$seen_revision', not $source_sha"
+  if [[ -z "$digest" ]]; then
+    digest=$seen_digest
+    revision=$seen_revision
+  else
+    [[ "$digest" == "$seen_digest" ]] \
+      || die "aliases resolve to different content: $digest vs $seen_digest for '$tag'"
+    [[ "$revision" == "$seen_revision" ]] \
+      || die "aliases report different revisions: $revision vs $seen_revision for '$tag'"
+  fi
+done
+
+emit() {
+  printf 'repository=%s\ndigest=%s\nrevision=%s\naliases=%s\nrun_url=%s\n' \
+    "$REPOSITORY" "$digest" "$revision" "${tags[*]}" "$run_url"
+}
+emit
+[[ -z "$receipt" ]] || emit >"$receipt"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  {
+    printf 'digest=%s\n' "$digest"
+    printf 'image=%s@%s\n' "$REPOSITORY" "$digest"
+  } >>"$GITHUB_OUTPUT"
+fi

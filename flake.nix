@@ -41,7 +41,13 @@
     , iohkNix, CHaP, cardano-node, cardano-mpfs-onchain, cardano-node-clients
     , cardano-ledger-wasm, ghc-wasm-meta, ... }:
     let
-      version = self.dirtyShortRev or self.shortRev;
+      # Publishable identity is the exact clean revision. A dirty or
+      # revision-less evaluation yields an unmistakably non-qualifying value
+      # that the publish gate rejects rather than a shortened lookalike.
+      version = self.rev or (if self ? dirtyRev then
+        "dirty-${self.dirtyRev}"
+      else
+        "unknown");
       parts = flake-parts.lib.mkFlake { inherit inputs; } {
         systems = [ "x86_64-linux" "aarch64-darwin" ];
         perSystem = { system, ... }:

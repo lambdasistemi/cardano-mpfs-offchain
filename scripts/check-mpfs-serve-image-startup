@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Prove a published mpfs-serve image starts, by immutable digest.
+#
+# mpfs-serve has no --help or --version mode, so the only observable startup
+# signal is its required-argument rejection. Success therefore means a non-zero
+# exit carrying exactly that diagnostic: a zero exit, an unrelated failure, a
+# mutable tag, or a failed pull are all rejections.
+set -uo pipefail
+
+EXPECTED_DIAGNOSTIC='--socket is required'
+
+die() {
+  printf 'check-mpfs-serve-image-startup: %s\n' "$*" >&2
+  exit 1
+}
+
+(($# == 1)) || die "usage: check-mpfs-serve-image-startup <repository>@sha256:<64 hex>"
+image=$1
+[[ "$image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] \
+  || die "not an immutable digest reference: '$image'"
+
+runtime=${CONTAINER_RUNTIME:-}
+if [[ -z "$runtime" ]]; then
+  for candidate in docker podman; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      runtime=$candidate
+      break
+    fi
+  done
+fi
+[[ -n "$runtime" ]] || die "no container runtime available to exercise the image"
+command -v "$runtime" >/dev/null 2>&1 \
+  || die "container runtime is not executable: '$runtime'"
+
+"$runtime" pull "$image" >/dev/null 2>&1 \
+  || die "could not pull $image with $runtime"
+
+# No --entrypoint override: the point is to exercise the configured one.
+output=$("$runtime" run --rm "$image" 2>&1)
+status=$?
+
+((status != 0)) \
+  || die "entrypoint exited 0; expected the missing-required-argument failure"
+case "$output" in
+  *"$EXPECTED_DIAGNOSTIC"*) ;;
+  *) die "exit $status is not the expected startup failure: $output" ;;
+esac
+
+printf 'image=%s\nexit=%s\nruntime=%s\noutput=%s\n' \
+  "$image" "$status" "$runtime" "$output"
